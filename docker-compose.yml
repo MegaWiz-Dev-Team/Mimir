@@ -57,6 +57,11 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+    volumes:
+      - ./rathena/conf:/app/conf
+      - ./rathena/db:/app/db
+      - ./rathena/npc:/app/npc
+      - ./rathena/log:/app/log
     restart: always
 
   rathena-char:
@@ -67,6 +72,11 @@ services:
     depends_on:
       rathena-login:
         condition: service_started
+    volumes:
+      - ./rathena/conf:/app/conf
+      - ./rathena/db:/app/db
+      - ./rathena/npc:/app/npc
+      - ./rathena/log:/app/log
     restart: always
 
   rathena-map:
@@ -77,6 +87,11 @@ services:
     depends_on:
       rathena-char:
         condition: service_started
+    volumes:
+      - ./rathena/conf:/app/conf
+      - ./rathena/db:/app/db
+      - ./rathena/npc:/app/npc
+      - ./rathena/log:/app/log
     restart: always
 
 volumes:

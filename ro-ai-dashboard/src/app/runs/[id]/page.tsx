@@ -9,7 +9,7 @@ import { PipelineFlow } from "@/components/pipeline-flow";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw, PlayCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function RunDetailsPage() {
@@ -68,10 +68,27 @@ export default function RunDetailsPage() {
                         </div>
                         <p className="text-muted-foreground font-mono text-sm">{run.id}</p>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => loadRun()}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                        Refresh
-                    </Button>
+                    <div className="flex gap-2">
+                        {run.status === "FAILED" && (
+                            <Button variant="outline" size="sm" onClick={async () => {
+                                if (confirm("Resume run?")) {
+                                    try {
+                                        await import("@/lib/api").then(m => m.resumeRun(run.id));
+                                        loadRun();
+                                    } catch (e) {
+                                        alert("Failed to resume run");
+                                    }
+                                }
+                            }}>
+                                <PlayCircle className="mr-2 h-4 w-4" />
+                                Resume
+                            </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => loadRun()}>
+                            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                            Refresh
+                        </Button>
+                    </div>
                 </div>
             </div>
 

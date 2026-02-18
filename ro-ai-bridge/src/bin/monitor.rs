@@ -7,7 +7,7 @@ use axum::{
 };
 use dotenvy::dotenv;
 use ro_ai_bridge::services::db::{init_db, DbPool};
-use ro_ai_bridge::agents::wiki_workshop::pipeline::run_pipeline;
+use ro_ai_bridge::agents::wiki_workshop::pipeline::{run_pipeline, resume_pipeline};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
@@ -60,6 +60,7 @@ async fn main() -> Result<()> {
         .route("/api/pipeline/steps/{id}/qa", get(get_step_qa))
         .route("/api/pipeline/steps/{id}/report", get(get_step_report))
         .route("/api/pipeline/steps/{id}/retry", post(retry_step_handler))
+        .route("/api/pipeline/runs/{id}/resume", post(resume_run_handler))
         .route("/api/vector/stats", get(get_vector_stats))
         .route("/api/vector/index", post(trigger_indexing))
         .route("/api/vector/search", post(search_vectors))
@@ -275,6 +276,37 @@ async fn retry_step_handler(
     });
 
     StatusCode::ACCEPTED
+}
+
+async fn resume_run_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    
+    // Check if run exists
+    let run = sqlx::query("SELECT id FROM pipeline_runs WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&db)
+        .await
+        .unwrap_or_default();
+
+    if run.is_none() {
+         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Run not found"}))).into_response();
+    }
+
+    // Run resume in background
+    let run_id = id.clone();
+    tokio::spawn(async move {
+        if let Err(e) = resume_pipeline(&db, run_id.clone()).await {
+             error!("Background resume Run #{} failed: {}", run_id, e);
+             let _ = sqlx::query("UPDATE pipeline_runs SET status = 'FAILED' WHERE id = ?")
+                .bind(&run_id)
+                .execute(&db).await;
+        }
+    });
+
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn get_vector_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
