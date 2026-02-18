@@ -114,6 +114,15 @@ ro-ai-bridge/
     - [x] **Agent 2**: `ACUExtractorAgent` (Gemini 2.5 Flash) -> Extracts Atomic Content Units
     - [x] **Agent 3**: `CoverageVerifierAgent` (Gemini 2.5 Flash) -> Calculates Coverage %
     - [x] **Orchestrator**: `generate_qa` binary to run the pipeline
+- [x] **[NEW]** Implement Pipeline Monitoring System (MariaDB Support)
+    - [x] Create `pipeline_runs`, `pipeline_steps`, `qa_results`, `evaluation_reports` tables
+    - [x] Implement Axum API for monitoring (`src/bin/monitor.rs`)
+    - [x] Refactor Pipeline to log to MariaDB
+- [x] **[NEW]** Implement Monitoring Dashboard (Next.js) `ro-ai-dashboard/`
+    - [x] Initialize Next.js + Shadcn/UI
+    - [x] Implement Dashboard Listing Page
+    - [x] Implement Run Details & Step Viewer
+    - [x] Connect to `monitor.rs` API
 - [ ] Integrate เข้ากับ Axum Cron Job (ไม่ต้องรัน service แยก) (Deferred to Mac mini - See `docs/Sprint_1.4_Cron_Integration_Plan.md`)
 
 
@@ -134,21 +143,20 @@ ro-ai-bridge/
 
 **เป้าหมาย:** Module A (NPC Chat) + Module B (Oracle RAG Bot) + Safety Filter ทำงานได้ครบ
 
-### Sprint 2.1 — Tier 1: NPC Chat Agent (สัปดาห์ 6-8)
+### Sprint 2.1 — Tier 1 & Tier 2: Agent Chat Testing (สัปดาห์ 6-8)
 
-#### [NEW] `src/agents/tier1_simple.rs`
-#### [NEW] `src/agents/tier_router.rs`
-#### [NEW] `src/routes/chat.rs`
-#### [NEW] `src/services/persona_manager.rs`
-#### [NEW] `config/personas/*.yaml`
+**เป้าหมาย:** สร้าง Agent และหน้าจอ Playground สำหรับทดสอบบน Dashboard
+
+#### [NEW] `src/agents/simple_npc.rs`
+#### [NEW] `src/agents/oracle_rag.rs`
+#### [NEW] `ro-ai-dashboard/src/app/playground/page.tsx`
 
 **Tasks:**
-- [ ] สร้าง Tier Router logic (NpcType → AgentTier mapping)
-- [ ] สร้าง PersonaManager: โหลด YAML → สร้าง Rig Agent dynamically
-- [ ] สร้าง NPC Persona YAML: `sage_ariel.yaml`, `fortune_teller.yaml`, etc.
-- [ ] Implement `POST /api/v1/chat` endpoint
-- [ ] สร้าง Session management (Redis: เก็บ chat history ต่อ session_id)
-- [ ] ทดสอบ: NPC ตอบตามบุคลิก, ≤ 2 วินาที
+- [ ] **SimpleAgent**: Implement Tier 1 NPC Agent (System prompt based)
+- [ ] **OracleAgent**: Implement Tier 2 RAG Agent (Qdrant based)
+- [ ] **Chat API**: Expose `POST /api/agents/chat` in `monitor.rs`
+- [ ] **Agent Playground**: Implement interactive chat UI in Dashboard
+- [ ] **Personas**: Prepare initial persona YAML configs (Sage Ariel, etc.)
 - [ ] Implement Response Streaming (ส่งทีละ token)
 
 ### Sprint 2.2 — Tier 2: Oracle RAG Agent (สัปดาห์ 8-10)
@@ -194,6 +202,23 @@ ro-ai-bridge/
 - [ ] Implement GiveItemTool (Whitelist items per NPC, block MVP cards)
 - [ ] Integrate Tools เข้ากับ Tier 1 Agent (NPC ที่มี allowed_actions)
 - [ ] Integrate Tools เข้ากับ Tier 2 Agent (Oracle + Homunculus)
+
+### Sprint 2.5 — Advanced RAG Optimization (สัปดาห์ 12-13)
+
+**เป้าหมาย:** เพิ่มความแม่นยำด้วย Hybrid Search และ Reranking (จาก Research Dual-Path Strategy)
+
+#### [NEW] `src/db/qdrant_hybrid.rs`
+#### [NEW] `src/services/reranker.rs`
+
+**Tasks:**
+- [ ] **Hybrid Search:**
+    - [ ] Update Qdrant Schema ให้รองรับ Sparse Vector (BM25)
+    - [ ] Implement Tokenizer สำหรับสร้าง Sparse Vector ใน Rust
+    - [ ] ปรับ Query Logic: `Score = (Dense * 0.7) + (Sparse * 0.3)`
+- [ ] **Reranking:**
+    - [ ] Setup `bge-reranker-v2-m3` (หรือรุ่นเล็กกว่า) บน Ollama/Local
+    - [ ] Implement Reranker Service: รับ Candidates (QA + Lore) → ให้คะแนน → Sort
+    - [ ] Integrate เข้ากับ Oracle Agent (Tier 2)
 
 ### 🚦 Phase 2 Gate
 
@@ -267,6 +292,13 @@ ro-ai-bridge/
 - [ ] สร้าง Health check ที่ report Fallback level
 - [ ] ทดสอบ: Kill Ollama → verify switch to Cloud (Latency < 2s)
 - [ ] ทดสอบ: Resume Ollama → verify switch back to Local
+
+- [ ] ทดสอบ: Resume Ollama → verify switch back to Local
+
+### Sprint 4.1.5 — Monitoring Frontend Dashboard (Completed in Sprint 1.4)
+
+> **Note:** Scope moved to **Sprint 1.4** and completed early to facilitate RAG Pipeline verification.
+
 
 ### Sprint 4.3 — Load Testing + Beta (สัปดาห์ 19-20)
 

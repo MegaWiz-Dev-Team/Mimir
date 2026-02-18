@@ -68,7 +68,24 @@ cargo run --bin generate_qa
 TEST_RUN=1 cargo run --bin generate_qa
 ```
 
+### 3. Monitoring API (Web Dashboard Ready)
+Runs an Axum server that tracks pipeline progress in a database.
+
+```bash
+# Start the monitor server
+cargo run --bin monitor
+
+# Trigger a run via API
+curl -X POST http://localhost:3000/api/pipeline/run \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "gemini", "model": "gemini-2.0-flash", "test_run": true}'
+
+# List all runs
+curl http://localhost:3000/api/pipeline/runs
+```
+
 ## Output
 
+-   **Database**: `data/pipeline_monitor.db` (SQLite containing all runs, steps, and results).
 -   **Dataset**: `data/qa_dataset.json` (The final Q/A pairs for RAG/Fine-tuning).
 -   **Report**: `data/qa_evaluation_report.json` (Coverage scores and missing facts).

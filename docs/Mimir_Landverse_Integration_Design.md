@@ -145,6 +145,11 @@ AI จะเขียนข้อมูลลง Database โดยตรง (Di
 *   **Action:** ปุ่ม Thumbs up/down หลังคำตอบ
 *   **Process:** หากผู้ใช้กด Thumbs down ให้บันทึกคำถามและคำตอบลง Log เพื่อให้ Human Reviewer มาตรวจสอบและปรับปรุง Prompt หรือเพิ่มข้อมูลลง Knowledge Base
 
+### 2.4 Pipeline Monitoring (ระบบติดตามการทำงาน)
+*   **Database:** `pipeline_runs`, `pipeline_steps`, `qa_results`, `evaluation_reports` (MariaDB)
+*   **API:** มี Endpoints สำหรับดูสถานะการรัน, สั่งรัน Pipeline, และดูสาเหตุ Error
+*   **Dashboard:** สามารถสร้าง Frontend มาต่อเพื่อดู Progress แบบ Real-time ได้
+
 ## 3. Technology Stack Recommendation
 *   **Crawler:** Crawlee (Node.js) หรือ Scrapy + Splash (Python)
 *   **Parser:** LangChain (มี Text Splitters ที่ดี)

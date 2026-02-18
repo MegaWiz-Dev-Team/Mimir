@@ -1,12 +1,12 @@
 # 📖 Technical Requirement Document (TRD) — ฉบับภาษาไทย
 ## โปรเจกต์ Project-Mimir (Ragnarok Online: AI-Native Evolution)
 
-| ฟิลด์              | ค่า                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------- |
-| **เวอร์ชัน**       | 2.0 (Hybrid Agent Architecture)                                                                          |
-| **วันที่**          | 2026-02-16                                                                                               |
-| **Framework**    | Rig (rig.rs) + Axum                                                                                      |
-| **เอกสารประกอบ** | [Framework Analysis](file:///Volumes/T7%20Shield/Project-Mimir/docs/Framework_Analysis_Project-Mimir.md) |
+| ฟิลด์              | ค่า                                                                                                                                                                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **เวอร์ชัน**       | 2.0 (Hybrid Agent Architecture)                                                                                                                                                                                                                         |
+| **วันที่**          | 2026-02-16                                                                                                                                                                                                                                              |
+| **Framework**    | Rig (rig.rs) + Axum                                                                                                                                                                                                                                     |
+| **เอกสารประกอบ** | [Framework Analysis](file:///Volumes/T7%20Shield/Project-Mimir/docs/Framework_Analysis_Project-Mimir.md), [Monitoring Plan](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/Monitoring_System_Plan_Project-Mimir.md) |
 
 > เอกสารฉบับนี้เป็น **TRD ฉบับเต็มภาษาไทย** สำหรับ Project-Mimir ปรับปรุงให้รองรับ **Hybrid Agent Architecture** ที่ใช้ AI Agent 3 ระดับ (Tier) ตาม Use Case
 
@@ -455,6 +455,10 @@ Action: [Heal ผู้เล่น]
 | `ai_player_daily_limits` | ลิมิตต่อผู้เล่นต่อวัน          | แต่ละคนได้ของจาก AI ไปเท่าไหร่แล้ว                |
 | `ai_gm_events`           | บันทึก Event ที่ AI สร้าง   | ประเภท Event, เหตุผล, จำนวนผู้เล่นตอนนั้น           |
 | `ai_bot_detection`       | บันทึกการตรวจจับ Bot      | คะแนนความสงสัย, พฤติกรรมผิดปกติ, สถานะการตรวจสอบ |
+| `pipeline_runs`          | บันทึกการรัน Pipeline     | Status, Provider, Model, Timestamps          |
+| `pipeline_steps`         | บันทึกขั้นตอนการประมวลผล   | Run ID, File Name, Status, Error Message     |
+| `qa_results`             | เก็บ Q/A ที่สร้างได้        | Question, Answer, Context                    |
+| `evaluation_reports`     | เก็บผลการประเมินคุณภาพ AI | Coverage Score, Atomic Facts, Reasoning      |
 
 ### 7.2 Qdrant Vector DB — ฐานความรู้ RAG
 
@@ -655,11 +659,22 @@ graph LR
     subgraph "Processing Layer"
         MD["Markdown Converter"]
         TBL["Table Processor<br/>(Stat -> JSON/MD)"]
+        SUM["Text Summarizer<br/>(Table -> Description)"]
+        
+        subgraph "QA Workshop (Multi-Agent)"
+            GEN["Generator Agent"]
+            EXT["Extractor Agent"]
+            VER["Verifier Agent"]
+        end
+
         EMB["Embedding Model<br/>(all-MiniLM-L6-v2)"]
     end
 
     subgraph "Data Storage"
-        QDRANT["Qdrant Vector DB<br/>Coll: landverse_th"]
+        QDRANT["Qdrant Vector DB"]
+        QA_COLL["Collection: QA_Index<br/>(User Intent Matching)"]
+        KNOW_COLL["Collection: Lore_Index<br/>(General Knowledge)"]
+        QA_DB["QA Dataset (JSON)"]
     end
 
     WEB --> PUP
@@ -671,8 +686,20 @@ graph LR
 
     SCRAPER --> MD
     MD --> TBL
-    TBL --> EMB
-    EMB --> QDRANT
+    TBL --> SUM
+    SUM --> EMB
+    EMB --> KNOW_COLL
+
+    MD --> GEN
+    GEN --> EXT
+    EXT --> VER
+    VER --> QA_DB
+    
+    QA_DB --> EMB
+    EMB --> QA_COLL
+
+    QDRANT --- QA_COLL
+    QDRANT --- KNOW_COLL
 ```
 
 ### 13.2 Pipeline Components
@@ -697,10 +724,42 @@ graph LR
         *   *News:* แบ่งตามย่อหน้า (Fixed-size)
         *   *Wiki:* แบ่งตามหัวข้อ (Semantic Chunking) เช่น 1 มอนสเตอร์ = 1 Chunk
 
+    *   **Q/A Generation (Multi-Agent Workshop):**
+        *   **Goal:** สร้าง "Golden Dataset" สำหรับ Fine-tuning และ RAG ที่แม่นยำ
+        *   **Generator Agent:** สร้างคำถาม-คำตอบจาก Chunk (ใช้ Local LLM / Gemini)
+        *   **Extractor Agent:** ดึง Fact (Atomic Content Units) จากต้นฉบับ
+        *   **Verifier Agent:** ตรวจสอบความถูกต้องของคำตอบเทียบกับ Fact (Coverage Score)
+        *   **Result:** ได้คู่ Q/A ที่ผ่านการตรวจสอบแล้ว เก็บลง DB สำหรับใช้ Train รุ่นต่อไป
+
+        *   *Result:* ได้คู่ Q/A ที่ผ่านการตรวจสอบแล้ว เก็บลง DB สำหรับใช้ Train รุ่นต่อไป
+
+    *   **Dual-Path RAG Strategy:**
+        1.  **QA Path (Smart):** นำ QA Dataset ที่ Verify แล้วมาทำ Embedding แยกเป็น `QA_Index`
+            *   *ประโยชน์:* จับคู่ User Intent (คำถาม) ได้แม่นยำกว่า เพราะ Embed รูปประโยคคำถามเหมือนกัน
+        2.  **Knowledge Path (General):** นำ Table/Raw Data มาผ่าน Text Summarizer ให้เป็นประโยคบรรยาย แล้วทำ Embedding เป็น `Lore_Index`
+            *   *ประโยชน์:* เป็น Fallback สำหรับข้อมูลดิบ หรือข้อมูลเชิงลึกที่ Q/A ไม่ครอบคลุม
+
 3.  **Additional Pipelines:**
     *   **Patch Monitor:** ระบบตรวจจับ Patch Note ใหม่ → แจ้งเตือนให้ Re-crawl ข้อมูลทันที
     *   **Query Enhancement:** ระบบแปลงคำสแลง (Slang Dict) เช่น "หมวกงู" → "Snake Head Hat" ก่อนค้นหา
     *   **Feedback Loop:** บันทึกปุ่ม Like/Dislike คำตอบ เพื่อนำไปปรับปรุง Prompt
+
+### 13.3 Future Improvements (Advanced RAG Optimization)
+
+เพื่อให้ระบบค้นหาแม่นยำที่สุดในอนาคต (Phase 4-5) จะมีการเพิ่ม:
+
+1.  **Hybrid Search (Dense + Sparse):**
+    *   **Problem:** Embedding บางครั้งหา "Keyword เฉพาะ" ไม่เจอ (เช่น Item ID, ชื่อบอสที่สะกดแปลกๆ)
+    *   **Solution:** ใช้ Qdrant Hybrid Search
+        *   *Dense Vector:* `all-MiniLM-L6-v2` (เข้าใจความหมาย)
+        *   *Sparse Vector:* `BM25` (เข้าใจ Keyword)
+    *   **Benefit:** ค้นเจอทั้งบริบทและคำเฉพาะเจาะจง
+
+2.  **Reranking (Cross-Encoder):**
+    *   **Problem:** การรวมผลลัพธ์จาก QA Path และ Knowledge Path อาจจัดลำดับความสำคัญผิด
+    *   **Solution:** ใช้ Reranker Model (เช่น `bge-reranker-base`)
+    *   **Flow:** Retrieve Top-10 (QA+Lore) → Rerank → คัดเหลือ Top-3 ที่ดีที่สุดส่งให้ LLM
+    *   **Benefit:** ความแม่นยำในการเลือก Context สูงขึ้นมาก ลด Hallucination
 
 ---
 
