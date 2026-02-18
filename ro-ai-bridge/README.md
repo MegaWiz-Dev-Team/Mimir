@@ -1,91 +1,77 @@
 # RO-AI Bridge
 
-A robust data pipeline for **Project Mimir** (Ragnarok Online AI) that scrapes Wiki content and generates high-quality Q/A pairs using a Multi-Agent System.
+A robust AI middleware and data pipeline for **Project Mimir**. This engine handles web scraping, automated Q/A generation, vector indexing, and exposes a monitoring API for the management dashboard.
 
-## Features
+## 🚀 Core Features
 
-- **Wiki Scraper (`fetch_wiki`)**: 
-  - Headless browser scraping with `chromiumoxide`.
-  - Intelligently extracts main content, removing scripts/navbars.
-  - Converts HTML to clean Markdown.
-- **Multi-Agent Q/A Pipeline (`generate_qa`)**:
-  - **Generator Agent**: Creates Q/A pairs from chunks (Supports **Ollama** or **Gemini**).
-  - **Extractor Agent**: Extracts Atomic Facts for verification (Gemini 2.5 Flash).
-  - **Verifier Agent**: Scores Q/A pairs against facts to ensure accuracy (Gemini 2.5 Flash).
+- **🌐 Wiki Scraper (`fetch_wiki`)**: 
+  - Headless browser scraping using `chromiumoxide`.
+  - Converts HTML structures into clean Markdown.
+  - Removes navigation, scripts, and sidebars automatically.
+- **🧠 Multi-Agent Q/A Pipeline (`generate_qa`)**:
+  - **Generator Agent**: Creates high-quality Q/A pairs from content chunks (Ollama/Gemini).
+  - **Extractor Agent**: Identifies Atomic Facts (ACUs) for verification.
+  - **Verifier Agent**: Validates Q/A accuracy against facts, providing a coverage score.
+- **⚡ Vector Indexer (`run_indexer`)**:
+  - Syncs Q/A pairs from **MariaDB** to **Qdrant**.
+  - Uses `nomic-embed-text` via Ollama for local high-performance embeddings.
+  - Supports incremental indexing via `indexed_at` tracking.
+- **🛠 Monitor API (`monitor`)**:
+  - Built with **Axum** to provide real-time pipeline oversight.
+  - Supports **Pipeline Resume**: Recover failed runs from the last successful step.
+  - Vector management endpoints (Index status, Search preview).
 
-## Prerequisites
+## 🛠 Prerequisites
 
-1.  **Rust**: Install via `rustup`.
-2.  **Ollama** (Optional, for local generation):
-    - Install Ollama and pull the models:
-      ```bash
-      ollama pull llama3.2
-      ollama pull gemma:2b
-      ```
-3.  **Google AI Studio API Key**: Required for Gemini (Extraction/Verification).
+1.  **Rust Stack**: Latest stable version.
+2.  **Infrastructure**: Ensure MariaDB and Qdrant are running (via root `docker-compose.yml`).
+3.  **Local LLM**: Ollama with `llama3.2` and `nomic-embed-text`.
+4.  **Cloud Access**: `GEMINI_API_KEY` in your `.env`.
 
-## Setup
-
-1.  Clone the repository.
-2.  Create a `.env` file from the example:
-    ```bash
-    cp .env.example .env
-    ```
-3.  Edit `.env` and add your **GEMINI_API_KEY**.
-
-## Configuration
-
-You can switch the **Generator Provider** between Local (Ollama) and Cloud (Gemini) in `.env`:
+## ⚙️ Configuration (`.env`)
 
 ```bash
-# Options: ollama | gemini
-GENERATOR_PROVIDER=gemini 
-
-# Local Model (if using ollama)
-LOCAL_MODEL=llama3.2:latest
-
-# Cloud Model
+DATABASE_URL=mysql://mimir:REDACTED-PW@localhost:3306/rathena
+GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-2.0-flash
+MONITOR_PORT=8080
 ```
 
-## Usage
+## 📖 Usage
 
-### 1. Run the Scraper (Fetch Data)
-Downloads Wiki pages and saves them as Markdown in `data/wiki/`.
-
+### 1. Data Ingestion
+Scrape the wiki and prepare local markdown files:
 ```bash
 cargo run --bin fetch_wiki
 ```
 
-### 2. Run the Q/A Generation Pipeline
-Processes the Markdown files, generates Q/A pairs, and validates them.
-
+### 2. Q/A Generation
+Process markdown files into the MariaDB database:
 ```bash
-# Run on all files
 cargo run --bin generate_qa
-
-# Run a Test (Process only the first file)
-TEST_RUN=1 cargo run --bin generate_qa
 ```
 
-### 3. Monitoring API (Web Dashboard Ready)
-Runs an Axum server that tracks pipeline progress in a database.
-
+### 3. Vector Sync
+Index the generated Q/A pairs into Qdrant:
 ```bash
-# Start the monitor server
-cargo run --bin monitor
-
-# Trigger a run via API
-curl -X POST http://localhost:3000/api/pipeline/run \
-  -H "Content-Type: application/json" \
-  -d '{"provider": "gemini", "model": "gemini-2.0-flash", "test_run": true}'
-
-# List all runs
-curl http://localhost:3000/api/pipeline/runs
+# Via CLI
+cargo run --bin run_indexer
+# Or via Monitor API (recommended)
+curl -X POST http://localhost:8080/api/vector/index
 ```
 
-## Output
+### 4. Background Monitor
+Start the management API for the dashboard:
+```bash
+cargo run --bin monitor
+```
 
--   **Database**: `data/pipeline_monitor.db` (SQLite containing all runs, steps, and results).
--   **Dataset**: `data/qa_dataset.json` (The final Q/A pairs for RAG/Fine-tuning).
--   **Report**: `data/qa_evaluation_report.json` (Coverage scores and missing facts).
+## 📊 Monitoring API Endpoints
+
+- `GET /api/pipeline/runs`: List all runs.
+- `POST /api/pipeline/runs/{id}/resume`: Resume a failed run.
+- `POST /api/vector/search`: Preview RAG retrieval results.
+- `GET /api/vector/stats`: Check MariaDB vs Qdrant sync status.
+
+---
+*Part of the Project-Mimir AI Ecosystem.*

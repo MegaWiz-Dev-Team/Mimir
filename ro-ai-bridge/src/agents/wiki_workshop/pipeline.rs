@@ -241,6 +241,96 @@ pub async fn retry_step(
     Ok(())
 }
 
+pub async fn resume_pipeline(
+    db_pool: &DbPool,
+    run_id: String,
+) -> Result<()> {
+    // 1. Check/Update Run Status
+    let run = sqlx::query("SELECT status FROM pipeline_runs WHERE id = ?")
+        .bind(&run_id)
+        .fetch_one(db_pool).await?;
+        
+    let status: String = run.get("status");
+    if status == "COMPLETED" {
+        info!("Run {} is already COMPLETED.", run_id);
+        return Ok(());
+    }
+
+    sqlx::query("UPDATE pipeline_runs SET status = 'RUNNING', finished_at = NULL WHERE id = ?")
+        .bind(&run_id)
+        .execute(db_pool).await?;
+
+    // 2. Iterate Config (Hardcoded data/wiki)
+    let input_dir = "data/wiki";
+    let mut dir = fs::read_dir(input_dir).await?;
+
+    while let Some(entry) = dir.next_entry().await? {
+        let path = entry.path();
+        if path.extension().map_or(false, |ext| ext == "md") {
+            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+            let content_raw = fs::read_to_string(&path).await?;
+            
+            // Frontmatter extraction
+            let (_, content) = if content_raw.starts_with("---") {
+                 if let Some(end) = content_raw[3..].find("---") {
+                     // We don't need URL here as retry_step re-extracts it
+                     ("unknown".to_string(), &content_raw[end+6..])
+                 } else { ("unknown".to_string(), content_raw.as_str()) }
+            } else { ("unknown".to_string(), content_raw.as_str()) };
+
+            let chunks: Vec<&str> = content.split("\n#").collect();
+            
+            for (i, raw_chunk) in chunks.iter().enumerate() {
+                if raw_chunk.trim().len() < 50 { continue; }
+                
+                // Check if step exists
+                let step = sqlx::query("SELECT id, status FROM pipeline_steps WHERE run_id = ? AND file_name = ? AND chunk_index = ?")
+                    .bind(&run_id)
+                    .bind(&filename)
+                    .bind(i as i64)
+                    .fetch_optional(db_pool).await?;
+
+                if let Some(row) = step {
+                    let status: String = row.get("status");
+                    if status != "COMPLETED" {
+                         let id: i64 = row.get("id");
+                         info!("Resuming step #{}", id);
+                         if let Err(e) = retry_step(db_pool, id).await {
+                             error!("Failed to resume step #{}: {}", id, e);
+                         }
+                    }
+                } else {
+                    // Create new step
+                     let step_id = sqlx::query(
+                        "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at) \
+                         VALUES (?, ?, ?, ?, ?, ?)"
+                    )
+                    .bind(&run_id)
+                    .bind(&filename)
+                    .bind(i as i64)
+                    .bind("RUNNING")
+                    .bind("FULL_PROCESS")
+                    .bind(Utc::now())
+                    .execute(db_pool).await?.last_insert_id();
+                    
+                    info!("Created new step #{} for resume", step_id);
+                     if let Err(e) = retry_step(db_pool, step_id as i64).await {
+                         error!("Failed to process new step #{}: {}", step_id, e);
+                     }
+                }
+            }
+        }
+    }
+
+    // Finalize
+    sqlx::query("UPDATE pipeline_runs SET status = 'COMPLETED', finished_at = ? WHERE id = ?")
+        .bind(Utc::now())
+        .bind(&run_id)
+        .execute(db_pool).await?;
+
+    Ok(())
+}
+
 pub async fn process_chunk(
     db_pool: &DbPool,
     step_id: u64,

@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RO-AI Dashboard
 
-## Getting Started
+The administrative interface for **Project Mimir**. This dashboard provides real-time visibility into the data pipeline, vector database health, and AI agent performance.
 
-First, run the development server:
+## ✨ Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **📊 Pipeline Monitoring**: 
+  - Track active and historical pipeline runs.
+  - **Live Status Diagram**: Visual flow of data from Ingestion -> Workshop -> Validation -> Storage.
+  - **Resume & Retry**: Intelligent recovery for failed runs or specific chunks.
+- **🗂️ Vector Database Management**:
+  - **Sync Metrics**: Real-time stats comparing MariaDB record count vs Qdrant vector count.
+  - **Search Preview**: Test RAG retrieval quality directly from the UI.
+  - **Collection Health**: Monitor Qdrant collection status and indexing progress.
+- **🔍 Q/A Exploration**:
+  - Browse generated Q/A pairs.
+  - View detailed **Evaluation Reports** including coverage scores and missing atomic facts.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🛠 Prerequisites
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1.  **Node.js**: v18+ recommended.
+2.  **AI Backend**: The `ro-ai-bridge` monitor server must be running (default: `http://localhost:8080`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🚀 Getting Started
 
-## Learn More
+1.  **Install Dependencies**:
+    ```bash
+    npm install
+    ```
 
-To learn more about Next.js, take a look at the following resources:
+2.  **Environment Setup**:
+    Create a `.env.local` file:
+    ```bash
+    NEXT_PUBLIC_API_URL=http://localhost:8080/api
+    ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3.  **Run Development Server**:
+    ```bash
+    npm run dev
+    ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4.  **Production Build**:
+    ```bash
+    npm run build
+    npm run start
+    ```
 
-## Deploy on Vercel
+## 🏗 Technology Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Framework**: [Next.js 15](https://nextjs.org) (App Router)
+- **Styling**: Tailwind CSS
+- **Components**: Shadcn/UI + Lucide React
+- **Icons**: Lucide
+- **State/Data**: Fetch + SWR/Effect hooks
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+*Created as part of the Project-Mimir AI Ecosystem.*

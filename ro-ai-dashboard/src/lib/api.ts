@@ -60,6 +60,7 @@ export async function triggerIndexing() {
     return res;
 }
 
+
 export async function searchVectors(query: string, limit: number = 5) {
     const res = await fetch(`${API_BASE_URL}/vector/search`, {
         method: "POST",
@@ -68,4 +69,12 @@ export async function searchVectors(query: string, limit: number = 5) {
     });
     if (!res.ok) throw new Error("Failed to search vectors");
     return res.json();
+}
+
+export async function resumeRun(id: string) {
+    const res = await fetch(`${API_BASE_URL}/pipeline/runs/${id}/resume`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to resume run");
+    return res;
 }
