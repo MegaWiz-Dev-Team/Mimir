@@ -66,6 +66,12 @@ export default function Dashboard() {
           <p className="text-muted-foreground">Manage and track Q/A generation pipelines.</p>
         </div>
 
+        <div className="flex gap-4">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/vector">Vector Database</Link>
+          </Button>
+        </div>
+
         <div className="flex items-end gap-3">
           <div className="grid w-[140px] gap-1.5">
             <Label htmlFor="provider" className="text-xs">Provider</Label>

@@ -1,6 +1,4 @@
 use rig::providers::gemini;
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
 use super::{WikiChunk, QAPair, AtomicFact, CoverageReport};
 use anyhow::Result;
 use rig::completion::Prompt;
@@ -10,14 +8,14 @@ pub struct CoverageVerifierAgent;
 
 pub async fn verify_coverage(
     client: &gemini::Client, 
-    model: &str,
-    chunk: &WikiChunk,
+    gemini_model: &str,
+    _chunk: &WikiChunk,
     facts: &[AtomicFact],
     qa_pairs: &[QAPair]
 ) -> Result<CoverageReport> {
     info!("      Verifying Coverage (Agent approach)...");
 
-    let agent = client.agent(model)
+    let agent = client.agent(gemini_model)
         .preamble("You are a strict QA Verifier. Analyze if the Q/A pairs cover the important Atomic Facts. \
                    Return ONLY a valid JSON object matching the schema. \
                    Do NOT include any markdown formatting or preamble.")

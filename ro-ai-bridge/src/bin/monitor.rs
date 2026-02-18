@@ -14,6 +14,10 @@ use std::sync::Arc;
 use tracing::{info, error};
 use tokio::net::TcpListener;
 
+use ro_ai_bridge::services::qdrant::QdrantService;
+use ro_ai_bridge::agents::wiki_workshop::indexer::run_indexer;
+use rig::providers::ollama;
+
 #[derive(Deserialize)]
 struct RunRequest {
     provider: Option<String>,
@@ -26,8 +30,15 @@ struct RunResponse {
     run_id: String,
 }
 
+#[derive(Deserialize)]
+struct SearchRequest {
+    query: String,
+    limit: Option<usize>,
+}
+
 struct AppState {
     db: DbPool,
+    qdrant: QdrantService,
 }
 
 #[tokio::main]
@@ -36,7 +47,11 @@ async fn main() -> Result<()> {
     dotenv().ok();
 
     let pool = init_db().await?;
-    let state = Arc::new(AppState { db: pool });
+    let qdrant = QdrantService::new();
+    let state = Arc::new(AppState { 
+        db: pool,
+        qdrant,
+    });
 
     let app = Router::new()
         .route("/api/pipeline/run", post(trigger_run))
@@ -45,6 +60,9 @@ async fn main() -> Result<()> {
         .route("/api/pipeline/steps/{id}/qa", get(get_step_qa))
         .route("/api/pipeline/steps/{id}/report", get(get_step_report))
         .route("/api/pipeline/steps/{id}/retry", post(retry_step_handler))
+        .route("/api/vector/stats", get(get_vector_stats))
+        .route("/api/vector/index", post(trigger_indexing))
+        .route("/api/vector/search", post(search_vectors))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
@@ -53,7 +71,7 @@ async fn main() -> Result<()> {
         )
         .with_state(state);
 
-    let port = env::var("MONITOR_PORT").unwrap_or_else(|_| "3000".to_string());
+    let port = env::var("MONITOR_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
     info!("🚀 Monitor API running on http://{}", addr);
 
@@ -257,4 +275,68 @@ async fn retry_step_handler(
     });
 
     StatusCode::ACCEPTED
+}
+
+async fn get_vector_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let collection_name = "wiki_qa";
+    
+    // 1. Get Qdrant stats
+    let qdrant_info = state.qdrant.get_collection_info(collection_name).await.unwrap_or(serde_json::Value::Null);
+    
+    // 2. Get MariaDB stats
+    let total_qa = sqlx::query("SELECT count(*) as count FROM qa_results")
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.get::<i64, _>("count"))
+        .unwrap_or(0);
+
+    let indexed_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE indexed_at IS NOT NULL")
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.get::<i64, _>("count"))
+        .unwrap_or(0);
+
+    Json(serde_json::json!({
+        "qdrant": qdrant_info,
+        "database": {
+            "total_qa": total_qa,
+            "indexed_qa": indexed_qa,
+            "pending_qa": total_qa - indexed_qa
+        }
+    }))
+}
+
+async fn trigger_indexing(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let db = state.db.clone();
+    let qdrant = QdrantService::new();
+    
+    tokio::spawn(async move {
+        let ollama_client = ollama::Client::new();
+        if let Err(e) = run_indexer(&db, &qdrant, &ollama_client, "wiki_qa").await {
+            error!("Background indexing failed: {}", e);
+        }
+    });
+
+    StatusCode::ACCEPTED
+}
+
+async fn search_vectors(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SearchRequest>,
+) -> impl IntoResponse {
+    use rig::embeddings::EmbeddingModel;
+    
+    let ollama_client = ollama::Client::new();
+    let embed_model = ollama_client.embedding_model("nomic-embed-text");
+    
+    match embed_model.embed_text(&payload.query).await {
+        Ok(embedding) => {
+            let vector_f32: Vec<f32> = embedding.vec.into_iter().map(|f| f as f32).collect();
+            match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5)).await {
+                Ok(results) => Json(results).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+            }
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    }
 }

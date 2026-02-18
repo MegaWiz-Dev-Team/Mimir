@@ -1,6 +1,7 @@
 pub mod generator;
 pub mod extractor;
 pub mod verifier;
+pub mod indexer;
 pub mod pipeline;
 
 use anyhow::Result;
