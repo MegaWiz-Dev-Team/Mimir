@@ -1,0 +1,16 @@
+{
+  "environment": {
+    "hardware": "M3",
+    "model": "gemma:2b",
+    "provider": "Ollama"
+  },
+  "metrics": {
+    "duration_ms": 8405,
+    "status": "WARN",
+    "target_ms": 1800
+  },
+  "phase": "phase_1",
+  "sprint": "sprint_1.1",
+  "test_id": "latency_test",
+  "timestamp": "2026-02-18T06:05:38.638818+00:00"
+}

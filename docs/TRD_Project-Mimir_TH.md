@@ -631,7 +631,81 @@ Internal SSD (512GB)              Samsung T7 Shield (2TB)
 
 ---
 
-## 13. Monitoring & Logging
+## 13. Data Pipeline & RAG: RO Landverse (ใหม่ v2.2)
+
+ระบบ RAG นี้ออกแบบเพื่อดึงข้อมูลจาก **[rolth.maxion.gg](https://rolth.maxion.gg/)** (Single Page Application) มาใช้เป็นฐานความรู้
+
+### 13.1 Architecture Overview
+
+```mermaid
+graph LR
+    subgraph "External Sources"
+        WEB["rolth.maxion.gg<br/>(SPA/React)"]
+        GITBOOK["GitBook Wiki<br/>(MCP Supported)"]
+        FB["Facebook Page"]
+    end
+
+
+    subgraph "Ingestion Layer"
+        PUP["Headless Browser<br/>(Rust/Chromiumoxide)"]
+        SCRAPER["Content Scraper"]
+    end
+
+
+    subgraph "Processing Layer"
+        MD["Markdown Converter"]
+        TBL["Table Processor<br/>(Stat -> JSON/MD)"]
+        EMB["Embedding Model<br/>(all-MiniLM-L6-v2)"]
+    end
+
+    subgraph "Data Storage"
+        QDRANT["Qdrant Vector DB<br/>Coll: landverse_th"]
+    end
+
+    WEB --> PUP
+    GITBOOK --> MCP_CLIENT
+    FB --> SCRAPER
+    
+    MCP_CLIENT["MCP Client<br/>(Rust)"] --> MD
+    PUP --> MD
+
+    SCRAPER --> MD
+    MD --> TBL
+    TBL --> EMB
+    EMB --> QDRANT
+```
+
+### 13.2 Pipeline Components
+
+1.  **Ingestion (การนำเข้าข้อมูล):**
+    *   **Target:** `rolth.maxion.gg` (News, Wiki, Patch Notes)
+    *   **Method:** ใช้ **Rust Headless Browser** (เช่น `chromiumoxide`) เพื่อคุม Chrome ผ่าน CDP
+    *   **Target:** `maxion-1.gitbook.io/ragnarok-landverse-th`
+    *   **Method:** ใช้ **MCP (Model Context Protocol)** เชื่อมต่อกับ GitBook โดยตรง
+    *   **URL:** `https://maxion-1.gitbook.io/ragnarok-landverse-th/~gitbook/mcp`
+
+    *   **Frequency:**
+        *   News/Events: ทุก 6 ชั่วโมง
+
+
+        *   Game Info: ทุกสัปดาห์ (หรือเมื่อมี Patch ใหม่)
+
+2.  **Processing (การประมวลผล):**
+    *   **HTML to Markdown:** แปลงหน้าเว็บให้อ่านง่ายสำหรับ AI ตัด Header/Footer ทิ้ง
+    *   **Table Handling:** ตาราง Stat มอนสเตอร์/ไอเทม ต้องถูกแปลงเป็น Format ที่รักษาโครงสร้าง (Markdown Table หรือ JSON) เพื่อให้โมเดลเข้าใจความสัมพันธ์ของค่าพลัง
+    *   **Chunking:** แบ่งข้อมูลเป็นท่อนๆ
+        *   *News:* แบ่งตามย่อหน้า (Fixed-size)
+        *   *Wiki:* แบ่งตามหัวข้อ (Semantic Chunking) เช่น 1 มอนสเตอร์ = 1 Chunk
+
+3.  **Additional Pipelines:**
+    *   **Patch Monitor:** ระบบตรวจจับ Patch Note ใหม่ → แจ้งเตือนให้ Re-crawl ข้อมูลทันที
+    *   **Query Enhancement:** ระบบแปลงคำสแลง (Slang Dict) เช่น "หมวกงู" → "Snake Head Hat" ก่อนค้นหา
+    *   **Feedback Loop:** บันทึกปุ่ม Like/Dislike คำตอบ เพื่อนำไปปรับปรุง Prompt
+
+---
+
+## 14. Monitoring & Logging
+
 
 **สัญญาณเตือนสำคัญ:**
 
@@ -645,7 +719,7 @@ Internal SSD (512GB)              Samsung T7 Shield (2TB)
 
 ---
 
-## 14. แผนย้ายไป Cloud (อนาคต)
+## 15. แผนย้ายไป Cloud (อนาคต)
 
 **เมื่อผู้เล่นเยอะเกินกว่า Mac mini จะรองรับ:**
 
@@ -662,7 +736,7 @@ Internal SSD (512GB)              Samsung T7 Shield (2TB)
 
 ---
 
-## 15. ความปลอดภัย (Security)
+## 16. ความปลอดภัย (Security)
 
 | มาตรการ            | คำอธิบาย                                      |
 | ------------------ | ------------------------------------------- |
@@ -674,7 +748,7 @@ Internal SSD (512GB)              Samsung T7 Shield (2TB)
 
 ---
 
-## 16. แผนการทดสอบ (Testing)
+## 17. แผนการทดสอบ (Testing)
 
 | ประเภท          | ทดสอบอะไร                             | เครื่องมือ                       |
 | --------------- | ------------------------------------- | ----------------------------- |

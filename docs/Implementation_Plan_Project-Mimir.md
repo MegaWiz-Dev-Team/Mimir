@@ -24,11 +24,11 @@
 | Redis   | `redis:7-alpine` | 6379       | 2 GB  |
 
 **Tasks:**
-- [ ] สร้าง `docker-compose.yml` สำหรับ Data Layer (Qdrant, MariaDB, Redis)
-- [ ] ติดตั้ง Ollama native บน macOS (ใช้ MLX acceleration)
-- [ ] ดาวน์โหลด Model: `qwen2.5:32b-q4_K_M`, `all-minilm:l6-v2`
-- [ ] สร้าง Script ทดสอบ LLM latency (target: single inference ≤ 1.8s)
-- [ ] กำหนดค่า Docker network ให้ Service ข้ามหาเห็นกัน
+- [x] สร้าง `docker-compose.yml` สำหรับ Data Layer (Qdrant, MariaDB, Redis)
+- [x] ติดตั้ง Ollama native บน macOS (ใช้ MLX acceleration)
+- [x] ดาวน์โหลด Model: **`gemma:2b`** (สำหรับ Dev บน M3) และ `all-minilm:l6-v2`
+- [x] สร้าง Script ทดสอบ LLM latency (Result: **8.40s** on M3, target **1.8s** not met)
+- [x] กำหนดค่า Docker network ให้ Service ข้ามหาเห็นกัน (Defined `mimir_network`)
 
 ### Sprint 1.2 — Rust Project Bootstrap (สัปดาห์ 2-3)
 
@@ -64,11 +64,11 @@ ro-ai-bridge/
 ```
 
 **Tasks:**
-- [ ] `cargo init ro-ai-bridge` พร้อม Dependencies ตาม Framework Analysis
-- [ ] สร้าง Axum server พื้นฐาน + `GET /health` endpoint
-- [ ] สร้าง Config module (อ่าน env: `OLLAMA_URL`, `QDRANT_URL`, `MARIADB_URL`, `REDIS_URL`)
-- [ ] ทดสอบ Rig + Ollama provider ด้วย Hello World agent
-- [ ] สร้างโครงสร้าง Module ทั้งหมด (เปล่า ๆ กำหนด public interface)
+- [x] `cargo init ro-ai-bridge` พร้อม Dependencies ตาม Framework Analysis
+- [x] สร้าง Axum server พื้นฐาน + `GET /health` endpoint
+- [x] สร้าง Config module (อ่าน env: `OLLAMA_URL`, `QDRANT_URL`, `MARIADB_URL`, `REDIS_URL`)
+- [x] ทดสอบ Rig + Ollama provider ด้วย Hello World agent (Using `rig-core` 0.10.0)
+- [x] สร้างโครงสร้าง Module ทั้งหมด (เปล่า ๆ กำหนด public interface)
 
 ### Sprint 1.3 — Database Schema & Data Pipeline (สัปดาห์ 3-5)
 
@@ -91,13 +91,42 @@ ro-ai-bridge/
 - [ ] ทดสอบ Vector search ด้วย sample queries
 - [ ] สร้าง SQLx models + query functions ใน Rust
 
+### Sprint 1.4 — RAG Data Pipeline (สัปดาห์ 5-6)
+
+#### [NEW] `scraper-service/` (Rust + Chromiumoxide)
+
+**เป้าหมาย:** ดึงข้อมูลจาก `rolth.maxion.gg` (SPA) แต่ใช้ **Rust** เพื่อรวม Stack เป็นหนึ่งเดียว
+
+**Tasks:**
+- [x] Add crate `chromiumoxide` (หรือ `headless_chrome`) และ `scraper` (HTML parsing) ใน `Cargo.toml`
+- [x] สร้าง Module `src/services/scraper.rs` สำหรับคุม Browser instance
+- [x] Implement Scraper logic:
+    - [x] Login (Placeholder created)
+    - [x] Wait for selector (รอ JS โหลด)
+    - [x] Scroll to bottom (Infinite scroll handling)
+- [x] Implement GitBook MCP Client & Initial Scraping
+- [x] **[Refactor]** `fetch_wiki.rs` to extract clean content (remove scripts/nav/footer)
+    - [x] Parse DOM with `scraper`
+    - [x] Extract `<main>` and sanitize (remove `<script>`, `<style>`, `<nav>`)
+- [x] **[NEW]** Implement Multi-Agent Q/A Workshop (`src/agents/wiki_workshop/`)
+    - [x] **Config**: `config/wiki_agents.toml` for model selection (Local/Cloud)
+    - [x] **Agent 1**: `QAGeneratorAgent` (Local LLM/Gemini) -> Generates Q/A
+    - [x] **Agent 2**: `ACUExtractorAgent` (Gemini 2.5 Flash) -> Extracts Atomic Content Units
+    - [x] **Agent 3**: `CoverageVerifierAgent` (Gemini 2.5 Flash) -> Calculates Coverage %
+    - [x] **Orchestrator**: `generate_qa` binary to run the pipeline
+- [ ] Integrate เข้ากับ Axum Cron Job (ไม่ต้องรัน service แยก) (Deferred to Mac mini - See `docs/Sprint_1.4_Cron_Integration_Plan.md`)
+
+
+
 ### 🚦 Phase 1 Gate
 
 > **ต้องผ่านก่อน** ไป Phase 2:
 > - [ ] Ollama ตอบ single inference ≤ 1.8 วินาที
 > - [ ] Qdrant vector search ทำงานได้ถูกต้อง (precision > 80%)
 > - [ ] MariaDB schema ใช้ได้ + CRUD ทำงาน
-> - [ ] Rust server `/health` ทำงานได้
+> - [x] Rust server `/health` ทำงานได้
+> - [x] RAG Pipeline (ดึงข้อมูลส่วน Wiki สำเร็จ 100%)
+
 
 ---
 
@@ -356,26 +385,27 @@ cargo test --test safety_redteam
 
 ## Dependencies & Prerequisites
 
-| Dependency            | Status      | Notes                        |
-| --------------------- | ----------- | ---------------------------- |
-| Mac mini M4 Pro 64GB  | ✅ มีแล้ว      | เครื่อง Dev/Staging            |
-| Ollama                | ต้องติดตั้ง     | `brew install ollama`        |
-| Docker Desktop        | ต้องติดตั้ง     | สำหรับ Data Layer              |
-| Rust toolchain        | ต้องติดตั้ง     | `rustup` + stable channel    |
-| rAthena source code   | ต้องเตรียม    | สำหรับ Phase 4 C++ integration |
-| Qwen 2.5 32B Q4 model | ต้องดาวน์โหลด | ~20GB via Ollama             |
-| Samsung T7 Shield 2TB | ✅ มีแล้ว      | สำหรับ Models + Data           |
+| Dependency            | Status   | Notes                        |
+| --------------------- | -------- | ---------------------------- |
+| Mac mini M4 Pro 64GB  | ✅ มีแล้ว   | เครื่อง Dev/Staging            |
+| Ollama                | ต้องติดตั้ง  | `brew install ollama`        |
+| Docker Desktop        | ต้องติดตั้ง  | สำหรับ Data Layer              |
+| Rust toolchain        | ต้องติดตั้ง  | `rustup` + stable channel    |
+| rAthena source code   | ต้องเตรียม | สำหรับ Phase 4 C++ integration |
+| Qwen 2.5 32B Q4 model | ต้องเตรียม | ~20GB (ใช้ gemma:2b แทนบน m3) |
+| Samsung T7 Shield 2TB | ✅ มีแล้ว   | สำหรับ Models + Data           |
 
 ---
 
 ## Timeline Summary
 
 ```
-สัปดาห์  1-5   Phase 1: Infrastructure & Foundation
-สัปดาห์  6-12  Phase 2: NPC Chat + Oracle + Safety
-สัปดาห์ 13-16  Phase 3: AI GM + Revenue Features
-สัปดาห์ 17-20  Phase 4: Integration + Load Test + Beta
-สัปดาห์ 21-24  Phase 5: Production + Cloud Migration
+สัปดาห์  1-6   Phase 1: Infrastructure & Foundation (+RAG Pipeline)
+สัปดาห์  7-13  Phase 2: NPC Chat + Oracle + Safety
+สัปดาห์ 14-17  Phase 3: AI GM + Revenue Features
+สัปดาห์ 18-21  Phase 4: Integration + Load Test + Beta
+สัปดาห์ 22-25  Phase 5: Production + Cloud Migration
+
 ```
 
-**รวม: ~24 สัปดาห์ (~6 เดือน)**
+**รวม: ~25 สัปดาห์ (~6 เดือน)**

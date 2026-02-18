@@ -1,0 +1,49 @@
+services:
+  qdrant:
+    image: qdrant/qdrant
+    container_name: mimir_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    restart: always
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 6G
+
+  mariadb:
+    image: mariadb:11
+    container_name: mimir_mariadb
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ro_landverse
+      MYSQL_USER: mimir
+      MYSQL_PASSWORD: REDACTED-PW
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+    restart: always
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 4G
+
+  redis:
+    image: redis:7-alpine
+    container_name: mimir_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    restart: always
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 2G
+
+networks:
+  default:
+    name: mimir_network

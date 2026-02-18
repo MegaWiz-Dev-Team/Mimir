@@ -1,0 +1,37 @@
+# System
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yml
+.env
+data/
+qdrant_storage/
+mariadb_data/
+redis_data/
+
+# Rust (Should be covered by ro-ai-bridge/.gitignore, but good to have)
+target/
+Cargo.lock
+
+# Node.js (If any)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Python (If any)
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Docs
+*.pdf
+*.docx
