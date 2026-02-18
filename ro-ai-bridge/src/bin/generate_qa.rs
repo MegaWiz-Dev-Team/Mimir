@@ -61,8 +61,27 @@ async fn main() -> Result<()> {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             info!("📂 Processing: {}", filename);
 
-            let content = fs::read_to_string(&path).await?;
+            let content_raw = fs::read_to_string(&path).await?;
             
+            // Extract Frontmatter
+            let (url, content) = if content_raw.starts_with("---") {
+                 if let Some(end) = content_raw[3..].find("---") {
+                     let frontmatter = &content_raw[3..end+3];
+                     // Simple grep for url
+                     let url = frontmatter.lines()
+                         .find(|l| l.trim().starts_with("url:"))
+                         .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('"').to_string())
+                         .unwrap_or_else(|| "unknown".to_string());
+                     
+                     (url, &content_raw[end+6..]) // +6 to skip --- and \n\n usually
+                 } else {
+                     ("unknown".to_string(), content_raw.as_str())
+                 }
+            } else {
+                ("unknown".to_string(), content_raw.as_str())
+            };
+
+
             // 3. Chunking (Simple Split by Header for now)
             // A smarter chunker would be another agent, but regex/split is faster/cheaper.
             let chunks: Vec<&str> = content.split("\n#").collect(); // Rough split
@@ -75,6 +94,7 @@ async fn main() -> Result<()> {
                 
                 let wiki_chunk = WikiChunk {
                     source_file: filename.clone(),
+                    url: url.clone(),
                     content: chunk_text.replace("\n", " "), // Flatten for easier processing
                 };
 

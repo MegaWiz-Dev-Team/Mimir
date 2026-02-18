@@ -90,6 +90,16 @@ async fn main() -> Result<()> {
                     // Convert to Markdown
                     let markdown = html2md::parse_html(&clean_html);
                     
+                    // Extract Title (H1)
+                    let title_selector = Selector::parse("h1").unwrap();
+                    let title = document.select(&title_selector).next()
+                        .map(|el| el.text().collect::<Vec<_>>().join(""))
+                        .unwrap_or_else(|| "Untitled".to_string());
+
+                    // Add YAML Frontmatter
+                    let frontmatter = format!("---\ntitle: \"{}\"\nurl: \"{}\"\n---\n\n", title.replace("\"", "\\\""), url);
+                    let final_content = format!("{}{}", frontmatter, markdown);
+                    
                     // Generate Filename
                     let clean_base = "https://maxion-1.gitbook.io/ragnarok-landverse-th/";
                     let relative_path = url.replace(clean_base, "");
@@ -102,7 +112,7 @@ async fn main() -> Result<()> {
                     let filename = filename.trim_start_matches('_').to_string();
                     let path = format!("{}/{}", output_dir, filename);
                     
-                    fs::write(&path, markdown).await?;
+                    fs::write(&path, final_content).await?;
                     info!("   💾 Saved to {}", path);
                 } else {
                      warn!("   ⚠️ No content found for {}", url);
