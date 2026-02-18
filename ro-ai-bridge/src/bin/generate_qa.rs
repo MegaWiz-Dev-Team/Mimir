@@ -1,8 +1,8 @@
 use anyhow::Result;
 use dotenvy::dotenv;
-use rig::providers::openai;
+use rig::providers::{ollama, gemini};
 use ro_ai_bridge::agents::wiki_workshop::{
-    generator::generate_qa,
+    generator::{generate_qa, GeneratorClient},
     extractor::extract_acus,
     verifier::verify_coverage,
     WikiChunk, QAPair, AtomicFact, CoverageReport
@@ -19,28 +19,29 @@ async fn main() -> Result<()> {
 
     // 1. Configure Agents
     // Local LLM (Ollama)
-    let ollama_url = env::var("OLLAMA_API_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let local_model = env::var("LOCAL_MODEL").unwrap_or_else(|_| "gemma:2b".to_string());
-    
-    let local_client = openai::Client::from_url(&ollama_url, "ollama"); // 'ollama' as api key is dummy
+    info!("🤖 Configuring Native Ollama Client (defaulting to localhost:11434)");
+    let local_client = ollama::Client::new();
+    let local_model = env::var("LOCAL_MODEL").unwrap_or_else(|_| "llama3.2:latest".to_string());
 
-    // Cloud LLM (Gemini via OpenAI-compatible endpoint or just reused local for dev if getting keys is hard)
-    // Note: In detailed implementation, we would use a proper Gemini provider or a proxy like LiteLLM/OpenRouter.
-    // For this proof-of-concept, accessing Gemini might require a specific Rig provider crate not currently in Cargo.toml.
-    // We will assume an OpenAI-compatible endpoint for Gemini (e.g. via OpenRouter or a bridge) is provided in env,
-    // OR just use the local client if GEMINI_API_KEY is missing (fallback).
+    // Cloud LLM (Gemini)
+    let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set in .env");
+    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
     
-    // Check if we have Gemini config, else fallback to Local
-    let gemini_client = if let Ok(base_url) = env::var("GEMINI_BASE_URL") {
-        let api_key = env::var("GEMINI_API_KEY").unwrap_or_else(|_| "missing-key".to_string());
-        info!("☁️ configuring Gemini Client via {}", base_url);
-        openai::Client::from_url(&base_url, &api_key)
-    } else {
-        warn!("⚠️ GEMINI_BASE_URL not set. Falling back to Local Client for all agents.");
-        local_client.clone()
+    info!("☁️ Configuring Native Gemini Client");
+    let gemini_client = gemini::Client::new(&api_key);
+
+    // Generator Configuration
+    let gen_provider = env::var("GENERATOR_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
+    let (gen_client, gen_model) = match gen_provider.as_str() {
+        "gemini" => {
+            info!("⚙️ Generator Provider: GEMINI ({})", gemini_model);
+            (GeneratorClient::Gemini(gemini_client.clone()), gemini_model.clone())
+        },
+        _ => {
+            info!("⚙️ Generator Provider: OLLAMA ({})", local_model);
+            (GeneratorClient::Ollama(local_client.clone()), local_model.clone())
+        }
     };
-
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
 
     // 2. Scan Data
     let input_dir = "data/wiki";
@@ -55,6 +56,8 @@ async fn main() -> Result<()> {
 
     info!("🚀 Starting Multi-Agent Q/A Pipeline...");
     
+    let is_test_run = env::var("TEST_RUN").unwrap_or_default() == "1";
+
     while let Some(entry) = dir.next_entry().await? {
         let path = entry.path();
         if path.extension().map_or(false, |ext| ext == "md") {
@@ -100,8 +103,8 @@ async fn main() -> Result<()> {
 
                 info!("   🧩 Chunk {}: Genererating Q/A...", i);
 
-                // 4. Agent 1: Generate Q/A (Local)
-                let qa_pairs = match generate_qa(&local_client, &local_model, &wiki_chunk).await {
+                // 4. Agent 1: Generate Q/A
+                let qa_pairs = match generate_qa(&gen_client, &gen_model, &wiki_chunk).await {
                     Ok(pairs) => pairs,
                     Err(e) => {
                         error!("   ❌ Q/A Generation failed: {}", e);
@@ -132,6 +135,7 @@ async fn main() -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         error!("   ❌ Verification failed: {}", e);
+                        error!("   ❌ Verification failed for file '{}', chunk {}: {}", filename, i, e);
                         continue;
                     }
                 };
@@ -147,6 +151,11 @@ async fn main() -> Result<()> {
                 
                 all_qa.extend(qa_pairs);
                 all_reports.push(report);
+            }
+
+            if is_test_run {
+                info!("🧪 TEST_RUN enabled. Stopping after first file: {}", filename);
+                break;
             }
         }
     }
