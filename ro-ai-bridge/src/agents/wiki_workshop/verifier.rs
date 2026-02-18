@@ -1,43 +1,61 @@
-use rig::agent::Agent;
-use rig::completion::Prompt;
-use rig::providers::openai;
+use rig::providers::gemini;
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use super::{WikiChunk, QAPair, AtomicFact, CoverageReport};
 use anyhow::Result;
+use rig::completion::Prompt;
+use tracing::info;
 
 pub struct CoverageVerifierAgent;
 
 pub async fn verify_coverage(
-    client: &openai::Client, 
+    client: &gemini::Client, 
     model: &str,
     chunk: &WikiChunk,
     facts: &[AtomicFact],
     qa_pairs: &[QAPair]
 ) -> Result<CoverageReport> {
-    // Construct the context
-    let facts_str = serde_json::to_string_pretty(facts)?;
-    let qa_str = serde_json::to_string_pretty(qa_pairs)?;
+    info!("      Verifying Coverage (Agent approach)...");
 
-    let extractor = client.extractor::<CoverageReport>(model)
-        .preamble("You are a strict QA auditor. Your task is to verify if the generated Q/A pairs cover all key facts from the source text.")
+    let agent = client.agent(model)
+        .preamble("You are a strict QA Verifier. Analyze if the Q/A pairs cover the important Atomic Facts. \
+                   Return ONLY a valid JSON object matching the schema. \
+                   Do NOT include any markdown formatting or preamble.")
         .build();
 
+    let facts_str = serde_json::to_string(facts)?;
+    let qa_str = serde_json::to_string(qa_pairs)?;
+
     let prompt = format!(
-        "Analyze the coverage of these Atomic Facts by the Q/A Pairs.\n\n\
-        Source Chunk:\n{}\n\n\
-        Atomic Facts (Target):\n{}\n\n\
-        Generated Q/A Pairs (Candidate):\n{}\n\n\
-        Task:\n\
-        1. Check if each Atomic Fact is answered or inferred by at least one Q/A pair.\n\
-        2. Calculate `coverage_score` as (Covered Facts / Total Facts).\n\
-        3. List any `missing_facts` that are NOT covered.\n\
-        4. Provide a brief `reasoning`.\n\n\
-        Output valid JSON adhering to the `CoverageReport` schema.", 
-        chunk.content, facts_str, qa_str
+        "Analyze the coverage of these Atomic Facts by the Q/A Pairs.
+        
+        Atomic Facts (Target):
+        {}
+        
+        Generated Q/A Pairs (Candidate):
+        {}
+        
+        Task:
+        1. Check if each Atomic Fact is answered or inferred by at least one Q/A pair.
+        2. Calculate `coverage_score` as (Covered Facts / Total Facts).
+        3. List any `missing_facts` that are NOT covered.
+        4. Provide a brief `reasoning`.
+        
+        Output valid JSON adhering to the `CoverageReport` schema.",
+        facts_str, qa_str
     );
 
-    let report: CoverageReport = extractor.extract(&prompt).await?;
+    let raw_res = agent.prompt(prompt.as_str()).await?;
+
+    // Clean markdown
+    let clean_json = raw_res.trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    let report: CoverageReport = serde_json::from_str(clean_json)
+        .map_err(|e| anyhow::anyhow!("Failed to parse Report JSON: {}. Raw: {}", e, raw_res))?;
 
     Ok(report)
 }
