@@ -45,3 +45,27 @@ export async function retryStep(stepId: number) {
     if (!res.ok) throw new Error("Failed to retry step");
     return res;
 }
+
+export async function fetchVectorStats() {
+    const res = await fetch(`${API_BASE_URL}/vector/stats`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch vector stats");
+    return res.json();
+}
+
+export async function triggerIndexing() {
+    const res = await fetch(`${API_BASE_URL}/vector/index`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to trigger indexing");
+    return res;
+}
+
+export async function searchVectors(query: string, limit: number = 5) {
+    const res = await fetch(`${API_BASE_URL}/vector/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, limit }),
+    });
+    if (!res.ok) throw new Error("Failed to search vectors");
+    return res.json();
+}

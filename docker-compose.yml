@@ -6,7 +6,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - ./data/qdrant:/qdrant/storage
+      - qdrant_storage:/qdrant/storage
     restart: always
     # deploy:
     #   resources:
@@ -26,6 +26,11 @@ services:
     volumes:
       - ./data/mariadb:/var/lib/mysql
     restart: always
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     # deploy:
     #   resources:
     #     limits:
@@ -43,6 +48,40 @@ services:
     #   resources:
     #     limits:
     #       memory: 2G
+
+  rathena-login:
+    build:
+      context: ./rathena
+    container_name: rathena_login
+    command: login
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    restart: always
+
+  rathena-char:
+    build:
+      context: ./rathena
+    container_name: rathena_char
+    command: char
+    depends_on:
+      rathena-login:
+        condition: service_started
+    restart: always
+
+  rathena-map:
+    build:
+      context: ./rathena
+    container_name: rathena_map
+    command: map
+    depends_on:
+      rathena-char:
+        condition: service_started
+    restart: always
+
+volumes:
+  qdrant_storage:
+
 
 networks:
   default:
