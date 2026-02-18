@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WikiChunk {
     pub source_file: String,
+    pub url: String,
     pub content: String,
 }
 
