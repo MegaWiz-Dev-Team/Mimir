@@ -2,7 +2,7 @@ use anyhow::Result;
 use axum::{
     routing::{get, post},
     Router, Json, extract::{State, Path},
-    response::IntoResponse,
+    response::{IntoResponse, sse::Event, Sse},
     http::StatusCode,
 };
 use dotenvy::dotenv;
@@ -13,9 +13,15 @@ use std::env;
 use std::sync::Arc;
 use tracing::{info, error};
 use tokio::net::TcpListener;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::mpsc;
+use futures::stream::Stream;
 
 use ro_ai_bridge::services::qdrant::QdrantService;
 use ro_ai_bridge::agents::wiki_workshop::indexer::run_indexer;
+use ro_ai_bridge::agents::simple_npc::SimpleNpcAgent;
+use ro_ai_bridge::agents::oracle_rag::OracleRagAgent;
+use ro_ai_bridge::models::persona::Persona;
 use rig::providers::ollama;
 
 #[derive(Deserialize)]
@@ -34,6 +40,53 @@ struct RunResponse {
 struct SearchRequest {
     query: String,
     limit: Option<usize>,
+}
+
+/// Chat request for agent interactions
+#[derive(Deserialize)]
+struct ChatRequest {
+    /// Agent tier: 1 = Simple NPC (no RAG), 2 = Oracle RAG
+    tier: i8,
+    /// User message
+    message: String,
+    /// Persona name (e.g., "sage_ariel")
+    persona: String,
+    /// Optional session ID for conversation continuity
+    session_id: Option<String>,
+}
+
+/// Chat response for non-streaming responses
+#[derive(Serialize)]
+struct ChatResponse {
+    content: String,
+    tier: i8,
+    persona: String,
+    latency_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence_score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sources: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools_used: Option<Vec<String>>,
+}
+
+/// SSE event types for streaming
+#[derive(Serialize)]
+struct StreamToken {
+    token: String,
+}
+
+#[derive(Serialize)]
+struct StreamDone {
+    latency_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence_score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sources: Option<Vec<serde_json::Value>>,
 }
 
 struct AppState {
@@ -64,6 +117,9 @@ async fn main() -> Result<()> {
         .route("/api/vector/stats", get(get_vector_stats))
         .route("/api/vector/index", post(trigger_indexing))
         .route("/api/vector/search", post(search_vectors))
+        // Agent chat endpoints
+        .route("/api/agents/chat", post(chat_handler))
+        .route("/api/agents/chat/stream", post(chat_stream_handler))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
@@ -371,4 +427,225 @@ async fn search_vectors(
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
     }
+}
+
+// ─── Agent Chat Handlers ────────────────────────────────────────────────────
+
+/// Handle chat requests for both Tier 1 and Tier 2 agents
+async fn chat_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ChatRequest>,
+) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    
+    // Load persona
+    let persona = match Persona::load_by_name_cached(&payload.persona) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("Persona not found: {}", e)}))
+            ).into_response();
+        }
+    };
+    
+    // Route to appropriate agent based on tier
+    match payload.tier {
+        1 => {
+            // Tier 1: Simple NPC (no RAG)
+            let agent = SimpleNpcAgent::new(persona);
+            
+            match agent.chat(&payload.message).await {
+                Ok(response) => {
+                    let chat_response = ChatResponse {
+                        content: response,
+                        tier: 1,
+                        persona: payload.persona,
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        confidence_score: None,
+                        confidence_level: None,
+                        sources: None,
+                        tools_used: None,
+                    };
+                    Json(chat_response).into_response()
+                }
+                Err(e) => {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": format!("Agent error: {}", e)}))
+                    ).into_response()
+                }
+            }
+        }
+        2 => {
+            // Tier 2: Oracle RAG
+            let agent = OracleRagAgent::new(
+                persona,
+                state.qdrant.clone(),
+                Some(state.db.clone()),
+            );
+            
+            match agent.chat(&payload.message).await {
+                Ok(response) => {
+                    let chat_response = ChatResponse {
+                        content: response.content,
+                        tier: 2,
+                        persona: payload.persona,
+                        latency_ms: response.latency_ms,
+                        confidence_score: Some(response.confidence_score),
+                        confidence_level: Some(format!("{:?}", response.confidence_level)),
+                        sources: Some(response.sources.iter().map(|s| {
+                            serde_json::json!({
+                                "source_type": s.source_type,
+                                "source_id": s.source_id,
+                                "relevance": s.relevance,
+                                "snippet": s.snippet
+                            })
+                        }).collect()),
+                        tools_used: Some(response.tools_used),
+                    };
+                    Json(chat_response).into_response()
+                }
+                Err(e) => {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": format!("Agent error: {}", e)}))
+                    ).into_response()
+                }
+            }
+        }
+        _ => {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Invalid tier. Must be 1 or 2"}))
+            ).into_response()
+        }
+    }
+}
+
+/// Handle streaming chat requests using SSE
+async fn chat_stream_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ChatRequest>,
+) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
+    let (tx, rx) = mpsc::channel(100);
+    let start = std::time::Instant::now();
+    
+    // Clone needed data for the spawned task
+    let persona_name = payload.persona.clone();
+    let message = payload.message.clone();
+    let tier = payload.tier;
+    let db = state.db.clone();
+    let qdrant = state.qdrant.clone();
+    
+    // Spawn task to generate response
+    tokio::spawn(async move {
+        // Load persona
+        let persona = match Persona::load_by_name_cached(&persona_name) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx.send(Event::default()
+                    .event("error")
+                    .json_data(serde_json::json!({"error": format!("Persona not found: {}", e)}))
+                ).await;
+                return;
+            }
+        };
+        
+        match tier {
+            1 => {
+                // Tier 1: Simple NPC (no RAG) - simulate streaming
+                let agent = SimpleNpcAgent::new(persona);
+                
+                match agent.chat(&message).await {
+                    Ok(response) => {
+                        // Simulate token-by-token streaming
+                        // Since rig-core doesn't support true streaming yet, we chunk the response
+                        let words: Vec<&str> = response.split_whitespace().collect();
+                        let chunk_size = 3; // Send 3 words at a time
+                        
+                        for chunk in words.chunks(chunk_size) {
+                            let token = chunk.join(" ") + " ";
+                            let _ = tx.send(Event::default()
+                                .event("token")
+                                .json_data(StreamToken { token })
+                            ).await;
+                            // Small delay to simulate streaming
+                            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                        }
+                        
+                        // Send done event
+                        let _ = tx.send(Event::default()
+                            .event("done")
+                            .json_data(StreamDone {
+                                latency_ms: start.elapsed().as_millis() as u64,
+                                confidence_score: None,
+                                confidence_level: None,
+                                sources: None,
+                            })
+                        ).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Event::default()
+                            .event("error")
+                            .json_data(serde_json::json!({"error": format!("Agent error: {}", e)}))
+                        ).await;
+                    }
+                }
+            }
+            2 => {
+                // Tier 2: Oracle RAG
+                let agent = OracleRagAgent::new(persona, qdrant, Some(db));
+                
+                match agent.chat(&message).await {
+                    Ok(response) => {
+                        // Simulate token-by-token streaming
+                        let words: Vec<&str> = response.content.split_whitespace().collect();
+                        let chunk_size = 3;
+                        
+                        for chunk in words.chunks(chunk_size) {
+                            let token = chunk.join(" ") + " ";
+                            let _ = tx.send(Event::default()
+                                .event("token")
+                                .json_data(StreamToken { token })
+                            ).await;
+                            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                        }
+                        
+                        // Send done event with metadata
+                        let _ = tx.send(Event::default()
+                            .event("done")
+                            .json_data(StreamDone {
+                                latency_ms: response.latency_ms,
+                                confidence_score: Some(response.confidence_score),
+                                confidence_level: Some(format!("{:?}", response.confidence_level)),
+                                sources: Some(response.sources.iter().map(|s| {
+                                    serde_json::json!({
+                                        "source_type": s.source_type,
+                                        "source_id": s.source_id,
+                                        "relevance": s.relevance
+                                    })
+                                }).collect()),
+                            })
+                        ).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Event::default()
+                            .event("error")
+                            .json_data(serde_json::json!({"error": format!("Agent error: {}", e)}))
+                        ).await;
+                    }
+                }
+            }
+            _ => {
+                let _ = tx.send(Event::default()
+                    .event("error")
+                    .json_data(serde_json::json!({"error": "Invalid tier. Must be 1 or 2"}))
+                ).await;
+            }
+        }
+    });
+    
+    // Return SSE stream
+    Sse::new(ReceiverStream::new(rx))
 }
