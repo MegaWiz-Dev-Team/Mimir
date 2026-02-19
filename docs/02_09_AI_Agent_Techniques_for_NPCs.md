@@ -82,3 +82,77 @@ NPC ต้องไม่เพียงแค่ "คุย" แต่ต้อ
 -   **Trigger:** ใช้ Script ปกติเช็คเบื้องต้น (เช่น เงินพอไหม)
 -   **Fallback:** ถ้าเป็นเรื่องทั่วไปที่ไม่กระทบ Game Balance -> ให้ AI คุย
 -   **Critical:** ถ้าเป็นเรื่องสำคัญ (เปลี่ยนอาชีพ, รับของรางวัล) -> ใช้ Hardcode Script หรือตรวจสอบ Output จาก AI อย่างเคร่งครัด
+
+---
+
+## 7. Client-rAthena-AI Communication (การสื่อสารระหว่าง Client กับ AI)
+
+### 🔌 Communication Architecture
+
+การที่ Game Client จะสื่อสารกับ AI Agent จำเป็นต้องผ่าน rAthena Server เป็นตัวกลาง โดยมีวิธีการหลัก 4 แบบ:
+
+```mermaid
+graph LR
+    subgraph Methods
+        A[Method A: SQL Bridge]
+        B[Method B: HTTP Plugin]
+        C[Method C: Web Server]
+        D[Method D: External Service]
+    end
+    
+    subgraph Pros
+        A --> A1[Easy - No source mod]
+        B --> B1[Fast - Low latency]
+        C --> C1[Built-in - httplib]
+        D --> D1[Flexible - Any language]
+    end
+    
+    subgraph Cons
+        A --> A2[Slower - Polling]
+        B --> B2[Hard - C++ mod]
+        C --> C2[Medium - New endpoints]
+        D --> D2[Complex - More services]
+    end
+```
+
+### 📋 Method Comparison
+
+| Method               | Difficulty | Latency    | Reliability | Best For          |
+| -------------------- | ---------- | ---------- | ----------- | ----------------- |
+| **SQL Bridge**       | ⭐ Easy     | ~200-500ms | ✅ High      | Production, MVP   |
+| **HTTP Plugin**      | ⭐⭐⭐ Hard   | ~50-200ms  | ⚠️ Medium    | High-performance  |
+| **Web Server**       | ⭐⭐ Medium  | ~100-300ms | ✅ High      | REST API needs    |
+| **External Service** | ⭐ Easy     | ~200-500ms | ✅ High      | Python/Node teams |
+
+### 🎯 Recommended: SQL Bridge Method
+
+**Method A: SQL Database Bridge** เป็นวิธีที่แนะนำสำหรับ Project Mimir เพราะ:
+
+1. **ไม่ต้องแก้ไข Source Code** - ใช้ `query_sql()` command ที่มีอยู่แล้ว
+2. **ง่ายต่อ Debug** - ดูข้อมูลใน Database ได้โดยตรง
+3. **Scale ได้** - AI Bridge รันแยกจาก Game Server
+4. **Fallback ง่าย** - ถ้า AI ไม่ตอบ ใช้ static message แทน
+
+### 📝 Implementation Flow
+
+```c
+// NPC Script ส่ง Request
+query_sql("INSERT INTO ai_npc_request (session_id, message, context) VALUES (...)");
+
+// NPC Script รอ Response (Polling)
+while (timeout_not_reached) {
+    query_sql("SELECT response FROM ai_npc_response WHERE session_id = ...");
+    if (response_found) break;
+    sleep2 100;  // รอ 100ms
+}
+
+// แสดงผล
+mes .@response$;
+```
+
+### 🔗 Detailed Documentation
+
+สำหรับรายละเอียดการ Implement แบบเต็ม ดูได้ที่:
+- **[rAthena Client-to-AI Communication](./rAthena_Client_AI_Communication.md)** - คู่มือการสื่อสารแบบละเอียด
+- **[AI NPC Integration Design](./AI_NPC_Integration_Design.md)** - ตัวอย่าง Healer NPC
+- **[rAthena NPC System](./rAthena_NPC_System.md)** - พื้นฐาน NPC Scripting
