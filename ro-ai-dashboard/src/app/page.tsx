@@ -103,6 +103,9 @@ export default function Dashboard() {
 
         <div className="flex gap-4">
           <Button asChild variant="ghost" size="sm">
+            <Link href="/evaluations">Evaluations</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
             <Link href="/playground">Agent Playground</Link>
           </Button>
           <Button asChild variant="ghost" size="sm">

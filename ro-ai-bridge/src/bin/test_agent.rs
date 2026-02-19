@@ -11,6 +11,7 @@ async fn main() -> anyhow::Result<()> {
         name: "test".to_string(),
         display_name: "Test NPC".to_string(),
         tier: 1,
+        model_id: None,
         system_prompt: "You are a test NPC.".to_string(),
         greeting: Some("Hello!".to_string()),
         allowed_actions: vec![],
