@@ -71,4 +71,27 @@ Project-Mimir/
     ```
 
 ---
+
+## 🎮 Connecting to Game Server
+
+Server Status: **Online** (Login: 6900, Char: 6121, Map: 5121)
+
+### 1. Client Configuration (`data/clientinfo.xml`)
+แก้ไขไฟล์ `clientinfo.xml` ในโฟลเดอร์ `data/` หรือ GRF ของตัวเข้าเกม:
+
+```xml
+<connection>
+    <display>Project Mimir Local</display>
+    <address>127.0.0.1</address>
+    <port>6900</port>
+    <version>46</version>
+    <langtype>0</langtype>
+</connection>
+```
+
+### 2. Test Accounts
+- **ID:** `test` / **Pass:** `test`
+- **Register:** เติม `_M` หรือ `_F` ท้าย ID เพื่อสมัครใหม่ (เช่น `user01_M`)
+
+---
 *Created with ❤️ for the Ragnarok Online community.*

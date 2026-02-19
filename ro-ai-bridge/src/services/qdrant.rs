@@ -22,6 +22,7 @@ impl QdrantService {
     pub async fn init_collection(&self, collection_name: &str, vector_size: u64) -> Result<()> {
         info!("🔍 Checking Qdrant collection: {}", collection_name);
         
+        // Check if exists
         let url = format!("{}/collections/{}", self.base_url, collection_name);
         let resp = self.client.get(&url).send().await?;
 
@@ -30,6 +31,25 @@ impl QdrantService {
             return Ok(());
         }
 
+        self.create_collection(collection_name, vector_size).await
+    }
+
+    pub async fn delete_collection(&self, collection_name: &str) -> Result<()> {
+        info!("🗑️ Deleting Qdrant collection: {}", collection_name);
+        let url = format!("{}/collections/{}", self.base_url, collection_name);
+        let resp = self.client.delete(&url).send().await?;
+        
+        if !resp.status().is_success() {
+            // It's okay if it doesn't exist, but log error if other issues
+            if resp.status() != 404 {
+                let error = resp.text().await?;
+                return Err(anyhow::anyhow!("Failed to delete collection: {}", error));
+            }
+        }
+        Ok(())
+    }
+
+    async fn create_collection(&self, collection_name: &str, vector_size: u64) -> Result<()> {
         info!("🏗️ Creating Qdrant collection: {}", collection_name);
         let create_url = format!("{}/collections/{}", self.base_url, collection_name);
         let body = json!({
