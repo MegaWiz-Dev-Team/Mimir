@@ -1030,5 +1030,5 @@ if !ALLOWED_ACTIONS.contains(&response.action_type.as_str()) {
 - [`rathena/doc/script_commands.txt`](../rathena/doc/script_commands.txt) - Script command reference
 - [`rathena/doc/source_doc.txt`](../rathena/doc/source_doc.txt) - Source code documentation
 - [`rathena/src/web/web.cpp`](../rathena/src/web/web.cpp) - Built-in web server
-- [`docs/AI_NPC_Integration_Design.md`](./AI_NPC_Integration_Design.md) - AI integration design
-- [`docs/Implementation_Plan_Project-Mimir.md`](./Implementation_Plan_Project-Mimir.md) - Implementation plan
+- [`docs/02_07_AI_NPC_Integration_Design.md`](./02_07_AI_NPC_Integration_Design.md) - AI integration design
+- [`docs/03_01_Implementation_Plan_Project-Mimir.md`](./03_01_Implementation_Plan_Project-Mimir.md) - Implementation plan

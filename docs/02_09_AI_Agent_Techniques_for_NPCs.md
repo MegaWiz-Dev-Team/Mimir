@@ -153,6 +153,6 @@ mes .@response$;
 ### 🔗 Detailed Documentation
 
 สำหรับรายละเอียดการ Implement แบบเต็ม ดูได้ที่:
-- **[rAthena Client-to-AI Communication](./rAthena_Client_AI_Communication.md)** - คู่มือการสื่อสารแบบละเอียด
-- **[AI NPC Integration Design](./AI_NPC_Integration_Design.md)** - ตัวอย่าง Healer NPC
-- **[rAthena NPC System](./rAthena_NPC_System.md)** - พื้นฐาน NPC Scripting
+- **[02_10_rAthena_Client_AI_Communication.md](./02_10_rAthena_Client_AI_Communication.md)** - คู่มือการสื่อสารแบบละเอียด
+- **[02_07_AI_NPC_Integration_Design.md](./02_07_AI_NPC_Integration_Design.md)** - ตัวอย่าง Healer NPC
+- **[02_06_rAthena_NPC_System.md](./02_06_rAthena_NPC_System.md)** - พื้นฐาน NPC Scripting

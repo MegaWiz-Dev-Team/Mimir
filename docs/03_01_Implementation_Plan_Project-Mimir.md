@@ -123,7 +123,7 @@ ro-ai-bridge/
     - [x] Implement Dashboard Listing Page
     - [x] Implement Run Details & Step Viewer
     - [x] Connect to `monitor.rs` API
-- [ ] Integrate เข้ากับ Axum Cron Job (ไม่ต้องรัน service แยก) (Deferred to Mac mini - See `docs/Sprint_1.4_Cron_Integration_Plan.md`)
+- [ ] Integrate เข้ากับ Axum Cron Job (ไม่ต้องรัน service แยก) (Deferred to Mac mini - See `docs/03_03_Sprint_1.4_Cron_Integration_Plan.md`)
 
 
 
@@ -144,7 +144,7 @@ ro-ai-bridge/
 **เป้าหมาย:** Module A (NPC Chat) + Module B (Oracle RAG Bot) + Safety Filter ทำงานได้ครบ
 
 > [!NOTE]
-> ดูรายละเอียดเพิ่มเติมที่ [Implementation Plan Phase 2](docs/Implementation_Plan_Phase_2_Agent_Chat.md)
+> ดูรายละเอียดเพิ่มเติมที่ [Implementation Plan Phase 2](docs/03_07_Implementation_Plan_Phase_2_Agent_Chat.md)
 
 ### Sprint 2.1 — Agent Chat + Playground (สัปดาห์ 6-8)
 
