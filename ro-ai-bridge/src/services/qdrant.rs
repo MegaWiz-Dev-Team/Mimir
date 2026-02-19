@@ -4,6 +4,7 @@ use serde_json::json;
 use std::env;
 use tracing::info;
 
+#[derive(Clone)]
 pub struct QdrantService {
     client: Client,
     base_url: String,

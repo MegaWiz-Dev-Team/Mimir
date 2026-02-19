@@ -1,0 +1,125 @@
+{
+    "test_date": "2026-02-19T10:05:00Z",
+    "feature": "Tier 2 RAG Agent with rig-core + Qdrant",
+    "description": "RAG-enabled NPC with knowledge base retrieval from wiki_qa + game_data collections, plus direct rAthena DB queries for mobs and items",
+    "tests": {
+        "unit_tests": {
+            "test_confidence_level_from_score": "PASS",
+            "test_format_mob": "PASS",
+            "test_format_item": "PASS",
+            "test_is_mob_query": "PASS",
+            "test_is_item_query": "PASS",
+            "test_extract_entity_name": "PASS",
+            "total": 6,
+            "passed": 6,
+            "failed": 0
+        }
+    },
+    "build_status": "SUCCESS",
+    "compilation_warnings": 0,
+    "code_quality": {
+        "rag_capabilities": {
+            "qdrant_integration": true,
+            "wiki_qa_collection": true,
+            "game_data_collection": true,
+            "embedding_model": "nomic-embed-text",
+            "search_limit_per_collection": 3
+        },
+        "database_tools": {
+            "query_mob_db": true,
+            "query_item_db": true,
+            "supports_partial_name_match": true,
+            "supports_id_lookup": true,
+            "supports_level_range": true,
+            "supports_type_filter": true
+        },
+        "response_metadata": {
+            "confidence_scoring": true,
+            "source_citation": true,
+            "latency_tracking": true,
+            "tool_usage_tracking": true,
+            "confidence_thresholds": {
+                "high": 0.75,
+                "medium": 0.50
+            }
+        },
+        "api_endpoints": {
+            "chat_endpoint": "/api/agents/chat",
+            "stream_endpoint": "/api/agents/chat/stream",
+            "tier_support": [
+                1,
+                2
+            ],
+            "sse_streaming": true
+        }
+    },
+    "files_modified": [
+        "ro-ai-bridge/src/agents/mod.rs (added oracle_rag module)",
+        "ro-ai-bridge/src/bin/monitor.rs (added chat endpoints)",
+        "ro-ai-bridge/src/services/qdrant.rs (added Clone derive)",
+        "ro-ai-bridge/Cargo.toml (added tokio-stream dependency)"
+    ],
+    "files_added": [
+        "ro-ai-bridge/src/agents/oracle_rag.rs (Tier 2 RAG Agent)"
+    ],
+    "components": {
+        "oracle_rag_agent": {
+            "struct": "OracleRagAgent",
+            "location": "ro-ai-bridge/src/agents/oracle_rag.rs:511",
+            "features": [
+                "RAG retrieval from Qdrant",
+                "Direct mob DB queries",
+                "Direct item DB queries",
+                "Confidence scoring",
+                "Source citation"
+            ]
+        },
+        "custom_tools": {
+            "QueryMobDbTool": "ro-ai-bridge/src/agents/oracle_rag.rs:166",
+            "QueryItemDbTool": "ro-ai-bridge/src/agents/oracle_rag.rs:284",
+            "RagRetriever": "ro-ai-bridge/src/agents/oracle_rag.rs:395"
+        },
+        "response_types": {
+            "OracleResponse": "ro-ai-bridge/src/agents/oracle_rag.rs:77",
+            "ConfidenceLevel": "ro-ai-bridge/src/agents/oracle_rag.rs:62",
+            "SourceCitation": "ro-ai-bridge/src/agents/oracle_rag.rs:48",
+            "MobData": "ro-ai-bridge/src/agents/oracle_rag.rs:130",
+            "ItemData": "ro-ai-bridge/src/agents/oracle_rag.rs:157"
+        },
+        "api_handlers": {
+            "chat_handler": "ro-ai-bridge/src/bin/monitor.rs:437",
+            "chat_stream_handler": "ro-ai-bridge/src/bin/monitor.rs:527"
+        }
+    },
+    "dependencies": {
+        "rig-core": "0.10.0",
+        "ollama": "via rig",
+        "qdrant": "via QdrantService",
+        "sqlx": "for database queries",
+        "tokio-stream": "0.1",
+        "axum": "0.8.8 (SSE support)"
+    },
+    "api_usage": {
+        "chat_request": {
+            "tier": "1 | 2",
+            "message": "string",
+            "persona": "string (e.g., sage_ariel)",
+            "session_id": "optional string"
+        },
+        "chat_response": {
+            "content": "string",
+            "tier": "number",
+            "persona": "string",
+            "latency_ms": "number",
+            "confidence_score": "optional number (Tier 2 only)",
+            "confidence_level": "optional string (Tier 2 only)",
+            "sources": "optional array (Tier 2 only)",
+            "tools_used": "optional array (Tier 2 only)"
+        },
+        "sse_events": {
+            "token": "streaming token chunk",
+            "done": "completion with metadata",
+            "error": "error message"
+        }
+    }
+}
