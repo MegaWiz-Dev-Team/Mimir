@@ -1,12 +1,12 @@
 # 📖 Technical Requirement Document (TRD) — ฉบับภาษาไทย
 ## โปรเจกต์ Project-Mimir (Ragnarok Online: AI-Native Evolution)
 
-| ฟิลด์              | ค่า                                                                                                                                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **เวอร์ชัน**       | 2.0 (Hybrid Agent Architecture)                                                                                                                                                                                                                         |
-| **วันที่**          | 2026-02-16                                                                                                                                                                                                                                              |
-| **Framework**    | Rig (rig.rs) + Axum                                                                                                                                                                                                                                     |
-| **เอกสารประกอบ** | [Framework Analysis](file:///Volumes/T7%20Shield/Project-Mimir/docs/Framework_Analysis_Project-Mimir.md), [Monitoring Plan](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/Monitoring_System_Plan_Project-Mimir.md) |
+| ฟิลด์              | ค่า                                                                                                                                                                                                                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **เวอร์ชัน**       | 2.0 (Hybrid Agent Architecture)                                                                                                                                                                                                                                                                         |
+| **วันที่**          | 2026-02-16                                                                                                                                                                                                                                                                                              |
+| **Framework**    | Rig (rig.rs) + Axum                                                                                                                                                                                                                                                                                     |
+| **เอกสารประกอบ** | [Framework Analysis](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_04_Framework_Analysis_Project-Mimir.md), [Monitoring Plan](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/02_02_Monitoring_System_Plan_Project-Mimir.md) |
 
 > เอกสารฉบับนี้เป็น **TRD ฉบับเต็มภาษาไทย** สำหรับ Project-Mimir ปรับปรุงให้รองรับ **Hybrid Agent Architecture** ที่ใช้ AI Agent 3 ระดับ (Tier) ตาม Use Case
 
@@ -121,7 +121,7 @@ fn route_request(req: &ChatRequest) -> AgentTier {
 
 ## 2. AI Agent Framework: Rig (rig.rs)
 
-> ดูรายละเอียดการวิเคราะห์ Framework: [Framework_Analysis_RO-AI.md](file:///Volumes/T7%20Shield/Project-Mimir/Framework_Analysis_RO-AI.md)
+> ดูรายละเอียดการวิเคราะห์ Framework: [Framework Analysis](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_04_Framework_Analysis_Project-Mimir.md)
 
 ### ทำไมเลือก Rig?
 

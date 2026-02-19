@@ -1,10 +1,10 @@
 # ☁️ Cloud API Fallback Strategy
 ## Gemini API / Qwen API เป็นแผนสำรองสำหรับ Local Ollama
 
-| ฟิลด์              | ค่า                                                                                                                                                                                      |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **วันที่**          | 2026-02-17                                                                                                                                                                              |
-| **เอกสารประกอบ** | [TRD](file:///Volumes/T7%20Shield/Project-Mimir/docs/TRD_Project-Mimir_TH.md), [Framework Analysis](file:///Volumes/T7%20Shield/Project-Mimir/docs/Framework_Analysis_Project-Mimir.md) |
+| ฟิลด์              | ค่า                                                                                                                                                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **วันที่**          | 2026-02-17                                                                                                                                                                                                                                                                  |
+| **เอกสารประกอบ** | [TRD](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_03_TRD_Project-Mimir_TH.md), [Framework Analysis](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_04_Framework_Analysis_Project-Mimir.md) |
 
 ---
 
