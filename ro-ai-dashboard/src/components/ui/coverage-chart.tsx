@@ -24,7 +24,6 @@ export function CoverageChart({ score }: CoverageChartProps) {
                     <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
                     <RadialBar
                         background
-                        clockWise
                         dataKey="value"
                         cornerRadius={10}
                     />

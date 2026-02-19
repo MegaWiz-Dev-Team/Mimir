@@ -1,5 +1,5 @@
 {
-    "test_date": "2026-02-19T10:17:00Z",
+    "test_date": "2026-02-19T10:33:00Z",
     "feature": "Tier 2 RAG Agent with rig-core + Qdrant",
     "description": "RAG-enabled NPC with knowledge base retrieval from wiki_qa + game_data collections, plus direct rAthena DB queries for mobs and items",
     "tests": {
@@ -16,7 +16,10 @@
         },
         "test_output": "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.05s"
     },
-    "build_status": "SUCCESS",
+    "build_status": {
+        "rust": "SUCCESS",
+        "nextjs": "SUCCESS"
+    },
     "compilation_warnings": 0,
     "code_quality": {
         "rag_capabilities": {
@@ -59,12 +62,16 @@
         "ro-ai-bridge/src/bin/monitor.rs (added chat endpoints)",
         "ro-ai-bridge/src/services/qdrant.rs (added Clone derive)",
         "ro-ai-bridge/Cargo.toml (added tokio-stream dependency)",
-        "ro-ai-bridge/config/personas/sage_ariel.yaml (upgraded to tier 2)"
+        "ro-ai-bridge/config/personas/sage_ariel.yaml (upgraded to tier 2)",
+        "ro-ai-dashboard/src/lib/api.ts (added chat API functions)",
+        "ro-ai-dashboard/src/app/page.tsx (added playground link)",
+        "ro-ai-dashboard/src/components/ui/coverage-chart.tsx (fixed recharts prop)"
     ],
     "files_added": [
         "ro-ai-bridge/src/agents/oracle_rag.rs (Tier 2 RAG Agent)",
         "ro-ai-bridge/config/personas/fortune_teller.yaml (Tier 2 persona)",
-        "ro-ai-bridge/config/personas/blacksmith.yaml (Tier 2 persona)"
+        "ro-ai-bridge/config/personas/blacksmith.yaml (Tier 2 persona)",
+        "ro-ai-dashboard/src/app/playground/page.tsx (Interactive Chat UI)"
     ],
     "personas": {
         "sage_ariel": {
@@ -135,6 +142,16 @@
         "api_handlers": {
             "chat_handler": "ro-ai-bridge/src/bin/monitor.rs:437",
             "chat_stream_handler": "ro-ai-bridge/src/bin/monitor.rs:527"
+        },
+        "dashboard": {
+            "playground_page": "ro-ai-dashboard/src/app/playground/page.tsx",
+            "chat_api": "ro-ai-dashboard/src/lib/api.ts",
+            "features": [
+                "Tier selector (1/2)",
+                "Persona dropdown",
+                "Streaming response display",
+                "Source citation panel"
+            ]
         }
     },
     "dependencies": {
@@ -167,5 +184,12 @@
             "done": "completion with metadata",
             "error": "error message"
         }
+    },
+    "nextjs_routes": {
+        "/": "Dashboard home",
+        "/playground": "Agent Playground (interactive chat)",
+        "/runs/[id]": "Run details",
+        "/steps/[id]": "Step details",
+        "/vector": "Vector database stats"
     }
 }

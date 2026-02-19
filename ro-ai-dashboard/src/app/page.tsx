@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchRuns, triggerRun } from "@/lib/api";
+import { fetchRuns, triggerRun, fetchModels, modelsToProviders, PROVIDERS, LlmProvider } from "@/lib/api";
 import { PipelineRun } from "@/types/pipeline";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,8 +17,12 @@ export default function Dashboard() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [providers, setProviders] = useState<LlmProvider[]>(PROVIDERS);
   const [provider, setProvider] = useState("ollama");
   const [model, setModel] = useState("llama3.2");
+
+  // Derived state
+  const selectedProvider = providers.find(p => p.id === provider) || providers[0];
 
   const loadRuns = async () => {
     setLoading(true);
@@ -32,6 +36,36 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch models from database on mount
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const models = await fetchModels();
+        if (models.length > 0) {
+          const dynamicProviders = modelsToProviders(models);
+          setProviders(dynamicProviders);
+          if (dynamicProviders.length > 0) {
+            setProvider(dynamicProviders[0].id);
+            if (dynamicProviders[0].models.length > 0) {
+              setModel(dynamicProviders[0].models[0].id);
+            }
+          }
+        } else {
+          // Use fallback PROVIDERS
+          if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
+            setModel(PROVIDERS[0].models[0].id);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch models from DB, using fallback:", err);
+        if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
+          setModel(PROVIDERS[0].models[0].id);
+        }
+      }
+    }
+    loadModels();
+  }, []);
+
   useEffect(() => {
     loadRuns();
     // Auto-refresh every 5 seconds
@@ -41,8 +75,9 @@ export default function Dashboard() {
 
   // Update default model when provider changes
   useEffect(() => {
-    if (provider === "ollama") setModel("llama3.2");
-    if (provider === "gemini") setModel("gemini-2.5-flash");
+    if (selectedProvider?.models.length > 0) {
+      setModel(selectedProvider.models[0].id);
+    }
   }, [provider]);
 
   const handleRun = async () => {
@@ -68,44 +103,42 @@ export default function Dashboard() {
 
         <div className="flex gap-4">
           <Button asChild variant="ghost" size="sm">
+            <Link href="/playground">Agent Playground</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
             <Link href="/vector">Vector Database</Link>
           </Button>
         </div>
 
         <div className="flex items-end gap-3">
-          <div className="grid w-[140px] gap-1.5">
+          <div className="grid w-[180px] gap-1.5">
             <Label htmlFor="provider" className="text-xs">Provider</Label>
             <Select value={provider} onValueChange={setProvider}>
               <SelectTrigger id="provider" className="h-9">
                 <SelectValue placeholder="Provider" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ollama">Ollama (Local)</SelectItem>
-                <SelectItem value="gemini">Gemini (Cloud)</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.display_name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
-          <div className="grid w-[180px] gap-1.5">
+          <div className="grid w-[200px] gap-1.5">
             <Label htmlFor="model" className="text-xs">Model</Label>
             <Select value={model} onValueChange={setModel}>
               <SelectTrigger id="model" className="h-9">
                 <SelectValue placeholder="Model" />
               </SelectTrigger>
               <SelectContent>
-                {provider === "ollama" ? (
-                  <>
-                    <SelectItem value="llama3.2">Llama 3.2</SelectItem>
-                    <SelectItem value="mistral">Mistral</SelectItem>
-                  </>
-                ) : (
-                  <>
-                    <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
-                    <SelectItem value="gemini-flash-latest">Gemini Flash Latest</SelectItem>
-                    <SelectItem value="gemini-3-flash-preview">Gemini 3.0 Flash Preview</SelectItem>
-                    <SelectItem value="gemini-3-pro-preview">Gemini 3.0 Pro Preview</SelectItem>
-                  </>
-                )}
+                {selectedProvider?.models.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.display_name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

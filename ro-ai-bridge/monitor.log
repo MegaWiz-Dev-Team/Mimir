@@ -1,0 +1,100 @@
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/ro_ai_bridge-01r24ekte08kc/s-hfy80wb6ay-1t0qi84-working`
+
+warning: unused import: `Context`
+ --> src/services/mcp_client.rs:1:22
+  |
+1 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `AtomicFact`, `CoverageReport`, `QAPair`, and `WikiChunk`
+ --> src/agents/wiki_workshop/indexer.rs:2:13
+  |
+2 | ...::{WikiChunk, QAPair, AtomicFact, CoverageReport};
+  |       ^^^^^^^^^  ^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused import: `rig::completion::Prompt`
+ --> src/agents/wiki_workshop/indexer.rs:5:5
+  |
+5 | use rig::completion::Prompt;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `chrono::Utc`
+  --> src/agents/wiki_workshop/indexer.rs:11:5
+   |
+11 | use chrono::Utc;
+   |     ^^^^^^^^^^^
+
+warning: unused imports: `AtomicFact` and `CoverageReport`
+ --> src/agents/wiki_workshop/pipeline.rs:3:32
+  |
+3 | ...r, AtomicFact, CoverageReport};
+  |       ^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused import: `warn`
+  --> src/agents/wiki_workshop/pipeline.rs:10:21
+   |
+10 | use tracing::{info, warn, e...
+   |                     ^^^^
+
+warning: unused import: `uuid::Uuid`
+  --> src/agents/wiki_workshop/pipeline.rs:11:5
+   |
+11 | use uuid::Uuid;
+   |     ^^^^^^^^^^
+
+warning: field `uri` is never read
+  --> src/services/mcp_client.rs:18:5
+   |
+17 | struct SseEndpointEvent {
+   |        ---------------- field in this struct
+18 |     uri: String,
+   |     ^^^
+   |
+   = note: `SseEndpointEvent` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `id` is never read
+  --> src/services/mcp_client.rs:33:5
+   |
+30 | struct JsonRpcResponse {
+   |        --------------- field in this struct
+...
+33 |     id: u64,
+   |     ^^
+   |
+   = note: `JsonRpcResponse` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: `ro-ai-bridge` (lib) generated 10 warnings (run `cargo fix --lib -p ro-ai-bridge` to apply 7 suggestions)
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/monitor-06508sfbk5rru/s-hfy89htg1n-0h3fzo5-working`
+
+warning: field `session_id` is never read
+  --> src/bin/monitor.rs:55:5
+   |
+47 | struct ChatRequest {
+   |        ----------- field in this struct
+...
+55 |     session_id: Option<String>,
+   |     ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `ro-ai-bridge` (bin "monitor") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.44s
+     Running `target/debug/monitor`
+[2m2026-02-19T16:24:54.633652Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:mimir_password@localhost:3306/ro_landverse
+[2m2026-02-19T16:24:55.062905Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m ✅ Database migrations applied
+[2m2026-02-19T16:24:55.213828Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
+[2m2026-02-19T16:27:09.276973Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 💬 Received streaming chat request: tier=2, persona=sage_ariel, provider=gemini, model=gemini-2.5-flash, message=สวัสดี
+[2m2026-02-19T16:27:11.211225Z[0m [33m WARN[0m [2mro_ai_bridge::agents::oracle_rag[0m[2m:[0m Game data search failed: Failed to search vectors: {"status":{"error":"Not found: Collection `game_data` doesn't exist!"},"time":0.000022125}
+[2m2026-02-19T16:27:13.050313Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 399
+Cached content token count: n/a
+Candidates token count: 118
+Total token count: 609
+[2m2026-02-19T16:29:42.651976Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 💬 Received streaming chat request: tier=2, persona=sage_ariel, provider=gemini, model=gemini-2.5-flash, message=สวัสดี ragnarok มีกี่ version
+[2m2026-02-19T16:29:44.924303Z[0m [33m WARN[0m [2mro_ai_bridge::agents::oracle_rag[0m[2m:[0m Game data search failed: Failed to search vectors: {"status":{"error":"Not found: Collection `game_data` doesn't exist!"},"time":6.917e-6}
+[2m2026-02-19T16:29:50.776819Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 448
+Cached content token count: n/a
+Candidates token count: 818
+Total token count: 1474

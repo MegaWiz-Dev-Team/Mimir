@@ -2,6 +2,8 @@ import { PipelineRun, RunDetails, QAResult, EvaluationReport } from "@/types/pip
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
+// ─── Pipeline API ───────────────────────────────────────────────────────────
+
 export async function fetchRuns(): Promise<PipelineRun[]> {
     const res = await fetch(`${API_BASE_URL}/pipeline/runs`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch runs");
@@ -46,6 +48,16 @@ export async function retryStep(stepId: number) {
     return res;
 }
 
+export async function resumeRun(id: string) {
+    const res = await fetch(`${API_BASE_URL}/pipeline/runs/${id}/resume`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to resume run");
+    return res;
+}
+
+// ─── Vector API ──────────────────────────────────────────────────────────────
+
 export async function fetchVectorStats() {
     const res = await fetch(`${API_BASE_URL}/vector/stats`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch vector stats");
@@ -60,7 +72,6 @@ export async function triggerIndexing() {
     return res;
 }
 
-
 export async function searchVectors(query: string, limit: number = 5) {
     const res = await fetch(`${API_BASE_URL}/vector/search`, {
         method: "POST",
@@ -71,10 +82,276 @@ export async function searchVectors(query: string, limit: number = 5) {
     return res.json();
 }
 
-export async function resumeRun(id: string) {
-    const res = await fetch(`${API_BASE_URL}/pipeline/runs/${id}/resume`, {
+// ─── Agent Chat API ──────────────────────────────────────────────────────────
+
+export interface ChatRequest {
+    tier: 1 | 2;
+    message: string;
+    persona: string;
+    session_id?: string;
+    provider?: string;  // Dynamic provider from database (ollama, google, etc.)
+    model?: string;
+}
+
+export interface SourceCitation {
+    source_type: string;
+    source_id: string;
+    relevance: number;
+    snippet: string;
+}
+
+export interface ChatResponse {
+    content: string;
+    tier: number;
+    persona: string;
+    latency_ms: number;
+    provider: string;
+    model: string;
+    confidence_score?: number;
+    confidence_level?: string;
+    sources?: SourceCitation[];
+    tools_used?: string[];
+}
+
+export interface StreamToken {
+    token: string;
+}
+
+export interface StreamDone {
+    latency_ms: number;
+    confidence_score?: number;
+    confidence_level?: string;
+    sources?: SourceCitation[];
+}
+
+export interface Persona {
+    name: string;
+    display_name: string;
+    tier: number;
+    description: string;
+    greeting: string;
+    traits: string[];
+}
+
+export interface ModelConfig {
+    model_id: string;
+    provider: string;
+    model_type: string;
+    is_active: boolean;
+    capabilities?: Record<string, boolean>;
+    metadata?: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface LlmProvider {
+    id: string;
+    display_name: string;
+    description: string;
+    models: LlmModel[];
+    requires_api_key: boolean;
+}
+
+export interface LlmModel {
+    id: string;
+    display_name: string;
+    description: string;
+    capabilities?: Record<string, boolean>;
+}
+
+/// Fetch available models from the database
+export async function fetchModels(): Promise<ModelConfig[]> {
+    const res = await fetch(`${API_BASE_URL}/models`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch models");
+    return res.json();
+}
+
+/// Convert database models to provider format for UI
+export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
+    const providerMap = new Map<string, LlmProvider>();
+
+    // Define provider metadata
+    const providerMeta: Record<string, { display_name: string; description: string; requires_api_key: boolean }> = {
+        ollama: { display_name: "Ollama (Local)", description: "Run models locally with Ollama", requires_api_key: false },
+        google: { display_name: "Google Gemini (Cloud)", description: "Google's Gemini models via API", requires_api_key: true },
+        openai: { display_name: "OpenAI (Cloud)", description: "OpenAI GPT models via API", requires_api_key: true },
+        azure: { display_name: "Azure OpenAI", description: "Azure OpenAI models", requires_api_key: true },
+    };
+
+    for (const model of models) {
+        const providerId = model.provider;
+
+        if (!providerMap.has(providerId)) {
+            const meta = providerMeta[providerId] || {
+                display_name: providerId.charAt(0).toUpperCase() + providerId.slice(1),
+                description: `${providerId} models`,
+                requires_api_key: providerId !== "ollama"
+            };
+            providerMap.set(providerId, {
+                id: providerId,
+                display_name: meta.display_name,
+                description: meta.description,
+                requires_api_key: meta.requires_api_key,
+                models: [],
+            });
+        }
+
+        const provider = providerMap.get(providerId)!;
+        provider.models.push({
+            id: model.model_id,
+            display_name: model.model_id,
+            description: model.capabilities?.tools ? "Supports tools" : "Standard model",
+            capabilities: model.capabilities,
+        });
+    }
+
+    return Array.from(providerMap.values());
+}
+
+/// Available personas (static list matching backend configs)
+export const PERSONAS: Persona[] = [
+    {
+        name: "sage_ariel",
+        display_name: "Sage Ariel",
+        tier: 2,
+        description: "Scholar who explains in detail",
+        greeting: "Welcome, seeker of knowledge. I am Sage Ariel, keeper of the Prontera Library. What mysteries of Midgard shall we explore together today?",
+        traits: ["wise", "calm", "helpful", "scholarly", "thorough"],
+    },
+    {
+        name: "fortune_teller",
+        display_name: "Fortune Teller Maya",
+        tier: 2,
+        description: "Mysterious seer, speaks in riddles",
+        greeting: "The stars have foretold your coming, traveler... Come, let the cards reveal your destiny...",
+        traits: ["mysterious", "cryptic", "enigmatic", "prophetic"],
+    },
+    {
+        name: "blacksmith",
+        display_name: "Blacksmith Grumm",
+        tier: 2,
+        description: "Gruff dwarf, speaks plainly",
+        greeting: "Hmph. Another adventurer. What d'ye need? Weapons? Armor? Speak up, I haven't got all day.",
+        traits: ["gruff", "straightforward", "practical", "knowledgeable"],
+    },
+];
+
+/// Fallback providers when database is not available
+export const PROVIDERS: LlmProvider[] = [
+    {
+        id: "ollama",
+        display_name: "Ollama (Local)",
+        description: "Run models locally with Ollama",
+        requires_api_key: false,
+        models: [
+            { id: "llama3.2", display_name: "Llama 3.2", description: "Fast and capable, recommended for most tasks" },
+            { id: "llama3.1", display_name: "Llama 3.1", description: "Larger context window, good for complex RAG" },
+            { id: "mistral", display_name: "Mistral", description: "Efficient and fast" },
+            { id: "qwen2.5", display_name: "Qwen 2.5", description: "Strong multilingual support" },
+        ],
+    },
+    {
+        id: "google",
+        display_name: "Google Gemini (Cloud)",
+        description: "Google's Gemini models via API",
+        requires_api_key: true,
+        models: [
+            { id: "gemini-2.0-flash", display_name: "Gemini 2.0 Flash", description: "Fast and efficient, recommended" },
+            { id: "gemini-2.5-flash", display_name: "Gemini 2.5 Flash", description: "Latest flash model, best balance" },
+            { id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro", description: "Most capable, large context" },
+        ],
+    },
+];
+
+/// Send a chat message and get a response
+export async function sendChat(request: ChatRequest): Promise<ChatResponse> {
+    const res = await fetch(`${API_BASE_URL}/agents/chat`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
     });
-    if (!res.ok) throw new Error("Failed to resume run");
-    return res;
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(error.error || "Failed to send chat");
+    }
+    return res.json();
+}
+
+/// Stream a chat message using SSE
+export function streamChat(
+    request: ChatRequest,
+    onToken: (token: string) => void,
+    onDone: (metadata: StreamDone) => void,
+    onError: (error: string) => void
+): () => void {
+    const controller = new AbortController();
+
+    fetch(`${API_BASE_URL}/agents/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+    })
+        .then(async (response) => {
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ error: "Unknown error" }));
+                throw new Error(error.error || "Failed to stream chat");
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error("No response body");
+
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Parse SSE events
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (line.startsWith("event:")) {
+                        // Next line contains data
+                        continue;
+                    }
+                    if (line.startsWith("data:")) {
+                        const data = line.slice(5).trim();
+                        if (!data) continue;
+
+                        try {
+                            const event = JSON.parse(data);
+
+                            if (event.token) {
+                                onToken(event.token);
+                            } else if (event.latency_ms !== undefined) {
+                                // Done event
+                                onDone({
+                                    latency_ms: event.latency_ms,
+                                    confidence_score: event.confidence_score,
+                                    confidence_level: event.confidence_level,
+                                    sources: event.sources,
+                                });
+                            } else if (event.error) {
+                                onError(event.error);
+                            }
+                        } catch {
+                            // Ignore parse errors
+                        }
+                    }
+                }
+            }
+        })
+        .catch((error) => {
+            if (error.name !== "AbortError") {
+                onError(error.message);
+            }
+        });
+
+    // Return cleanup function
+    return () => controller.abort();
 }
