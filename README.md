@@ -14,6 +14,10 @@ Project-Mimir คือระบบ AI Middleware ที่ออกแบบม
 - **🔮 Oracle RAG Bot:** ระบบถาม-ตอบข้อมูลเกมอัจฉริยะ (Retrieval-Augmented Generation) ที่ดึงข้อมูลจาก Wiki และ Game Database
 - **🤖 AI Game Master:** ผู้ดูแลเซิร์ฟเวอร์ 24/7 ทำหน้าที่ตรวจจับพฤติกรรมผิดปกติ และสร้าง Event อัตโนมัติ
 
+## 📊 Presentation & Pitch
+
+- **[Sales Deck: Project Mimir - AI-Native Evolution](https://docs.google.com/presentation/d/18Y9XRoT494pGA0wvd6oSRKrkrX8f9205RjT4a7R4nn8/edit?slide=id.SLIDES_API1144777460_45#slide=id.SLIDES_API1144777460_45)**
+
 ## 🛠 Technology Stack
 
 - **Server Emulator:** [rAthena](https://github.com/rathena/rathena) (C++)
