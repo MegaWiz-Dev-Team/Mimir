@@ -46,6 +46,13 @@
   - Streaming response display
   - Source citation panel (สำหรับ Tier 2)
 
+### Checklist 2.1
+- [ ] Implement Tier 1 Agent (`simple_npc.rs`)
+- [ ] Implement Tier 2 Agent (`oracle_rag.rs`)
+- [ ] Update Monitor Service SSE Streaming
+- [ ] Create Persona YAML files
+- [ ] Build Playground UI
+
 ---
 
 ## Sprint 2.2 — Safety Filter + Cloud Fallback (สัปดาห์ 8-10)
@@ -67,8 +74,12 @@
 - Daily spending limit ($5/day) + Kill switch
 - Track usage per provider per day
 
-#### Verification
-- Red-team testing: ลอง Prompt Injection 20+ patterns, target block rate > 95%
+### Checklist 2.2
+- [ ] Implement `safety_filter.rs`
+- [ ] Implement `provider_chain.rs` (Local + Cloud)
+- [ ] Implement `privacy_guard.rs` (PII Scrubbing)
+- [ ] Implement `cost_tracker.rs` with $5 limit
+- [ ] Red-team testing (Injection Patterns)
 
 ---
 
@@ -89,6 +100,13 @@
 - ตรวจสอบ `ai_economy_daily` + `ai_player_daily_limits` ก่อนทำ Action
 - Integrate Tools เข้ากับ Agent ทั้ง Tier 1 และ Tier 2
 
+### Checklist 2.3
+- [ ] Implement `heal_tool.rs`
+- [ ] Implement `buff_tool.rs`
+- [ ] Implement `give_item_tool.rs`
+- [ ] Implement `economy_limiter.rs`
+- [ ] Integrate Tools with Agents
+
 ---
 
 ## Sprint 2.4 — Advanced RAG Optimization (สัปดาห์ 12-13)
@@ -105,16 +123,21 @@
 - รับ Candidates → Rerank → Return Top-K
 - Integrate เข้ากับ Oracle Agent (Tier 2)
 
+### Checklist 2.4
+- [ ] Optimize `qdrant.rs` for Hybrid Search
+- [ ] Setup Reranker on Ollama
+- [ ] Integrate Reranker with Oracle Agent
+
 ---
 
 ## 🚦 Phase 2 Gate Criteria
 
 > **ต้องผ่านก่อนไป Phase 3:**
-> - [ ] NPC Chat ตอบ ≤ 2 วินาที (P95)
-> - [ ] Oracle ตอบถูกต้อง > 85% จาก test set (10 คำถาม)
-> - [ ] Safety Filter บล็อก Prompt Injection ได้ > 95%
-> - [ ] Economy Limits ทำงานถูกต้อง 100%
-> - [ ] Action Audit Trail บันทึกครบทุก Action
+- [ ] **NPC Chat Latency**: ตอบ ≤ 2 วินาที (P95)
+- [ ] **Oracle Accuracy**: ตอบถูกต้อง > 85% จาก test set
+- [ ] **Safety Filter**: บล็อก Prompt Injection ได้ > 95%
+- [ ] **Economy Logic**: ทำงานถูกต้อง 100%
+- [ ] **Audit Trail**: บันทึก Action ครบถ้วน
 
 > [!WARNING]
 > **Latency Risk**: ปัจจุบัน Ollama บน M3 ยังตอบ ~8s ต้องทดลอง Model ที่เล็กลง (เช่น Llama 3.2-1B/3B) หรือใช้ Speculative Decoding เพื่อให้ผ่าน Gate ข้อแรก
