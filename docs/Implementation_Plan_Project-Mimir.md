@@ -143,82 +143,63 @@ ro-ai-bridge/
 
 **เป้าหมาย:** Module A (NPC Chat) + Module B (Oracle RAG Bot) + Safety Filter ทำงานได้ครบ
 
-### Sprint 2.1 — Tier 1 & Tier 2: Agent Chat Testing (สัปดาห์ 6-8)
+> [!NOTE]
+> ดูรายละเอียดเพิ่มเติมที่ [Implementation Plan Phase 2](docs/Implementation_Plan_Phase_2_Agent_Chat.md)
 
-**เป้าหมาย:** สร้าง Agent และหน้าจอ Playground สำหรับทดสอบบน Dashboard
+### Sprint 2.1 — Agent Chat + Playground (สัปดาห์ 6-8)
 
-#### [NEW] `src/agents/simple_npc.rs`
-#### [NEW] `src/agents/oracle_rag.rs`
-#### [NEW] `ro-ai-dashboard/src/app/playground/page.tsx`
+**เป้าหมาย:** สร้าง Agent ทั้ง 2 Tier พร้อม Playground บน Dashboard
+
+#### [NEW] `src/agents/simple_npc.rs` — Tier 1 Agent (System prompt based)
+#### [NEW] `src/agents/oracle_rag.rs` — Tier 2 Agent (RAG + Custom Tools)
+#### [NEW] `config/personas/*.yaml` — Persona YAML Configs
+#### [NEW] `ro-ai-dashboard/src/app/playground/page.tsx` — Chat UI
 
 **Tasks:**
-- [ ] **SimpleAgent**: Implement Tier 1 NPC Agent (System prompt based)
-- [ ] **OracleAgent**: Implement Tier 2 RAG Agent (Qdrant based)
+- [ ] **SimpleAgent**: Implement Tier 1 NPC Agent (Completion + Persona)
+- [ ] **OracleAgent**: Implement Tier 2 RAG Agent (Qdrant + Custom DB Tools)
 - [ ] **Chat API**: Expose `POST /api/agents/chat` in `monitor.rs`
-- [ ] **Agent Playground**: Implement interactive chat UI in Dashboard
-- [ ] **Personas**: Prepare initial persona YAML configs (Sage Ariel, etc.)
-- [ ] Implement Response Streaming (ส่งทีละ token)
+- [ ] **Response Streaming**: SSE (Server-Sent Events) ส่ง token ทีละตัว
+- [ ] **Agent Playground**: Interactive chat UI with Tier/Persona selection
+- [ ] **Personas**: Prepare YAML configs (Sage Ariel, Fortune Teller, Blacksmith)
 
-### Sprint 2.2 — Tier 2: Oracle RAG Agent (สัปดาห์ 8-10)
-
-#### [NEW] `src/agents/tier2_rag.rs`
-#### [NEW] `src/routes/oracle.rs`
-#### [NEW] `src/tools/query_mob_tool.rs`
-#### [NEW] `src/tools/query_item_tool.rs`
-
-**Tasks:**
-- [ ] สร้าง Oracle Agent ด้วย Rig RAG Pipeline + rig-qdrant
-- [ ] Implement Custom Tools: `QueryMobDbTool`, `QueryItemDbTool`
-- [ ] Implement `POST /api/v1/oracle/query` endpoint
-- [ ] สร้าง Confidence score + Source citation ใน response
-- [ ] ทดสอบ: ค้นข้อมูลเกม 10 คำถาม, accuracy > 85%, ≤ 5 วินาที
-
-### Sprint 2.3 — Safety Filter + Cloud Fallback (สัปดาห์ 10-12)
+### Sprint 2.2 — Safety Filter + Cloud Fallback (สัปดาห์ 8-10)
 
 #### [NEW] `src/middleware/safety_filter.rs`
 #### [NEW] `src/services/provider_chain.rs`
 #### [NEW] `src/services/privacy_guard.rs`
 #### [NEW] `src/services/cost_tracker.rs`
-#### [NEW] `config/cloud_limits.yaml`
 
 **Tasks:**
 - [ ] Implement Pre-Filter: คำหยาบ, URL/Phone pattern, Toxicity score
 - [ ] Implement Post-Filter: ตรวจ Action validity, ความยาว, หลุดบทบาท
-- [ ] **[Cloud]** Implement Provider Chain: Local (Primary) → Cloud (Fallback)
-- [ ] **[Cloud]** Implement Privacy Guard: Scrub PII (Player ID, IP) before sending to Cloud
+- [ ] **[Cloud]** Implement Provider Chain: Local → Cloud Fallback
+- [ ] **[Cloud]** Implement Privacy Guard: Scrub PII before Cloud
 - [ ] **[Cloud]** Implement Cost Tracker: Daily limit ($5/day) + Kill switch
-- [ ] Implement Economy Limiter endpoint
-- [ ] Red-team testing: ลอง Prompt Injection 20+ patterns
+- [ ] Red-team testing: 20+ Prompt Injection patterns (target > 95% block)
 
-### Sprint 2.4 — Game Action Tools (สัปดาห์ 10-12, พร้อมกับ 2.3)
+### Sprint 2.3 — Game Action Tools (สัปดาห์ 10-12)
 
 #### [NEW] `src/tools/heal_tool.rs`
 #### [NEW] `src/tools/buff_tool.rs`
 #### [NEW] `src/tools/give_item_tool.rs`
 
 **Tasks:**
-- [ ] Implement HealTool (Rig Tool trait + Daily limit check + Audit log)
-- [ ] Implement BuffTool (ระยะเวลา buff สูงสุด 5 นาที)
+- [ ] Implement HealTool (Rig Tool trait + Daily limit + Audit log)
+- [ ] Implement BuffTool (buff สูงสุด 5 นาที)
 - [ ] Implement GiveItemTool (Whitelist items per NPC, block MVP cards)
-- [ ] Integrate Tools เข้ากับ Tier 1 Agent (NPC ที่มี allowed_actions)
-- [ ] Integrate Tools เข้ากับ Tier 2 Agent (Oracle + Homunculus)
+- [ ] Implement Economy Limiter (ตรวจ `ai_economy_daily` + `ai_player_daily_limits`)
+- [ ] Integrate Tools เข้ากับ Agent ทั้ง Tier 1 และ Tier 2
 
-### Sprint 2.5 — Advanced RAG Optimization (สัปดาห์ 12-13)
+### Sprint 2.4 — Advanced RAG Optimization (สัปดาห์ 12-13)
 
-**เป้าหมาย:** เพิ่มความแม่นยำด้วย Hybrid Search และ Reranking (จาก Research Dual-Path Strategy)
-
-#### [NEW] `src/db/qdrant_hybrid.rs`
+#### [MODIFY] `src/services/qdrant.rs` — Hybrid Search
 #### [NEW] `src/services/reranker.rs`
 
 **Tasks:**
-- [ ] **Hybrid Search:**
-    - [ ] Update Qdrant Schema ให้รองรับ Sparse Vector (BM25)
-    - [ ] Implement Tokenizer สำหรับสร้าง Sparse Vector ใน Rust
-    - [ ] ปรับ Query Logic: `Score = (Dense * 0.7) + (Sparse * 0.3)`
-- [ ] **Reranking:**
-    - [ ] Setup `bge-reranker-v2-m3` (หรือรุ่นเล็กกว่า) บน Ollama/Local
-    - [ ] Implement Reranker Service: รับ Candidates (QA + Lore) → ให้คะแนน → Sort
-    - [ ] Integrate เข้ากับ Oracle Agent (Tier 2)
+- [ ] **Hybrid Search:** Dense + Sparse Vector, Score = (Dense * 0.7) + (Sparse * 0.3)
+- [ ] **Reranking:** Setup `bge-reranker-v2-m3` → Candidates → Rerank → Top-K
+- [ ] Integrate เข้ากับ Oracle Agent (Tier 2)
 
 ### 🚦 Phase 2 Gate
 
@@ -228,6 +209,7 @@ ro-ai-bridge/
 > - [ ] Safety Filter บล็อก Prompt Injection ได้ > 95%
 > - [ ] Economy Limits ทำงานถูกต้อง 100%
 > - [ ] Action Audit Trail บันทึกครบทุก Action
+
 
 ---
 

@@ -1,0 +1,12 @@
+Tables_in_ro_landverse
+_sqlx_migrations
+ai_action_log
+ai_chat_message
+ai_chat_session
+ai_economy_daily
+ai_npc_persona
+ai_player_daily_limits
+evaluation_reports
+pipeline_runs
+pipeline_steps
+qa_results

@@ -62,6 +62,8 @@ services:
       - ./rathena/db:/app/db
       - ./rathena/npc:/app/npc
       - ./rathena/log:/app/log
+    ports:
+      - "6900:6900"
     restart: always
 
   rathena-char:
@@ -77,6 +79,8 @@ services:
       - ./rathena/db:/app/db
       - ./rathena/npc:/app/npc
       - ./rathena/log:/app/log
+    ports:
+      - "6121:6121"
     restart: always
 
   rathena-map:
@@ -92,6 +96,8 @@ services:
       - ./rathena/db:/app/db
       - ./rathena/npc:/app/npc
       - ./rathena/log:/app/log
+    ports:
+      - "5121:5121"
     restart: always
 
 volumes:
