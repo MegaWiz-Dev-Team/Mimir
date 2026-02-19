@@ -45,6 +45,16 @@ The administrative interface for **Project Mimir**. This dashboard provides real
     npm run start
     ```
 
+## 🗺 Pages & Routes
+
+| Route         | Page                   | Description                                                                                                                            |
+| ------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`           | **Pipeline Monitor**   | Main dashboard — view all pipeline runs, trigger new runs, select LLM provider/model                                                   |
+| `/runs/:id`   | **Run Details**        | Detailed view of a specific pipeline run with live status diagram, steps table, resume/retry controls                                  |
+| `/steps/:id`  | **Step Details (Q/A)** | View generated Q/A pairs and evaluation report (coverage score, atomic facts, missing facts)                                           |
+| `/playground` | **Agent Playground**   | Interactive chat with NPC agents — select persona, tier (Simple/RAG), provider, model, and streaming mode. Supports markdown rendering |
+| `/vector`     | **Vector Database**    | Qdrant collection management — sync metrics, search preview, indexing controls                                                         |
+
 ## 🏗 Technology Stack
 
 - **Framework**: [Next.js 15](https://nextjs.org) (App Router)

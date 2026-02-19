@@ -47,7 +47,11 @@ graph TB
         end
     end
 
-    subgraph "LLM Server (Ollama)"
+    subgraph "Cloud LLM (Fallback / High-Logic)"
+        GEMINI["Google Gemini API<br/>(Gemini 3 Pro / 2.5 Flash)"]
+    end
+
+    subgraph "LLM Server (Ollama - Local)"
         QWEN["Qwen 2.5 32B Q4"]
         MED["Meditron (Fallback)"]
     end
@@ -73,6 +77,7 @@ graph TB
     T3 --> QD
     T3 --> DB
     QWEN -.->|Primary Down| MED
+    MED -.->|Local Error| GEMINI
     GW --> RD
 ```
 
@@ -162,6 +167,22 @@ graph LR
 - ใช้ MLX ภายในสำหรับ Apple Silicon → ได้ GPU Acceleration เต็มที่
 - Hot-swap Model ได้ (เปลี่ยน Qwen → Meditron ทันที)
 - มี API มาตรฐาน → Rig integrate ได้เลย
+
+### 2.4 Cloud AI Models: Google Gemini API
+
+เมื่อ Local LLM (Ollama) ไม่สามารถตอบโจทย์ในเรื่องความฉลาดสูงสุด (Complex Reasoning) หรือกรณีระบบ Local ขัดข้อง ระบบจะสลับไปใช้ **Google Gemini API**
+
+| Model                | ใช้สำหรับ                                | จุดเด่น                                      |
+| -------------------- | ------------------------------------- | ------------------------------------------ |
+| **Gemini 3 Pro**     | High-logic, Complex Multimodal        | ฉลาดที่สุด (State-of-the-art), Reasoning สูงสุด |
+| **Gemini 3 Flash**   | Production Tier 1/2 Fallback          | เร็วมาก, ราคาประหยัด, ประสิทธิภาพระดับ Frontier |
+| **Gemini 2.5 Pro**   | Deep Reasoning / Coding / Audio Tasks | จัดการงานซับซ้อนและข้อมูลเสียงคุณภาพสูงได้ดี         |
+| **Gemini 2.5 Flash** | High-volume, Low-latency tasks        | สมดุลที่สุดระหว่างความเร็วและคุณภาพ               |
+
+**การเชื่อมต่อ:**
+- ใช้ **Rig API Key Provider** เชื่อมต่อโดยตรง
+- ประมวลผลแบบ Cloud-native ไม่กินทรัพยากร Mac mini
+- **Reference:** ข้อมูลโมเดลทั้งหมดอ้างอิงจาก [Gemini Models Documentation](https://ai.google.dev/gemini-api/docs/models)
 
 ### 🔧 ตัวอย่างโค้ด: Tier 1 — NPC Chat Agent
 
@@ -446,19 +467,20 @@ Action: [Heal ผู้เล่น]
 
 **ตารางที่เพิ่มใหม่ (ไม่แตะตาราง rAthena เดิม):**
 
-| ตาราง                    | หน้าที่                   | ข้อมูลสำคัญ                                      |
-| ------------------------ | ---------------------- | -------------------------------------------- |
-| `ai_npc_persona`         | เก็บบุคลิก NPC แต่ละตัว     | ชื่อ, นิสัย, ขอบเขตความรู้, Action ที่ทำได้            |
-| `ai_chat_session`        | เก็บบทสนทนาต่อเนื่อง       | ข้อความทั้งหมดในเซสชัน (ลบอัตโนมัติหลัง 30 วัน)       |
-| `ai_action_log`          | บันทึก Action ทุกอันที่ AI ทำ | ประเภท, ผู้รับ, สถานะ (อนุมัติ/ปฏิเสธ), เหตุผล       |
-| `ai_economy_daily`       | ติดตามลิมิตเศรษฐกิจรายวัน   | ยอด Zeny/Item ที่ AI ให้ไปแล้ววันนี้                |
-| `ai_player_daily_limits` | ลิมิตต่อผู้เล่นต่อวัน          | แต่ละคนได้ของจาก AI ไปเท่าไหร่แล้ว                |
-| `ai_gm_events`           | บันทึก Event ที่ AI สร้าง   | ประเภท Event, เหตุผล, จำนวนผู้เล่นตอนนั้น           |
-| `ai_bot_detection`       | บันทึกการตรวจจับ Bot      | คะแนนความสงสัย, พฤติกรรมผิดปกติ, สถานะการตรวจสอบ |
-| `pipeline_runs`          | บันทึกการรัน Pipeline     | Status, Provider, Model, Timestamps          |
-| `pipeline_steps`         | บันทึกขั้นตอนการประมวลผล   | Run ID, File Name, Status, Error Message     |
-| `qa_results`             | เก็บ Q/A ที่สร้างได้        | Question, Answer, Context                    |
-| `evaluation_reports`     | เก็บผลการประเมินคุณภาพ AI | Coverage Score, Atomic Facts, Reasoning      |
+| ตาราง                    | หน้าที่                     | ข้อมูลสำคัญ                                         |
+| ------------------------ | ------------------------ | ----------------------------------------------- |
+| `ai_npc_persona`         | เก็บบุคลิก NPC แต่ละตัว       | ชื่อ, นิสัย, ขอบเขตความรู้, Action ที่ทำได้, **model_id** |
+| `ai_models`              | รายการ AI Model ที่ใช้งานได้ | ID, Provider, Type, Capabilities, Metadata      |
+| `ai_chat_session`        | เก็บบทสนทนาต่อเนื่อง         | ข้อความทั้งหมดในเซสชัน (ลบอัตโนมัติหลัง 30 วัน)          |
+| `ai_action_log`          | บันทึก Action ทุกอันที่ AI ทำ   | ประเภท, ผู้รับ, สถานะ (อนุมัติ/ปฏิเสธ), เหตุผล          |
+| `ai_economy_daily`       | ติดตามลิมิตเศรษฐกิจรายวัน     | ยอด Zeny/Item ที่ AI ให้ไปแล้ววันนี้                   |
+| `ai_player_daily_limits` | ลิมิตต่อผู้เล่นต่อวัน            | แต่ละคนได้ของจาก AI ไปเท่าไหร่แล้ว                   |
+| `ai_gm_events`           | บันทึก Event ที่ AI สร้าง     | ประเภท Event, เหตุผล, จำนวนผู้เล่นตอนนั้น              |
+| `ai_bot_detection`       | บันทึกการตรวจจับ Bot        | คะแนนความสงสัย, พฤติกรรมผิดปกติ, สถานะการตรวจสอบ    |
+| `pipeline_runs`          | บันทึกการรัน Pipeline       | Status, Provider, Model, Timestamps             |
+| `pipeline_steps`         | บันทึกขั้นตอนการประมวลผล     | Run ID, File Name, Status, Error Message        |
+| `qa_results`             | เก็บ Q/A ที่สร้างได้          | Question, Answer, Context                       |
+| `evaluation_reports`     | เก็บผลการประเมินคุณภาพ AI   | Coverage Score, Atomic Facts, Reasoning         |
 
 ### 7.2 Qdrant Vector DB — ฐานความรู้ RAG
 
@@ -622,11 +644,12 @@ Internal SSD (512GB)              Samsung T7 Shield (2TB)
 
 | ระดับ             | สถานการณ์          | ระบบทำอะไร                      |
 | ---------------- | ----------------- | ------------------------------ |
-| **L0 ปกติ**       | ทุกอย่างทำงาน        | AI เต็มรูปแบบ                    |
+| **L0 ปกติ**       | ทุกอย่างทำงาน        | AI เต็มรูปแบบ (Local Qwen)       |
 | **L1 ช้า**        | LLM ตอบเกิน 3 วินาที | ปิด RAG, ใช้ Prompt สั้นลง         |
-| **L2 LLM หลักล่ม** | Qwen ไม่ตอบ        | สลับไปใช้ Meditron (สำรอง)        |
-| **L3 AI ล่มหมด**  | LLM ทั้งสองตัวไม่ทำงาน | ใช้ Script `mes` เดิมของ rAthena |
-| **L4 บำรุงรักษา**   | ปิดซ่อม/อัพเดท       | ประกาศล่วงหน้า + Static Mode     |
+| **L2 LLM หลักล่ม** | Qwen ไม่ตอบ        | สลับไปใช้ Meditron (Local)       |
+| **L3 Local ล่ม**  | Ollama ไม่ทำงาน     | **สลับไปใช้ Gemini 2.5/3 API**   |
+| **L4 AI ล่มหมด**  | อินเทอร์เน็ตหลุด      | ใช้ Script `mes` เดิมของ rAthena |
+| **L5 บำรุงรักษา**   | ปิดซ่อม/อัพเดท       | ประกาศล่วงหน้า + Static Mode     |
 
 **Circuit Breaker (ตัดวงจรอัตโนมัติ):**
 - ถ้า AI ล้มเหลวติดกัน 5 ครั้ง → หยุดส่ง Request ไป AI เลย (เปิดวงจร)

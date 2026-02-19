@@ -19,6 +19,7 @@
 | [01_08_Security_Evolution_Anti-Fraud_TH.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_08_Security_Evolution_Anti-Fraud_TH.md) | พัฒนาระบบ Anti-Fraud ด้วยแนวคิด "Offensive-Informed Defense"                                  | วิวัฒนาการความปลอดภัย (Security)     |
 | [01_09_Product_Roadmap_Project-Mimir_TH.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_09_Product_Roadmap_Project-Mimir_TH.md) | แผนงานพัฒนาผลิตภัณฑ์ (Product Roadmap) ระยะยาว Phase 1 - 4+                                    | การวางแผนกลยุทธ์ (Roadmap)          |
 | [01_10_Sales_Deck_Maxion_First_Call_TH.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_10_Sales_Deck_Maxion_First_Call_TH.md)   | เนื้อหา Slide สำหรับนำเสนอ Maxion (First Call)                                                  | ข้อมูลการนำเสนอ (Sales Deck)         |
+| [01_11_Gemini_Models_Overview.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/01_11_Gemini_Models_Overview.md)                     | ข้อมูลโมเดลในตระกูล Gemini รุ่นต่างๆ (Cloud API)                                                 | ข้อมูลอ้างอิง AI Model (Cloud)        |
 
 ---
 
@@ -43,15 +44,16 @@
 ## 🚀 3. Implementation Plans (แผนการดำเนินงานของแต่ละ Phase)
 แผนการทำงานจริงที่แบ่งเป็น Sprints และ Tasks
 
-| ไฟล์                                                                                                                                                                                     | สถานะ          | เนื้อหาหลัก                                            |
-| :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------- | :-------------------------------------------------- |
-| [03_01_Implementation_Plan_Project-Mimir.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_01_Implementation_Plan_Project-Mimir.md)             | ร่างแผน 5 Phase | Road Map องค์รวมของโปรเจกต์                           |
-| [03_02_Implementation_Plan_rAthena_Setup.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_02_Implementation_Plan_rAthena_Setup.md)             | ✅ เสร็จสิ้น       | การติดตั้ง rAthena Server บน Docker                    |
-| [03_03_Sprint_1.4_Cron_Integration_Plan.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_03_Sprint_1.4_Cron_Integration_Plan.md)               | ⏸️ พักไว้         | ระบบ Cron สำหรับ Sync ข้อมูลจาก MCP                     |
-| [03_04_Phase_1_Remaining_Tasks.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_04_Phase_1_Remaining_Tasks.md)                                 | ✅ เสร็จสิ้น       | งานที่ต้องทำเพื่อปิด Phase 1 (AI Tables, Ingestion)        |
-| [03_05_Implementation_Plan_AI_Tables_Ingestion.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_05_Implementation_Plan_AI_Tables_Ingestion.md) | ✅ เสร็จสิ้น       | การสร้างตาราง AI และ Ingestion Pipeline              |
-| [03_06_Implementation_Plan_Phase_1_Completion.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_06_Implementation_Plan_Phase_1_Completion.md)   | ✅ เสร็จสิ้น       | การทำ Vector Indexing และ Hybrid Search              |
-| [03_07_Implementation_Plan_Phase_2_Agent_Chat.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_07_Implementation_Plan_Phase_2_Agent_Chat.md)   | 🏗️ กำลังทำ         | ระบบ NPC Chat, Oracle Bot และ Play-to-Earn AI Logic |
+| ไฟล์                                                                                                                                                                                           | สถานะ          | เนื้อหาหลัก                                            |
+| :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------- | :-------------------------------------------------- |
+| [03_01_Implementation_Plan_Project-Mimir.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_01_Implementation_Plan_Project-Mimir.md)                   | ร่างแผน 5 Phase | Road Map องค์รวมของโปรเจกต์                           |
+| [03_02_Implementation_Plan_rAthena_Setup.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_02_Implementation_Plan_rAthena_Setup.md)                   | ✅ เสร็จสิ้น       | การติดตั้ง rAthena Server บน Docker                    |
+| [03_03_Sprint_1.4_Cron_Integration_Plan.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_03_Sprint_1.4_Cron_Integration_Plan.md)                     | ⏸️ พักไว้         | ระบบ Cron สำหรับ Sync ข้อมูลจาก MCP                     |
+| [03_04_Phase_1_Remaining_Tasks.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_04_Phase_1_Remaining_Tasks.md)                                       | ✅ เสร็จสิ้น       | งานที่ต้องทำเพื่อปิด Phase 1 (AI Tables, Ingestion)        |
+| [03_05_Implementation_Plan_AI_Tables_Ingestion.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_05_Implementation_Plan_AI_Tables_Ingestion.md)       | ✅ เสร็จสิ้น       | การสร้างตาราง AI และ Ingestion Pipeline              |
+| [03_06_Implementation_Plan_Phase_1_Completion.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_06_Implementation_Plan_Phase_1_Completion.md)         | ✅ เสร็จสิ้น       | การทำ Vector Indexing และ Hybrid Search              |
+| [03_07_Implementation_Plan_Phase_2_Agent_Chat.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_07_Implementation_Plan_Phase_2_Agent_Chat.md)         | 🏗️ กำลังทำ         | ระบบ NPC Chat, Oracle Bot และ Play-to-Earn AI Logic |
+| [03_08_Implementation_Plan_Model_Configuration_DB.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_08_Implementation_Plan_Model_Configuration_DB.md) | 🏗️ กำลังทำ         | การย้าย Model Configuration ไปเก็บใน MariaDB          |
 
 ---
 

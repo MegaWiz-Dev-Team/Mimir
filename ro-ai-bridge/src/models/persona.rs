@@ -9,6 +9,7 @@ pub struct Persona {
     pub name: String,
     pub display_name: String,
     pub tier: i8,
+    pub model_id: Option<String>,
     pub system_prompt: String,
     pub greeting: Option<String>,
     pub allowed_actions: Vec<String>,

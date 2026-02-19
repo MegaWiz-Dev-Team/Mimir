@@ -61,6 +61,7 @@ pub async fn run_indexer(
                                 "question": question,
                                 "answer": answer,
                                 "source": file_name,
+                                "source_id": file_name, // Add standard source_id field
                                 "chunk": chunk_index
                             }
                         }

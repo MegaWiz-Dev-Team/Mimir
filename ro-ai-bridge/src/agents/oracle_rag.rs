@@ -4,6 +4,7 @@
 //! - Retrieval Augmented Generation (RAG) from wiki_qa and game_data collections
 //! - Custom tools for direct rAthena database queries (mobs, items)
 //! - Confidence scoring and source citation in responses
+//! - Support for multiple LLM providers (Ollama local, Gemini cloud)
 //!
 //! ## Architecture
 //! ```text
@@ -15,13 +16,14 @@
 //!                                      ↓
 //!                              Context Assembly
 //!                                      ↓
-//!                              LLM Generation
+//!                              LLM Generation (Ollama/Gemini)
 //!                                      ↓
 //!                         Response + Confidence + Citations
 //! ```
 
 use anyhow::Result;
 use rig::providers::ollama;
+use rig::providers::gemini;
 use rig::completion::Prompt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -37,8 +39,48 @@ use sqlx::FromRow;
 /// Default model for Tier 2 (more capable for RAG tasks)
 const DEFAULT_MODEL: &str = "llama3.2";
 
+/// Default Gemini model
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
+
 /// Default timeout for completion requests (45 seconds for RAG operations)
 const DEFAULT_TIMEOUT_SECS: u64 = 45;
+
+// ─── LLM Provider ───────────────────────────────────────────────────────────
+
+/// Supported LLM providers
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmProvider {
+    Ollama,
+    Gemini,
+}
+
+impl Default for LlmProvider {
+    fn default() -> Self {
+        LlmProvider::Ollama
+    }
+}
+
+impl std::fmt::Display for LlmProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LlmProvider::Ollama => write!(f, "ollama"),
+            LlmProvider::Gemini => write!(f, "gemini"),
+        }
+    }
+}
+
+impl std::str::FromStr for LlmProvider {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "ollama" | "local" => Ok(LlmProvider::Ollama),
+            "gemini" | "google" => Ok(LlmProvider::Gemini),
+            _ => Err(format!("Unknown provider: {}", s))
+        }
+    }
+}
 
 /// Qdrant collection names
 pub const COLLECTION_WIKI_QA: &str = "wiki_qa";
@@ -491,6 +533,7 @@ impl RagRetriever {
                 
                 let source_id = payload
                     .and_then(|p| p.get("source_id"))
+                    .or_else(|| payload.and_then(|p| p.get("source"))) // Fallback for wiki indexer
                     .or_else(|| payload.and_then(|p| p.get("name")))
                     .or_else(|| payload.and_then(|p| p.get("id")))
                     .and_then(|v| v.as_str())
@@ -498,7 +541,8 @@ impl RagRetriever {
                     .to_string();
                 
                 let snippet = payload
-                    .and_then(|p| p.get("content"))
+                    .and_then(|p| p.get("answer")) // Prefer answer for Q/A
+                    .or_else(|| payload.and_then(|p| p.get("content")))
                     .or_else(|| payload.and_then(|p| p.get("text")))
                     .or_else(|| payload.and_then(|p| p.get("question")))
                     .and_then(|v| v.as_str())
@@ -527,28 +571,51 @@ impl RagRetriever {
 
 // ─── Oracle RAG Agent ──────────────────────────────────────────────────────
 
+/// Agent backend enum to support multiple LLM providers
+pub enum AgentBackend {
+    Ollama(rig::agent::Agent<ollama::CompletionModel>),
+    Gemini(rig::agent::Agent<gemini::completion::CompletionModel>),
+}
+
+impl AgentBackend {
+    /// Send a prompt to the underlying LLM
+    pub async fn prompt(&self, message: &str) -> Result<String> {
+        match self {
+            AgentBackend::Ollama(agent) => {
+                agent.prompt(message).await
+                    .map_err(|e| anyhow::anyhow!("Ollama prompt failed: {}", e))
+            }
+            AgentBackend::Gemini(agent) => {
+                agent.prompt(message).await
+                    .map_err(|e| anyhow::anyhow!("Gemini prompt failed: {}", e))
+            }
+        }
+    }
+}
+
 /// Oracle RAG Agent - Tier 2 NPC with RAG capabilities
 pub struct OracleRagAgent {
     pub persona: Persona,
+    pub provider: LlmProvider,
     pub model_name: String,
     pub timeout: Duration,
-    agent: rig::agent::Agent<ollama::CompletionModel>,
+    agent: AgentBackend,
     retriever: RagRetriever,
     mob_tool: Option<QueryMobDbTool>,
     item_tool: Option<QueryItemDbTool>,
 }
 
 impl OracleRagAgent {
-    /// Create a new OracleRagAgent with RAG capabilities
+    /// Create a new OracleRagAgent with RAG capabilities (default: Ollama)
     pub fn new(
         persona: Persona,
         qdrant: QdrantService,
         db_pool: Option<DbPool>,
     ) -> Self {
-        Self::with_options(persona, qdrant, db_pool, None, None)
+        Self::with_provider(persona, qdrant, db_pool, LlmProvider::Ollama, None, None)
     }
 
-    /// Create an OracleRagAgent with custom options
+    /// Create an OracleRagAgent with custom options (legacy, uses Ollama)
     pub fn with_options(
         persona: Persona,
         qdrant: QdrantService,
@@ -556,17 +623,45 @@ impl OracleRagAgent {
         model: Option<&str>,
         timeout: Option<Duration>,
     ) -> Self {
-        let client = ollama::Client::new();
-        
-        let model_name = model.unwrap_or(DEFAULT_MODEL).to_string();
+        Self::with_provider(persona, qdrant, db_pool, LlmProvider::Ollama, model, timeout)
+    }
+
+    /// Create an OracleRagAgent with a specific provider
+    pub fn with_provider(
+        persona: Persona,
+        qdrant: QdrantService,
+        db_pool: Option<DbPool>,
+        provider: LlmProvider,
+        model: Option<&str>,
+        timeout: Option<Duration>,
+    ) -> Self {
         let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
         
         // Build enhanced system prompt with RAG context instructions
         let enhanced_prompt = Self::build_enhanced_prompt(&persona);
         
-        let agent = client.agent(&model_name)
-            .preamble(&enhanced_prompt)
-            .build();
+        // Create agent based on provider
+        let (agent, model_name) = match provider {
+            LlmProvider::Ollama => {
+                let client = ollama::Client::new();
+                let model_name = model.unwrap_or(DEFAULT_MODEL).to_string();
+                let agent = client.agent(&model_name)
+                    .preamble(&enhanced_prompt)
+                    .build();
+                (AgentBackend::Ollama(agent), model_name)
+            }
+            LlmProvider::Gemini => {
+                let api_key = env::var("GEMINI_API_KEY")
+                    .or_else(|_| env::var("GOOGLE_API_KEY"))
+                    .expect("GEMINI_API_KEY or GOOGLE_API_KEY must be set for Gemini provider");
+                let client = gemini::Client::new(&api_key);
+                let model_name = model.unwrap_or(DEFAULT_GEMINI_MODEL).to_string();
+                let agent = client.agent(&model_name)
+                    .preamble(&enhanced_prompt)
+                    .build();
+                (AgentBackend::Gemini(agent), model_name)
+            }
+        };
         
         let retriever = RagRetriever::new(qdrant);
         
@@ -575,6 +670,7 @@ impl OracleRagAgent {
         
         Self {
             persona,
+            provider,
             model_name,
             timeout,
             agent,
@@ -629,14 +725,13 @@ You have access to a knowledge base containing:
             message
         );
         
-        // Step 4: Generate response
+        // Step 4: Generate response using the agent backend
         let response = tokio::time::timeout(
             self.timeout,
             self.agent.prompt(enhanced_message.as_str())
         )
         .await
-        .map_err(|_| anyhow::anyhow!("Request timeout after {}s", self.timeout.as_secs()))?
-        .map_err(|e| anyhow::anyhow!("Agent prompt failed: {}", e))?;
+        .map_err(|_| anyhow::anyhow!("Request timeout after {}s", self.timeout.as_secs()))??;
         
         let latency_ms = start.elapsed().as_millis() as u64;
         

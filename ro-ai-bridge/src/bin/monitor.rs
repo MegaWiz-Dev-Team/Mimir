@@ -20,7 +20,7 @@ use futures::stream::Stream;
 use ro_ai_bridge::services::qdrant::QdrantService;
 use ro_ai_bridge::agents::wiki_workshop::indexer::run_indexer;
 use ro_ai_bridge::agents::simple_npc::SimpleNpcAgent;
-use ro_ai_bridge::agents::oracle_rag::OracleRagAgent;
+use ro_ai_bridge::agents::oracle_rag::{OracleRagAgent, LlmProvider};
 use ro_ai_bridge::models::persona::Persona;
 use rig::providers::ollama;
 
@@ -53,6 +53,10 @@ struct ChatRequest {
     persona: String,
     /// Optional session ID for conversation continuity
     session_id: Option<String>,
+    /// Provider: "ollama" (local) or "gemini" (cloud)
+    provider: Option<String>,
+    /// Model name (e.g., "llama3.2", "gemini-2.5-flash")
+    model: Option<String>,
 }
 
 /// Chat response for non-streaming responses
@@ -62,6 +66,10 @@ struct ChatResponse {
     tier: i8,
     persona: String,
     latency_ms: u64,
+    /// Provider used for this response
+    provider: String,
+    /// Model used for this response
+    model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     confidence_score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,6 +128,10 @@ async fn main() -> Result<()> {
         // Agent chat endpoints
         .route("/api/agents/chat", post(chat_handler))
         .route("/api/agents/chat/stream", post(chat_stream_handler))
+        // Model config endpoints
+        .route("/api/models", get(models_handler))
+        // Wiki content endpoint
+        .route("/api/wiki/{filename}", get(get_wiki_content))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
@@ -438,6 +450,23 @@ async fn chat_handler(
 ) -> impl IntoResponse {
     let start = std::time::Instant::now();
     
+    // Parse provider (default to Ollama)
+    let provider = payload.provider.as_ref()
+        .and_then(|p| p.parse::<LlmProvider>().ok())
+        .unwrap_or(LlmProvider::Ollama);
+    
+    // Get model name based on provider
+    let model = payload.model.clone();
+    let model_name = model.clone().unwrap_or_else(|| {
+        match provider {
+            LlmProvider::Ollama => "llama3.2".to_string(),
+            LlmProvider::Gemini => "gemini-2.0-flash".to_string(),
+        }
+    });
+    
+    info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}", 
+          payload.tier, payload.persona, provider, model_name, payload.message);
+    
     // Load persona
     let persona = match Persona::load_by_name_cached(&payload.persona) {
         Ok(p) => p,
@@ -462,6 +491,8 @@ async fn chat_handler(
                         tier: 1,
                         persona: payload.persona,
                         latency_ms: start.elapsed().as_millis() as u64,
+                        provider: provider.to_string(),
+                        model: model_name,
                         confidence_score: None,
                         confidence_level: None,
                         sources: None,
@@ -478,11 +509,14 @@ async fn chat_handler(
             }
         }
         2 => {
-            // Tier 2: Oracle RAG
-            let agent = OracleRagAgent::new(
+            // Tier 2: Oracle RAG with provider support
+            let agent = OracleRagAgent::with_provider(
                 persona,
                 state.qdrant.clone(),
                 Some(state.db.clone()),
+                provider.clone(),
+                model.as_deref(),
+                None,
             );
             
             match agent.chat(&payload.message).await {
@@ -492,6 +526,8 @@ async fn chat_handler(
                         tier: 2,
                         persona: payload.persona,
                         latency_ms: response.latency_ms,
+                        provider: provider.to_string(),
+                        model: model_name,
                         confidence_score: Some(response.confidence_score),
                         confidence_level: Some(format!("{:?}", response.confidence_level)),
                         sources: Some(response.sources.iter().map(|s| {
@@ -528,6 +564,22 @@ async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ChatRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
+    // Parse provider (default to Ollama)
+    let provider = payload.provider.as_ref()
+        .and_then(|p| p.parse::<LlmProvider>().ok())
+        .unwrap_or(LlmProvider::Ollama);
+    
+    // Get model name based on provider
+    let model = payload.model.clone();
+    let model_name = model.clone().unwrap_or_else(|| {
+        match provider {
+            LlmProvider::Ollama => "llama3.2".to_string(),
+            LlmProvider::Gemini => "gemini-2.0-flash".to_string(),
+        }
+    });
+    
+    info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}", 
+          payload.tier, payload.persona, provider, model_name, payload.message);
     let (tx, rx) = mpsc::channel(100);
     let start = std::time::Instant::now();
     
@@ -594,8 +646,15 @@ async fn chat_stream_handler(
                 }
             }
             2 => {
-                // Tier 2: Oracle RAG
-                let agent = OracleRagAgent::new(persona, qdrant, Some(db));
+                // Tier 2: Oracle RAG with provider support
+                let agent = OracleRagAgent::with_provider(
+                    persona, 
+                    qdrant, 
+                    Some(db),
+                    provider.clone(),
+                    model.as_deref(),
+                    None,
+                );
                 
                 match agent.chat(&message).await {
                     Ok(response) => {
@@ -648,4 +707,43 @@ async fn chat_stream_handler(
     
     // Return SSE stream
     Sse::new(ReceiverStream::new(rx))
+}
+
+// ─── Model Config API ────────────────────────────────────────────────────────
+
+/// Get available LLM models from the database
+async fn models_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match ro_ai_bridge::services::db::get_active_llm_models(&state.db).await {
+        Ok(models) => Json(models).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Failed to fetch models: {}", e)}))
+        ).into_response()
+    }
+}
+
+// ─── Wiki Content API ────────────────────────────────────────────────────────
+
+/// Get wiki content by filename
+async fn get_wiki_content(
+    Path(filename): Path<String>,
+) -> impl IntoResponse {
+    // Safety check: only allow alphanum, dots, underscores and hyphens
+    if !filename.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-') {
+        return (StatusCode::BAD_REQUEST, "Invalid filename").into_response();
+    }
+
+    // Safety check: only .md files
+    if !filename.ends_with(".md") {
+        return (StatusCode::BAD_REQUEST, "Only .md files allowed").into_response();
+    }
+
+    let path = std::path::Path::new("data/wiki").join(filename);
+    
+    match tokio::fs::read_to_string(path).await {
+        Ok(content) => content.into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Wiki file not found").into_response(),
+    }
 }
