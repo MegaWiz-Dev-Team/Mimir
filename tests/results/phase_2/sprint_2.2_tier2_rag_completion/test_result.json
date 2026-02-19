@@ -1,5 +1,5 @@
 {
-    "test_date": "2026-02-19T10:05:00Z",
+    "test_date": "2026-02-19T10:17:00Z",
     "feature": "Tier 2 RAG Agent with rig-core + Qdrant",
     "description": "RAG-enabled NPC with knowledge base retrieval from wiki_qa + game_data collections, plus direct rAthena DB queries for mobs and items",
     "tests": {
@@ -13,7 +13,8 @@
             "total": 6,
             "passed": 6,
             "failed": 0
-        }
+        },
+        "test_output": "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.05s"
     },
     "build_status": "SUCCESS",
     "compilation_warnings": 0,
@@ -57,11 +58,56 @@
         "ro-ai-bridge/src/agents/mod.rs (added oracle_rag module)",
         "ro-ai-bridge/src/bin/monitor.rs (added chat endpoints)",
         "ro-ai-bridge/src/services/qdrant.rs (added Clone derive)",
-        "ro-ai-bridge/Cargo.toml (added tokio-stream dependency)"
+        "ro-ai-bridge/Cargo.toml (added tokio-stream dependency)",
+        "ro-ai-bridge/config/personas/sage_ariel.yaml (upgraded to tier 2)"
     ],
     "files_added": [
-        "ro-ai-bridge/src/agents/oracle_rag.rs (Tier 2 RAG Agent)"
+        "ro-ai-bridge/src/agents/oracle_rag.rs (Tier 2 RAG Agent)",
+        "ro-ai-bridge/config/personas/fortune_teller.yaml (Tier 2 persona)",
+        "ro-ai-bridge/config/personas/blacksmith.yaml (Tier 2 persona)"
     ],
+    "personas": {
+        "sage_ariel": {
+            "tier": 2,
+            "display_name": "Sage Ariel",
+            "description": "Scholar who explains in detail",
+            "location": "Prontera Library",
+            "traits": [
+                "wise",
+                "calm",
+                "helpful",
+                "scholarly",
+                "thorough"
+            ],
+            "greeting": "Welcome, seeker of knowledge. I am Sage Ariel, keeper of the Prontera Library. What mysteries of Midgard shall we explore together today?"
+        },
+        "fortune_teller": {
+            "tier": 2,
+            "display_name": "Fortune Teller Maya",
+            "description": "Mysterious seer, speaks in riddles",
+            "location": "Outskirts of Prontera",
+            "traits": [
+                "mysterious",
+                "cryptic",
+                "enigmatic",
+                "prophetic"
+            ],
+            "greeting": "The stars have foretold your coming, traveler... Come, let the cards reveal your destiny..."
+        },
+        "blacksmith": {
+            "tier": 2,
+            "display_name": "Blacksmith Grumm",
+            "description": "Gruff dwarf, speaks plainly",
+            "location": "Geffen Blacksmith District",
+            "traits": [
+                "gruff",
+                "straightforward",
+                "practical",
+                "knowledgeable"
+            ],
+            "greeting": "Hmph. Another adventurer. What d'ye need? Weapons? Armor? Speak up, I haven't got all day."
+        }
+    },
     "components": {
         "oracle_rag_agent": {
             "struct": "OracleRagAgent",
@@ -103,7 +149,7 @@
         "chat_request": {
             "tier": "1 | 2",
             "message": "string",
-            "persona": "string (e.g., sage_ariel)",
+            "persona": "string (sage_ariel, fortune_teller, blacksmith)",
             "session_id": "optional string"
         },
         "chat_response": {
