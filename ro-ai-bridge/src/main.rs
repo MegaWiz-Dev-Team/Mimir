@@ -7,11 +7,11 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tracing::info;
+use tower_http::cors::{CorsLayer, Any};
 
 use ro_ai_bridge::config::Config;
-use ro_ai_bridge::routes;
-// Services are likely used within routes or initialized here if needed
-// use ro_ai_bridge::services;
+use ro_ai_bridge::services::db;
+use ro_ai_bridge::routes::eval::eval_routes;
 
 #[tokio::main]
 async fn main() {
@@ -21,13 +21,26 @@ async fn main() {
     // Load configuration
     let config = Config::from_env();
 
-    // build our application with a route
+    // Initialize database
+    let pool = db::init_db().await.expect("Failed to initialize database");
+    info!("✅ Database connected and migrations applied");
+
+    // CORS layer for dashboard
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // build our application with routes
     let app = Router::new()
-        .route("/health", get(health_check));
+        .route("/health", get(health_check))
+        .merge(eval_routes())
+        .with_state(pool)
+        .layer(cors);
 
     // run it
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    info!("listening on {}", addr);
+    info!("🚀 listening on {}", addr);
     
     let listener = TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
