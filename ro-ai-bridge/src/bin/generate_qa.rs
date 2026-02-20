@@ -5,12 +5,12 @@ use ro_ai_bridge::agents::wiki_workshop::{
     generator::{generate_qa, GeneratorClient},
     extractor::extract_acus,
     verifier::verify_coverage,
-    WikiChunk, QAPair, AtomicFact, CoverageReport
+    WikiChunk
 };
+use ro_ai_bridge::config::QAConfig;
 use std::env;
 use tokio::fs;
 use tracing::{info, warn, error};
-use std::path::Path;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -57,6 +57,14 @@ async fn main() -> Result<()> {
     info!("🚀 Starting Multi-Agent Q/A Pipeline...");
     
     let is_test_run = env::var("TEST_RUN").unwrap_or_default() == "1";
+    
+    // Load Q/A config (from file or use defaults)
+    let config_path = env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let qa_config = QAConfig::from_file_or_default(&config_path);
+    info!("📋 Q/A Config loaded: default_count={}, {} size rules, {} file patterns", 
+        qa_config.default_count, 
+        qa_config.rules.len(), 
+        qa_config.file_patterns.patterns.len());
 
     while let Some(entry) = dir.next_entry().await? {
         let path = entry.path();
@@ -101,10 +109,12 @@ async fn main() -> Result<()> {
                     content: chunk_text.replace("\n", " "), // Flatten for easier processing
                 };
 
-                info!("   🧩 Chunk {}: Genererating Q/A...", i);
+                // Determine Q/A count based on file name and content size
+                let qa_count = qa_config.get_qa_count(&filename, wiki_chunk.content.len());
+                info!("   🧩 Chunk {}: Generating {} Q/A pairs...", i, qa_count);
 
                 // 4. Agent 1: Generate Q/A
-                let qa_pairs = match generate_qa(&gen_client, &gen_model, &wiki_chunk).await {
+                let qa_pairs = match generate_qa(&gen_client, &gen_model, &wiki_chunk, qa_count).await {
                     Ok(pairs) => pairs,
                     Err(e) => {
                         error!("   ❌ Q/A Generation failed: {}", e);

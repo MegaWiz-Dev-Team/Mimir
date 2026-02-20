@@ -1,14 +1,14 @@
 use anyhow::Result;
 use rig::providers::{ollama, gemini};
-use super::{WikiChunk, QAPair, AtomicFact, CoverageReport};
+use super::{WikiChunk, QAPair};
 use super::generator::{generate_qa, GeneratorClient};
 use super::extractor::extract_acus;
 use super::verifier::verify_coverage;
 use crate::services::db::DbPool;
+use crate::config::QAConfig;
 use std::env;
 use tokio::fs;
-use tracing::{info, warn, error};
-use uuid::Uuid;
+use tracing::{info, error};
 use chrono::Utc;
 use sqlx::Row;
 
@@ -18,7 +18,30 @@ pub async fn run_pipeline(
     provider: &str,
     model: &str,
     input_dir: &str,
-    is_test_run: bool
+    is_test_run: bool,
+    qa_count: usize
+) -> Result<()> {
+    // Convert fixed qa_count to a QAConfig with default rules
+    let qa_config = QAConfig {
+        default_count: qa_count,
+        rules: vec![],
+        file_patterns: crate::config::FilePatternConfig {
+            comment: None,
+            patterns: vec![],
+        },
+    };
+    run_pipeline_with_config(db_pool, run_id, provider, model, input_dir, is_test_run, qa_config).await
+}
+
+/// Run pipeline with full QAConfig support (size-based and pattern-based rules)
+pub async fn run_pipeline_with_config(
+    db_pool: &DbPool,
+    run_id: String,
+    provider: &str,
+    model: &str,
+    input_dir: &str,
+    is_test_run: bool,
+    qa_config: QAConfig
 ) -> Result<()> {
     let started_at = Utc::now();
 
@@ -34,6 +57,8 @@ pub async fn run_pipeline(
     .execute(db_pool).await?;
 
     info!("🚀 Starting Pipeline Run: {}", run_id);
+    info!("📋 QA Config: default_count={}, {} size rules, {} file patterns", 
+        qa_config.default_count, qa_config.rules.len(), qa_config.file_patterns.patterns.len());
 
     // Clients
     let local_client = ollama::Client::new();
@@ -47,6 +72,8 @@ pub async fn run_pipeline(
     };
 
     let mut all_qa = Vec::new();
+    let mut total_steps = 0usize;
+    let mut failed_steps = 0usize;
 
     let mut dir = fs::read_dir(input_dir).await?;
     
@@ -80,7 +107,11 @@ pub async fn run_pipeline(
                     content: chunk_text.replace("\n", " "),
                 };
 
+                // Calculate Q/A count based on file name and content size
+                let qa_count = qa_config.get_qa_count(&filename, wiki_chunk.content.len());
+
                 // Create Step in DB
+                total_steps += 1;
                 let step_id = sqlx::query(
                     "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at) \
                      VALUES (?, ?, ?, ?, ?, ?)"
@@ -94,7 +125,7 @@ pub async fn run_pipeline(
                 .execute(db_pool).await?.last_insert_id();
 
                 // Process
-                match process_chunk(db_pool, step_id, &gen_client, model, &gemini_client, &gemini_model, &wiki_chunk).await {
+                match process_chunk(db_pool, step_id, &gen_client, model, &gemini_client, &gemini_model, &wiki_chunk, qa_count).await {
                     Ok(qa_pairs) => {
                         all_qa.extend(qa_pairs);
                         sqlx::query(
@@ -106,6 +137,7 @@ pub async fn run_pipeline(
                         .execute(db_pool).await?;
                     },
                     Err(e) => {
+                        failed_steps += 1;
                         let err_msg = e.to_string();
                         error!("Step failed: {}", err_msg);
                         sqlx::query(
@@ -124,11 +156,21 @@ pub async fn run_pipeline(
         }
     }
 
-    // Finalize Run
+    // Finalize Run - set status based on step results
+    let final_status = if failed_steps == 0 {
+        "COMPLETED"
+    } else if failed_steps == total_steps {
+        "FAILED"
+    } else {
+        "PARTIAL"
+    };
+    
+    info!("📊 Pipeline finished: {} total steps, {} failed, status={}", total_steps, failed_steps, final_status);
+    
     sqlx::query(
         "UPDATE pipeline_runs SET status = ?, finished_at = ? WHERE id = ?"
     )
-    .bind("COMPLETED")
+    .bind(final_status)
     .bind(Utc::now())
     .bind(&run_id)
     .execute(db_pool).await?;
@@ -139,6 +181,25 @@ pub async fn run_pipeline(
 pub async fn retry_step(
     db_pool: &DbPool,
     step_id: i64,
+    qa_count: usize
+) -> Result<()> {
+    // Convert to QAConfig
+    let qa_config = QAConfig {
+        default_count: qa_count,
+        rules: vec![],
+        file_patterns: crate::config::FilePatternConfig {
+            comment: None,
+            patterns: vec![],
+        },
+    };
+    retry_step_with_config(db_pool, step_id, qa_config).await
+}
+
+/// Retry step with full QAConfig support
+pub async fn retry_step_with_config(
+    db_pool: &DbPool,
+    step_id: i64,
+    qa_config: QAConfig
 ) -> Result<()> {
     // 1. Fetch Step Details
     let step = sqlx::query("SELECT * FROM pipeline_steps WHERE id = ?")
@@ -190,6 +251,9 @@ pub async fn retry_step(
         content: chunk_text.replace("\n", " "),
     };
 
+    // Calculate Q/A count based on file name and content size
+    let qa_count = qa_config.get_qa_count(&file_name, wiki_chunk.content.len());
+
     // 3.5 Cleanup Previous Results
     sqlx::query("DELETE FROM qa_results WHERE step_id = ?")
         .bind(step_id)
@@ -217,9 +281,9 @@ pub async fn retry_step(
     };
 
     // 6. Process Chunk
-    info!("🔄 Retrying Step #{} (File: {}, Chunk: {})", step_id, file_name, chunk_index);
+    info!("🔄 Retrying Step #{} (File: {}, Chunk: {}) with {} Q/A pairs", step_id, file_name, chunk_index, qa_count);
     
-    match process_chunk(db_pool, step_id as u64, &gen_client, &model, &gemini_client, &gemini_model, &wiki_chunk).await {
+    match process_chunk(db_pool, step_id as u64, &gen_client, &model, &gemini_client, &gemini_model, &wiki_chunk, qa_count).await {
         Ok(_) => {
             sqlx::query("UPDATE pipeline_steps SET status = 'COMPLETED', finished_at = ? WHERE id = ?")
                 .bind(Utc::now())
@@ -244,6 +308,25 @@ pub async fn retry_step(
 pub async fn resume_pipeline(
     db_pool: &DbPool,
     run_id: String,
+    qa_count: usize
+) -> Result<()> {
+    // Convert to QAConfig
+    let qa_config = QAConfig {
+        default_count: qa_count,
+        rules: vec![],
+        file_patterns: crate::config::FilePatternConfig {
+            comment: None,
+            patterns: vec![],
+        },
+    };
+    resume_pipeline_with_config(db_pool, run_id, qa_config).await
+}
+
+/// Resume pipeline with full QAConfig support
+pub async fn resume_pipeline_with_config(
+    db_pool: &DbPool,
+    run_id: String,
+    qa_config: QAConfig
 ) -> Result<()> {
     // 1. Check/Update Run Status
     let run = sqlx::query("SELECT status FROM pipeline_runs WHERE id = ?")
@@ -295,7 +378,7 @@ pub async fn resume_pipeline(
                     if status != "COMPLETED" {
                          let id: i64 = row.get("id");
                          info!("Resuming step #{}", id);
-                         if let Err(e) = retry_step(db_pool, id).await {
+                         if let Err(e) = retry_step_with_config(db_pool, id, qa_config.clone()).await {
                              error!("Failed to resume step #{}: {}", id, e);
                          }
                     }
@@ -314,7 +397,7 @@ pub async fn resume_pipeline(
                     .execute(db_pool).await?.last_insert_id();
                     
                     info!("Created new step #{} for resume", step_id);
-                     if let Err(e) = retry_step(db_pool, step_id as i64).await {
+                     if let Err(e) = retry_step_with_config(db_pool, step_id as i64, qa_config.clone()).await {
                          error!("Failed to process new step #{}: {}", step_id, e);
                      }
                 }
@@ -338,10 +421,11 @@ pub async fn process_chunk(
     gen_model: &str,
     gemini_client: &gemini::Client,
     gemini_model: &str,
-    chunk: &WikiChunk
+    chunk: &WikiChunk,
+    qa_count: usize
 ) -> Result<Vec<QAPair>> {
     // 1. Generate Q/A
-    let qa_pairs = generate_qa(gen_client, gen_model, chunk).await?;
+    let qa_pairs = generate_qa(gen_client, gen_model, chunk, qa_count).await?;
     
     // Save Q/A to DB
     for qa in &qa_pairs {

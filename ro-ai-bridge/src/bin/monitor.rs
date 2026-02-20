@@ -7,7 +7,8 @@ use axum::{
 };
 use dotenvy::dotenv;
 use ro_ai_bridge::services::db::{init_db, DbPool};
-use ro_ai_bridge::agents::wiki_workshop::pipeline::{run_pipeline, resume_pipeline};
+use ro_ai_bridge::agents::wiki_workshop::pipeline::{run_pipeline_with_config, resume_pipeline_with_config};
+use ro_ai_bridge::config::QAConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
@@ -157,6 +158,12 @@ async fn trigger_run(
     let provider = payload.provider.unwrap_or_else(|| "ollama".to_string());
     let model = payload.model.unwrap_or_else(|| "llama3.2".to_string());
     let is_test = payload.test_run.unwrap_or(false);
+    
+    // Load QA config from file (uses defaults if file not found)
+    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let qa_config = QAConfig::from_file_or_default(&config_path);
+    info!("📋 QA Config: default_count={}, {} size rules, {} file patterns", 
+        qa_config.default_count, qa_config.rules.len(), qa_config.file_patterns.patterns.len());
 
     let db = state.db.clone();
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -164,7 +171,8 @@ async fn trigger_run(
     
     // Run in background
     tokio::spawn(async move {
-        if let Err(e) = run_pipeline(&db, run_id_inner, &provider, &model, "data/wiki", is_test).await {
+        // Pass qa_config to pipeline - it will calculate count per chunk
+        if let Err(e) = run_pipeline_with_config(&db, run_id_inner, &provider, &model, "data/wiki", is_test, qa_config).await {
             error!("Background pipeline failed: {}", e);
         }
     });
@@ -336,9 +344,12 @@ async fn retry_step_handler(
         .execute(&db)
         .await;
 
-    // Run heavy processing in background
+    // Load QA config
+    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let qa_config = QAConfig::from_file_or_default(&config_path);
+    
     tokio::spawn(async move {
-        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::retry_step(&db, id).await {
+        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::retry_step_with_config(&db, id, qa_config).await {
             error!("Background retry Step #{} failed: {}", id, e);
         }
     });
@@ -363,10 +374,14 @@ async fn resume_run_handler(
          return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Run not found"}))).into_response();
     }
 
+    // Load QA config
+    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let qa_config = QAConfig::from_file_or_default(&config_path);
+    
     // Run resume in background
     let run_id = id.clone();
     tokio::spawn(async move {
-        if let Err(e) = resume_pipeline(&db, run_id.clone()).await {
+        if let Err(e) = resume_pipeline_with_config(&db, run_id.clone(), qa_config).await {
              error!("Background resume Run #{} failed: {}", run_id, e);
              let _ = sqlx::query("UPDATE pipeline_runs SET status = 'FAILED' WHERE id = ?")
                 .bind(&run_id)

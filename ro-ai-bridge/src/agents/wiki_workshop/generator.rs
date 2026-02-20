@@ -24,19 +24,21 @@ pub struct QAGeneratorAgent;
 pub async fn generate_qa(
     client: &GeneratorClient, 
     model: &str,
-    chunk: &WikiChunk
+    chunk: &WikiChunk,
+    count: usize
 ) -> Result<Vec<QAPair>> {
-    info!("      Generating Q/A pairs for chunk via {} (Agent approach)...", model);
+    info!("      Generating {} Q/A pairs for chunk via {} (Agent approach)...", count, model);
     
     let preamble = "You are a helpful assistant that generates high-quality Q/A pairs from the provided text. \
                    Return ONLY a JSON object with a 'pairs' key containing an array of {question, answer} objects. \
                    Do NOT include any markdown formatting or preamble.";
                    
     let prompt_text = format!(
-        "Generate 3 distinct Question and Answer pairs based ONLY on the following text. \
+        "Generate {} distinct Question and Answer pairs based ONLY on the following text. \
         Focus on facts, mechanics, and key details.\n\n\
         Text:\n{}\n\n\
         Output JSON: {{\"pairs\": [{{ \"question\": \"...\", \"answer\": \"...\" }}]}}", 
+        count,
         chunk.content
     );
 
