@@ -83,9 +83,11 @@ graph TB
     EXT --> GEN
     GEN --> IDX
     GEN --> VER
+    GEN --> GEMINI
+    VER --> GEMINI
     IDX --> QDRANT
     
-    OLLAMA -.->|"❌ Not Connected"| GEMINI
+    GEMINI --> OLLAMA
     
     GW --> REDIS
     GW --> MARIADB
@@ -107,6 +109,7 @@ graph TB
 | **MCP Client**           | ✅ Implemented       | `services/mcp_client.rs` |
 | **Scraper**              | ✅ Implemented       | `services/scraper.rs`    |
 | **Dashboard**            | ✅ Fully Implemented | `ro-ai-dashboard/`       |
+| **Gemini API**           | ✅ Implemented       | Wiki Workshop Pipeline   |
 
 ---
 
@@ -118,6 +121,7 @@ graph TB
 | --------------- | ----------------- | -------------------------------------- |
 | ค้น Qdrant       | ✅ Custom Client   | ใช้ `services/qdrant.rs` แทน rig-qdrant |
 | LLM Local       | ✅ Ollama Provider | รันผ่าน Ollama บน Local                  |
+| **Cloud LLM**   | ✅ **Gemini**      | **✅ IMPLEMENTED** - ใช้ใน Wiki Workshop |
 | Tool Calling    | ❌ Not Used        | ยังไม่ได้ใช้ในระบบปัจจุบัน                    |
 | RAG Pipeline    | ✅ Custom          | ใช้ Qdrant + Custom logic               |
 | Agent Loop      | ✅ Partial         | มีใน oracle_rag แต่ไม่มี Tool              |
@@ -132,8 +136,9 @@ graph LR
         RIG["rig-core 0.10.0"]
     end
     
-    subgraph "Ollama Server"
-        OL["Ollama Runtime"]
+    subgraph "LLM Layer"
+        OLLAMA["Ollama Server<br/>(Local)"]
+        GEMINI["☁️ Google Gemini API<br/>(gemini-2.5-flash)"]
     end
     
     subgraph "Data Layer"
@@ -148,13 +153,23 @@ graph LR
     end
 
     AXUM --> RIG
-    RIG --> OL
+    RIG --> OLLAMA
+    RIG --> GEMINI
     AXUM --> QD
     AXUM --> MARIADB
     AXUM --> REDIS
     MCP --> AXUM
     CHROMIUM --> AXUM
 ```
+
+**Gemini Usage (✅ IMPLEMENTED):**
+- `agents/wiki_workshop/pipeline.rs` - Q/A generation pipeline
+- `agents/wiki_workshop/generator.rs` - Generator agent
+- `agents/wiki_workshop/extractor.rs` - ACU extraction
+- `agents/wiki_workshop/verifier.rs` - Coverage verification
+- `agents/oracle_rag.rs` - Oracle RAG agent
+- `agents/eval.rs` - Evaluation agent
+- Default model: `gemini-2.5-flash`
 
 **Dependencies (Cargo.toml):**
 ```toml
@@ -429,9 +444,9 @@ gantt
 
 ---
 
-## 10. Fallback Strategy (Not Implemented)
+## 10. Fallback Strategy (Partial Implementation)
 
-> ❌ **ยังไม่ได้ implement** — Local Ollama เท่านั้น
+> ⚠️ **Gemini ถูกใช้ใน Wiki Workshop Pipeline แล้ว** แต่ยังไม่มีระบบ Fallback อัตโนมัติ
 
 TRD v2.0 วางแผนไว้:
 - **L0:** Local Qwen (default)
@@ -440,25 +455,32 @@ TRD v2.0 วางแผนไว้:
 - **L3:** Gemini API
 - **L4:** Static rAthena scripts
 
-**สถานะปัจจุบัน:** ใช้ Local Ollama เท่านั้น ไม่มี fallback
+**สถานะปัจจุบัน:**
+| Level             | Status            | Details            |
+| ----------------- | ----------------- | ------------------ |
+| L0 Ollama         | ✅ Available       | Local LLM          |
+| L1 Reduce Context | ❌ Not implemented |                    |
+| L2 Meditron       | ❌ Not configured  |                    |
+| **L3 Gemini**     | ✅ **IMPLEMENTED** | ใช้ใน Wiki Workshop |
+| L4 Static Scripts | ❌ Not implemented |                    |
 
 ---
 
 ## 11. Summary: v2.0 vs v2.1
 
-| Aspect                  | TRD v2.0      | Actual v2.1 |
-| ----------------------- | ------------- | ----------- |
-| **Tier 1 NPC**          | Planned       | ✅ Done      |
-| **Tier 2 Oracle**       | Planned       | ✅ Done      |
-| **Tier 3 GM**           | Planned       | ❌ Not done  |
-| **Tier Router**         | Planned       | ❌ Not done  |
-| **Wiki Workshop**       | Section 13    | ✅ Done      |
-| **Q/A Pipeline**        | Section 13    | ✅ Done      |
-| **Evaluation**          | Planned       | ✅ Done      |
-| **Dashboard**           | Not mentioned | ✅ Done      |
-| **rAthena Integration** | Planned       | ❌ Not done  |
-| **Safety/Rate Limiter** | Planned       | ❌ Not done  |
-| **Cloud Fallback**      | Planned       | ❌ Not done  |
+| Aspect                  | TRD v2.0       | Actual v2.1                       |
+| ----------------------- | -------------- | --------------------------------- |
+| **Tier 1 NPC**          | Planned        | ✅ Done                            |
+| **Tier 2 Oracle**       | Planned        | ✅ Done                            |
+| **Tier 3 GM**           | Planned        | ❌ Not done                        |
+| **Tier Router**         | Planned        | ❌ Not done                        |
+| **Wiki Workshop**       | Section 13     | ✅ Done                            |
+| **Q/A Pipeline**        | Section 13     | ✅ Done                            |
+| **Evaluation**          | Planned        | ✅ Done                            |
+| **Dashboard**           | Not mentioned  | ✅ Done                            |
+| **Gemini API**          | Cloud Fallback | ✅ **IMPLEMENTED** (Wiki Workshop) |
+| **rAthena Integration** | Planned        | ❌ Not done                        |
+| **Safety/Rate Limiter** | Planned        | ❌ Not done                        |
 
 ---
 
