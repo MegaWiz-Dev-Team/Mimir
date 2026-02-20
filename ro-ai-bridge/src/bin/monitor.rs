@@ -387,10 +387,11 @@ async fn generate_missing_qa_handler(
     let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
     let qa_config = QAConfig::from_file_or_default(&config_path);
     
-    // Run generation in background
+    // Spawn background task
+    let step_id = id;
     tokio::spawn(async move {
-        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::generate_missing_qa_for_step(&db, id, qa_config).await {
-            tracing::error!("Background missing QA generation for Step #{} failed: {}", id, e);
+        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::generate_missing_qa_for_step(&db, step_id, qa_config).await {
+            tracing::error!("Missing QA generation for Step #{} failed: {}", step_id, e);
         }
     });
 

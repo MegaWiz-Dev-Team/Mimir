@@ -60,7 +60,14 @@ export async function generateMissingQA(stepId: number) {
     const res = await fetch(`${API_BASE_URL}/pipeline/steps/${stepId}/generate_missing`, {
         method: "POST",
     });
-    if (!res.ok) throw new Error("Failed to generate missing Q/A");
+    if (!res.ok) {
+        let msg = "Failed to generate missing Q/A";
+        try {
+            const errData = await res.json();
+            if (errData.error) msg += `: ${errData.error}`;
+        } catch (e) { }
+        throw new Error(msg);
+    }
     return res;
 }
 

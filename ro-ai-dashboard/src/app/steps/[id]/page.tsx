@@ -19,6 +19,9 @@ export default function StepDetailsPage() {
     const [qaList, setQaList] = useState<QAResult[]>([]);
     const [report, setReport] = useState<EvaluationReport | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [showAllCovered, setShowAllCovered] = useState(false);
+    const [showAllMissing, setShowAllMissing] = useState(false);
     const [runId, setRunId] = useState<string | null>(null);
 
     useEffect(() => {
@@ -47,6 +50,34 @@ export default function StepDetailsPage() {
         };
         loadData();
     }, [id]);
+
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+
+        if (isGenerating && id) {
+            interval = setInterval(async () => {
+                try {
+                    const [qaData, reportData] = await Promise.all([
+                        fetchStepQA(id),
+                        fetchStepReport(id)
+                    ]);
+                    setQaList(qaData);
+                    setReport(reportData);
+
+                    // Stop polling if we hit 100% coverage
+                    if (reportData?.coverage_score >= 1.0) {
+                        setIsGenerating(false);
+                    }
+                } catch (error) {
+                    console.error("Failed to poll step details", error);
+                }
+            }, 3000); // Poll every 3 seconds
+        }
+
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [isGenerating, id]);
 
     const backLink = runId ? `/runs/${runId}` : "/";
     const backText = runId ? "Back to Run Details" : "Back to Dashboard";
@@ -136,13 +167,18 @@ export default function StepDetailsPage() {
                                 <CardContent className="text-sm">
                                     {report.atomic_facts && report.atomic_facts.length > 0 ? (
                                         <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                                            {report.atomic_facts.slice(0, 5).map((fact: any, i) => (
+                                            {(showAllCovered ? report.atomic_facts : report.atomic_facts.slice(0, 5)).map((fact: any, i) => (
                                                 <li key={i} className="truncate" title={typeof fact === 'string' ? fact : fact.fact}>
                                                     {typeof fact === 'string' ? fact : fact.fact}
                                                 </li>
                                             ))}
                                             {report.atomic_facts.length > 5 && (
-                                                <li className="text-xs italic">...and {report.atomic_facts.length - 5} more</li>
+                                                <li
+                                                    className="text-xs italic text-blue-500 hover:text-blue-700 cursor-pointer list-none pt-1"
+                                                    onClick={() => setShowAllCovered(!showAllCovered)}
+                                                >
+                                                    {showAllCovered ? "Collapse" : `...show ${report.atomic_facts.length - 5} more`}
+                                                </li>
                                             )}
                                         </ul>
                                     ) : (
@@ -164,39 +200,45 @@ export default function StepDetailsPage() {
                                             size="sm"
                                             variant="secondary"
                                             className="h-8 text-xs font-semibold bg-amber-100 text-amber-900 hover:bg-amber-200"
+                                            disabled={isGenerating}
                                             onClick={async () => {
                                                 if (!id) return;
-                                                setLoading(true);
+                                                setIsGenerating(true);
                                                 try {
                                                     const { generateMissingQA } = await import("@/lib/api");
+                                                    // Trigger background task but don't wait for completion
                                                     await generateMissingQA(id);
-
-                                                    // Reload data without full page refresh
-                                                    const [qaData, reportData] = await Promise.all([
-                                                        fetchStepQA(id),
-                                                        fetchStepReport(id)
-                                                    ]);
-                                                    setQaList(qaData);
-                                                    setReport(reportData);
-                                                } catch (e) {
-                                                    alert("Failed to generate missing Q/A");
-                                                } finally {
-                                                    setLoading(false);
+                                                } catch (e: any) {
+                                                    console.error("Generate QA Error:", e);
+                                                    alert(e.message || "Failed to start generating missing Q/A");
+                                                    setIsGenerating(false);
                                                 }
                                             }}
                                         >
-                                            ✨ Generate Missing Q/A
+                                            {isGenerating ? (
+                                                <><RefreshCw className="mr-2 h-3 w-3 animate-spin" /> Generating...</>
+                                            ) : (
+                                                "✨ Generate Missing Q/A"
+                                            )}
                                         </Button>
                                     )}
                                 </CardHeader>
                                 <CardContent className="text-sm">
                                     {report.missing_facts && report.missing_facts.length > 0 ? (
                                         <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                                            {report.missing_facts.map((fact: any, i) => (
+                                            {(showAllMissing ? report.missing_facts : report.missing_facts.slice(0, 5)).map((fact: any, i) => (
                                                 <li key={i}>
                                                     {typeof fact === 'string' ? fact : fact.fact}
                                                 </li>
                                             ))}
+                                            {report.missing_facts.length > 5 && (
+                                                <li
+                                                    className="text-xs italic text-blue-500 hover:text-blue-700 cursor-pointer list-none pt-1"
+                                                    onClick={() => setShowAllMissing(!showAllMissing)}
+                                                >
+                                                    {showAllMissing ? "Collapse" : `...show ${report.missing_facts.length - 5} more`}
+                                                </li>
+                                            )}
                                         </ul>
                                     ) : (
                                         <p className="text-green-600 font-medium text-xs">All facts covered!</p>
