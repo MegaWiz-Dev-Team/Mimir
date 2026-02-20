@@ -1,29 +1,61 @@
 import { PipelineRun, RunDetails, QAResult, EvaluationReport } from "@/types/pipeline";
+import Cookies from "js-cookie";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+
+function getAuthHeaders(): HeadersInit {
+    const token = Cookies.get("access_token");
+    const tenantId = Cookies.get("tenant_id");
+
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (tenantId) headers["X-Tenant-Id"] = tenantId;
+
+    return headers;
+}
+
+// Custom fetch wrapper to auto-add auth headers
+async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    const headers = {
+        ...getAuthHeaders(),
+        ...(options.headers || {})
+    };
+
+    const res = await fetch(url, { ...options, headers });
+
+    if (res.status === 401) {
+        // Handle unauthorized (clear cookies, maybe redirect to login via window.location if browser)
+        if (typeof window !== "undefined") {
+            Cookies.remove("access_token");
+            window.location.href = "/login";
+        }
+    }
+
+    return res;
+}
 
 // ─── Pipeline API ───────────────────────────────────────────────────────────
 
 export async function fetchRuns(): Promise<PipelineRun[]> {
-    const res = await fetch(`${API_BASE_URL}/pipeline/runs`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/pipeline/runs`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch runs");
     return res.json();
 }
 
 export async function fetchRunDetails(id: string): Promise<RunDetails> {
-    const res = await fetch(`${API_BASE_URL}/pipeline/runs/${id}`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/pipeline/runs/${id}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch run details");
     return res.json();
 }
 
 export async function fetchStepQA(stepId: number): Promise<QAResult[]> {
-    const res = await fetch(`${API_BASE_URL}/pipeline/steps/${stepId}/qa`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/pipeline/steps/${stepId}/qa`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch QA results");
     return res.json();
 }
 
 export async function fetchStepReport(stepId: number): Promise<EvaluationReport> {
-    const res = await fetch(`${API_BASE_URL}/pipeline/steps/${stepId}/report`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/pipeline/steps/${stepId}/report`, { cache: "no-store" });
     // Report might be 404 if not ready, handle gracefully in UI or here
     if (res.status === 404) return { id: 0, coverage_score: 0, reasoning: "Not available", atomic_facts: [], missing_facts: [] };
     if (!res.ok) throw new Error("Failed to fetch report");
@@ -31,7 +63,7 @@ export async function fetchStepReport(stepId: number): Promise<EvaluationReport>
 }
 
 export async function triggerRun(provider: string = "ollama", model: string = "llama3.2", testRun: boolean = false) {
-    const res = await fetch(`${API_BASE_URL}/pipeline/run`, {
+    const res = await authFetch(`${API_BASE_URL}/pipeline/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, model, test_run: testRun }),
@@ -41,7 +73,7 @@ export async function triggerRun(provider: string = "ollama", model: string = "l
 }
 
 export async function retryStep(stepId: number) {
-    const res = await fetch(`${API_BASE_URL}/pipeline/steps/${stepId}/retry`, {
+    const res = await authFetch(`${API_BASE_URL}/pipeline/steps/${stepId}/retry`, {
         method: "POST",
     });
     if (!res.ok) throw new Error("Failed to retry step");
@@ -49,7 +81,7 @@ export async function retryStep(stepId: number) {
 }
 
 export async function resumeRun(id: string) {
-    const res = await fetch(`${API_BASE_URL}/pipeline/runs/${id}/resume`, {
+    const res = await authFetch(`${API_BASE_URL}/pipeline/runs/${id}/resume`, {
         method: "POST",
     });
     if (!res.ok) throw new Error("Failed to resume run");
@@ -57,7 +89,7 @@ export async function resumeRun(id: string) {
 }
 
 export async function generateMissingQA(stepId: number) {
-    const res = await fetch(`${API_BASE_URL}/pipeline/steps/${stepId}/generate_missing`, {
+    const res = await authFetch(`${API_BASE_URL}/pipeline/steps/${stepId}/generate_missing`, {
         method: "POST",
     });
     if (!res.ok) {
@@ -74,13 +106,13 @@ export async function generateMissingQA(stepId: number) {
 // ─── Vector API ──────────────────────────────────────────────────────────────
 
 export async function fetchVectorStats() {
-    const res = await fetch(`${API_BASE_URL}/vector/stats`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/vector/stats`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch vector stats");
     return res.json();
 }
 
 export async function triggerIndexing() {
-    const res = await fetch(`${API_BASE_URL}/vector/index`, {
+    const res = await authFetch(`${API_BASE_URL}/vector/index`, {
         method: "POST",
     });
     if (!res.ok) throw new Error("Failed to trigger indexing");
@@ -88,7 +120,7 @@ export async function triggerIndexing() {
 }
 
 export async function searchVectors(query: string, limit: number = 5) {
-    const res = await fetch(`${API_BASE_URL}/vector/search`, {
+    const res = await authFetch(`${API_BASE_URL}/vector/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, limit }),
@@ -176,7 +208,7 @@ export interface LlmModel {
 
 /// Fetch available models from the database
 export async function fetchModels(): Promise<ModelConfig[]> {
-    const res = await fetch(`${API_BASE_URL}/models`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/models`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch models");
     return res.json();
 }
@@ -301,7 +333,7 @@ export function streamChat(
 ): () => void {
     const controller = new AbortController();
 
-    fetch(`${API_BASE_URL}/agents/chat/stream`, {
+    authFetch(`${API_BASE_URL}/agents/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
