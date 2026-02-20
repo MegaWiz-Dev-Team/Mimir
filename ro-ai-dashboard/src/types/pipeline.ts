@@ -17,6 +17,8 @@ export interface PipelineStep {
   chunk_index: number;
   status: StepStatus;
   step_type: StepType;
+  qa_count?: number;
+  coverage_score?: number;
 }
 
 export interface RunDetails extends PipelineRun {

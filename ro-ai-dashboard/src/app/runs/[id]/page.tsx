@@ -146,6 +146,8 @@ export default function RunDetailsPage() {
                             <TableHead>Step Type</TableHead>
                             <TableHead>File Name</TableHead>
                             <TableHead>Chunk</TableHead>
+                            <TableHead>Q/A Count</TableHead>
+                            <TableHead>Coverage</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -161,6 +163,12 @@ export default function RunDetailsPage() {
                                 </TableCell>
                                 <TableCell className="font-medium">{step.file_name}</TableCell>
                                 <TableCell>#{step.chunk_index}</TableCell>
+                                <TableCell>{step.qa_count}</TableCell>
+                                <TableCell>
+                                    {step.coverage_score !== undefined && step.coverage_score !== null
+                                        ? `${(step.coverage_score * 100).toFixed(0)}%`
+                                        : '-'}
+                                </TableCell>
                                 <TableCell>
                                     <StatusBadge status={step.status} />
                                 </TableCell>

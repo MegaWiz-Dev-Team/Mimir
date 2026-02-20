@@ -65,3 +65,53 @@ pub async fn generate_qa(
     
     Ok(parsed.pairs)
 }
+
+pub async fn generate_missing_qa(
+    client: &GeneratorClient, 
+    model: &str,
+    chunk: &WikiChunk,
+    missing_facts: &[String],
+    count: usize
+) -> Result<Vec<QAPair>> {
+    info!("      Generating {} missing Q/A pairs for chunk via {}...", count, model);
+    
+    let preamble = "You are an expert knowledge extractor that strictly follows instructions. \
+                   Return ONLY a JSON object with a 'pairs' key containing an array of {\"question\": \"...\", \"answer\": \"...\"} objects. \
+                   Do NOT include any markdown formatting or preamble.";
+    
+    let missing_str = missing_facts.join("\n- ");
+                   
+    let prompt_text = format!(
+        "The following facts are missing from our current Q/A database: \n- {}\n\n\
+        Generate up to {} Question and Answer pairs based ONLY on the following source text that specifically address these missing facts. \
+        Do not generate general questions, focus ONLY on closing these knowledge gaps.\n\n\
+        Source Text:\n{}\n\n\
+        Output JSON: {{\"pairs\": [{{ \"question\": \"...\", \"answer\": \"...\" }}]}}", 
+        missing_str,
+        count,
+        chunk.content
+    );
+
+    let raw_res = match client {
+        GeneratorClient::Ollama(c) => {
+            let agent = c.agent(model).preamble(preamble).build();
+            agent.prompt(prompt_text.as_str()).await?
+        },
+        GeneratorClient::Gemini(c) => {
+            let agent = c.agent(model).preamble(preamble).build();
+            agent.prompt(prompt_text.as_str()).await?
+        }
+    };
+    
+    // Clean markdown if present
+    let clean_json = raw_res.trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    let parsed: QAPairList = serde_json::from_str(clean_json)
+        .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {}. Raw: {}", e, raw_res))?;
+    
+    Ok(parsed.pairs)
+}

@@ -152,11 +152,42 @@ export default function StepDetailsPage() {
                             </Card>
 
                             <Card>
-                                <CardHeader>
-                                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                        <AlertCircle className="h-4 w-4 text-amber-500" />
-                                        Missing Facts
-                                    </CardTitle>
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <div className="flex items-center gap-2">
+                                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                            <AlertCircle className="h-4 w-4 text-amber-500" />
+                                            Missing Facts
+                                        </CardTitle>
+                                    </div>
+                                    {report.coverage_score < 1.0 && report.missing_facts && report.missing_facts.length > 0 && (
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="h-8 text-xs font-semibold bg-amber-100 text-amber-900 hover:bg-amber-200"
+                                            onClick={async () => {
+                                                if (!id) return;
+                                                setLoading(true);
+                                                try {
+                                                    const { generateMissingQA } = await import("@/lib/api");
+                                                    await generateMissingQA(id);
+
+                                                    // Reload data without full page refresh
+                                                    const [qaData, reportData] = await Promise.all([
+                                                        fetchStepQA(id),
+                                                        fetchStepReport(id)
+                                                    ]);
+                                                    setQaList(qaData);
+                                                    setReport(reportData);
+                                                } catch (e) {
+                                                    alert("Failed to generate missing Q/A");
+                                                } finally {
+                                                    setLoading(false);
+                                                }
+                                            }}
+                                        >
+                                            ✨ Generate Missing Q/A
+                                        </Button>
+                                    )}
                                 </CardHeader>
                                 <CardContent className="text-sm">
                                     {report.missing_facts && report.missing_facts.length > 0 ? (

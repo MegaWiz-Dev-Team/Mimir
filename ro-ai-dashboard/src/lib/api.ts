@@ -56,6 +56,14 @@ export async function resumeRun(id: string) {
     return res;
 }
 
+export async function generateMissingQA(stepId: number) {
+    const res = await fetch(`${API_BASE_URL}/pipeline/steps/${stepId}/generate_missing`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to generate missing Q/A");
+    return res;
+}
+
 // ─── Vector API ──────────────────────────────────────────────────────────────
 
 export async function fetchVectorStats() {

@@ -122,6 +122,7 @@ async fn main() -> Result<()> {
         .route("/api/pipeline/steps/{id}/qa", get(get_step_qa))
         .route("/api/pipeline/steps/{id}/report", get(get_step_report))
         .route("/api/pipeline/steps/{id}/retry", post(retry_step_handler))
+        .route("/api/pipeline/steps/{id}/generate_missing", post(generate_missing_qa_handler))
         .route("/api/pipeline/runs/{id}/resume", post(resume_run_handler))
         .route("/api/vector/stats", get(get_vector_stats))
         .route("/api/vector/index", post(trigger_indexing))
@@ -213,7 +214,13 @@ async fn get_run_details(
         .unwrap_or_default();
 
     if let Some(r) = run {
-        let steps = sqlx::query("SELECT * FROM pipeline_steps WHERE run_id = ?")
+        let steps = sqlx::query(
+            "SELECT ps.*, \
+             (SELECT COUNT(*) FROM qa_results WHERE step_id = ps.id) as qa_count, \
+             (SELECT coverage_score FROM evaluation_reports WHERE step_id = ps.id) as coverage_score \
+             FROM pipeline_steps ps \
+             WHERE ps.run_id = ?"
+        )
             .bind(&id)
             .fetch_all(&state.db)
             .await
@@ -226,6 +233,8 @@ async fn get_run_details(
                 "chunk_index": s.get::<i64, _>("chunk_index"),
                 "status": s.get::<String, _>("status"),
                 "step_type": s.get::<String, _>("step_type"),
+                "qa_count": s.get::<Option<i64>, _>("qa_count").unwrap_or(0),
+                "coverage_score": s.get::<Option<f32>, _>("coverage_score"),
             })
         }).collect();
 
@@ -355,6 +364,37 @@ async fn retry_step_handler(
     });
 
     StatusCode::ACCEPTED
+}
+
+async fn generate_missing_qa_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<u64>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    
+    // Check if step exists
+    let step = sqlx::query("SELECT id FROM pipeline_steps WHERE id = ?")
+        .bind(id as i64)
+        .fetch_optional(&db)
+        .await
+        .unwrap_or_default();
+
+    if step.is_none() {
+         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Step not found"}))).into_response();
+    }
+
+    // Load QA config
+    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let qa_config = QAConfig::from_file_or_default(&config_path);
+    
+    // Run generation in background
+    tokio::spawn(async move {
+        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::generate_missing_qa_for_step(&db, id, qa_config).await {
+            tracing::error!("Background missing QA generation for Step #{} failed: {}", id, e);
+        }
+    });
+
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn resume_run_handler(
