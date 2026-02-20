@@ -88,6 +88,55 @@ export async function resumeRun(id: string) {
     return res;
 }
 
+export async function deleteModel(modelId: string) {
+    try {
+        const response = await authFetch(`${API_BASE_URL}/config/models/${modelId}`, {
+            method: 'DELETE',
+        });
+        return await response.json();
+    } catch (error) {
+        console.error("Delete model error:", error);
+        throw error;
+    }
+}
+
+// ─── Data Quality Control ───────────────────────────────────────────────────
+
+export async function fetchQcClusters(status?: string) {
+    try {
+        const query = status ? `?status=${status}` : '';
+        const response = await authFetch(`${API_BASE_URL}/v1/qc/clusters${query}`);
+        return await response.json();
+    } catch (error) {
+        console.error("Fetch QC clusters error:", error);
+        return { clusters: [] };
+    }
+}
+
+export async function resolveQcCluster(clusterId: string, resolutionType: string, goldenAnswer?: string) {
+    try {
+        const response = await authFetch(`${API_BASE_URL}/v1/qc/resolve/${clusterId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resolution_type: resolutionType, golden_answer: goldenAnswer })
+        });
+        if (!response.ok) throw new Error("Failed to resolve cluster");
+        return true;
+    } catch (error) {
+        console.error("Resolve QC cluster error:", error);
+        throw error;
+    }
+}
+
+export async function triggerQcGeneration() {
+    try {
+        const response = await authFetch(`${API_BASE_URL}/v1/qc/generate`, { method: "POST" });
+        return await response.json();
+    } catch (error) {
+        console.error("Trigger QC generation error:", error);
+        throw error;
+    }
+}
 export async function generateMissingQA(stepId: number) {
     const res = await authFetch(`${API_BASE_URL}/pipeline/steps/${stepId}/generate_missing`, {
         method: "POST",

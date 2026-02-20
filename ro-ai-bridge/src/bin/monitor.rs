@@ -26,6 +26,8 @@ use mimir_core_ai::models::persona::Persona;
 use mimir_core_ai::services::iam::IamService;
 use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 use rig::providers::ollama;
+use mimir_core_ai::qa_qc::clustering::{ClusteringService, ResolveClusterRequest};
+use axum::extract::Query;
 
 #[derive(Deserialize)]
 struct RunRequest {
@@ -138,6 +140,12 @@ async fn main() -> Result<()> {
     let app = Router::new()
         // Auth
         .route("/api/v1/auth/login", post(auth_login))
+        
+        // Quality Control
+        .route("/api/v1/qc/clusters", get(get_qc_clusters))
+        .route("/api/v1/qc/resolve/:id", post(resolve_qc_cluster))
+        .route("/api/v1/qc/generate", post(generate_qc_clusters))
+        
         // Pipeline endpoints
         .route("/api/pipeline/run", post(trigger_run))
         .route("/api/pipeline/runs", get(list_runs))
@@ -857,4 +865,56 @@ async fn get_wiki_content(
         Ok(content) => content.into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "Wiki file not found").into_response(),
     }
+}
+
+// ─── Phase 7: Data Quality Control APIs ────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct GetClustersQuery {
+    status: Option<String>,
+}
+
+async fn get_qc_clusters(
+    State(state): State<Arc<AppState>>,
+    Extension(tenant): Extension<TenantContext>,
+    Query(params): Query<GetClustersQuery>,
+) -> impl IntoResponse {
+    match ClusteringService::get_clusters(&state.db, &tenant.tenant_id, params.status.as_deref()).await {
+        Ok(clusters) => (StatusCode::OK, Json(serde_json::json!({ "clusters": clusters }))).into_response(),
+        Err(e) => {
+            error!("Failed to get QC clusters: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        }
+    }
+}
+
+async fn resolve_qc_cluster(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Extension(_tenant): Extension<TenantContext>, // Could add tenant check
+    Json(payload): Json<ResolveClusterRequest>,
+) -> impl IntoResponse {
+    match ClusteringService::resolve_cluster(&state.db, &id, payload).await {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => {
+            error!("Failed to resolve QC cluster {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        }
+    }
+}
+
+async fn generate_qc_clusters(
+    State(state): State<Arc<AppState>>,
+    Extension(tenant): Extension<TenantContext>,
+) -> impl IntoResponse {
+    // Return early to not block the request
+    let db = state.db.clone();
+    let tenant_id = tenant.tenant_id.clone();
+    tokio::spawn(async move {
+        if let Err(e) = ClusteringService::trigger_clustering(&db, &tenant_id).await {
+            error!("Background QC Clustering failed: {}", e);
+        }
+    });
+    
+    (StatusCode::ACCEPTED, Json(serde_json::json!({"status": "Generation started in background"}))).into_response()
 }
