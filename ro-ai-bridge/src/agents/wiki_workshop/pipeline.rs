@@ -488,27 +488,6 @@ pub async fn generate_missing_qa_for_step(
     let provider: String = step.get("provider");
     let model: String = step.get("model");
 
-    let report_record = sqlx::query(
-        "SELECT missing_facts FROM evaluation_reports WHERE step_id = ?"
-    )
-    .bind(step_id as i64)
-    .fetch_optional(db_pool)
-    .await?;
-
-    let missing_facts_json: String = match report_record {
-        Some(r) => r.get("missing_facts"),
-        None => return Err(anyhow::anyhow!("Evaluation report not found")),
-    };
-
-    let missing_facts_vec: Vec<super::AtomicFact> = serde_json::from_str(&missing_facts_json)?;
-    let missing_facts: Vec<String> = missing_facts_vec.into_iter().map(|f| f.fact).collect();
-
-    if missing_facts.is_empty() {
-        info!("No missing facts for step #{}, skipping generation.", step_id);
-        return Ok(());
-    }
-
-    // 2. Load chunk content
     let file_path = format!("data/wiki/{}", filename);
     let content = fs::read_to_string(&file_path).await?;
     let chunks: Vec<&str> = content.split("\n#").collect();
@@ -541,77 +520,111 @@ pub async fn generate_missing_qa_for_step(
         _ => return Err(anyhow::anyhow!("Unsupported provider: {}", provider)),
     };
 
-    // 4. Generate missing QA
-    let new_qa_pairs = generate_missing_qa(
-        &gen_client, 
-        &gen_model.as_str(), 
-        &chunk, 
-        &missing_facts, 
-        qa_config.get_qa_count(&filename, chunk.content.len())
-    ).await?;
-
-    info!("Generated {} new Q/A pairs for step #{}", new_qa_pairs.len(), step_id);
-
-    // Save New Q/A to DB
-    for qa in &new_qa_pairs {
-        sqlx::query(
-            "INSERT INTO qa_results (step_id, question, answer) VALUES (?, ?, ?)"
+    loop {
+        // Fetch current coverage and missing facts
+        let report_record = sqlx::query(
+            "SELECT coverage_score, CAST(missing_facts AS CHAR) AS missing_facts FROM evaluation_reports WHERE step_id = ?"
         )
         .bind(step_id as i64)
-        .bind(&qa.question)
-        .bind(&qa.answer)
-        .execute(db_pool).await?;
-    }
+        .fetch_optional(db_pool)
+        .await?;
 
-    // 5. Re-evaluate
-    // Fetch all QA pairs for this step now
-    let all_qa_records = sqlx::query(
-        "SELECT question, answer FROM qa_results WHERE step_id = ?"
-    )
-    .bind(step_id as i64)
-    .fetch_all(db_pool)
-    .await?;
+        let (coverage, missing_facts_json): (f32, String) = match report_record {
+            Some(r) => (r.get("coverage_score"), r.get("missing_facts")),
+            None => return Err(anyhow::anyhow!("Evaluation report not found")),
+        };
 
-    let all_qa_pairs: Vec<QAPair> = all_qa_records.into_iter().map(|row| QAPair {
-        question: row.get("question"),
-        answer: row.get("answer"),
-    }).collect();
+        if coverage >= 0.99 {
+            info!("Coverage for step #{} reached {:.1}%, breaking loop.", step_id, coverage * 100.0);
+            break;
+        }
 
-    // Re-extract facts just in case or we could reuse them. Let's reuse them to save cost, or re-extract to be safe.
-    let report_record2 = sqlx::query(
-        "SELECT atomic_facts FROM evaluation_reports WHERE step_id = ?"
-    )
-    .bind(step_id as i64)
-    .fetch_optional(db_pool)
-    .await?;
+        let missing_facts_vec: Vec<super::AtomicFact> = serde_json::from_str(&missing_facts_json)?;
+        // Limit to 15 missing facts max to prevent prompt explosion and LLM timeouts
+        let missing_facts: Vec<String> = missing_facts_vec.into_iter().take(15).map(|f| f.fact).collect();
 
-    let atomic_facts_json: String = match report_record2 {
-        Some(r) => r.get("atomic_facts"),
-        None => Default::default(),
-    };
+        if missing_facts.is_empty() {
+            info!("No missing facts for step #{}, breaking loop.", step_id);
+            break;
+        }
 
-    let facts: Vec<super::AtomicFact> = if !atomic_facts_json.is_empty() {
-        serde_json::from_str(&atomic_facts_json)?
-    } else {
-        Vec::new()
-    };
+        // 4. Generate missing QA
+        let new_qa_pairs = generate_missing_qa(
+            &gen_client, 
+            &gen_model.as_str(), 
+            &chunk, 
+            &missing_facts, 
+            qa_config.get_qa_count(&filename, chunk.content.len())
+        ).await?;
 
-    if !facts.is_empty() {
-        let report = verify_coverage(&gemini_client, db_model, &chunk, &facts, &all_qa_pairs).await?;
+        info!("Generated {} new Q/A pairs for step #{}", new_qa_pairs.len(), step_id);
 
-        // Update Report in DB
-        let missing_json = serde_json::to_string(&report.missing_facts)?;
-        
-        sqlx::query(
-            "UPDATE evaluation_reports SET coverage_score = ?, missing_facts = ?, reasoning = ? WHERE step_id = ?"
+        if new_qa_pairs.is_empty() {
+            info!("LLM failed to generate any new pairs for step #{}, breaking to avoid infinite loop.", step_id);
+            break;
+        }
+
+        // Save New Q/A to DB
+        for qa in &new_qa_pairs {
+            sqlx::query(
+                "INSERT INTO qa_results (step_id, question, answer) VALUES (?, ?, ?)"
+            )
+            .bind(step_id as i64)
+            .bind(&qa.question)
+            .bind(&qa.answer)
+            .execute(db_pool).await?;
+        }
+
+        // 5. Re-evaluate
+        // Fetch all QA pairs for this step now
+        let all_qa_records = sqlx::query(
+            "SELECT question, answer FROM qa_results WHERE step_id = ?"
         )
-        .bind(report.coverage_score)
-        .bind(missing_json)
-        .bind(report.reasoning)
         .bind(step_id as i64)
-        .execute(db_pool).await?;
-        
-        info!("Updated coverage score for step #{} to {}", step_id, report.coverage_score);
+        .fetch_all(db_pool)
+        .await?;
+
+        let all_qa_pairs: Vec<QAPair> = all_qa_records.into_iter().map(|row| QAPair {
+            question: row.get("question"),
+            answer: row.get("answer"),
+        }).collect();
+
+        let report_record2 = sqlx::query(
+            "SELECT CAST(atomic_facts AS CHAR) AS atomic_facts FROM evaluation_reports WHERE step_id = ?"
+        )
+        .bind(step_id as i64)
+        .fetch_optional(db_pool)
+        .await?;
+
+        let atomic_facts_json: String = match report_record2 {
+            Some(r) => r.get("atomic_facts"),
+            None => Default::default(),
+        };
+
+        let facts: Vec<super::AtomicFact> = if !atomic_facts_json.is_empty() {
+            serde_json::from_str(&atomic_facts_json)?
+        } else {
+            Vec::new()
+        };
+
+        if !facts.is_empty() {
+            let report = verify_coverage(&gemini_client, db_model, &chunk, &facts, &all_qa_pairs).await?;
+
+            let missing_json = serde_json::to_string(&report.missing_facts)?;
+            
+            sqlx::query(
+                "UPDATE evaluation_reports SET coverage_score = ?, missing_facts = ?, reasoning = ? WHERE step_id = ?"
+            )
+            .bind(report.coverage_score)
+            .bind(missing_json)
+            .bind(report.reasoning)
+            .bind(step_id as i64)
+            .execute(db_pool).await?;
+            
+            info!("Updated coverage score for step #{} to {:.1}%", step_id, report.coverage_score * 100.0);
+        } else {
+            break; // No facts to verify against
+        }
     }
 
     Ok(())

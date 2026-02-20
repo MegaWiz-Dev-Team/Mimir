@@ -9,7 +9,7 @@ import { PipelineFlow } from "@/components/pipeline-flow";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, RefreshCw, PlayCircle } from "lucide-react";
+import { ArrowLeft, RefreshCw, PlayCircle, FileText, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
 export default function RunDetailsPage() {
@@ -161,7 +161,43 @@ export default function RunDetailsPage() {
                                         {step.step_type}
                                     </span>
                                 </TableCell>
-                                <TableCell className="font-medium">{step.file_name}</TableCell>
+                                <TableCell className="font-medium">
+                                    <div className="flex items-center gap-2">
+                                        <span>{step.file_name}</span>
+                                        <div className="flex items-center gap-1 opacity-50 hover:opacity-100 transition-opacity">
+                                            <a
+                                                href={`http://localhost:8080/api/wiki/${step.file_name}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                title="View Markdown Source"
+                                                className="hover:text-primary bg-muted p-1 rounded"
+                                            >
+                                                <FileText className="h-3.5 w-3.5" />
+                                            </a>
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        const resp = await fetch(`http://localhost:8080/api/wiki/${step.file_name}`);
+                                                        const text = await resp.text();
+                                                        const urlMatch = text.match(/url:\s*"([^"]+)"/);
+                                                        if (urlMatch && urlMatch[1]) {
+                                                            window.open(urlMatch[1], '_blank');
+                                                        } else {
+                                                            alert("Original URL not found in markdown frontmatter.");
+                                                        }
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                        alert("Failed to load original URL.");
+                                                    }
+                                                }}
+                                                title="View Original Website"
+                                                className="hover:text-primary bg-muted p-1 rounded"
+                                            >
+                                                <ExternalLink className="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </TableCell>
                                 <TableCell>#{step.chunk_index}</TableCell>
                                 <TableCell>{step.qa_count}</TableCell>
                                 <TableCell>
