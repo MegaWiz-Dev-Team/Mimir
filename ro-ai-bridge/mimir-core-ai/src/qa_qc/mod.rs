@@ -3,6 +3,7 @@ pub mod extractor;
 pub mod verifier;
 pub mod indexer;
 pub mod pipeline;
+pub mod clustering;
 
 use anyhow::Result;
 use schemars::JsonSchema;
