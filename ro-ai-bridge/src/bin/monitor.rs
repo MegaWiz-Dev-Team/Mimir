@@ -1,11 +1,12 @@
 use anyhow::Result;
 use axum::{
     routing::{get, post},
-    Router, Json, extract::{State, Path},
+    Router, Json, extract::{State, Path, Extension},
     response::{IntoResponse, sse::Event, Sse},
     http::StatusCode,
 };
 use dotenvy::dotenv;
+use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::services::db::{init_db, DbPool};
 use mimir_core_ai::qa_qc::pipeline::{run_pipeline_with_config, resume_pipeline_with_config};
 use mimir_core_ai::config::QAConfig;
@@ -30,6 +31,7 @@ struct RunRequest {
     provider: Option<String>,
     model: Option<String>,
     test_run: Option<bool>,
+    tenant_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -58,6 +60,8 @@ struct ChatRequest {
     provider: Option<String>,
     /// Model name (e.g., "llama3.2", "gemini-2.5-flash")
     model: Option<String>,
+    /// Tenant ID (e.g., "default_tenant")
+    tenant_id: Option<String>,
 }
 
 /// Chat response for non-streaming responses
@@ -134,6 +138,7 @@ async fn main() -> Result<()> {
         .route("/api/models", get(models_handler))
         // Wiki content endpoint
         .route("/api/wiki/{filename}", get(get_wiki_content))
+        .layer(axum::middleware::from_fn(tenant_auth_middleware))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
@@ -154,11 +159,14 @@ async fn main() -> Result<()> {
 
 async fn trigger_run(
     State(state): State<Arc<AppState>>,
+    tenant_ctx: Option<Extension<TenantContext>>,
     Json(payload): Json<RunRequest>,
 ) -> Json<RunResponse> {
     let provider = payload.provider.unwrap_or_else(|| "ollama".to_string());
     let model = payload.model.unwrap_or_else(|| "llama3.2".to_string());
     let is_test = payload.test_run.unwrap_or(false);
+    let tenant_id = tenant_ctx.map(|ctx| ctx.tenant_id.clone())
+        .unwrap_or_else(|| payload.tenant_id.unwrap_or_else(|| "default_tenant".to_string()));
     
     // Load QA config from file (uses defaults if file not found)
     let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
@@ -173,7 +181,7 @@ async fn trigger_run(
     // Run in background
     tokio::spawn(async move {
         // Pass qa_config to pipeline - it will calculate count per chunk
-        if let Err(e) = run_pipeline_with_config(&db, run_id_inner, &provider, &model, "data/wiki", is_test, qa_config).await {
+        if let Err(e) = run_pipeline_with_config(&db, run_id_inner, &provider, &model, "data/wiki", is_test, qa_config, tenant_id).await {
             error!("Background pipeline failed: {}", e);
         }
     });
@@ -488,7 +496,7 @@ async fn search_vectors(
     match embed_model.embed_text(&payload.query).await {
         Ok(embedding) => {
             let vector_f32: Vec<f32> = embedding.vec.into_iter().map(|f| f as f32).collect();
-            match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5)).await {
+            match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), "default_tenant").await {
                 Ok(results) => Json(results).into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
             }
@@ -520,8 +528,11 @@ async fn chat_handler(
         }
     });
     
-    info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}", 
-          payload.tier, payload.persona, provider, model_name, payload.message);
+    info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
+          payload.tier, payload.persona, provider, model_name, payload.message, payload.tenant_id);
+    
+    // Default to default_tenant if missing
+    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
     
     // Load persona
     let persona = match Persona::load_by_name_cached(&payload.persona) {
@@ -577,6 +588,7 @@ async fn chat_handler(
                 provider.clone(),
                 model.as_deref(),
                 None,
+                tenant_id.clone(),
             );
             
             match agent.chat(&payload.message).await {
@@ -638,8 +650,9 @@ async fn chat_stream_handler(
         }
     });
     
-    info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}", 
-          payload.tier, payload.persona, provider, model_name, payload.message);
+    info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
+          payload.tier, payload.persona, provider, model_name, payload.message, payload.tenant_id);
+    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
     let (tx, rx) = mpsc::channel(100);
     let start = std::time::Instant::now();
     
@@ -718,6 +731,7 @@ async fn chat_stream_handler(
                     provider.clone(),
                     model.as_deref(),
                     None,
+                    tenant_id.clone(),
                 );
                 
                 match agent.chat(&message).await {

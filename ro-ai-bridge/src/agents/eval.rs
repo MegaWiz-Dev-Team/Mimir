@@ -99,6 +99,7 @@ pub async fn evaluate_agent(
                 provider,
                 Some(model_id),
                 Some(Duration::from_secs(120)),
+                "default_tenant".to_string(),
             );
 
             let response = oracle.chat(question).await?;

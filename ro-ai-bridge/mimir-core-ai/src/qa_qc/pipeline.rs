@@ -19,7 +19,8 @@ pub async fn run_pipeline(
     model: &str,
     input_dir: &str,
     is_test_run: bool,
-    qa_count: usize
+    qa_count: usize,
+    tenant_id: String
 ) -> Result<()> {
     // Convert fixed qa_count to a QAConfig with default rules
     let qa_config = QAConfig {
@@ -30,7 +31,7 @@ pub async fn run_pipeline(
             patterns: vec![],
         },
     };
-    run_pipeline_with_config(db_pool, run_id, provider, model, input_dir, is_test_run, qa_config).await
+    run_pipeline_with_config(db_pool, run_id, provider, model, input_dir, is_test_run, qa_config, tenant_id).await
 }
 
 /// Run pipeline with full QAConfig support (size-based and pattern-based rules)
@@ -41,19 +42,21 @@ pub async fn run_pipeline_with_config(
     model: &str,
     input_dir: &str,
     is_test_run: bool,
-    qa_config: QAConfig
+    qa_config: QAConfig,
+    tenant_id: String
 ) -> Result<()> {
     let started_at = Utc::now();
 
     // 1. Initialize Run in DB
     sqlx::query(
-        "INSERT INTO pipeline_runs (id, status, provider, model, started_at) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO pipeline_runs (id, status, provider, model, started_at, tenant_id) VALUES (?, ?, ?, ?, ?, ?)"
     )
     .bind(&run_id)
     .bind("RUNNING")
     .bind(provider)
     .bind(model)
     .bind(started_at)
+    .bind(&tenant_id)
     .execute(db_pool).await?;
 
     info!("🚀 Starting Pipeline Run: {}", run_id);
@@ -113,8 +116,8 @@ pub async fn run_pipeline_with_config(
                 // Create Step in DB
                 total_steps += 1;
                 let step_id = sqlx::query(
-                    "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at) \
-                     VALUES (?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at, tenant_id) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?)"
                 )
                 .bind(&run_id)
                 .bind(&filename)
@@ -122,10 +125,11 @@ pub async fn run_pipeline_with_config(
                 .bind("RUNNING")
                 .bind("FULL_PROCESS")
                 .bind(Utc::now())
+                .bind(&tenant_id)
                 .execute(db_pool).await?.last_insert_id();
 
                 // Process
-                match process_chunk(db_pool, step_id, &gen_client, model, &gemini_client, &gemini_model, &wiki_chunk, qa_count).await {
+                match process_chunk(db_pool, step_id, &gen_client, model, &gemini_client, &gemini_model, &wiki_chunk, qa_count, &tenant_id).await {
                     Ok(qa_pairs) => {
                         all_qa.extend(qa_pairs);
                         sqlx::query(
@@ -210,6 +214,7 @@ pub async fn retry_step_with_config(
     let run_id: String = step.get("run_id");
     let file_name: String = step.get("file_name");
     let chunk_index: i64 = step.get("chunk_index");
+    let tenant_id: String = step.get("tenant_id");
 
     // 2. Fetch Run Details
     let run = sqlx::query("SELECT * FROM pipeline_runs WHERE id = ?")
@@ -283,7 +288,7 @@ pub async fn retry_step_with_config(
     // 6. Process Chunk
     info!("🔄 Retrying Step #{} (File: {}, Chunk: {}) with {} Q/A pairs", step_id, file_name, chunk_index, qa_count);
     
-    match process_chunk(db_pool, step_id as u64, &gen_client, &model, &gemini_client, &gemini_model, &wiki_chunk, qa_count).await {
+    match process_chunk(db_pool, step_id as u64, &gen_client, &model, &gemini_client, &gemini_model, &wiki_chunk, qa_count, &tenant_id).await {
         Ok(_) => {
             sqlx::query("UPDATE pipeline_steps SET status = 'COMPLETED', finished_at = ? WHERE id = ?")
                 .bind(Utc::now())
@@ -329,11 +334,12 @@ pub async fn resume_pipeline_with_config(
     qa_config: QAConfig
 ) -> Result<()> {
     // 1. Check/Update Run Status
-    let run = sqlx::query("SELECT status FROM pipeline_runs WHERE id = ?")
+    let run = sqlx::query("SELECT status, tenant_id FROM pipeline_runs WHERE id = ?")
         .bind(&run_id)
         .fetch_one(db_pool).await?;
         
     let status: String = run.get("status");
+    let tenant_id: String = run.get("tenant_id");
     if status == "COMPLETED" {
         info!("Run {} is already COMPLETED.", run_id);
         return Ok(());
@@ -385,8 +391,8 @@ pub async fn resume_pipeline_with_config(
                 } else {
                     // Create new step
                      let step_id = sqlx::query(
-                        "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at) \
-                         VALUES (?, ?, ?, ?, ?, ?)"
+                        "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at, tenant_id) \
+                         VALUES (?, ?, ?, ?, ?, ?, ?)"
                     )
                     .bind(&run_id)
                     .bind(&filename)
@@ -394,6 +400,7 @@ pub async fn resume_pipeline_with_config(
                     .bind("RUNNING")
                     .bind("FULL_PROCESS")
                     .bind(Utc::now())
+                    .bind(&tenant_id)
                     .execute(db_pool).await?.last_insert_id();
                     
                     info!("Created new step #{} for resume", step_id);
@@ -422,7 +429,8 @@ pub async fn process_chunk(
     gemini_client: &gemini::Client,
     gemini_model: &str,
     chunk: &WikiChunk,
-    qa_count: usize
+    qa_count: usize,
+    tenant_id: &str
 ) -> Result<Vec<QAPair>> {
     // 1. Generate Q/A
     let qa_pairs = generate_qa(gen_client, gen_model, chunk, qa_count).await?;
@@ -430,11 +438,12 @@ pub async fn process_chunk(
     // Save Q/A to DB
     for qa in &qa_pairs {
         sqlx::query(
-            "INSERT INTO qa_results (step_id, question, answer) VALUES (?, ?, ?)"
+            "INSERT INTO qa_results (step_id, question, answer, tenant_id) VALUES (?, ?, ?, ?)"
         )
         .bind(step_id as i64)
         .bind(&qa.question)
         .bind(&qa.answer)
+        .bind(tenant_id)
         .execute(db_pool).await?;
     }
 
@@ -449,14 +458,15 @@ pub async fn process_chunk(
     let missing_json = serde_json::to_string(&report.missing_facts)?;
     
     sqlx::query(
-        "INSERT INTO evaluation_reports (step_id, coverage_score, atomic_facts, missing_facts, reasoning) \
-         VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO evaluation_reports (step_id, coverage_score, atomic_facts, missing_facts, reasoning, tenant_id) \
+         VALUES (?, ?, ?, ?, ?, ?)"
     )
     .bind(step_id as i64)
     .bind(report.coverage_score)
     .bind(facts_json)
     .bind(missing_json)
     .bind(report.reasoning)
+    .bind(tenant_id)
     .execute(db_pool).await?;
 
     Ok(qa_pairs)
@@ -469,7 +479,7 @@ pub async fn generate_missing_qa_for_step(
 ) -> Result<()> {
     // 1. Fetch step details and missing facts
     let step_record = sqlx::query(
-        "SELECT ps.file_name, ps.chunk_index, pr.provider, pr.model
+        "SELECT ps.file_name, ps.chunk_index, ps.tenant_id, pr.provider, pr.model
          FROM pipeline_steps ps
          JOIN pipeline_runs pr ON ps.run_id = pr.id
          WHERE ps.id = ?"
@@ -485,6 +495,7 @@ pub async fn generate_missing_qa_for_step(
 
     let filename: String = step.get("file_name");
     let chunk_index: i64 = step.get("chunk_index");
+    let tenant_id: String = step.get("tenant_id");
     let provider: String = step.get("provider");
     let model: String = step.get("model");
 
@@ -567,11 +578,12 @@ pub async fn generate_missing_qa_for_step(
         // Save New Q/A to DB
         for qa in &new_qa_pairs {
             sqlx::query(
-                "INSERT INTO qa_results (step_id, question, answer) VALUES (?, ?, ?)"
+                "INSERT INTO qa_results (step_id, question, answer, tenant_id) VALUES (?, ?, ?, ?)"
             )
             .bind(step_id as i64)
             .bind(&qa.question)
             .bind(&qa.answer)
+            .bind(&tenant_id)
             .execute(db_pool).await?;
         }
 

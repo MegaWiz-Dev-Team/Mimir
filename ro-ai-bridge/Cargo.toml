@@ -58,6 +58,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "mysql", "chrono
 tokio = { version = "1.49.0", features = ["full"] }
 tokio-stream = "0.1"
 tracing = "0.1.44"
+jsonwebtoken = "9.3.0"
 tracing-subscriber = "0.3.22"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.10.0"

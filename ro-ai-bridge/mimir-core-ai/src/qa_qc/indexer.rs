@@ -23,7 +23,7 @@ pub async fn run_indexer(
 
     // 2. Fetch Unindexed Q/A Results
     let unindexed = sqlx::query(
-        "SELECT qr.id, qr.question, qr.answer, ps.file_name, ps.chunk_index \
+        "SELECT qr.id, qr.question, qr.answer, qr.tenant_id, ps.file_name, ps.chunk_index \
          FROM qa_results qr \
          JOIN pipeline_steps ps ON qr.step_id = ps.id \
          WHERE qr.indexed_at IS NULL"
@@ -44,6 +44,7 @@ pub async fn run_indexer(
         let id: i64 = row.get("id");
         let question: String = row.get("question");
         let answer: String = row.get("answer");
+        let tenant_id: String = row.get("tenant_id");
         let file_name: String = row.get("file_name");
         let chunk_index: i64 = row.get("chunk_index");
 
@@ -62,7 +63,8 @@ pub async fn run_indexer(
                                 "answer": answer,
                                 "source": file_name,
                                 "source_id": file_name, // Add standard source_id field
-                                "chunk": chunk_index
+                                "chunk": chunk_index,
+                                "tenant_id": tenant_id
                             }
                         }
                     ]

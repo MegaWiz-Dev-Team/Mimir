@@ -131,6 +131,7 @@ mod tests {
             greeting: Some("Hello!".to_string()),
             allowed_actions: vec![],
             personality_traits: vec!["friendly".to_string()],
+            model_id: None,
         }
     }
 
