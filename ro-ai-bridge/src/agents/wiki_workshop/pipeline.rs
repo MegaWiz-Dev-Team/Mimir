@@ -67,7 +67,7 @@ pub async fn run_pipeline_with_config(
     let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
     let gen_client = match provider {
-        "gemini" => GeneratorClient::Gemini(gemini_client.clone()),
+        "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
         _ => GeneratorClient::Ollama(local_client.clone()),
     };
 
@@ -276,7 +276,7 @@ pub async fn retry_step_with_config(
     let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
     let gen_client = match provider.as_str() {
-        "gemini" => GeneratorClient::Gemini(gemini_client.clone()),
+        "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
         _ => GeneratorClient::Ollama(local_client.clone()),
     };
 

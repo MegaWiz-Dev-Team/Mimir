@@ -1,0 +1,35 @@
+
+> ro-ai-dashboard@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.179:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 1958ms
+ GET / 200 in 1615ms (compile: 1320ms, render: 294ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 1082ms (compile: 1023ms, render: 59ms)
+ GET / 200 in 26ms (compile: 12ms, render: 14ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 238ms (compile: 76ms, render: 163ms)
+ GET /steps/542?runId=67694632-f27f-4383-be63-100ae59d123f 200 in 2.7s (compile: 2.6s, render: 129ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 29ms (compile: 13ms, render: 15ms)
+ GET /steps/543?runId=67694632-f27f-4383-be63-100ae59d123f 200 in 27ms (compile: 9ms, render: 18ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 24ms (compile: 8ms, render: 16ms)
+ GET / 200 in 32ms (compile: 9ms, render: 23ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 54ms (compile: 21ms, render: 33ms)
+ GET / 200 in 34ms (compile: 11ms, render: 23ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 44ms (compile: 15ms, render: 29ms)
+ GET /steps/542?runId=67694632-f27f-4383-be63-100ae59d123f 200 in 28ms (compile: 13ms, render: 15ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 31ms (compile: 11ms, render: 20ms)
+ GET /steps/557?runId=67694632-f27f-4383-be63-100ae59d123f 200 in 29ms (compile: 10ms, render: 18ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 18ms (compile: 6ms, render: 12ms)
+ GET /steps/545?runId=67694632-f27f-4383-be63-100ae59d123f 200 in 45ms (compile: 23ms, render: 22ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 47ms (compile: 27ms, render: 20ms)
+ GET / 200 in 32ms (compile: 20ms, render: 12ms)
+ GET /vector 200 in 256ms (compile: 243ms, render: 13ms)
+ GET / 200 in 33ms (compile: 11ms, render: 22ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 26ms (compile: 11ms, render: 15ms)
+ GET / 200 in 19ms (compile: 6ms, render: 13ms)
+ GET /runs/67694632-f27f-4383-be63-100ae59d123f 200 in 144ms (compile: 63ms, render: 81ms)

@@ -1,100 +1,1883 @@
-warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/ro_ai_bridge-01r24ekte08kc/s-hfy80wb6ay-1t0qi84-working`
-
-warning: unused import: `Context`
- --> src/services/mcp_client.rs:1:22
-  |
-1 | use anyhow::{Result, Context};
-  |                      ^^^^^^^
-  |
-  = note: `#[warn(unused_imports)]` on by default
-
-warning: unused imports: `AtomicFact`, `CoverageReport`, `QAPair`, and `WikiChunk`
- --> src/agents/wiki_workshop/indexer.rs:2:13
-  |
-2 | ...::{WikiChunk, QAPair, AtomicFact, CoverageReport};
-  |       ^^^^^^^^^  ^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^
-
-warning: unused import: `rig::completion::Prompt`
- --> src/agents/wiki_workshop/indexer.rs:5:5
-  |
-5 | use rig::completion::Prompt;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^
-
-warning: unused import: `chrono::Utc`
-  --> src/agents/wiki_workshop/indexer.rs:11:5
-   |
-11 | use chrono::Utc;
-   |     ^^^^^^^^^^^
-
-warning: unused imports: `AtomicFact` and `CoverageReport`
- --> src/agents/wiki_workshop/pipeline.rs:3:32
-  |
-3 | ...r, AtomicFact, CoverageReport};
-  |       ^^^^^^^^^^  ^^^^^^^^^^^^^^
-
-warning: unused import: `warn`
-  --> src/agents/wiki_workshop/pipeline.rs:10:21
-   |
-10 | use tracing::{info, warn, e...
-   |                     ^^^^
-
-warning: unused import: `uuid::Uuid`
-  --> src/agents/wiki_workshop/pipeline.rs:11:5
-   |
-11 | use uuid::Uuid;
-   |     ^^^^^^^^^^
-
-warning: field `uri` is never read
-  --> src/services/mcp_client.rs:18:5
-   |
-17 | struct SseEndpointEvent {
-   |        ---------------- field in this struct
-18 |     uri: String,
-   |     ^^^
-   |
-   = note: `SseEndpointEvent` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
-   = note: `#[warn(dead_code)]` on by default
-
-warning: field `id` is never read
-  --> src/services/mcp_client.rs:33:5
-   |
-30 | struct JsonRpcResponse {
-   |        --------------- field in this struct
-...
-33 |     id: u64,
-   |     ^^
-   |
-   = note: `JsonRpcResponse` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
-
-warning: `ro-ai-bridge` (lib) generated 10 warnings (run `cargo fix --lib -p ro-ai-bridge` to apply 7 suggestions)
-warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/monitor-06508sfbk5rru/s-hfy89htg1n-0h3fzo5-working`
-
-warning: field `session_id` is never read
-  --> src/bin/monitor.rs:55:5
-   |
-47 | struct ChatRequest {
-   |        ----------- field in this struct
-...
-55 |     session_id: Option<String>,
-   |     ^^^^^^^^^^
-   |
-   = note: `#[warn(dead_code)]` on by default
-
-warning: `ro-ai-bridge` (bin "monitor") generated 2 warnings
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.44s
-     Running `target/debug/monitor`
-[2m2026-02-19T16:24:54.633652Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:mimir_password@localhost:3306/ro_landverse
-[2m2026-02-19T16:24:55.062905Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m ✅ Database migrations applied
-[2m2026-02-19T16:24:55.213828Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
-[2m2026-02-19T16:27:09.276973Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 💬 Received streaming chat request: tier=2, persona=sage_ariel, provider=gemini, model=gemini-2.5-flash, message=สวัสดี
-[2m2026-02-19T16:27:11.211225Z[0m [33m WARN[0m [2mro_ai_bridge::agents::oracle_rag[0m[2m:[0m Game data search failed: Failed to search vectors: {"status":{"error":"Not found: Collection `game_data` doesn't exist!"},"time":0.000022125}
-[2m2026-02-19T16:27:13.050313Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 399
+[2m2026-02-20T04:45:13.105346Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:mimir_password@localhost:3306/ro_landverse
+[2m2026-02-20T04:45:13.285447Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m ✅ Database migrations applied
+[2m2026-02-20T04:45:13.297645Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
+[2m2026-02-20T04:48:44.296504Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📋 Loaded QA config from data/qa_config.json
+[2m2026-02-20T04:48:44.296942Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 📋 QA Config: default_count=3, 3 size rules, 3 file patterns
+[2m2026-02-20T04:48:44.316095Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::pipeline[0m[2m:[0m 🚀 Starting Pipeline Run: 67694632-f27f-4383-be63-100ae59d123f
+[2m2026-02-20T04:48:44.316139Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::pipeline[0m[2m:[0m 📋 QA Config: default_count=3, 3 size rules, 3 file patterns
+[2m2026-02-20T04:48:44.342598Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'Home.md' (176819 chars): 5 Q/A pairs
+[2m2026-02-20T04:48:44.348132Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 5 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:48:54.562855Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 80614
 Cached content token count: n/a
-Candidates token count: 118
+Candidates token count: 312
+Total token count: 82560
+[2m2026-02-20T04:48:54.594271Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:49:10.730488Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 80604
+Cached content token count: n/a
+Candidates token count: 1471
+Total token count: 84321
+[2m2026-02-20T04:49:10.731250Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:49:35.557083Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1382
+Cached content token count: n/a
+Candidates token count: 1139
+Total token count: 7575
+[2m2026-02-20T04:49:35.598946Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'Game_Guide.md' (149322 chars): 5 Q/A pairs
+[2m2026-02-20T04:49:35.602197Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 5 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:49:44.251483Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 67521
+Cached content token count: n/a
+Candidates token count: 428
+Total token count: 69014
+[2m2026-02-20T04:49:44.274159Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:50:23.059163Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 67511
+Cached content token count: n/a
+Candidates token count: 2892
+Total token count: 77246
+[2m2026-02-20T04:50:23.059847Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:51:03.590689Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2915
+Cached content token count: n/a
+Candidates token count: 1898
+Total token count: 14145
+[2m2026-02-20T04:51:03.773782Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_moonstone.md' (71 chars): 2 Q/A pairs
+[2m2026-02-20T04:51:03.781119Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:51:08.637911Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 115
+Cached content token count: n/a
+Candidates token count: 85
+Total token count: 1068
+[2m2026-02-20T04:51:08.655456Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:51:10.757541Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 105
+Cached content token count: n/a
+Candidates token count: 18
+Total token count: 335
+[2m2026-02-20T04:51:10.757647Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:51:14.235710Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 238
+Cached content token count: n/a
+Candidates token count: 84
+Total token count: 842
+[2m2026-02-20T04:51:14.250263Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_moonstone.md' (1702 chars): 2 Q/A pairs
+[2m2026-02-20T04:51:14.255122Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:51:18.203876Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 444
+Cached content token count: n/a
+Candidates token count: 140
+Total token count: 1194
+[2m2026-02-20T04:51:18.255805Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:51:22.088774Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 434
+Cached content token count: n/a
+Candidates token count: 425
+Total token count: 1271
+[2m2026-02-20T04:51:22.089282Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:51:27.733083Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 564
+Cached content token count: n/a
+Candidates token count: 235
+Total token count: 1840
+[2m2026-02-20T04:51:27.757188Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_shop_of_desires.md' (660 chars): 2 Q/A pairs
+[2m2026-02-20T04:51:27.760461Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:51:30.558013Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 196
+Cached content token count: n/a
+Candidates token count: 125
+Total token count: 746
+[2m2026-02-20T04:51:30.565378Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:51:34.060469Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 186
+Cached content token count: n/a
+Candidates token count: 160
+Total token count: 797
+[2m2026-02-20T04:51:34.060575Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:51:39.459863Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 399
+Cached content token count: n/a
+Candidates token count: 138
+Total token count: 1518
+[2m2026-02-20T04:51:39.485347Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_shop_of_desires.md' (1519 chars): 2 Q/A pairs
+[2m2026-02-20T04:51:39.489207Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:51:42.697508Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 469
+Cached content token count: n/a
+Candidates token count: 119
+Total token count: 931
+[2m2026-02-20T04:51:42.707907Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:51:47.064547Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 459
+Cached content token count: n/a
+Candidates token count: 263
+Total token count: 1252
+[2m2026-02-20T04:51:47.064732Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:51:53.834368Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 466
+Cached content token count: n/a
+Candidates token count: 302
+Total token count: 1895
+[2m2026-02-20T04:51:53.873205Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_undefined.md' (2852 chars): 3 Q/A pairs
+[2m2026-02-20T04:51:53.877477Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:51:58.573953Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 566
+Cached content token count: n/a
+Candidates token count: 157
+Total token count: 1375
+[2m2026-02-20T04:51:58.604240Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:52:05.129801Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 556
+Cached content token count: n/a
+Candidates token count: 385
+Total token count: 1936
+[2m2026-02-20T04:52:05.129945Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:52:14.345302Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 574
+Cached content token count: n/a
+Candidates token count: 348
+Total token count: 2852
+[2m2026-02-20T04:52:14.358812Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_afk.md' (2881 chars): 3 Q/A pairs
+[2m2026-02-20T04:52:14.362514Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:52:19.156528Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 577
+Cached content token count: n/a
+Candidates token count: 182
+Total token count: 1428
+[2m2026-02-20T04:52:19.166728Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:52:25.199763Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 567
+Cached content token count: n/a
+Candidates token count: 385
+Total token count: 1960
+[2m2026-02-20T04:52:25.199895Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:52:39.332994Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 617
+Cached content token count: n/a
+Candidates token count: 244
+Total token count: 4175
+[2m2026-02-20T04:52:39.449613Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (106 chars): 2 Q/A pairs
+[2m2026-02-20T04:52:39.469885Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:52:42.160866Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 124
+Cached content token count: n/a
+Candidates token count: 82
+Total token count: 440
+[2m2026-02-20T04:52:42.167776Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:52:46.102620Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 114
+Cached content token count: n/a
+Candidates token count: 30
+Total token count: 860
+[2m2026-02-20T04:52:46.102708Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:52:48.443819Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 244
+Cached content token count: n/a
+Candidates token count: 59
+Total token count: 714
+[2m2026-02-20T04:52:48.451757Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (410 chars): 2 Q/A pairs
+[2m2026-02-20T04:52:48.454104Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:52:51.313400Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 153
+Cached content token count: n/a
+Candidates token count: 95
 Total token count: 609
-[2m2026-02-19T16:29:42.651976Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 💬 Received streaming chat request: tier=2, persona=sage_ariel, provider=gemini, model=gemini-2.5-flash, message=สวัสดี ragnarok มีกี่ version
-[2m2026-02-19T16:29:44.924303Z[0m [33m WARN[0m [2mro_ai_bridge::agents::oracle_rag[0m[2m:[0m Game data search failed: Failed to search vectors: {"status":{"error":"Not found: Collection `game_data` doesn't exist!"},"time":6.917e-6}
-[2m2026-02-19T16:29:50.776819Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 448
+[2m2026-02-20T04:52:51.326536Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:52:53.154566Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 143
 Cached content token count: n/a
-Candidates token count: 818
-Total token count: 1474
+Candidates token count: 85
+Total token count: 396
+[2m2026-02-20T04:52:53.154685Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:52:56.533532Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 307
+Cached content token count: n/a
+Candidates token count: 108
+Total token count: 1008
+[2m2026-02-20T04:52:56.542425Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (1106 chars): 2 Q/A pairs
+[2m2026-02-20T04:52:56.544921Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:53:00.160375Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 356
+Cached content token count: n/a
+Candidates token count: 187
+Total token count: 1011
+[2m2026-02-20T04:53:00.189080Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:53:04.008836Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 346
+Cached content token count: n/a
+Candidates token count: 139
+Total token count: 844
+[2m2026-02-20T04:53:04.008960Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:53:08.736805Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 446
+Cached content token count: n/a
+Candidates token count: 112
+Total token count: 1484
+[2m2026-02-20T04:53:08.749882Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (2251 chars): 3 Q/A pairs
+[2m2026-02-20T04:53:08.753228Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:53:13.622950Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 509
+Cached content token count: n/a
+Candidates token count: 246
+Total token count: 1272
+[2m2026-02-20T04:53:13.636743Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:53:20.086368Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 499
+Cached content token count: n/a
+Candidates token count: 344
+Total token count: 1887
+[2m2026-02-20T04:53:20.086834Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:53:27.452653Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 635
+Cached content token count: n/a
+Candidates token count: 192
+Total token count: 2374
+[2m2026-02-20T04:53:27.468764Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (941 chars): 2 Q/A pairs
+[2m2026-02-20T04:53:27.473071Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:53:30.386461Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 250
+Cached content token count: n/a
+Candidates token count: 134
+Total token count: 777
+[2m2026-02-20T04:53:30.396411Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:53:35.266020Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 240
+Cached content token count: n/a
+Candidates token count: 174
+Total token count: 1331
+[2m2026-02-20T04:53:35.266574Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:53:43.172174Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 411
+Cached content token count: n/a
+Candidates token count: 147
+Total token count: 1997
+[2m2026-02-20T04:53:43.204673Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (4398 chars): 3 Q/A pairs
+[2m2026-02-20T04:53:43.208027Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:53:46.964986Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2079
+Cached content token count: n/a
+Candidates token count: 187
+Total token count: 2756
+[2m2026-02-20T04:53:46.974463Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:53:53.483426Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2069
+Cached content token count: n/a
+Candidates token count: 432
+Total token count: 3553
+[2m2026-02-20T04:53:53.483941Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:54:02.101110Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 620
+Cached content token count: n/a
+Candidates token count: 201
+Total token count: 2646
+[2m2026-02-20T04:54:02.122614Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (8032 chars): 3 Q/A pairs
+[2m2026-02-20T04:54:02.127318Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:54:06.474866Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3903
+Cached content token count: n/a
+Candidates token count: 218
+Total token count: 4659
+[2m2026-02-20T04:54:06.486234Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:54:12.331698Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3893
+Cached content token count: n/a
+Candidates token count: 536
+Total token count: 5169
+[2m2026-02-20T04:54:12.332173Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:54:21.921298Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 683
+Cached content token count: n/a
+Candidates token count: 320
+Total token count: 2766
+[2m2026-02-20T04:54:21.932075Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (6804 chars): 3 Q/A pairs
+[2m2026-02-20T04:54:21.935690Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:54:25.316618Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3810
+Cached content token count: n/a
+Candidates token count: 159
+Total token count: 4398
+[2m2026-02-20T04:54:25.325802Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:54:28.902849Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3800
+Cached content token count: n/a
+Candidates token count: 175
+Total token count: 4157
+[2m2026-02-20T04:54:28.903091Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:54:33.610188Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 431
+Cached content token count: n/a
+Candidates token count: 161
+Total token count: 1523
+[2m2026-02-20T04:54:33.622238Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_dungeon_village.md' (3874 chars): 3 Q/A pairs
+[2m2026-02-20T04:54:33.625395Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:54:38.013858Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1619
+Cached content token count: n/a
+Candidates token count: 196
+Total token count: 2464
+[2m2026-02-20T04:54:38.041127Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:54:41.392931Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1609
+Cached content token count: n/a
+Candidates token count: 328
+Total token count: 2263
+[2m2026-02-20T04:54:41.393067Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T04:54:51.261582Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 561
+Cached content token count: n/a
+Candidates token count: 172
+Total token count: 2852
+[2m2026-02-20T04:54:51.293640Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_enchant_landstone.md' (109874 chars): 5 Q/A pairs
+[2m2026-02-20T04:54:51.298403Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 5 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-20T04:54:58.801093Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 17075
+Cached content token count: n/a
+Candidates token count: 516
+Total token count: 18505
+[2m2026-02-20T04:54:58.832684Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-20T04:57:02.191868Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 17065
+Cached content token count: n/a
+Candidates token count: 19863
+Total token count: 52574
+[2m2026-02-20T04:57:02.193708Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-20T05:00:46.220524Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 17666
+Cached content token count: n/a
+Candidates token count: 20972
+Total token count: 83198
+[2m2026-02-20T05:00:46.227206Z[0m [31mERROR[0m [2mro_ai_bridge::agents::wiki_workshop::pipeline[0m[2m:[0m Step failed: Failed to parse Report JSON: EOF while parsing a string at line 1586 column 77. Raw: ```json
+{
+  "coverage_score": 0.024911032028468,
+  "missing_facts": [
+    {
+      "fact": "The system is called Enchant Landstone System."
+    },
+    {
+      "fact": "Type P Landstones are designed to enhance abilities for physical melee characters."
+    },
+    {
+      "fact": "Type M Landstones are designed to enhance abilities for magical characters."
+    },
+    {
+      "fact": "Type Special Landstones are special stones that can enhance abilities for all classes."
+    },
+    {
+      "fact": "All listed Landstones have an EP of 8.0."
+    },
+    {
+      "fact": "All listed Landstones are of type 'Etc'."
+    },
+    {
+      "fact": "All listed Landstones have a weight of 1."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type R provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type R provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type R grants Max HP+4%, Max SP+4%, and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type R grants Max HP+5%, Max SP+5%, and increases ranged physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type R reduces Delay by 1%."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type R grants All Status +2 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type R grants Max HP+4%, Max SP+4%, and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type R grants Max HP+5%, Max SP+5%, and increases ranged physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Unfrozen Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 10% resistance to Frozen status when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 15% resistance to Frozen status and Vit+3 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Unfrozen Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Unfrozen Dusk Landstone Type R grants Max HP+4%, Max SP+4%, and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Unfrozen Dusk Landstone Type R grants Max HP+5%, Max SP+5%, and increases ranged physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type R grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type R grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type R grants Flee+3, Luk+1 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type R grants P.Dodge+10 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type R grants Str+1."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type R grants Str+2, ATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type R grants Str+2 and increases ranged attack by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type R increases ranged attack by 2% when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type R grants Vit+2."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type R has a 1% chance to reduce attack from Shadow element monsters by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type R grants Crit Dmg+3%."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type R grants Crit Dmg+3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type R grants Crit Dmg+4% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type R ignores 3% of enemy physical defense when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type R increases movement speed by 2%, increases ranged physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type R ignores 3% of Shadow element monster physical defense when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type R increases movement speed by 2%, increases ranged physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type R increases physical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type R increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type R increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type R grants ATK+15 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type R increases movement speed by 2%, increases ranged physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type R provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type R provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type R provides DEF+4, MDEF+2 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type R reduces Delay by 1%."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type R grants 10% resistance to Frozen status when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type R grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type R grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type R grants Flee+3, Luk+1 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type R grants Str+1."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type R grants Str+2, ATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type R grants Str+2 and increases ranged attack by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type R grants Vit+2."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type R grants Crit Dmg+3%."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type R grants Crit Dmg+3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type R grants Crit Dmg+4% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type R increases physical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type R increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type R increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Large Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Large Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type R provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type R provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Iron Dusk Landstone Type R grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Iron Dusk Landstone Type R grants Max HP+2%, Max SP+2%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type R reduces Delay by 1%."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Quick Dusk Landstone Type R grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Quick Dusk Landstone Type R grants Max HP+2%, Max SP+2%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type R is an Armor item."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type R grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type R grants Max HP+2%, Max SP+2%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type R grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type R grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Power Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [R] Power Dusk Landstone Type R grants Str+1."
+    },
+    {
+      "fact": "The [R] Power Dusk Landstone Type R grants Str+2, ATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type R is a Garment item."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type R grants Vit+2."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Pure Fatal Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [R] Pure Fatal Void Landstone Type R grants Crit Dmg+3%."
+    },
+    {
+      "fact": "The [R] Pure Fatal Void Landstone Type R grants Crit Dmg+3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type R increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Void Landstone Type R increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type R is a Footgear item."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type R increases physical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type R increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Large Void Landstone Type R increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Large Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P provides DEF+4, MDEF+2 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type P has a 1% chance to reduce all incoming attack (including Player) by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type P grants Max HP+4%, Max SP+4%, and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type P grants Max HP+5%, Max SP+5%, and increases melee physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type P reduces Delay by 1%."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type P grants All Status +2 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type P grants Max HP+4%, Max SP+4%, and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type P grants Max HP+5%, Max SP+5%, and increases melee physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 10% resistance to Frozen status when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 15% resistance to Frozen status and Vit+3 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type P grants Max HP+4%, Max SP+4%, and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type P grants Max HP+5%, Max SP+5%, and increases melee physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type P grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type P grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type P grants Flee+3, Luk+1 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type P grants P.Dodge+10 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type P grants Str+1."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type P grants Str+2, ATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type P grants Str+2 and increases melee attack by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Power Dusk Landstone Type P increases melee attack by 2% when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type P grants Vit+2."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type P has a 1% chance to reduce attack from Shadow element monsters by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type P grants Crit Dmg+3%."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type P grants Crit Dmg+3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type P grants Crit Dmg+4% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Pure Fatal Void Landstone Type P ignores 3% of enemy physical defense when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type P increases movement speed by 2%, increases melee physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type P ignores 3% of Shadow element monster physical defense when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type P increases movement speed by 2%, increases melee physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type P increases physical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type P increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type P increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type P grants ATK+15 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type P increases movement speed by 2%, increases melee physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type P provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type P provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type P provides DEF+4, MDEF+2 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type P reduces Delay by 1%."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type P grants 10% resistance to Frozen status when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type P grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type P grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type P grants Flee+3, Luk+1 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type P grants Str+1."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type P grants Str+2, ATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Power Dusk Landstone Type P grants Str+2 and increases melee attack by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type P grants Vit+2."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type P grants Crit Dmg+3%."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type P grants Crit Dmg+3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Pure Fatal Void Landstone Type P grants Crit Dmg+4% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type P increases physical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type P increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type P increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Large Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Large Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type P provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type P provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Iron Dusk Landstone Type P grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Iron Dusk Landstone Type P grants Max HP+2%, Max SP+2%, and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type P reduces Delay by 1%."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Quick Dusk Landstone Type P grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Quick Dusk Landstone Type P grants Max HP+2%, Max SP+2%, and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type P is an Armor item."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type P grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type P grants Max HP+2%, Max SP+2%, and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type P grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type P grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Power Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [R] Power Dusk Landstone Type P grants Str+1."
+    },
+    {
+      "fact": "The [R] Power Dusk Landstone Type P grants Str+2, ATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type P is a Garment item."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type P grants Vit+2."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Pure Fatal Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [R] Pure Fatal Void Landstone Type P grants Crit Dmg+3%."
+    },
+    {
+      "fact": "The [R] Pure Fatal Void Landstone Type P grants Crit Dmg+3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type P increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Void Landstone Type P increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type P is a Footgear item."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type P increases physical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type P increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Large Void Landstone Type P increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Large Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M provides DEF+4, MDEF+2 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Iron Dusk Landstone Type M has a 1% chance to reduce all incoming attack (including Player) by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type M grants Max HP+5%, Max SP+5%, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type M reduces Delay by 1%."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Quick Dusk Landstone Type M grants All Status +2 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 10% resistance to Frozen status when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 15% resistance to Frozen status and Vit+3 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 5%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+4%, and reduces variable cast time by 5% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type M grants Max HP+5%, Max SP+5%, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type M grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type M grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type M grants Flee+3, Luk+1 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Flash Dusk Landstone Type M grants P.Dodge+10 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type M grants 30 HP upon killing a monster with magical attack, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Magic Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Magic Dusk Landstone Type M grants Int+2."
+    },
+    {
+      "fact": "The [SSR] Magic Dusk Landstone Type M grants Int+2, MATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Magic Dusk Landstone Type M grants Int+2 and increases magical attack to all elements by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Magic Dusk Landstone Type M increases magical attack to all elements by 2% when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Magic Dusk Landstone Type M grants 30 HP upon killing a monster with magical attack, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type M grants Vit+2."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Dusk Landstone Type M has a 1% chance to reduce attack from Shadow element monsters by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type M grants 30 HP upon killing a monster with magical attack, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Elemental Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Elemental Void Landstone Type M increases magical attack of all elements by 1%."
+    },
+    {
+      "fact": "The [SSR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Elemental Void Landstone Type M ignores 3% of enemy magical defense when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Elemental Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Elemental Void Landstone Type M increases movement speed by 2%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Elemental Void Landstone Type M increases movement speed by 2%, MATK+5%, reduces variable cast time by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Shadow Void Landstone Type M ignores 3% of Shadow element monster physical defense when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type M increases movement speed by 2%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type M increases movement speed by 2%, MATK+5%, reduces variable cast time by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type M increases magical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type M increases magical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type M increases magical attack against Large size monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SSR] Large Void Landstone Type M grants MATK+15 when upgraded to +10 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type M increases movement speed by 2%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SSR] Large Void Landstone Type M increases movement speed by 2%, MATK+5%, reduces variable cast time by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type M provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type M provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type M provides DEF+4, MDEF+2 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "The [SR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type M reduces Delay by 1%."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Unfrozen Dusk Landstone Type M grants 10% resistance to Frozen status when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type M grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type M grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Flash Dusk Landstone Type M grants Flee+3, Luk+1 when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Magic Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [SR] Magic Dusk Landstone Type M grants Int+1."
+    },
+    {
+      "fact": "The [SR] Magic Dusk Landstone Type M grants Int+2, MATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Magic Dusk Landstone Type M grants Int+2 and increases magical attack to all elements by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type M grants Vit+2."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Elemental Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Elemental Void Landstone Type M increases magical attack of all elements by 1%."
+    },
+    {
+      "fact": "The [SR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Elemental Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Elemental Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Shadow Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type M increases magical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type M increases magical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SR] Large Void Landstone Type M increases magical attack against Large size monsters by 2% when upgraded to +9 or higher."
+    },
+    {
+      "fact": "Wearing 3 [SR] Large Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
+    },
+    {
+      "fact": "Wearing 3 [SR] Large Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type M provides DEF+2, MDEF+1."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type M provides DEF+3, MDEF+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Iron Dusk Landstone Type M grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Iron Dusk Landstone Type M grants Max HP+2%, Max SP+2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type M reduces Delay by 1%."
+    },
+    {
+      "fact": "The [R] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Quick Dusk Landstone Type M grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Quick Dusk Landstone Type M grants Max HP+2%, Max SP+2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type M is an Armor item."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status."
+    },
+    {
+      "fact": "The [R] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type M grants Max HP+1%, Max SP+1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type M grants Max HP+2%, Max SP+2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type M grants Flee+2, Luk+1."
+    },
+    {
+      "fact": "The [R] Flash Dusk Landstone Type M grants Flee+2, Luk+1 when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Magic Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [R] Magic Dusk Landstone Type M grants Int+1."
+    },
+    {
+      "fact": "The [R] Magic Dusk Landstone Type M grants Int+2, MATK+1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type M is a Garment item."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type M grants Vit+2."
+    },
+    {
+      "fact": "The [R] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Elemental Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [R] Elemental Void Landstone Type M increases magical attack of all elements by 1%."
+    },
+    {
+      "fact": "The [R] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Elemental Void Landstone Type M increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Elemental Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1%."
+    },
+    {
+      "fact": "The [R] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Void Landstone Type M increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Shadow Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type M is a Footgear item."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type M increases magical attack against Large size monsters by 1%."
+    },
+    {
+      "fact": "The [R] Large Void Landstone Type M increases magical attack against Large size monsters by 1% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "Wearing 3 [R] Large Void Landstone Type M increases movement speed by 1%."
+    },
+    {
+      "fact": "Wearing 3 [R] Large Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
+    },
+    {
+      "fact": "The [SSR] Heavy Cranial Void Landstone reduces damage received from demi-human monsters by 1%."
+    },
+    {
+      "fact": "The [SSR] Heavy Cranial Void Landstone reduces damage received
+[2m2026-02-20T05:00:46.304037Z[0m [31mERROR[0m [2mmonitor[0m[2m:[0m Background pipeline failed: error returned from database: 1406 (22001): Data too long for column 'error_message' at row 1
