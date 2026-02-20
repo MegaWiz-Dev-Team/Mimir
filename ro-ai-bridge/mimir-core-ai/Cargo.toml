@@ -9,6 +9,8 @@ chrono = { workspace = true }
 chromiumoxide = { workspace = true }
 dotenvy = { workspace = true }
 axum = { workspace = true }
+argon2 = { workspace = true }
+password-hash = { workspace = true }
 jsonwebtoken = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
