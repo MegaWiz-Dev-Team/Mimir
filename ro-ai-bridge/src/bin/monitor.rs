@@ -23,6 +23,7 @@ use mimir_core_ai::services::qdrant::QdrantService;
 use mimir_core_ai::qa_qc::indexer::run_indexer;
 use mimir_core_ai::rag_engine::{OracleRagAgent, LlmProvider};
 use mimir_core_ai::models::persona::Persona;
+use mimir_core_ai::services::iam::IamService;
 use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 use rig::providers::ollama;
 
@@ -62,6 +63,18 @@ struct ChatRequest {
     model: Option<String>,
     /// Tenant ID (e.g., "default_tenant")
     tenant_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LoginRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Serialize)]
+struct LoginResponse {
+    access_token: String,
+    tenant_id: String,
 }
 
 /// Chat response for non-streaming responses
@@ -105,6 +118,7 @@ struct StreamDone {
 struct AppState {
     db: DbPool,
     qdrant: QdrantService,
+    iam: IamService,
 }
 
 #[tokio::main]
@@ -114,12 +128,17 @@ async fn main() -> Result<()> {
 
     let pool = init_db().await?;
     let qdrant = QdrantService::new();
+    let iam = IamService::new(pool.clone());
     let state = Arc::new(AppState { 
         db: pool,
         qdrant,
+        iam,
     });
 
     let app = Router::new()
+        // Auth
+        .route("/api/v1/auth/login", post(auth_login))
+        // Pipeline endpoints
         .route("/api/pipeline/run", post(trigger_run))
         .route("/api/pipeline/runs", get(list_runs))
         .route("/api/pipeline/runs/{id}", get(get_run_details))
@@ -155,6 +174,20 @@ async fn main() -> Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn auth_login(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<LoginRequest>,
+) -> impl IntoResponse {
+    match state.iam.login(&payload.username, &payload.password).await {
+        Ok((access_token, tenant_id)) => {
+            (StatusCode::OK, Json(LoginResponse { access_token, tenant_id })).into_response()
+        },
+        Err(e) => {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        }
+    }
 }
 
 async fn trigger_run(

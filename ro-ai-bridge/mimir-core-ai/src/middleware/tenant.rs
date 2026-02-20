@@ -13,12 +13,14 @@ pub struct TenantClaims {
     pub sub: String,
     pub client_id: Option<String>,
     pub tenant_id: String,
+    pub role: String,
     pub exp: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct TenantContext {
     pub tenant_id: String,
+    pub role: String,
 }
 
 pub async fn tenant_auth_middleware(
@@ -34,7 +36,10 @@ pub async fn tenant_auth_middleware(
     }
 
     if let Some(tenant_id) = tenant_from_header {
-        req.extensions_mut().insert(TenantContext { tenant_id });
+        req.extensions_mut().insert(TenantContext { 
+            tenant_id,
+            role: "admin".to_string(), // Trust header value role as admin for legacy
+        });
         return Ok(next.run(req).await);
     }
 
@@ -47,12 +52,14 @@ pub async fn tenant_auth_middleware(
         } else {
             req.extensions_mut().insert(TenantContext {
                 tenant_id: "default_tenant".to_string(),
+                role: "admin".to_string(), // Default fallback is admin for legacy endpoints
             });
             return Ok(next.run(req).await);
         }
     } else {
         req.extensions_mut().insert(TenantContext {
             tenant_id: "default_tenant".to_string(),
+            role: "admin".to_string(),
         });
         return Ok(next.run(req).await);
     };
@@ -71,6 +78,7 @@ pub async fn tenant_auth_middleware(
 
     req.extensions_mut().insert(TenantContext {
         tenant_id: token_data.claims.tenant_id,
+        role: token_data.claims.role,
     });
 
     Ok(next.run(req).await)
