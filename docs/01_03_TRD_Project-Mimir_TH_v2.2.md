@@ -495,4 +495,23 @@ TRD v2.0 วางแผนไว้:
 
 ---
 
+## 12. Deployment & Infrastructure Strategy
+
+To support the Multi-Tenant Architectural evolution, the deployment strategy follows an evolutionary path from simple container management to robust orchestration.
+
+### 12.1 Phase 1-3: Containerization (Docker Compose)
+During the initial build and validation phases (1-10 Tenants), the system will be deployed using **Docker Compose**.
+*   **Architecture:** Separation of concerns via multiple `docker-compose.yml` files (e.g., one for Core AI + Databases, another for Domain Connectors).
+*   **Advantages:** Rapid prototyping, simpler CI/CD pipelines, and reduced operational overhead for a small infrastructure team.
+*   **Setup:** A single robust Virtual Machine (VM) runs the Docker Engine, orchestrating `mimir-core-ai`, `ro-ai-domain-game`, MariaDB, Qdrant, and Redis containers.
+
+### 12.2 Phase 4+: Orchestration (Kubernetes)
+As the system scales beyond 10 Tenants and requires High Availability (HA) across multiple domains (e.g., Medical, Corporate SaaS), the infrastructure will migrate to **Kubernetes (K8s)**.
+*   **Auto-scaling:** Horizontally scale Domain Connectors based on traffic (e.g., sudden spikes during a game launch) using HPA (Horizontal Pod Autoscaler).
+*   **Resource Isolation:** Enforce strict CPU and Memory limits (Quotas) per Tenant namespace or pod to prevent "Noisy Neighbor" issues.
+*   **Zero-Downtime:** Utilize rolling updates to patch the AI models, prompts, or core backend without disrupting active tenant services.
+*   **Management:** Use Helm charts for deploying the Core AI and dynamically tearing up/down new Domain Connectors.
+
+---
+
 *สิ้นสุดเอกสาร TRD v2.3 — อัปเดตเมื่อ 2026-02-21*
