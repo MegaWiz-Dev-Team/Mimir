@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Database, Search, RefreshCw, Zap, ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
+import { Database, Search, RefreshCw, Zap, ArrowLeft, CheckCircle2, AlertCircle, Filter } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 
 export default function VectorPage() {
@@ -16,6 +17,10 @@ export default function VectorPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<any>(null);
     const [searching, setSearching] = useState(false);
+
+    // New Filters
+    const [filterTenant, setFilterTenant] = useState("all");
+    const [showExpired, setShowExpired] = useState(false);
 
     const loadStats = async () => {
         setLoading(true);
@@ -140,6 +145,31 @@ export default function VectorPage() {
                             <CardDescription>Test how your RAG agent will find context by searching the vector space.</CardDescription>
                         </CardHeader>
                         <CardContent>
+                            <div className="flex gap-4 mb-4">
+                                <div className="flex-1">
+                                    <Select value={filterTenant} onValueChange={setFilterTenant}>
+                                        <SelectTrigger className="w-[200px]">
+                                            <SelectValue placeholder="Filter by Tenant" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Tenants</SelectItem>
+                                            <SelectItem value="default_tenant">Default Tenant</SelectItem>
+                                            <SelectItem value="ragnarok_th">Ragnarok TH</SelectItem>
+                                            <SelectItem value="med_clinic_a">Medical Clinic A</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="showExpired"
+                                        checked={showExpired}
+                                        onChange={(e) => setShowExpired(e.target.checked)}
+                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="showExpired" className="text-sm cursor-pointer">Show Expired Data</label>
+                                </div>
+                            </div>
                             <form onSubmit={handleSearch} className="flex gap-2 mb-6">
                                 <Input
                                     placeholder="Type a game question (e.g., What is Moonstone?)"
