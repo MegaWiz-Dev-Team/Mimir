@@ -1,13 +1,13 @@
 use anyhow::Result;
 use dotenvy::dotenv;
 use rig::providers::{ollama, gemini};
-use ro_ai_bridge::agents::wiki_workshop::{
+use mimir_core_ai::qa_qc::{
     generator::{generate_qa, GeneratorClient},
     extractor::extract_acus,
     verifier::verify_coverage,
-    WikiChunk
+    WikiChunk,
 };
-use ro_ai_bridge::config::QAConfig;
+use mimir_core_ai::config::QAConfig;
 use std::env;
 use tokio::fs;
 use tracing::{info, warn, error};

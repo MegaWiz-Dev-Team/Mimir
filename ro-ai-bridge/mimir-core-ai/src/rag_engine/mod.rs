@@ -31,8 +31,6 @@ use std::env;
 
 use crate::models::persona::Persona;
 use crate::services::qdrant::QdrantService;
-use crate::services::db::DbPool;
-use sqlx::FromRow;
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -147,274 +145,9 @@ pub struct OracleResponse {
 
 // ─── Database Models ───────────────────────────────────────────────────────
 
-/// Mob data from rAthena database
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct MobData {
-    pub id: u32,
-    pub name_aegis: String,
-    pub name_english: String,
-    pub level: u32,
-    pub hp: u64,
-    pub sp: u32,
-    pub base_exp: u64,
-    pub job_exp: u64,
-    pub attack: u32,
-    pub defense: u32,
-    pub magic_defense: u32,
-    pub str: u32,
-    pub agi: u32,
-    pub vit: u32,
-    pub int: u32,
-    pub dex: u32,
-    pub luk: u32,
-    pub size: String,
-    pub race: String,
-    pub element: String,
-    pub element_level: u32,
-}
-
-/// Item data from rAthena database
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct ItemData {
-    pub id: u32,
-    pub name_aegis: String,
-    pub name_english: String,
-    pub item_type: String,
-    pub subtype: Option<String>,
-    pub attack: u32,
-    pub magic_attack: u32,
-    pub defense: u32,
-    pub weight: u32,
-    pub slots: u32,
-    pub weapon_level: u32,
-    pub armor_level: u32,
-    pub equip_level_min: u32,
-    pub price_buy: u64,
-    pub price_sell: u64,
-    pub refineable: bool,
-}
-
-// ─── Custom Tools ──────────────────────────────────────────────────────────
-
-/// Tool for querying mob database
-pub struct QueryMobDbTool {
-    db_pool: DbPool,
-}
-
-impl QueryMobDbTool {
-    pub fn new(db_pool: DbPool) -> Self {
-        Self { db_pool }
-    }
-
-    /// Query mob by name (partial match)
-    pub async fn query_by_name(&self, name: &str) -> Result<Vec<MobData>> {
-        let pattern = format!("%{}%", name);
-        let mobs = sqlx::query_as::<_, MobData>(
-            r#"SELECT 
-                id, name_aegis, name_english, level, hp, sp,
-                base_exp, job_exp, attack, defense, magic_defense,
-                str, agi, vit, int, dex, luk,
-                size, race, element, element_level
-            FROM mob_db 
-            WHERE name_english LIKE ? OR name_aegis LIKE ?
-            LIMIT 10"#
-        )
-        .bind(&pattern)
-        .bind(&pattern)
-        .fetch_all(&self.db_pool)
-        .await?;
-        
-        Ok(mobs)
-    }
-
-    /// Query mob by ID
-    pub async fn query_by_id(&self, id: u32) -> Result<Option<MobData>> {
-        let mob = sqlx::query_as::<_, MobData>(
-            r#"SELECT 
-                id, name_aegis, name_english, level, hp, sp,
-                base_exp, job_exp, attack, defense, magic_defense,
-                str, agi, vit, int, dex, luk,
-                size, race, element, element_level
-            FROM mob_db WHERE id = ?"#
-        )
-        .bind(id)
-        .fetch_optional(&self.db_pool)
-        .await?;
-        
-        Ok(mob)
-    }
-
-    /// Query mobs by level range
-    pub async fn query_by_level_range(&self, min_level: u32, max_level: u32) -> Result<Vec<MobData>> {
-        let mobs = sqlx::query_as::<_, MobData>(
-            r#"SELECT 
-                id, name_aegis, name_english, level, hp, sp,
-                base_exp, job_exp, attack, defense, magic_defense,
-                str, agi, vit, int, dex, luk,
-                size, race, element, element_level
-            FROM mob_db 
-            WHERE level BETWEEN ? AND ?
-            ORDER BY level, base_exp DESC
-            LIMIT 20"#
-        )
-        .bind(min_level)
-        .bind(max_level)
-        .fetch_all(&self.db_pool)
-        .await?;
-        
-        Ok(mobs)
-    }
-
-    /// Format mob data as human-readable text
-    pub fn format_mob(mob: &MobData) -> String {
-        format!(
-            "**{}** (ID: {})\n\
-            - Level: {} | HP: {} | SP: {}\n\
-            - ATK: {} | DEF: {} | MDEF: {}\n\
-            - EXP: Base {} / Job {}\n\
-            - Size: {} | Race: {} | Element: {} Lv{}\n\
-            - Stats: STR {} AGI {} VIT {} INT {} DEX {} LUK {}",
-            mob.name_english,
-            mob.id,
-            mob.level,
-            mob.hp,
-            mob.sp,
-            mob.attack,
-            mob.defense,
-            mob.magic_defense,
-            mob.base_exp,
-            mob.job_exp,
-            mob.size,
-            mob.race,
-            mob.element,
-            mob.element_level,
-            mob.str,
-            mob.agi,
-            mob.vit,
-            mob.int,
-            mob.dex,
-            mob.luk
-        )
-    }
-}
-
-/// Tool for querying item database
-pub struct QueryItemDbTool {
-    db_pool: DbPool,
-}
-
-impl QueryItemDbTool {
-    pub fn new(db_pool: DbPool) -> Self {
-        Self { db_pool }
-    }
-
-    /// Query item by name (partial match)
-    pub async fn query_by_name(&self, name: &str) -> Result<Vec<ItemData>> {
-        let pattern = format!("%{}%", name);
-        let items = sqlx::query_as::<_, ItemData>(
-            r#"SELECT 
-                id, name_aegis, name_english, item_type, subtype,
-                attack, magic_attack, defense, weight, slots,
-                weapon_level, armor_level, equip_level_min,
-                price_buy, price_sell, refineable
-            FROM item_db 
-            WHERE name_english LIKE ? OR name_aegis LIKE ?
-            LIMIT 10"#
-        )
-        .bind(&pattern)
-        .bind(&pattern)
-        .fetch_all(&self.db_pool)
-        .await?;
-        
-        Ok(items)
-    }
-
-    /// Query item by ID
-    pub async fn query_by_id(&self, id: u32) -> Result<Option<ItemData>> {
-        let item = sqlx::query_as::<_, ItemData>(
-            r#"SELECT 
-                id, name_aegis, name_english, item_type, subtype,
-                attack, magic_attack, defense, weight, slots,
-                weapon_level, armor_level, equip_level_min,
-                price_buy, price_sell, refineable
-            FROM item_db WHERE id = ?"#
-        )
-        .bind(id)
-        .fetch_optional(&self.db_pool)
-        .await?;
-        
-        Ok(item)
-    }
-
-    /// Query items by type
-    pub async fn query_by_type(&self, item_type: &str) -> Result<Vec<ItemData>> {
-        let items = sqlx::query_as::<_, ItemData>(
-            r#"SELECT 
-                id, name_aegis, name_english, item_type, subtype,
-                attack, magic_attack, defense, weight, slots,
-                weapon_level, armor_level, equip_level_min,
-                price_buy, price_sell, refineable
-            FROM item_db 
-            WHERE item_type = ?
-            ORDER BY name_english
-            LIMIT 50"#
-        )
-        .bind(item_type)
-        .fetch_all(&self.db_pool)
-        .await?;
-        
-        Ok(items)
-    }
-
-    /// Format item data as human-readable text
-    pub fn format_item(item: &ItemData) -> String {
-        let mut parts = vec![format!("**{}** (ID: {})", item.name_english, item.id)];
-        
-        parts.push(format!("- Type: {}", item.item_type));
-        
-        if let Some(ref subtype) = item.subtype {
-            parts.push(format!("  Subtype: {}", subtype));
-        }
-        
-        if item.attack > 0 {
-            parts.push(format!("- ATK: {}", item.attack));
-        }
-        if item.magic_attack > 0 {
-            parts.push(format!("- MATK: {}", item.magic_attack));
-        }
-        if item.defense > 0 {
-            parts.push(format!("- DEF: {}", item.defense));
-        }
-        
-        parts.push(format!("- Weight: {:.1}", item.weight as f32 / 10.0));
-        
-        if item.slots > 0 {
-            parts.push(format!("- Slots: {}", item.slots));
-        }
-        
-        if item.price_buy > 0 {
-            parts.push(format!("- Buy Price: {} zeny", item.price_buy));
-        }
-        if item.price_sell > 0 {
-            parts.push(format!("- Sell Price: {} zeny", item.price_sell));
-        }
-        
-        if item.weapon_level > 0 {
-            parts.push(format!("- Weapon Level: {}", item.weapon_level));
-        }
-        if item.armor_level > 0 {
-            parts.push(format!("- Armor Level: {}", item.armor_level));
-        }
-        if item.equip_level_min > 0 {
-            parts.push(format!("- Required Level: {}", item.equip_level_min));
-        }
-        
-        if item.refineable {
-            parts.push("- Refineable: Yes".to_string());
-        }
-        
-        parts.join("\n")
-    }
+#[async_trait::async_trait]
+pub trait DynamicContextPlugin: Send + Sync {
+    async fn get_context<'a>(&'a self, message: &'a str, tools_used: &'a mut Vec<String>) -> Result<String>;
 }
 
 // ─── RAG Retriever ─────────────────────────────────────────────────────────
@@ -601,8 +334,7 @@ pub struct OracleRagAgent {
     pub timeout: Duration,
     agent: AgentBackend,
     retriever: RagRetriever,
-    mob_tool: Option<QueryMobDbTool>,
-    item_tool: Option<QueryItemDbTool>,
+    plugins: Vec<Box<dyn DynamicContextPlugin>>,
 }
 
 impl OracleRagAgent {
@@ -610,27 +342,27 @@ impl OracleRagAgent {
     pub fn new(
         persona: Persona,
         qdrant: QdrantService,
-        db_pool: Option<DbPool>,
+        plugins: Vec<Box<dyn DynamicContextPlugin>>,
     ) -> Self {
-        Self::with_provider(persona, qdrant, db_pool, LlmProvider::Ollama, None, None)
+        Self::with_provider(persona, qdrant, plugins, LlmProvider::Ollama, None, None)
     }
 
     /// Create an OracleRagAgent with custom options (legacy, uses Ollama)
     pub fn with_options(
         persona: Persona,
         qdrant: QdrantService,
-        db_pool: Option<DbPool>,
+        plugins: Vec<Box<dyn DynamicContextPlugin>>,
         model: Option<&str>,
         timeout: Option<Duration>,
     ) -> Self {
-        Self::with_provider(persona, qdrant, db_pool, LlmProvider::Ollama, model, timeout)
+        Self::with_provider(persona, qdrant, plugins, LlmProvider::Ollama, model, timeout)
     }
 
     /// Create an OracleRagAgent with a specific provider
     pub fn with_provider(
         persona: Persona,
         qdrant: QdrantService,
-        db_pool: Option<DbPool>,
+        plugins: Vec<Box<dyn DynamicContextPlugin>>,
         provider: LlmProvider,
         model: Option<&str>,
         timeout: Option<Duration>,
@@ -665,9 +397,6 @@ impl OracleRagAgent {
         
         let retriever = RagRetriever::new(qdrant);
         
-        let mob_tool = db_pool.as_ref().map(|pool| QueryMobDbTool::new(pool.clone()));
-        let item_tool = db_pool.as_ref().map(|pool| QueryItemDbTool::new(pool.clone()));
-        
         Self {
             persona,
             provider,
@@ -675,8 +404,7 @@ impl OracleRagAgent {
             timeout,
             agent,
             retriever,
-            mob_tool,
-            item_tool,
+            plugins,
         }
     }
 
@@ -686,16 +414,13 @@ impl OracleRagAgent {
             r#"{}
 
 ## RAG Capabilities
-You have access to a knowledge base containing:
-- Wiki articles and Q&A about Ragnarok Online
-- Game data including monster and item databases
+You have access to a knowledge document base containing domain-specific intelligence.
 
 ## Response Guidelines
 1. When answering questions, use the provided context from the knowledge base
 2. If you're uncertain, acknowledge the limitation
-3. Cite your sources when providing specific game data
-4. For monster/item queries, provide accurate stats from the database
-5. Keep responses informative but concise
+3. Cite your sources when providing specific data
+4. Keep responses informative but concise
 
 ## Personality Traits
 {}"#,
@@ -749,42 +474,15 @@ You have access to a knowledge base containing:
         })
     }
 
-    /// Query databases based on message content
+    /// Query databases based on message content using loaded plugins
     async fn query_databases(&self, message: &str, tools_used: &mut Vec<String>) -> Result<String> {
         let mut context = String::new();
-        let message_lower = message.to_lowercase();
         
-        // Detect mob-related queries
-        if let Some(ref mob_tool) = self.mob_tool {
-            if self.is_mob_query(&message_lower) {
-                // Try to extract mob name from message
-                if let Some(mob_name) = self.extract_entity_name(message) {
-                    let mobs = mob_tool.query_by_name(&mob_name).await?;
-                    if !mobs.is_empty() {
-                        tools_used.push("QueryMobDbTool".to_string());
-                        context.push_str("\n### Monster Data:\n");
-                        for mob in mobs.iter().take(3) {
-                            context.push_str(&QueryMobDbTool::format_mob(mob));
-                            context.push_str("\n\n");
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Detect item-related queries
-        if let Some(ref item_tool) = self.item_tool {
-            if self.is_item_query(&message_lower) {
-                if let Some(item_name) = self.extract_entity_name(message) {
-                    let items = item_tool.query_by_name(&item_name).await?;
-                    if !items.is_empty() {
-                        tools_used.push("QueryItemDbTool".to_string());
-                        context.push_str("\n### Item Data:\n");
-                        for item in items.iter().take(3) {
-                            context.push_str(&QueryItemDbTool::format_item(item));
-                            context.push_str("\n\n");
-                        }
-                    }
+        for plugin in &self.plugins {
+            if let Ok(plugin_context) = plugin.get_context(message, tools_used).await {
+                if !plugin_context.is_empty() {
+                    context.push_str(&plugin_context);
+                    context.push_str("\n\n");
                 }
             }
         }
@@ -792,39 +490,6 @@ You have access to a knowledge base containing:
         Ok(context)
     }
 
-    /// Check if message is asking about monsters
-    fn is_mob_query(&self, message: &str) -> bool {
-        let keywords = ["monster", "mob", "monster", "enemy", "creature", "boss", "mvp"];
-        keywords.iter().any(|k| message.contains(k))
-    }
-
-    /// Check if message is asking about items
-    fn is_item_query(&self, message: &str) -> bool {
-        let keywords = ["item", "weapon", "armor", "equipment", "card", "drop", "loot"];
-        keywords.iter().any(|k| message.contains(k))
-    }
-
-    /// Extract entity name from message (simple heuristic)
-    fn extract_entity_name(&self, message: &str) -> Option<String> {
-        // Simple extraction: look for quoted strings or capitalized words
-        let words: Vec<&str> = message.split_whitespace().collect();
-        
-        // Look for capitalized words (potential names)
-        let name_words: Vec<&str> = words
-            .iter()
-            .filter(|w| {
-                let first_char = w.chars().next().unwrap_or(' ');
-                first_char.is_uppercase() && w.len() > 2
-            })
-            .cloned()
-            .collect();
-        
-        if !name_words.is_empty() {
-            Some(name_words.join(" "))
-        } else {
-            None
-        }
-    }
 
     /// Build context string from sources
     fn build_context(&self, sources: &[SourceCitation], db_context: &str) -> String {
@@ -884,129 +549,3 @@ You have access to a knowledge base containing:
     }
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn create_test_persona() -> Persona {
-        Persona {
-            name: "oracle_test".to_string(),
-            display_name: "Oracle Test".to_string(),
-            tier: 2,
-            system_prompt: "You are an oracle with access to game knowledge.".to_string(),
-            greeting: Some("Greetings, seeker of knowledge.".to_string()),
-            allowed_actions: vec!["query_mob".to_string(), "query_item".to_string()],
-            personality_traits: vec!["wise".to_string(), "knowledgeable".to_string()],
-        }
-    }
-
-    #[test]
-    fn test_confidence_level_from_score() {
-        assert_eq!(ConfidenceLevel::from(0.8), ConfidenceLevel::High);
-        assert_eq!(ConfidenceLevel::from(0.75), ConfidenceLevel::High);
-        assert_eq!(ConfidenceLevel::from(0.6), ConfidenceLevel::Medium);
-        assert_eq!(ConfidenceLevel::from(0.5), ConfidenceLevel::Medium);
-        assert_eq!(ConfidenceLevel::from(0.3), ConfidenceLevel::Low);
-        assert_eq!(ConfidenceLevel::from(0.0), ConfidenceLevel::Unknown);
-    }
-
-    #[test]
-    fn test_is_mob_query() {
-        let persona = create_test_persona();
-        let qdrant = QdrantService::new();
-        let agent = OracleRagAgent::new(persona, qdrant, None);
-        
-        assert!(agent.is_mob_query("tell me about the poring monster"));
-        assert!(agent.is_mob_query("what mobs drop this item?"));
-        assert!(agent.is_mob_query("boss information"));
-        assert!(!agent.is_mob_query("what is the best weapon?"));
-    }
-
-    #[test]
-    fn test_is_item_query() {
-        let persona = create_test_persona();
-        let qdrant = QdrantService::new();
-        let agent = OracleRagAgent::new(persona, qdrant, None);
-        
-        assert!(agent.is_item_query("what does this item do?"));
-        assert!(agent.is_item_query("best weapon for knight"));
-        assert!(agent.is_item_query("armor recommendations"));
-        assert!(!agent.is_item_query("where to level up?"));
-    }
-
-    #[test]
-    fn test_extract_entity_name() {
-        let persona = create_test_persona();
-        let qdrant = QdrantService::new();
-        let agent = OracleRagAgent::new(persona, qdrant, None);
-        
-        // The function extracts capitalized words, so "Tell" and "Poring" are both captured
-        let name = agent.extract_entity_name("Tell me about Poring monster");
-        assert!(name.is_some());
-        assert!(name.unwrap().contains("Poring"));
-        
-        let name = agent.extract_entity_name("what is the best weapon?");
-        assert_eq!(name, None);
-    }
-
-    #[test]
-    fn test_format_mob() {
-        let mob = MobData {
-            id: 1002,
-            name_aegis: "PORING".to_string(),
-            name_english: "Poring".to_string(),
-            level: 1,
-            hp: 50,
-            sp: 0,
-            base_exp: 2,
-            job_exp: 1,
-            attack: 7,
-            defense: 0,
-            magic_defense: 5,
-            str: 1,
-            agi: 1,
-            vit: 1,
-            int: 1,
-            dex: 6,
-            luk: 5,
-            size: "Small".to_string(),
-            race: "Plant".to_string(),
-            element: "Water".to_string(),
-            element_level: 1,
-        };
-        
-        let formatted = QueryMobDbTool::format_mob(&mob);
-        assert!(formatted.contains("Poring"));
-        assert!(formatted.contains("Level: 1"));
-        assert!(formatted.contains("HP: 50"));
-    }
-
-    #[test]
-    fn test_format_item() {
-        let item = ItemData {
-            id: 1201,
-            name_aegis: "Knife".to_string(),
-            name_english: "Knife".to_string(),
-            item_type: "Weapon".to_string(),
-            subtype: Some("Dagger".to_string()),
-            attack: 17,
-            magic_attack: 0,
-            defense: 0,
-            weight: 400,
-            slots: 0,
-            weapon_level: 1,
-            armor_level: 0,
-            equip_level_min: 1,
-            price_buy: 50,
-            price_sell: 25,
-            refineable: true,
-        };
-        
-        let formatted = QueryItemDbTool::format_item(&item);
-        assert!(formatted.contains("Knife"));
-        assert!(formatted.contains("ATK: 17"));
-        assert!(formatted.contains("Weapon"));
-    }
-}

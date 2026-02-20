@@ -1,5 +1,5 @@
-use ro_ai_bridge::agents::simple_npc::SimpleNpcAgent;
-use ro_ai_bridge::models::persona::Persona;
+use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
+use mimir_core_ai::models::persona::Persona;
 use dotenvy::dotenv;
 
 #[tokio::main]

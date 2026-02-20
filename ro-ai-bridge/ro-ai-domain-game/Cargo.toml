@@ -1,0 +1,20 @@
+[package]
+name = "ro-ai-domain-game"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1.89"
+axum.workspace = true
+dotenvy.workspace = true
+mimir-core-ai = { version = "0.1.0", path = "../mimir-core-ai" }
+regex.workspace = true
+rig-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sqlx = { workspace = true, features = ["mysql", "runtime-tokio"] }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

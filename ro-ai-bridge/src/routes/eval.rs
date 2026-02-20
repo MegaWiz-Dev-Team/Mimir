@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use chrono::NaiveDateTime;
 
-use crate::services::db::DbPool;
+use mimir_core_ai::services::db::DbPool;
 
 // ─── Request / Response types ──────────────────────────────────────────
 

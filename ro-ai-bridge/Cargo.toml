@@ -3,7 +3,42 @@ name = "ro-ai-bridge"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [
+    "mimir-core-ai",
+    "ro-ai-domain-game"
+]
+resolver = "2"
+
 [dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+axum = { workspace = true }
+chromiumoxide = { workspace = true }
+dotenvy = { workspace = true }
+futures = { workspace = true }
+html2md = { workspace = true }
+reqwest = { workspace = true }
+reqwest-eventsource = { workspace = true }
+rig-core = { workspace = true }
+schemars = { workspace = true }
+scraper = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+regex = { workspace = true }
+tower-http = { workspace = true }
+async-trait = "0.1.89"
+mimir-core-ai = { version = "0.1.0", path = "mimir-core-ai" }
+ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
+
+[workspace.dependencies]
 anyhow = "1.0.101"
 chrono = { version = "0.4.39", features = ["serde"] }
 axum = "0.8.8"

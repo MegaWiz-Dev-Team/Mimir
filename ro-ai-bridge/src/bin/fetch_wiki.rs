@@ -1,4 +1,4 @@
-use ro_ai_bridge::services::scraper::ScraperService;
+use mimir_core_ai::services::scraper::ScraperService;
 use tokio::fs;
 use std::path::Path;
 use anyhow::Result;
