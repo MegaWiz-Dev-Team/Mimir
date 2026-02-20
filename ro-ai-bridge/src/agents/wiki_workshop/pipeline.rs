@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rig::providers::{ollama, gemini};
 use super::{WikiChunk, QAPair};
-use super::generator::{generate_qa, GeneratorClient};
+use super::generator::{generate_qa, generate_missing_qa, GeneratorClient};
 use super::extractor::extract_acus;
 use super::verifier::verify_coverage;
 use crate::services::db::DbPool;
@@ -460,4 +460,159 @@ pub async fn process_chunk(
     .execute(db_pool).await?;
 
     Ok(qa_pairs)
+}
+
+pub async fn generate_missing_qa_for_step(
+    db_pool: &DbPool,
+    step_id: u64,
+    qa_config: QAConfig
+) -> Result<()> {
+    // 1. Fetch step details and missing facts
+    let step_record = sqlx::query(
+        "SELECT ps.file_name, ps.chunk_index, pr.provider, pr.model
+         FROM pipeline_steps ps
+         JOIN pipeline_runs pr ON ps.run_id = pr.id
+         WHERE ps.id = ?"
+    )
+    .bind(step_id as i64)
+    .fetch_optional(db_pool)
+    .await?;
+
+    let step = match step_record {
+        Some(r) => r,
+        None => return Err(anyhow::anyhow!("Step not found")),
+    };
+
+    let filename: String = step.get("file_name");
+    let chunk_index: i64 = step.get("chunk_index");
+    let provider: String = step.get("provider");
+    let model: String = step.get("model");
+
+    let report_record = sqlx::query(
+        "SELECT missing_facts FROM evaluation_reports WHERE step_id = ?"
+    )
+    .bind(step_id as i64)
+    .fetch_optional(db_pool)
+    .await?;
+
+    let missing_facts_json: String = match report_record {
+        Some(r) => r.get("missing_facts"),
+        None => return Err(anyhow::anyhow!("Evaluation report not found")),
+    };
+
+    let missing_facts_vec: Vec<super::AtomicFact> = serde_json::from_str(&missing_facts_json)?;
+    let missing_facts: Vec<String> = missing_facts_vec.into_iter().map(|f| f.fact).collect();
+
+    if missing_facts.is_empty() {
+        info!("No missing facts for step #{}, skipping generation.", step_id);
+        return Ok(());
+    }
+
+    // 2. Load chunk content
+    let file_path = format!("data/wiki/{}", filename);
+    let content = fs::read_to_string(&file_path).await?;
+    let chunks: Vec<&str> = content.split("\n#").collect();
+    
+    if chunk_index < 0 || chunk_index >= chunks.len() as i64 {
+         return Err(anyhow::anyhow!("Invalid chunk index"));
+    }
+    
+    let chunk_content = &chunks[chunk_index as usize];
+    let chunk = WikiChunk {
+        source_file: filename.clone(),
+        url: format!("https://landverse.maxion.gg/{}", filename.replace(".md", "")),
+        content: chunk_content.to_string(),
+    };
+
+    // 3. Setup client
+    let gemini_api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let gemini_client = gemini::Client::new(&gemini_api_key);
+    let db_model = "gemini-2.5-flash";
+
+    // Use builder block for generator client logic
+    let (gen_client, gen_model) = match provider.as_str() {
+        "ollama" => {
+            let ollama_client = ollama::Client::new();
+            (GeneratorClient::Ollama(ollama_client), model)
+        },
+        "google" => {
+            (GeneratorClient::Gemini(gemini_client.clone()), model)
+        },
+        _ => return Err(anyhow::anyhow!("Unsupported provider: {}", provider)),
+    };
+
+    // 4. Generate missing QA
+    let new_qa_pairs = generate_missing_qa(
+        &gen_client, 
+        &gen_model.as_str(), 
+        &chunk, 
+        &missing_facts, 
+        qa_config.get_qa_count(&filename, chunk.content.len())
+    ).await?;
+
+    info!("Generated {} new Q/A pairs for step #{}", new_qa_pairs.len(), step_id);
+
+    // Save New Q/A to DB
+    for qa in &new_qa_pairs {
+        sqlx::query(
+            "INSERT INTO qa_results (step_id, question, answer) VALUES (?, ?, ?)"
+        )
+        .bind(step_id as i64)
+        .bind(&qa.question)
+        .bind(&qa.answer)
+        .execute(db_pool).await?;
+    }
+
+    // 5. Re-evaluate
+    // Fetch all QA pairs for this step now
+    let all_qa_records = sqlx::query(
+        "SELECT question, answer FROM qa_results WHERE step_id = ?"
+    )
+    .bind(step_id as i64)
+    .fetch_all(db_pool)
+    .await?;
+
+    let all_qa_pairs: Vec<QAPair> = all_qa_records.into_iter().map(|row| QAPair {
+        question: row.get("question"),
+        answer: row.get("answer"),
+    }).collect();
+
+    // Re-extract facts just in case or we could reuse them. Let's reuse them to save cost, or re-extract to be safe.
+    let report_record2 = sqlx::query(
+        "SELECT atomic_facts FROM evaluation_reports WHERE step_id = ?"
+    )
+    .bind(step_id as i64)
+    .fetch_optional(db_pool)
+    .await?;
+
+    let atomic_facts_json: String = match report_record2 {
+        Some(r) => r.get("atomic_facts"),
+        None => Default::default(),
+    };
+
+    let facts: Vec<super::AtomicFact> = if !atomic_facts_json.is_empty() {
+        serde_json::from_str(&atomic_facts_json)?
+    } else {
+        Vec::new()
+    };
+
+    if !facts.is_empty() {
+        let report = verify_coverage(&gemini_client, db_model, &chunk, &facts, &all_qa_pairs).await?;
+
+        // Update Report in DB
+        let missing_json = serde_json::to_string(&report.missing_facts)?;
+        
+        sqlx::query(
+            "UPDATE evaluation_reports SET coverage_score = ?, missing_facts = ?, reasoning = ? WHERE step_id = ?"
+        )
+        .bind(report.coverage_score)
+        .bind(missing_json)
+        .bind(report.reasoning)
+        .bind(step_id as i64)
+        .execute(db_pool).await?;
+        
+        info!("Updated coverage score for step #{} to {}", step_id, report.coverage_score);
+    }
+
+    Ok(())
 }
