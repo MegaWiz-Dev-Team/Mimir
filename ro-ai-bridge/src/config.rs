@@ -1,6 +1,8 @@
 use std::env;
+use std::fs;
 use dotenvy::dotenv;
-use tracing::info;
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -34,5 +36,198 @@ impl Config {
 
         info!("Configuration loaded successfully.");
         config
+    }
+}
+
+// ============================================================================
+// Q/A Configuration
+// ============================================================================
+
+/// Configuration for Q/A generation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QAConfig {
+    /// Default number of Q/A pairs if no rule matches
+    pub default_count: usize,
+    /// Rules based on content size
+    pub rules: Vec<SizeRule>,
+    /// Rules based on file name patterns
+    pub file_patterns: FilePatternConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SizeRule {
+    /// Optional comment for documentation
+    pub comment: Option<String>,
+    /// Minimum content size (in characters) for this rule to apply
+    pub min_size: usize,
+    /// Maximum content size (in characters) for this rule to apply (null = no limit)
+    pub max_size: Option<usize>,
+    /// Number of Q/A pairs to generate
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePatternConfig {
+    pub comment: Option<String>,
+    pub patterns: Vec<PatternRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PatternRule {
+    /// Glob pattern to match file name (e.g., "*boss*", "*quest*")
+    pub pattern: String,
+    /// Number of Q/A pairs to generate
+    pub count: usize,
+    /// Optional reason for this override
+    pub reason: Option<String>,
+}
+
+impl Default for QAConfig {
+    fn default() -> Self {
+        Self {
+            default_count: 3,
+            rules: vec![
+                SizeRule {
+                    comment: Some("Small files (< 2000 chars) - fewer Q/A pairs".to_string()),
+                    min_size: 0,
+                    max_size: Some(2000),
+                    count: 2,
+                },
+                SizeRule {
+                    comment: Some("Medium files (2000-10000 chars) - moderate Q/A pairs".to_string()),
+                    min_size: 2000,
+                    max_size: Some(10000),
+                    count: 3,
+                },
+                SizeRule {
+                    comment: Some("Large files (> 10000 chars) - more Q/A pairs".to_string()),
+                    min_size: 10000,
+                    max_size: None,
+                    count: 5,
+                },
+            ],
+            file_patterns: FilePatternConfig {
+                comment: Some("Override rules based on file name patterns (glob)".to_string()),
+                patterns: vec![],
+            },
+        }
+    }
+}
+
+impl QAConfig {
+    /// Load configuration from a JSON file
+    pub fn from_file(path: &str) -> anyhow::Result<Self> {
+        let content = fs::read_to_string(path)?;
+        let config: QAConfig = serde_json::from_str(&content)?;
+        info!("📋 Loaded QA config from {}", path);
+        Ok(config)
+    }
+
+    /// Load configuration from file, or return default if file doesn't exist
+    pub fn from_file_or_default(path: &str) -> Self {
+        match Self::from_file(path) {
+            Ok(config) => config,
+            Err(e) => {
+                warn!("⚠️ Failed to load QA config from {}: {}. Using defaults.", path, e);
+                Self::default()
+            }
+        }
+    }
+
+    /// Determine Q/A count based on file name and content size
+    /// Priority: file pattern > size rule > default
+    pub fn get_qa_count(&self, file_name: &str, content_size: usize) -> usize {
+        // 1. Check file patterns first (highest priority)
+        for pattern_rule in &self.file_patterns.patterns {
+            if self.matches_pattern(file_name, &pattern_rule.pattern) {
+                info!("🎯 File pattern '{}' matched for '{}': {} Q/A pairs", 
+                    pattern_rule.pattern, file_name, pattern_rule.count);
+                return pattern_rule.count;
+            }
+        }
+
+        // 2. Check size rules
+        for rule in &self.rules {
+            let min_ok = content_size >= rule.min_size;
+            let max_ok = rule.max_size.map_or(true, |max| content_size < max);
+            
+            if min_ok && max_ok {
+                info!("📏 Size rule matched for '{}' ({} chars): {} Q/A pairs", 
+                    file_name, content_size, rule.count);
+                return rule.count;
+            }
+        }
+
+        // 3. Fall back to default
+        info!("📋 Using default count for '{}': {} Q/A pairs", file_name, self.default_count);
+        self.default_count
+    }
+
+    /// Simple glob pattern matching (supports * wildcard only)
+    fn matches_pattern(&self, text: &str, pattern: &str) -> bool {
+        if pattern == "*" {
+            return true;
+        }
+
+        if pattern.starts_with('*') && pattern.ends_with('*') {
+            // *something* - contains
+            let inner = &pattern[1..pattern.len()-1];
+            text.contains(inner)
+        } else if pattern.starts_with('*') {
+            // *something - ends with
+            let suffix = &pattern[1..];
+            text.ends_with(suffix)
+        } else if pattern.ends_with('*') {
+            // something* - starts with
+            let prefix = &pattern[..pattern.len()-1];
+            text.starts_with(prefix)
+        } else {
+            // exact match
+            text == pattern
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = QAConfig::default();
+        assert_eq!(config.default_count, 3);
+        assert_eq!(config.rules.len(), 3);
+    }
+
+    #[test]
+    fn test_size_rules() {
+        let config = QAConfig::default();
+        
+        // Small file
+        assert_eq!(config.get_qa_count("test.md", 500), 2);
+        
+        // Medium file
+        assert_eq!(config.get_qa_count("test.md", 5000), 3);
+        
+        // Large file
+        assert_eq!(config.get_qa_count("test.md", 15000), 5);
+    }
+
+    #[test]
+    fn test_pattern_matching() {
+        let config = QAConfig::default();
+        
+        // Test contains pattern
+        assert!(config.matches_pattern("boss_monster.md", "*boss*"));
+        assert!(config.matches_pattern("the_boss_fight.md", "*boss*"));
+        assert!(!config.matches_pattern("monster.md", "*boss*"));
+        
+        // Test starts with
+        assert!(config.matches_pattern("quest_guide.md", "quest*"));
+        assert!(!config.matches_pattern("my_quest.md", "quest*"));
+        
+        // Test ends with
+        assert!(config.matches_pattern("item_sword.md", "*sword.md"));
+        assert!(!config.matches_pattern("sword_item.md", "*sword.md"));
     }
 }
