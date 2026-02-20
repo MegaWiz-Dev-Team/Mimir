@@ -210,38 +210,35 @@ impl RagRetriever {
             .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
     }
 
-    /// Search wiki_qa collection
-    pub async fn search_wiki(&self, query: &str, limit: usize) -> Result<Vec<SourceCitation>> {
+    pub async fn search_wiki(&self, query: &str, limit: usize, tenant_id: &str) -> Result<Vec<SourceCitation>> {
         let vector = self.get_embedding(query).await?;
         
-        let results = self.qdrant.search(COLLECTION_WIKI_QA, vector, limit).await?;
+        let results = self.qdrant.search(COLLECTION_WIKI_QA, vector, limit, tenant_id).await?;
         
         let citations = Self::parse_search_results(results, "wiki")?;
         Ok(citations)
     }
 
-    /// Search game_data collection
-    pub async fn search_game_data(&self, query: &str, limit: usize) -> Result<Vec<SourceCitation>> {
+    pub async fn search_game_data(&self, query: &str, limit: usize, tenant_id: &str) -> Result<Vec<SourceCitation>> {
         let vector = self.get_embedding(query).await?;
         
-        let results = self.qdrant.search(COLLECTION_GAME_DATA, vector, limit).await?;
+        let results = self.qdrant.search(COLLECTION_GAME_DATA, vector, limit, tenant_id).await?;
         
         let citations = Self::parse_search_results(results, "game_data")?;
         Ok(citations)
     }
 
-    /// Search all collections
-    pub async fn search_all(&self, query: &str, limit_per_collection: usize) -> Result<Vec<SourceCitation>> {
+    pub async fn search_all(&self, query: &str, limit_per_collection: usize, tenant_id: &str) -> Result<Vec<SourceCitation>> {
         let mut all_citations = Vec::new();
         
         // Search wiki_qa
-        match self.search_wiki(query, limit_per_collection).await {
+        match self.search_wiki(query, limit_per_collection, tenant_id).await {
             Ok(citations) => all_citations.extend(citations),
             Err(e) => tracing::warn!("Wiki search failed: {}", e),
         }
         
         // Search game_data
-        match self.search_game_data(query, limit_per_collection).await {
+        match self.search_game_data(query, limit_per_collection, tenant_id).await {
             Ok(citations) => all_citations.extend(citations),
             Err(e) => tracing::warn!("Game data search failed: {}", e),
         }
@@ -332,19 +329,20 @@ pub struct OracleRagAgent {
     pub provider: LlmProvider,
     pub model_name: String,
     pub timeout: Duration,
+    pub tenant_id: String,
     agent: AgentBackend,
     retriever: RagRetriever,
     plugins: Vec<Box<dyn DynamicContextPlugin>>,
 }
 
 impl OracleRagAgent {
-    /// Create a new OracleRagAgent with RAG capabilities (default: Ollama)
     pub fn new(
         persona: Persona,
         qdrant: QdrantService,
         plugins: Vec<Box<dyn DynamicContextPlugin>>,
+        tenant_id: String,
     ) -> Self {
-        Self::with_provider(persona, qdrant, plugins, LlmProvider::Ollama, None, None)
+        Self::with_provider(persona, qdrant, plugins, LlmProvider::Ollama, None, None, tenant_id)
     }
 
     /// Create an OracleRagAgent with custom options (legacy, uses Ollama)
@@ -354,8 +352,9 @@ impl OracleRagAgent {
         plugins: Vec<Box<dyn DynamicContextPlugin>>,
         model: Option<&str>,
         timeout: Option<Duration>,
+        tenant_id: String,
     ) -> Self {
-        Self::with_provider(persona, qdrant, plugins, LlmProvider::Ollama, model, timeout)
+        Self::with_provider(persona, qdrant, plugins, LlmProvider::Ollama, model, timeout, tenant_id)
     }
 
     /// Create an OracleRagAgent with a specific provider
@@ -366,6 +365,7 @@ impl OracleRagAgent {
         provider: LlmProvider,
         model: Option<&str>,
         timeout: Option<Duration>,
+        tenant_id: String,
     ) -> Self {
         let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
         
@@ -402,6 +402,7 @@ impl OracleRagAgent {
             provider,
             model_name,
             timeout,
+            tenant_id,
             agent,
             retriever,
             plugins,
@@ -436,7 +437,7 @@ You have access to a knowledge document base containing domain-specific intellig
         let mut all_sources = Vec::new();
         
         // Step 1: Retrieve relevant context from RAG
-        let rag_sources = self.retriever.search_all(message, 3).await?;
+        let rag_sources = self.retriever.search_all(message, 3, &self.tenant_id).await?;
         all_sources.extend(rag_sources);
         
         // Step 2: Check if we need to query databases directly

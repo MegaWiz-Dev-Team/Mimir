@@ -109,12 +109,17 @@ impl QdrantService {
         Ok(body)
     }
 
-    pub async fn search(&self, collection_name: &str, vector: Vec<f32>, limit: usize) -> Result<serde_json::Value> {
+    pub async fn search(&self, collection_name: &str, vector: Vec<f32>, limit: usize, tenant_id: &str) -> Result<serde_json::Value> {
         let url = format!("{}/collections/{}/points/search", self.base_url, collection_name);
         let body = json!({
             "vector": vector,
             "limit": limit,
-            "with_payload": true
+            "with_payload": true,
+            "filter": {
+                "must": [
+                    { "key": "tenant_id", "match": { "value": tenant_id } }
+                ]
+            }
         });
 
         let resp = self.client.post(&url)
