@@ -6,9 +6,9 @@ use axum::{
     http::StatusCode,
 };
 use dotenvy::dotenv;
-use ro_ai_bridge::services::db::{init_db, DbPool};
-use ro_ai_bridge::agents::wiki_workshop::pipeline::{run_pipeline_with_config, resume_pipeline_with_config};
-use ro_ai_bridge::config::QAConfig;
+use mimir_core_ai::services::db::{init_db, DbPool};
+use mimir_core_ai::qa_qc::pipeline::{run_pipeline_with_config, resume_pipeline_with_config};
+use mimir_core_ai::config::QAConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
@@ -18,11 +18,11 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::mpsc;
 use futures::stream::Stream;
 
-use ro_ai_bridge::services::qdrant::QdrantService;
-use ro_ai_bridge::agents::wiki_workshop::indexer::run_indexer;
-use ro_ai_bridge::agents::simple_npc::SimpleNpcAgent;
-use ro_ai_bridge::agents::oracle_rag::{OracleRagAgent, LlmProvider};
-use ro_ai_bridge::models::persona::Persona;
+use mimir_core_ai::services::qdrant::QdrantService;
+use mimir_core_ai::qa_qc::indexer::run_indexer;
+use mimir_core_ai::rag_engine::{OracleRagAgent, LlmProvider};
+use mimir_core_ai::models::persona::Persona;
+use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 use rig::providers::ollama;
 
 #[derive(Deserialize)]
@@ -358,7 +358,7 @@ async fn retry_step_handler(
     let qa_config = QAConfig::from_file_or_default(&config_path);
     
     tokio::spawn(async move {
-        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::retry_step_with_config(&db, id, qa_config).await {
+        if let Err(e) = mimir_core_ai::qa_qc::pipeline::retry_step_with_config(&db, id, qa_config).await {
             error!("Background retry Step #{} failed: {}", id, e);
         }
     });
@@ -390,7 +390,7 @@ async fn generate_missing_qa_handler(
     // Spawn background task
     let step_id = id;
     tokio::spawn(async move {
-        if let Err(e) = ro_ai_bridge::agents::wiki_workshop::pipeline::generate_missing_qa_for_step(&db, step_id, qa_config).await {
+        if let Err(e) = mimir_core_ai::qa_qc::pipeline::generate_missing_qa_for_step(&db, step_id, qa_config).await {
             tracing::error!("Missing QA generation for Step #{} failed: {}", step_id, e);
         }
     });
@@ -566,10 +566,14 @@ async fn chat_handler(
         }
         2 => {
             // Tier 2: Oracle RAG with provider support
+            let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
+            plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryMobDbTool::new(state.db.clone())));
+            plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryItemDbTool::new(state.db.clone())));
+
             let agent = OracleRagAgent::with_provider(
                 persona,
                 state.qdrant.clone(),
-                Some(state.db.clone()),
+                plugins,
                 provider.clone(),
                 model.as_deref(),
                 None,
@@ -703,10 +707,14 @@ async fn chat_stream_handler(
             }
             2 => {
                 // Tier 2: Oracle RAG with provider support
+                let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
+                plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryMobDbTool::new(db.clone())));
+                plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryItemDbTool::new(db.clone())));
+
                 let agent = OracleRagAgent::with_provider(
                     persona, 
                     qdrant, 
-                    Some(db),
+                    plugins,
                     provider.clone(),
                     model.as_deref(),
                     None,
@@ -771,7 +779,7 @@ async fn chat_stream_handler(
 async fn models_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    match ro_ai_bridge::services::db::get_active_llm_models(&state.db).await {
+    match mimir_core_ai::services::db::get_active_llm_models(&state.db).await {
         Ok(models) => Json(models).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

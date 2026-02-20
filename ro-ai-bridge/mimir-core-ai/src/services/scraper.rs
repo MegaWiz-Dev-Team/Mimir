@@ -79,7 +79,7 @@ impl ScraperService {
 
     #[allow(dead_code)]
     async fn handle_login(&self, _page: &Page) -> Result<()> {
-        // Placeholder: If RO Landverse requires login for some news
+        // Placeholder: If the target domain requires login for some news
         // 1. Check for login button
         // 2. Click login
         // 3. Fill user/pass

@@ -11,10 +11,11 @@ use std::time::{Duration, Instant};
 use std::env;
 use tracing::{info, warn};
 
-use crate::models::persona::Persona;
-use crate::services::qdrant::QdrantService;
-use crate::services::db::DbPool;
-use crate::agents::oracle_rag::{OracleRagAgent, LlmProvider};
+use mimir_core_ai::models::persona::Persona;
+use mimir_core_ai::services::qdrant::QdrantService;
+use mimir_core_ai::services::db::DbPool;
+use mimir_core_ai::rag_engine::{OracleRagAgent, LlmProvider, DynamicContextPlugin};
+use ro_ai_domain_game::tools::rag_tools::{QueryMobDbTool, QueryItemDbTool};
 
 /// Result of a single evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,10 +86,16 @@ pub async fn evaluate_agent(
                 .cloned()
                 .unwrap_or_else(|| QdrantService::new());
             
+            let mut plugins: Vec<Box<dyn DynamicContextPlugin>> = vec![];
+            if let Some(pool) = db {
+                plugins.push(Box::new(QueryMobDbTool::new(pool.clone())));
+                plugins.push(Box::new(QueryItemDbTool::new(pool.clone())));
+            }
+
             let oracle = OracleRagAgent::with_provider(
                 persona,
                 qdrant_svc,
-                db.cloned(),
+                plugins,
                 provider,
                 Some(model_id),
                 Some(Duration::from_secs(120)),

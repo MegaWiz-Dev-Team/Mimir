@@ -499,7 +499,7 @@ pub async fn generate_missing_qa_for_step(
     let chunk_content = &chunks[chunk_index as usize];
     let chunk = WikiChunk {
         source_file: filename.clone(),
-        url: format!("https://landverse.maxion.gg/{}", filename.replace(".md", "")),
+        url: format!("local://{}", filename),
         content: chunk_content.to_string(),
     };
 

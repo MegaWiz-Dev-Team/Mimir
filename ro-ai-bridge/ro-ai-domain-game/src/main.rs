@@ -4,52 +4,46 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tracing::info;
-use tower_http::cors::{CorsLayer, Any};
 
-use ro_ai_bridge::config::Config;
+use mimir_core_ai::config::Config;
 use mimir_core_ai::services::db;
-use ro_ai_bridge::routes::eval::eval_routes;
+
+use ro_ai_domain_game::api::rathena_gateway::rathena_routes;
+use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
     
     // Load configuration
     let config = Config::from_env();
 
-    // Initialize database
     let pool = db::init_db().await.expect("Failed to initialize database");
     info!("✅ Database connected and migrations applied");
-
-    // CORS layer for dashboard
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
 
     // build our application with routes
     let app = Router::new()
         .route("/health", get(health_check))
-        .merge(eval_routes())
-        .with_state(pool)
-        .layer(cors);
+        .nest("/rathena", rathena_routes())
+        .with_state(pool);
 
     // run it
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    let addr = format!("0.0.0.0:{}", config.port);
     info!("🚀 listening on {}", addr);
     
-    let listener = TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = TcpListener::bind(&addr).await?;
+    axum::serve(listener, app).await?;
+    
+    Ok(())
 }
 
 async fn health_check() -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "service": "ro-ai-bridge",
+        "service": "ro-ai-domain-game",
         "version": env!("CARGO_PKG_VERSION")
     }))
 }

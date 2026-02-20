@@ -1,8 +1,8 @@
 use anyhow::Result;
 use dotenvy::dotenv;
-use ro_ai_bridge::services::db::init_db;
-use ro_ai_bridge::services::qdrant::QdrantService;
-use ro_ai_bridge::agents::wiki_workshop::indexer::run_indexer;
+use mimir_core_ai::services::db::init_db;
+use mimir_core_ai::services::qdrant::QdrantService;
+use mimir_core_ai::qa_qc::indexer::run_indexer;
 use rig::providers::ollama;
 
 #[tokio::main]

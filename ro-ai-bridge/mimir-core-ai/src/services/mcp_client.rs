@@ -64,7 +64,7 @@ impl McpClient {
                             endpoint_url
                         } else {
                             // Logic to combine base + relative uri (GitBook MCP usually returns relative)
-                            // Assuming base is https://maxion-1.gitbook.io/ragnarok-landverse-th/~gitbook/mcp
+                            // Assuming base is the knowledge base URL
                             // Warning: This joining needs to be robust. 
                             let base = self.base_url.trim_end_matches("/");
                             // e.g. base_url/messages?sessionId=...

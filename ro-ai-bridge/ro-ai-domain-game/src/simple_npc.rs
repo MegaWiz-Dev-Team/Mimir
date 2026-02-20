@@ -1,6 +1,6 @@
 use rig::providers::ollama;
 use rig::completion::Prompt;
-use crate::models::persona::Persona;
+use mimir_core_ai::models::persona::Persona;
 use std::time::Duration;
 
 /// Default model to use if not specified

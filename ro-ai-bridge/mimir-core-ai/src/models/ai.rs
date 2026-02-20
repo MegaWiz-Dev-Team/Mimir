@@ -62,11 +62,11 @@ pub struct ActionLog {
 pub struct EconomyDaily {
     pub id: i64,
     pub date: chrono::NaiveDate,
-    pub total_zeny_given: i64,
+    pub total_currency_given: i64,
     pub total_items_given: i32,
-    pub total_heals: i32,
-    pub total_buffs: i32,
-    pub max_zeny_limit: i64,
+    pub total_custom_action_1: i32,
+    pub total_custom_action_2: i32,
+    pub max_currency_limit: i64,
     pub max_items_limit: i32,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -78,15 +78,15 @@ pub struct PlayerDailyLimit {
     pub player_char_id: i32,
     pub date: chrono::NaiveDate,
     pub chat_count: i32,
-    pub heal_count: i32,
-    pub buff_count: i32,
+    pub custom_action_1_count: i32,
+    pub custom_action_2_count: i32,
     pub items_received: i32,
-    pub zeny_received: i64,
+    pub currency_received: i64,
     pub max_chat_limit: i32,
-    pub max_heal_limit: i32,
-    pub max_buff_limit: i32,
+    pub max_custom_action_1_limit: i32,
+    pub max_custom_action_2_limit: i32,
     pub max_items_limit: i32,
-    pub max_zeny_limit: i64,
+    pub max_currency_limit: i64,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -250,9 +250,9 @@ pub async fn check_economy_limit(db: &DbPool, action_type: &str) -> anyhow::Resu
 
     let allowed = match action_type {
         "give_item" => row.total_items_given < row.max_items_limit,
-        "give_zeny" => row.total_zeny_given < row.max_zeny_limit,
-        "heal" => row.total_heals < 10000, // generous server-wide heal limit
-        "buff" => row.total_buffs < 5000,
+        "give_currency" => row.total_currency_given < row.max_currency_limit,
+        "custom_action_1" => row.total_custom_action_1 < 10000, // generous server-wide limit
+        "custom_action_2" => row.total_custom_action_2 < 5000,
         _ => true,
     };
 
@@ -264,9 +264,9 @@ pub async fn increment_economy(db: &DbPool, action_type: &str, amount: i64) -> a
     let today = chrono::Local::now().date_naive();
     let field = match action_type {
         "give_item" => "total_items_given",
-        "give_zeny" => "total_zeny_given",
-        "heal" => "total_heals",
-        "buff" => "total_buffs",
+        "give_currency" => "total_currency_given",
+        "custom_action_1" => "total_custom_action_1",
+        "custom_action_2" => "total_custom_action_2",
         _ => return Ok(()),
     };
 
@@ -307,10 +307,10 @@ pub async fn check_player_limit(
 
     let allowed = match action_type {
         "chat" => row.chat_count < row.max_chat_limit,
-        "heal" => row.heal_count < row.max_heal_limit,
-        "buff" => row.buff_count < row.max_buff_limit,
+        "custom_action_1" => row.custom_action_1_count < row.max_custom_action_1_limit,
+        "custom_action_2" => row.custom_action_2_count < row.max_custom_action_2_limit,
         "give_item" => row.items_received < row.max_items_limit,
-        "give_zeny" => row.zeny_received < row.max_zeny_limit,
+        "give_currency" => row.currency_received < row.max_currency_limit,
         _ => true,
     };
 
@@ -327,10 +327,10 @@ pub async fn increment_player_usage(
     let today = chrono::Local::now().date_naive();
     let field = match action_type {
         "chat" => "chat_count",
-        "heal" => "heal_count",
-        "buff" => "buff_count",
+        "custom_action_1" => "custom_action_1_count",
+        "custom_action_2" => "custom_action_2_count",
         "give_item" => "items_received",
-        "give_zeny" => "zeny_received",
+        "give_currency" => "currency_received",
         _ => return Ok(()),
     };
 

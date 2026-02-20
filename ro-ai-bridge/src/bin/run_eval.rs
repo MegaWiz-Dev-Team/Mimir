@@ -15,7 +15,7 @@ use tokio::fs;
 use tracing::{info, warn, error};
 use uuid::Uuid;
 
-use ro_ai_bridge::services::db;
+use mimir_core_ai::services::db;
 use ro_ai_bridge::agents::eval::{
     evaluate_agent, judge_response, available_agents, is_compatible,
 };
