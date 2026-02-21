@@ -1,0 +1,29 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.70kB done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.28kB 0.0s done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/ubuntu:22.04
+#3 DONE 2.4s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [builder 1/5] FROM docker.io/library/ubuntu:22.04@sha256:3ba65aa20f86a0fad9df2b2c259c613df006b2e6d0bfcc8a146afb8c525a9751
+#5 DONE 0.0s
+
+#6 [internal] preparing inline document
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 53.91kB 0.1s done
+#7 ERROR: error from sender: failed to xattr /Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/rathena/npc/._scripts_custom.conf: operation not permitted
+------
+ > [internal] load build context:
+------
+failed to solve: error from sender: failed to xattr /Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/rathena/npc/._scripts_custom.conf: operation not permitted
+

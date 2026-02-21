@@ -62,10 +62,11 @@ async fn handle_chat(
     // Chat with agent
     match agent.chat(&req.message).await {
         Ok(reply) => {
+            let action = agent.action_capture.lock().await.clone();
             Json(ChatResponse {
                 success: true,
                 message: reply,
-                action: None, // Actions can be extended later
+                action,
             })
         }
         Err(e) => {

@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use sqlx::MySqlPool;
+use sqlx::{MySqlPool, Row};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error};
 use uuid::Uuid;
@@ -42,43 +42,44 @@ impl ClusteringService {
     pub async fn get_clusters(pool: &MySqlPool, tenant_id: &str, status: Option<&str>) -> Result<Vec<ClusterDTO>> {
         let status_filter = status.unwrap_or("PENDING");
         
-        let clusters = sqlx::query!(
+        let clusters = sqlx::query(
             r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
                FROM qa_clusters 
-               WHERE tenant_id = ? AND status = ?"#,
-            tenant_id, status_filter
+               WHERE tenant_id = ? AND status = ?"#
         )
+        .bind(tenant_id)
+        .bind(status_filter)
         .fetch_all(pool)
         .await?;
 
         let mut dtos = Vec::new();
         for c in clusters {
-            let items = sqlx::query!(
+            let items = sqlx::query(
                 r#"SELECT ci.qa_id, ci.source_label, qr.question, qr.answer, qr.context
                    FROM qa_cluster_items ci
                    JOIN qa_results qr ON ci.qa_id = qr.id
-                   WHERE ci.cluster_id = ?"#,
-                c.id
+                   WHERE ci.cluster_id = ?"#
             )
+            .bind(&c.get::<String, _>("id"))
             .fetch_all(pool)
             .await?;
 
             let item_dtos = items.into_iter().map(|i| ClusterItemDTO {
-                qa_id: i.qa_id,
-                source_label: i.source_label,
-                question: i.question,
-                answer: i.answer,
-                context: i.context,
+                qa_id: i.get("qa_id"),
+                source_label: i.get("source_label"),
+                question: i.get("question"),
+                answer: i.get("answer"),
+                context: i.get("context"),
             }).collect();
 
             dtos.push(ClusterDTO {
-                id: c.id,
-                tenant_id: c.tenant_id,
-                topic: c.topic,
-                reasoning: c.reasoning,
-                cluster_type: c.cluster_type,
-                golden_answer: c.golden_answer,
-                status: c.status,
+                id: c.get("id"),
+                tenant_id: c.get("tenant_id"),
+                topic: c.get("topic"),
+                reasoning: c.get("reasoning"),
+                cluster_type: c.get("cluster_type"),
+                golden_answer: c.get("golden_answer"),
+                status: c.get("status"),
                 items: item_dtos,
             });
         }
@@ -94,10 +95,12 @@ impl ClusteringService {
             _ => "MERGED"
         };
 
-        sqlx::query!(
-            "UPDATE qa_clusters SET status = ?, golden_answer = ? WHERE id = ?",
-            status, req.golden_answer, cluster_id
+        sqlx::query(
+            "UPDATE qa_clusters SET status = ?, golden_answer = ? WHERE id = ?"
         )
+        .bind(status)
+        .bind(req.golden_answer)
+        .bind(cluster_id)
         .execute(pool)
         .await?;
 
@@ -109,14 +112,15 @@ impl ClusteringService {
         info!("Starting Clustering Job for tenant: {}", tenant_id);
         
         // MVP: Fetch recent 10 unclustered QA results
-        let qas = sqlx::query!(
+        let qas = sqlx::query(
             r#"SELECT id, question, answer 
                FROM qa_results 
                WHERE tenant_id = ? 
                AND id NOT IN (SELECT qa_id FROM qa_cluster_items)
-               LIMIT 10"#,
-            tenant_id
-        ).fetch_all(pool).await?;
+               LIMIT 10"#
+        )
+        .bind(tenant_id)
+        .fetch_all(pool).await?;
 
         if qas.len() < 2 {
             info!("Not enough unclustered QA pairs to form conflicts/duplicates.");
@@ -143,7 +147,7 @@ Return a STRICT JSON list:
 
         let mut input_text = String::from("QA Pairs:\n");
         for qa in &qas {
-            input_text.push_str(&format!("ID: {} | Q: {} | A: {}\n", qa.id, qa.question, qa.answer));
+            input_text.push_str(&format!("ID: {} | Q: {} | A: {}\n", qa.get::<i64, _>("id"), qa.get::<String, _>("question"), qa.get::<String, _>("answer")));
         }
 
         let resp = agent.prompt(input_text).await;
@@ -161,13 +165,27 @@ Return a STRICT JSON list:
 
                         if id1 > 0 && id2 > 0 {
                             let cluster_id = Uuid::new_v4().to_string();
-                            sqlx::query!(
-                                "INSERT INTO qa_clusters (id, tenant_id, topic, reasoning, cluster_type, golden_answer, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')",
-                                cluster_id, tenant_id, topic, reasoning, c_type, golden
-                            ).execute(pool).await?;
+                            sqlx::query(
+                                "INSERT INTO qa_clusters (id, tenant_id, topic, reasoning, cluster_type, golden_answer, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')"
+                            )
+                            .bind(&cluster_id)
+                            .bind(tenant_id)
+                            .bind(topic)
+                            .bind(reasoning)
+                            .bind(c_type)
+                            .bind(golden)
+                            .execute(pool).await?;
 
-                            sqlx::query!("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'A')", cluster_id, id1).execute(pool).await?;
-                            sqlx::query!("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'B')", cluster_id, id2).execute(pool).await?;
+                            sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'A')")
+                                .bind(&cluster_id)
+                                .bind(id1)
+                                .execute(pool)
+                                .await?;
+                            sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'B')")
+                                .bind(&cluster_id)
+                                .bind(id2)
+                                .execute(pool)
+                                .await?;
                             
                             info!("Created Cluster: {}", cluster_id);
                         }
