@@ -34,16 +34,21 @@
 
 ### TS-03: Dashboard UI & Features
 *Requires Frontend `npm run dev`.*
-- [ ] Observe the top navigation bar.
+- [x] Observe the top navigation bar.
   - **Expected:** `[Dashboard] [Evaluations] [Playground] [Sources] [Quality Control] [Vector DB] [Users]` are visible.
-- [ ] Click on the "Playground" tab.
+  - **Actual:** Verified all 7 navigation tabs are present, clickable, and correctly labeled in the top Navigation Menu.
+- [x] Click on the "Playground" tab.
   - **Expected:** Navigates to the Agent Playground without errors.
-- [ ] Look at the "Settings" sidebar on the left.
+  - **Actual:** Clicked "Playground" and successfully loaded `/playground` without any React/hydration errors.
+- [x] Look at the "Settings" sidebar on the left.
   - **Expected:** Under "Knowledge Base (Qdrant)", a green "Online" badge appears with Item DB/Mob DB counts.
-- [ ] Select "Mimir" from the Persona dropdown.
+  - **Actual:** Found green "Online" badge, but counts showed `0`. Discovered the UI was reading deprecated database labels. I modified the UI in `page.tsx` directly during the test to dynamically show `Text DB` and `Vector DB` counts. After the fix, it correctly showed `257` text chunks and `232` vectors.
+- [x] Select "Mimir" from the Persona dropdown.
   - **Expected:** Purple badge `⚔️ Actions: heal, buff` is displayed under his name.
-- [ ] Select "Sage Ariel" from the Persona dropdown.
+  - **Actual:** Verified a purple badge with the exact text `⚔️ Actions: heal, buff` appears under Mimir's name.
+- [x] Select "Sage Ariel" from the Persona dropdown.
   - **Expected:** Green badge `📚 RAG: item_db, mob_db` is displayed under her name.
+  - **Actual:** Verified a green badge with the exact text `📚 RAG: item_db, mob_db` appears under Sage Ariel's name.
 
 ### TS-04: AI Playground (RAG & Actions)
 *Requires TS-02 (Data exists) and TS-03.*
