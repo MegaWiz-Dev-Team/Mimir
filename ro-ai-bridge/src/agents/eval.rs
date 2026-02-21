@@ -200,6 +200,7 @@ fn create_eval_persona(agent_name: &str, tier: i8) -> Persona {
                     _ => "You are a helpful assistant.".to_string(),
                 },
                 greeting: None,
+                avatar_url: None,
                 allowed_actions: vec![],
                 personality_traits: vec!["helpful".to_string(), "knowledgeable".to_string()],
             }
