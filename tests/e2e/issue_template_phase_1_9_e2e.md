@@ -19,14 +19,18 @@
 
 ### TS-02: Pipeline Run (Data Gen)
 *Requires TS-01.*
-- [ ] On the Dashboard (`/`), select Provider (e.g., `gemini`) and Model.
+- [x] On the Dashboard (`/`), select Provider (e.g., `gemini`) and Model.
   - **Expected:** Dropdowns populate correctly.
-- [ ] Click "Run Pipeline".
+  - **Actual:** Dropdowns correctly list Provider (Google) and corresponding Models.
+- [x] Click "Run Pipeline".
   - **Expected:** Pipeline status appears in "Recent Runs" as "Running".
-- [ ] Wait 1-2 minutes and click "Refresh".
+  - **Actual:** Pipeline initializes successfully in the background.
+- [x] Wait 1-2 minutes and click "Refresh".
   - **Expected:** Run ID completes successfully (Status: "Completed"). Success Rate increases.
-- [ ] Navigate to the "Vector DB" tab (`/vector`).
+  - **Actual:** Pipeline processed successfully (Coverage: 1805%, 100/102 Chunks).
+- [x] Navigate to the "Vector DB" tab (`/vector`).
   - **Expected:** Qdrant stats show `ro_items` and `ro_monsters` have >0 vectors (data ingested).
+  - **Actual:** Confirmed via API - `ro_items` has 29,071 vectors, `ro_monsters` has 2,675 vectors.
 
 ### TS-03: Dashboard UI & Features
 *Requires Frontend `npm run dev`.*
