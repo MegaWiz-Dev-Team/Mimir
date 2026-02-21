@@ -614,12 +614,12 @@ export default function PlaygroundPage() {
                             {vectorStats && (
                                 <div className="grid grid-cols-2 gap-2 text-xs">
                                     <div className="p-2 bg-muted rounded-md text-center">
-                                        <div className="font-medium text-foreground text-sm">{vectorStats.collections?.ro_items?.items_count || 0}</div>
-                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Item DB</div>
+                                        <div className="font-medium text-foreground text-sm">{vectorStats.database?.total_qa || 0}</div>
+                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Text DB</div>
                                     </div>
                                     <div className="p-2 bg-muted rounded-md text-center">
-                                        <div className="font-medium text-foreground text-sm">{vectorStats.collections?.ro_monsters?.items_count || 0}</div>
-                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Mob DB</div>
+                                        <div className="font-medium text-foreground text-sm">{vectorStats.qdrant?.result?.points_count || 0}</div>
+                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Vector DB</div>
                                     </div>
                                 </div>
                             )}
