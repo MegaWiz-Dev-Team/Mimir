@@ -35,3 +35,4 @@ venv/
 # Docs
 *.pdf
 *.docx
+._*
