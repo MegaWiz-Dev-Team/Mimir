@@ -42,16 +42,22 @@ pub async fn generate_qa(
         chunk.content
     );
 
-    let raw_res = match client {
-        GeneratorClient::Ollama(c) => {
-            let agent = c.agent(model).preamble(preamble).build();
-            agent.prompt(prompt_text.as_str()).await?
-        },
-        GeneratorClient::Gemini(c) => {
-            let agent = c.agent(model).preamble(preamble).build();
-            agent.prompt(prompt_text.as_str()).await?
+    let raw_res_future = async {
+        match client {
+            GeneratorClient::Ollama(c) => {
+                let agent = c.agent(model).preamble(preamble).build();
+                agent.prompt(prompt_text.as_str()).await
+            },
+            GeneratorClient::Gemini(c) => {
+                let agent = c.agent(model).preamble(preamble).build();
+                agent.prompt(prompt_text.as_str()).await
+            }
         }
     };
+
+    let raw_res = tokio::time::timeout(std::time::Duration::from_secs(120), raw_res_future)
+        .await
+        .map_err(|_| anyhow::anyhow!("LLM generation (generate_qa) timed out after 120s"))??;
     
     // Clean markdown if present
     let clean_json = raw_res.trim()
@@ -92,16 +98,22 @@ pub async fn generate_missing_qa(
         chunk.content
     );
 
-    let raw_res = match client {
-        GeneratorClient::Ollama(c) => {
-            let agent = c.agent(model).preamble(preamble).build();
-            agent.prompt(prompt_text.as_str()).await?
-        },
-        GeneratorClient::Gemini(c) => {
-            let agent = c.agent(model).preamble(preamble).build();
-            agent.prompt(prompt_text.as_str()).await?
+    let raw_res_future = async {
+        match client {
+            GeneratorClient::Ollama(c) => {
+                let agent = c.agent(model).preamble(preamble).build();
+                agent.prompt(prompt_text.as_str()).await
+            },
+            GeneratorClient::Gemini(c) => {
+                let agent = c.agent(model).preamble(preamble).build();
+                agent.prompt(prompt_text.as_str()).await
+            }
         }
     };
+
+    let raw_res = tokio::time::timeout(std::time::Duration::from_secs(120), raw_res_future)
+        .await
+        .map_err(|_| anyhow::anyhow!("LLM generation (generate_missing_qa) timed out after 120s"))??;
     
     // Clean markdown if present
     let clean_json = raw_res.trim()

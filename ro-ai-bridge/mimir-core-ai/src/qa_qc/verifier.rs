@@ -43,7 +43,13 @@ pub async fn verify_coverage(
         facts_str, qa_str
     );
 
-    let raw_res = agent.prompt(prompt.as_str()).await?;
+    let raw_res_future = async {
+        agent.prompt(prompt.as_str()).await
+    };
+
+    let raw_res = tokio::time::timeout(std::time::Duration::from_secs(120), raw_res_future)
+        .await
+        .map_err(|_| anyhow::anyhow!("Coverage Verification timed out after 120s"))??;
 
     // Clean markdown
     let clean_json = raw_res.trim()
