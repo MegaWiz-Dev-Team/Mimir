@@ -104,7 +104,7 @@ export function PipelineFlow({ steps }: PipelineFlowProps) {
             <div className="mt-6">
                 <div className="flex items-center justify-between text-sm mb-2">
                     <span className="text-muted-foreground">Overall Progress</span>
-                    <span className="font-medium">{completedSteps} / {totalSteps} Chunks</span>
+                    <span className="font-medium">{completedSteps + failedSteps} / {totalSteps} Chunks</span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
                     <div
@@ -112,7 +112,7 @@ export function PipelineFlow({ steps }: PipelineFlowProps) {
                             "h-full transition-all duration-500",
                             isAnyFailed ? "bg-red-500" : "bg-green-500"
                         )}
-                        style={{ width: `${totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0}%` }}
+                        style={{ width: `${totalSteps > 0 ? ((completedSteps + failedSteps) / totalSteps) * 100 : 0}%` }}
                     />
                 </div>
             </div>
