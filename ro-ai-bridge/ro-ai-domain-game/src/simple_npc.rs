@@ -2,6 +2,10 @@ use rig::providers::ollama;
 use rig::completion::Prompt;
 use mimir_core_ai::models::persona::Persona;
 use std::time::Duration;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use serde_json::Value;
+use crate::tools::actions::{HealTool, BuffTool};
 
 /// Default model to use if not specified
 /// Optimized for speed: llama3.2 is a fast, efficient model suitable for <2s latency
@@ -47,6 +51,7 @@ pub struct SimpleNpcAgent {
     pub persona: Persona,
     pub model_name: String,
     pub timeout: Duration,
+    pub action_capture: Arc<Mutex<Option<Value>>>,
     // We store the underlying rig agent
     agent: rig::agent::Agent<ollama::CompletionModel>,
 }
@@ -80,12 +85,16 @@ impl SimpleNpcAgent {
         let model_name = model.unwrap_or(DEFAULT_MODEL).to_string();
         let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
         
-        // Build the agent with the persona's system prompt
+        let action_capture = Arc::new(Mutex::new(None));
+        
+        // Build the agent with the persona's system prompt and core tools
         let agent = client.agent(&model_name)
             .preamble(&persona.system_prompt)
+            .tool(HealTool::new(action_capture.clone()))
+            .tool(BuffTool::new(action_capture.clone()))
             .build();
             
-        Self { persona, model_name, timeout, agent }
+        Self { persona, model_name, timeout, action_capture, agent }
     }
 
     /// Create a SimpleNpcAgent with a specific model
