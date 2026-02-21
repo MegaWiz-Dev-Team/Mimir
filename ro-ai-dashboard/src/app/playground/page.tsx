@@ -21,8 +21,10 @@ import {
     streamChat,
     fetchModels,
     modelsToProviders,
+    updatePersonaConfig,
+    fetchVectorStats,
 } from "@/lib/api";
-import { Send, Trash2, User, Bot, Loader2, AlertCircle, BookOpen, Database, Zap, Cloud, HardDrive, X } from "lucide-react";
+import { Send, Trash2, User, Bot, Loader2, AlertCircle, BookOpen, Database, Zap, Cloud, HardDrive, X, Save, CheckCircle2, Copy, Check } from "lucide-react";
 
 interface Message {
     role: "user" | "assistant";
@@ -35,6 +37,7 @@ interface Message {
     streaming?: boolean;
     provider?: string;
     model?: string;
+    action?: any;
 }
 
 function MarkdownMessage({ content }: { content: string }) {
@@ -114,11 +117,15 @@ export default function PlaygroundPage() {
     const [useStreaming, setUseStreaming] = useState(true);
     const [providers, setProviders] = useState<LlmProvider[]>(PROVIDERS);
     const [modelsLoading, setModelsLoading] = useState(true);
+    const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
     // Wiki Modal state
     const [viewingWiki, setViewingWiki] = useState<string | null>(null);
     const [wikiContent, setWikiContent] = useState<string>("");
     const [wikiLoading, setWikiLoading] = useState(false);
+
+    // Vector stats state
+    const [vectorStats, setVectorStats] = useState<any>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortRef = useRef<(() => void) | null>(null);
@@ -127,6 +134,19 @@ export default function PlaygroundPage() {
     const selectedPersona = PERSONAS.find(p => p.name === persona) || PERSONAS[0];
     const selectedProvider = providers.find(p => p.id === provider) || providers[0];
     const selectedModel = selectedProvider?.models.find(m => m.id === model) || selectedProvider?.models[0];
+
+    // Fetch vector stats on mount
+    useEffect(() => {
+        async function loadStats() {
+            try {
+                const stats = await fetchVectorStats();
+                setVectorStats(stats);
+            } catch (err) {
+                console.warn("Failed to fetch vector stats:", err);
+            }
+        }
+        loadStats();
+    }, []);
 
     // Fetch models from database on mount
     useEffect(() => {
@@ -245,9 +265,14 @@ export default function PlaygroundPage() {
                         // On token
                         setMessages(prev => {
                             const newMessages = [...prev];
-                            const lastMessage = newMessages[newMessages.length - 1];
+                            const lastIndex = newMessages.length - 1;
+                            const lastMessage = newMessages[lastIndex];
                             if (lastMessage.role === "assistant") {
-                                lastMessage.content += token;
+                                // Important: deeply clone the object to avoid React Strict Mode double-mutation bugs
+                                newMessages[lastIndex] = {
+                                    ...lastMessage,
+                                    content: lastMessage.content + token,
+                                };
                             }
                             return newMessages;
                         });
@@ -263,6 +288,7 @@ export default function PlaygroundPage() {
                                 lastMessage.confidence_score = metadata.confidence_score;
                                 lastMessage.confidence_level = metadata.confidence_level;
                                 lastMessage.sources = metadata.sources;
+                                lastMessage.action = metadata.action;
                             }
                             return newMessages;
                         });
@@ -303,6 +329,7 @@ export default function PlaygroundPage() {
                     tools_used: response.tools_used,
                     provider: response.provider,
                     model: response.model,
+                    action: response.action,
                 }]);
                 setLoading(false);
             }
@@ -318,6 +345,18 @@ export default function PlaygroundPage() {
             content: selectedPersona.greeting,
         }]);
         setError(null);
+    };
+
+    const handleSaveConfig = async () => {
+        try {
+            setLoading(true);
+            await updatePersonaConfig(persona, model);
+            alert(`Successfully updated Persona '${selectedPersona.display_name}' to use model '${model}'.`);
+            setLoading(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to save config");
+            setLoading(false);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -352,6 +391,32 @@ export default function PlaygroundPage() {
             case "gemini": return <Cloud className="h-4 w-4 text-blue-500" />;
             default: return <Database className="h-4 w-4 text-gray-500" />;
         }
+    };
+
+    const handleCopyLog = (index: number) => {
+        const assistantMsg = messages[index];
+        if (assistantMsg.role !== "assistant") return;
+
+        let userMsgContent = "";
+        if (index > 0 && messages[index - 1].role === "user") {
+            userMsgContent = messages[index - 1].content;
+        }
+
+        const formattedLog = `=== Project Mimir AI Debug Log ===\n` +
+            `Time: ${new Date().toISOString()}\n` +
+            `Persona: ${selectedPersona?.name} (Tier ${tier})\n` +
+            `Model: ${assistantMsg.provider || provider} / ${assistantMsg.model || model}\n` +
+            `Latency: ${assistantMsg.latency_ms || 0}ms\n` +
+            `Confidence: ${assistantMsg.confidence_level || 'N/A'} (${assistantMsg.confidence_score || 0})\n` +
+            (assistantMsg.action ? `Action: ${JSON.stringify(assistantMsg.action)}\n` : '') +
+            `\n[User Query]\n${userMsgContent}\n` +
+            `\n[Assistant Response]\n${assistantMsg.content}\n` +
+            (assistantMsg.sources && assistantMsg.sources.length > 0 ? `\n[Sources]\n${assistantMsg.sources.map(s => `- ${s.source_id} (${s.relevance})`).join('\n')}\n` : '');
+
+        navigator.clipboard.writeText(formattedLog).then(() => {
+            setCopiedIndex(index);
+            setTimeout(() => setCopiedIndex(null), 2000);
+        });
     };
 
     return (
@@ -412,9 +477,18 @@ export default function PlaygroundPage() {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground mb-2">
                                 {selectedModel?.description}
                             </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full mt-2"
+                                onClick={handleSaveConfig}
+                                disabled={loading || !model}
+                            >
+                                <Save className="mr-2 h-4 w-4" /> Save Default Model For NPC
+                            </Button>
                         </div>
 
                         {/* Tier Selector */}
@@ -484,15 +558,71 @@ export default function PlaygroundPage() {
                         </div>
 
                         {/* Persona Info */}
-                        <div className="pt-4 border-t">
-                            <h4 className="font-medium mb-2">{selectedPersona.display_name}</h4>
-                            <div className="flex flex-wrap gap-1">
-                                {selectedPersona.traits.map((trait) => (
-                                    <Badge key={trait} variant="secondary" className="text-xs">
-                                        {trait}
-                                    </Badge>
-                                ))}
+                        <div className="pt-4 border-t flex flex-col gap-3">
+                            <div className="flex items-center gap-3">
+                                {selectedPersona.avatar_url && (
+                                    <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-primary/20 shrink-0">
+                                        <img
+                                            src={selectedPersona.avatar_url}
+                                            alt={selectedPersona.display_name}
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                                // Fallback if image doesn't exist yet
+                                                (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bot"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                                <div>
+                                    <h4 className="font-medium mb-1">{selectedPersona.display_name}</h4>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex flex-wrap gap-1">
+                                            {selectedPersona.traits.map((trait) => (
+                                                <Badge key={trait} variant="secondary" className="text-xs">
+                                                    {trait}
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                        {/* Capability Badges */}
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {selectedPersona.name === "Mimir" && (
+                                                <Badge variant="default" className="text-[10px] bg-indigo-500 hover:bg-indigo-600">
+                                                    ⚔️ Actions: heal, buff
+                                                </Badge>
+                                            )}
+                                            {selectedPersona.name === "sage_ariel" && (
+                                                <Badge variant="default" className="text-[10px] bg-emerald-500 hover:bg-emerald-600">
+                                                    📚 RAG: item_db, mob_db
+                                                </Badge>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
+                        </div>
+
+                        {/* Vector DB Status */}
+                        <div className="pt-4 border-t space-y-3">
+                            <div className="flex items-center justify-between">
+                                <Label className="flex items-center gap-1 text-muted-foreground"><Database className="h-4 w-4" /> Knowledge Base (Qdrant)</Label>
+                                {vectorStats ? (
+                                    <Badge variant="outline" className="text-[10px] px-1 h-5 text-green-500 bg-green-500/10 border-green-500/20">Online</Badge>
+                                ) : (
+                                    <Badge variant="outline" className="text-[10px] px-1 h-5 text-yellow-500 bg-yellow-500/10 border-yellow-500/20">Checking...</Badge>
+                                )}
+                            </div>
+                            {vectorStats && (
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="p-2 bg-muted rounded-md text-center">
+                                        <div className="font-medium text-foreground text-sm">{vectorStats.collections?.ro_items?.items_count || 0}</div>
+                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Item DB</div>
+                                    </div>
+                                    <div className="p-2 bg-muted rounded-md text-center">
+                                        <div className="font-medium text-foreground text-sm">{vectorStats.collections?.ro_monsters?.items_count || 0}</div>
+                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Mob DB</div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
@@ -510,8 +640,19 @@ export default function PlaygroundPage() {
                                             }`}
                                     >
                                         {msg.role === "assistant" && (
-                                            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                                                <Bot className="h-4 w-4 text-primary-foreground" />
+                                            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                {selectedPersona.avatar_url ? (
+                                                    <img
+                                                        src={selectedPersona.avatar_url}
+                                                        alt="Assistant"
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bot"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <Bot className="h-4 w-4 text-primary-foreground" />
+                                                )}
                                             </div>
                                         )}
                                         <div className={`max-w-[80%] space-y-2 ${msg.role === "user"
@@ -553,6 +694,30 @@ export default function PlaygroundPage() {
                                                     {msg.streaming && (
                                                         <Loader2 className="h-3 w-3 animate-spin" />
                                                     )}
+
+                                                    <div className="flex-1" />
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-6 w-6 p-0 hover:bg-background/50 text-muted-foreground"
+                                                        onClick={() => handleCopyLog(idx)}
+                                                        title="Copy Debug Log"
+                                                    >
+                                                        {copiedIndex === idx ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                                                    </Button>
+                                                </div>
+                                            )}
+
+                                            {/* Action Display for Tier 1 NPC Actions */}
+                                            {msg.role === "assistant" && msg.action && (
+                                                <div className="mt-2 bg-green-500/10 border border-green-500/20 rounded-md p-3 text-sm">
+                                                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium mb-1">
+                                                        <CheckCircle2 className="h-4 w-4" />
+                                                        Action Invoked: {msg.action.name}
+                                                    </div>
+                                                    <pre className="text-xs overflow-x-auto text-muted-foreground">
+                                                        {JSON.stringify(msg.action.args, null, 2)}
+                                                    </pre>
                                                 </div>
                                             )}
                                         </div>

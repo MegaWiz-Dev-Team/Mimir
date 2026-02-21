@@ -1,4 +1,5 @@
-use rig::tool::{Tool, ToolDefinition};
+use rig::tool::Tool;
+use rig::completion::ToolDefinition;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;

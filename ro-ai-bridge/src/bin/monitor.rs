@@ -98,6 +98,8 @@ struct ChatResponse {
     sources: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools_used: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<serde_json::Value>,
 }
 
 /// SSE event types for streaming
@@ -115,6 +117,8 @@ struct StreamDone {
     confidence_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sources: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<serde_json::Value>,
 }
 
 struct AppState {
@@ -143,7 +147,7 @@ async fn main() -> Result<()> {
         
         // Quality Control
         .route("/api/v1/qc/clusters", get(get_qc_clusters))
-        .route("/api/v1/qc/resolve/:id", post(resolve_qc_cluster))
+        .route("/api/v1/qc/resolve/{id}", post(resolve_qc_cluster))
         .route("/api/v1/qc/generate", post(generate_qc_clusters))
         
         // Pipeline endpoints
@@ -163,6 +167,7 @@ async fn main() -> Result<()> {
         .route("/api/agents/chat/stream", post(chat_stream_handler))
         // Model config endpoints
         .route("/api/models", get(models_handler))
+        .route("/api/personas/{name}/config", post(update_persona_config_handler))
         // Wiki content endpoint
         .route("/api/wiki/{filename}", get(get_wiki_content))
         .layer(axum::middleware::from_fn(tenant_auth_middleware))
@@ -590,10 +595,12 @@ async fn chat_handler(
     match payload.tier {
         1 => {
             // Tier 1: Simple NPC (no RAG)
-            let agent = SimpleNpcAgent::new(persona);
+            let agent = SimpleNpcAgent::with_model(persona, &model_name);
             
             match agent.chat(&payload.message).await {
                 Ok(response) => {
+                    let action = agent.action_capture.lock().await.clone(); // Capture action
+                    
                     let chat_response = ChatResponse {
                         content: response,
                         tier: 1,
@@ -605,6 +612,7 @@ async fn chat_handler(
                         confidence_level: None,
                         sources: None,
                         tools_used: None,
+                        action,
                     };
                     Json(chat_response).into_response()
                 }
@@ -652,6 +660,7 @@ async fn chat_handler(
                             })
                         }).collect()),
                         tools_used: Some(response.tools_used),
+                        action: None,
                     };
                     Json(chat_response).into_response()
                 }
@@ -721,10 +730,11 @@ async fn chat_stream_handler(
         match tier {
             1 => {
                 // Tier 1: Simple NPC (no RAG) - simulate streaming
-                let agent = SimpleNpcAgent::new(persona);
+                let agent = SimpleNpcAgent::with_model(persona, &model_name);
                 
                 match agent.chat(&message).await {
                     Ok(response) => {
+                        let action = agent.action_capture.lock().await.clone(); // Capture action
                         // Simulate token-by-token streaming
                         // Since rig-core doesn't support true streaming yet, we chunk the response
                         let words: Vec<&str> = response.split_whitespace().collect();
@@ -748,6 +758,7 @@ async fn chat_stream_handler(
                                 confidence_score: None,
                                 confidence_level: None,
                                 sources: None,
+                                action,
                             })
                         ).await;
                     }
@@ -804,6 +815,7 @@ async fn chat_stream_handler(
                                         "relevance": s.relevance
                                     })
                                 }).collect()),
+                                action: None,
                             })
                         ).await;
                     }
@@ -917,4 +929,40 @@ async fn generate_qc_clusters(
     });
     
     (StatusCode::ACCEPTED, Json(serde_json::json!({"status": "Generation started in background"}))).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePersonaConfigRequest {
+    model_id: String,
+}
+
+async fn update_persona_config_handler(
+    Path(name): Path<String>,
+    State(_state): State<Arc<AppState>>,
+    Json(payload): Json<UpdatePersonaConfigRequest>,
+) -> impl IntoResponse {
+    let mut persona = match Persona::load_by_name_cached(&name) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": format!("Persona '{}' not found: {}", name, e)})),
+            ).into_response();
+        }
+    };
+
+    // Update the model_id
+    persona.model_id = Some(payload.model_id.clone());
+
+    // Save back to yaml
+    if let Err(e) = persona.save() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Failed to save persona: {}", e)})),
+        ).into_response();
+    }
+
+    info!("Updated persona '{}' config to use model_id: {}", name, payload.model_id);
+
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "persona": persona}))).into_response()
 }

@@ -10,6 +10,7 @@ pub struct Persona {
     pub display_name: String,
     pub tier: i8,
     pub model_id: Option<String>,
+    pub avatar_url: Option<String>,
     pub system_prompt: String,
     pub greeting: Option<String>,
     pub allowed_actions: Vec<String>,
@@ -82,5 +83,23 @@ impl Persona {
                 write.clear();
             }
         }
+    }
+
+    /// Save a persona to its config file and update cache
+    pub fn save(&self) -> anyhow::Result<()> {
+        let base_path = Self::get_base_path();
+        let path = format!("{}/{}.yaml", base_path, self.name);
+        
+        let content = serde_yaml::to_string(self)?;
+        fs::write(&path, content)?;
+
+        // Update cache
+        if let Some(cache) = PERSONA_CACHE.get() {
+            if let Ok(mut write) = cache.write() {
+                write.insert(self.name.clone(), self.clone());
+            }
+        }
+
+        Ok(())
     }
 }

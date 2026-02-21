@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
-import { LogOut, LayoutDashboard, Database, Users, ShieldCheck, Link as LinkIcon } from "lucide-react";
+import { LogOut, LayoutDashboard, Database, Users, ShieldCheck, Link as LinkIcon, Bot, Activity } from "lucide-react";
 
 export function Navbar() {
     const pathname = usePathname();
@@ -32,6 +32,8 @@ export function Navbar() {
 
     const navItems = [
         { name: "Dashboard", href: "/", icon: LayoutDashboard },
+        { name: "Evaluations", href: "/evaluations", icon: Activity },
+        { name: "Playground", href: "/playground", icon: Bot },
         { name: "Sources", href: "/sources", icon: LinkIcon },
         { name: "Quality Control", href: "/quality_control", icon: ShieldCheck },
         { name: "Vector DB", href: "/vector", icon: Database },
@@ -55,8 +57,8 @@ export function Navbar() {
                                     key={item.name}
                                     href={item.href}
                                     className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive
-                                            ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                                            : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                        : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
                                         }`}
                                 >
                                     <Icon className="w-4 h-4" />
