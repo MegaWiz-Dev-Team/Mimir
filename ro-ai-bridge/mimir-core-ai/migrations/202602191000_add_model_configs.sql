@@ -28,5 +28,6 @@ INSERT INTO ai_models (model_id, provider, model_type, capabilities) VALUES
 ('llama3.2:1b', 'ollama', 'llm', '{"tools":false, "reasoning":false}'),
 ('llama3.2:3b', 'ollama', 'llm', '{"tools":true, "reasoning":false}'),
 ('bge-m3', 'ollama', 'embedding', '{"multilingual":true}'),
+('gemini-2.5-flash-lite', 'google', 'llm', '{"tools":true, "vision":false, "reasoning":false}'),
 ('gemini-2.5-flash', 'google', 'llm', '{"tools":true, "vision":true, "reasoning":true}'),
 ('gemini-2.5-pro', 'google', 'llm', '{"tools":true, "vision":true, "reasoning":true}');

@@ -207,6 +207,7 @@ export interface ChatResponse {
     confidence_level?: string;
     sources?: SourceCitation[];
     tools_used?: string[];
+    action?: any;
 }
 
 export interface StreamToken {
@@ -218,6 +219,7 @@ export interface StreamDone {
     confidence_score?: number;
     confidence_level?: string;
     sources?: SourceCitation[];
+    action?: any;
 }
 
 export interface Persona {
@@ -226,6 +228,7 @@ export interface Persona {
     tier: number;
     description: string;
     greeting: string;
+    avatar_url?: string;
     traits: string[];
 }
 
@@ -307,11 +310,21 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
 /// Available personas (static list matching backend configs)
 export const PERSONAS: Persona[] = [
     {
+        name: "Mimir",
+        display_name: "Mimir The Guide",
+        tier: 1,
+        description: "All-knowing guide capable of actions",
+        greeting: "สวัสดีนักผจญภัย ข้าคือ Mimir ผู้รอบรู้แห่ง Yggdrasil ข้าสามารถช่วยตอบคำถามพื้นฐาน และช่วยเหลือท่านด้วยคำสั่งต่างๆ (Action) ได้\n\n**ตัวอย่างคำถามที่ท่านสามารถทดสอบได้:**\n- `ช่วย Heal ฉันหน่อย`\n- `ขอรับบัพ Agi หน่อย`\n- `พาฉันกลับเมือง Prontera ที`",
+        avatar_url: "/avatars/mimir.png",
+        traits: ["helpful", "wise", "concise"],
+    },
+    {
         name: "sage_ariel",
         display_name: "Sage Ariel",
         tier: 2,
         description: "Scholar who explains in detail",
-        greeting: "Welcome, seeker of knowledge. I am Sage Ariel, keeper of the Prontera Library. What mysteries of Midgard shall we explore together today?",
+        greeting: "ยินดีต้อนรับสู่หอสมุดแห่ง Prontera ข้าคือ Sage Ariel ผู้รวมรวบความรู้แห่ง Midgard ข้าสามารถค้นหาข้อมูลจากเอกสารวิกิ (RAG) มาตอบท่านได้อย่างละเอียด\n\n**ลองสอบถามข้าดูสิ:**\n- `มอนสเตอร์ Baphomet อาศัยอยู่ที่ไหน?`\n- `ดาบ Excalibur ดรอปจากตัวอะไร?`\n- `เล่าประวัติศาสตร์ของเมือง Glast Heim ให้ฟังหน่อย`",
+        avatar_url: "/avatars/sage_ariel.png",
         traits: ["wise", "calm", "helpful", "scholarly", "thorough"],
     },
     {
@@ -319,7 +332,8 @@ export const PERSONAS: Persona[] = [
         display_name: "Fortune Teller Maya",
         tier: 2,
         description: "Mysterious seer, speaks in riddles",
-        greeting: "The stars have foretold your coming, traveler... Come, let the cards reveal your destiny...",
+        greeting: "ดวงดาวได้ทำนายการมาเยือนของท่าน... ข้าคือ Maya ผู้มองเห็นอนาคตผ่านหน้าไพ่ทาโรต์\n\n**ลองให้ข้าทำนายดูสิ:**\n- `ขอทราบนิสัยและจุดอ่อนของบอส Dark Lord`\n- `มีแผนที่ไหนดรอปการ์ดดีๆ บ้าง?`",
+        avatar_url: "/avatars/fortune_teller.png",
         traits: ["mysterious", "cryptic", "enigmatic", "prophetic"],
     },
     {
@@ -327,7 +341,8 @@ export const PERSONAS: Persona[] = [
         display_name: "Blacksmith Grumm",
         tier: 2,
         description: "Gruff dwarf, speaks plainly",
-        greeting: "Hmph. Another adventurer. What d'ye need? Weapons? Armor? Speak up, I haven't got all day.",
+        greeting: "หืม? มีธุระอะไรก็ว่ามา ข้าคือ Grumm ช่างตีเหล็กมือหนึ่ง ถนัดเรื่องอาวุธชุดเกราะ\n\n**อยากรู้เรื่องการคราฟหรืออุปกรณ์หรอ? ถามมาสิ:**\n- `ดาบธาตุไฟ คราฟยังไงใช้อะไรบ้าง?`\n- `เกราะแบบไหนป้องกันเวทย์ได้ดีที่สุด?`",
+        avatar_url: "/avatars/blacksmith.png",
         traits: ["gruff", "straightforward", "practical", "knowledgeable"],
     },
 ];
@@ -373,6 +388,20 @@ export async function sendChat(request: ChatRequest): Promise<ChatResponse> {
     return res.json();
 }
 
+/// Update persona configuration (e.g., set default model)
+export async function updatePersonaConfig(personaName: string, modelId: string): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/personas/${personaName}/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId }),
+    });
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(error.error || "Failed to update persona config");
+    }
+    return res.json();
+}
+
 /// Stream a chat message using SSE
 export function streamChat(
     request: ChatRequest,
@@ -407,20 +436,24 @@ export function streamChat(
                 buffer += decoder.decode(value, { stream: true });
 
                 // Parse SSE events
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
+                let eventEndIndex = buffer.indexOf("\n\n");
 
-                for (const line of lines) {
-                    if (line.startsWith("event:")) {
-                        // Next line contains data
-                        continue;
+                while (eventEndIndex !== -1) {
+                    const eventString = buffer.slice(0, eventEndIndex);
+                    buffer = buffer.slice(eventEndIndex + 2); // Consume the processed event and the \n\n
+
+                    const eventLines = eventString.split('\n');
+                    let eventData = "";
+
+                    for (const line of eventLines) {
+                        if (line.startsWith("data:")) {
+                            eventData += line.slice(5).trim();
+                        }
                     }
-                    if (line.startsWith("data:")) {
-                        const data = line.slice(5).trim();
-                        if (!data) continue;
 
+                    if (eventData) {
                         try {
-                            const event = JSON.parse(data);
+                            const event = JSON.parse(eventData);
 
                             if (event.token) {
                                 onToken(event.token);
@@ -431,14 +464,17 @@ export function streamChat(
                                     confidence_score: event.confidence_score,
                                     confidence_level: event.confidence_level,
                                     sources: event.sources,
+                                    action: event.action,
                                 });
                             } else if (event.error) {
                                 onError(event.error);
                             }
-                        } catch {
-                            // Ignore parse errors
+                        } catch (e) {
+                            console.error("SSE parse error", e, "Data:", eventData);
                         }
                     }
+
+                    eventEndIndex = buffer.indexOf("\n\n");
                 }
             }
         })

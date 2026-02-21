@@ -55,7 +55,8 @@
 | [03_07_Implementation_Plan_Phase_2_Agent_Chat.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_07_Implementation_Plan_Phase_2_Agent_Chat.md)           | 🏗️ กำลังทำ         | ระบบ NPC Chat, Oracle Bot และ Play-to-Earn AI Logic |
 | [03_08_Implementation_Plan_Model_Configuration_DB.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_08_Implementation_Plan_Model_Configuration_DB.md)   | 🏗️ กำลังทำ         | การย้าย Model Configuration ไปเก็บใน MariaDB          |
 | [03_09_Implementation_Plan_Iterative_QA_Generation.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_09_Implementation_Plan_Iterative_QA_Generation.md) | 🏗️ กำลังทำ         | แผนการพัฒนาฟีเจอร์เพิ่ม Q/A อัตโนมัติจาก Missing Facts      |
+| [03_10_Implementation_Plan_Playground_UI.md](file:///Volumes/T7%20Shield/Development/Active_Projects/project/Project-Mimir/docs/03_10_Implementation_Plan_Playground_UI.md)                     | 🏗️ กำลังทำ         | แผนการปรับปรุงหน้า Playground UI (Avatars, RAG Status) |
 
 ---
 
-*Last Updated: 2026-02-19*
+*Last Updated: 2026-02-21*
