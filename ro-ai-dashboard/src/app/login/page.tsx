@@ -28,11 +28,11 @@ export default function LoginPage() {
                 throw new Error(data.error || "Login failed");
             }
 
-            const { access_token, tenant_id } = await res.json();
+            const { token: access_token, tenant_id } = await res.json();
 
             // Store in cookies
-            Cookies.set("access_token", access_token, { expires: 1 }); // 1 day
-            Cookies.set("tenant_id", tenant_id, { expires: 1 });
+            if (access_token) Cookies.set("access_token", access_token, { expires: 1 }); // 1 day
+            if (tenant_id) Cookies.set("tenant_id", tenant_id, { expires: 1 });
 
             router.push("/");
             router.refresh();
