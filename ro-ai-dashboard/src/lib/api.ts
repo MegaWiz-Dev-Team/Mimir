@@ -551,3 +551,12 @@ export async function deleteUser(id: string): Promise<void> {
     });
     if (!res.ok) throw new Error("Failed to delete user");
 }
+
+export async function updateTenant(id: string, name: string): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error("Failed to update tenant");
+}
