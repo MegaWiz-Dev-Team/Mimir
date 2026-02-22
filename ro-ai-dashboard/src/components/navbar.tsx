@@ -32,11 +32,11 @@ export function Navbar() {
 
     const navItems = [
         { name: "Dashboard", href: "/", icon: LayoutDashboard },
-        { name: "Evaluations", href: "/evaluations", icon: Activity },
-        { name: "Playground", href: "/playground", icon: Bot },
         { name: "Sources", href: "/sources", icon: LinkIcon },
         { name: "Quality Control", href: "/quality_control", icon: ShieldCheck },
         { name: "Vector DB", href: "/vector", icon: Database },
+        { name: "Playground", href: "/playground", icon: Bot },
+        { name: "Evaluations", href: "/evaluations", icon: Activity },
         { name: "Users", href: "/users", icon: Users },
     ];
 

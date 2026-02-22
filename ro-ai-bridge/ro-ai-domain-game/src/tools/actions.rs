@@ -7,9 +7,29 @@ use tokio::sync::Mutex;
 
 // --- HEAL TOOL ---
 
-#[derive(Deserialize)]
+#[derive(Debug)]
 pub struct HealArgs {
     pub amount: u32,
+}
+
+impl<'de> Deserialize<'de> for HealArgs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Parse into a generic JSON Value first to intercept LLM schema hallucinations (e.g. from llama3.2)
+        if let Ok(v) = serde_json::Value::deserialize(deserializer) {
+            let amount = match v.get("amount") {
+                Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(100) as u32,
+                Some(serde_json::Value::String(s)) => s.parse::<u32>().unwrap_or(100),
+                _ => 100, // Forgiving fallback for objects/maps/nulls/missing
+            };
+            Ok(HealArgs { amount })
+        } else {
+            // If the entire args block is unparsable, default to 100
+            Ok(HealArgs { amount: 100 })
+        }
+    }
 }
 
 #[derive(Debug)]

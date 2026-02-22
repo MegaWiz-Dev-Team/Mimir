@@ -52,6 +52,9 @@
 
 ### TS-04: AI Playground (RAG & Actions)
 *Requires TS-02 (Data exists) and TS-03.*
+
+**Repeat the following steps for each model:** (`llama3.2`, `deepseek-r1:1.5b`, `gemma:2b`, `phi3.5`, and `gemini-2.5-flash`)
+- [ ] In the Settings panel, select the target Model.
 - [ ] With "Mimir" selected, type: `ช่วย heal ฉันหน่อย`
   - **Expected:** Mimir replies acknowledging the heal. The message block shows a green badge: `Action Invoked: heal`.
 - [ ] Switch to "Sage Ariel". Type: `Poring ดรอปอะไรบ้าง?`

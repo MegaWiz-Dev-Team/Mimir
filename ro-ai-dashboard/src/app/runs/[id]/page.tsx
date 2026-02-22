@@ -17,6 +17,8 @@ export default function RunDetailsPage() {
     const id = params?.id as string;
     const [run, setRun] = useState<RunDetails | null>(null);
     const [loading, setLoading] = useState(true);
+    const [confirmingRetry, setConfirmingRetry] = useState<number | null>(null);
+    const [confirmingResume, setConfirmingResume] = useState(false);
 
     const loadRun = async (silent = false) => {
         if (!id) return;
@@ -70,19 +72,26 @@ export default function RunDetailsPage() {
                     </div>
                     <div className="flex gap-2">
                         {run.status === "FAILED" && (
-                            <Button variant="outline" size="sm" onClick={async () => {
-                                if (confirm("Resume run?")) {
-                                    try {
-                                        await import("@/lib/api").then(m => m.resumeRun(run.id));
-                                        loadRun();
-                                    } catch (e) {
-                                        alert("Failed to resume run");
-                                    }
-                                }
-                            }}>
-                                <PlayCircle className="mr-2 h-4 w-4" />
-                                Resume
-                            </Button>
+                            confirmingResume ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-muted-foreground mr-1">Resume run?</span>
+                                    <Button size="sm" variant="default" onClick={async () => {
+                                        setConfirmingResume(false);
+                                        try {
+                                            await import("@/lib/api").then(m => m.resumeRun(run.id));
+                                            loadRun();
+                                        } catch (e) {
+                                            alert("Failed to resume run");
+                                        }
+                                    }}>Yes</Button>
+                                    <Button size="sm" variant="outline" onClick={() => setConfirmingResume(false)}>No</Button>
+                                </div>
+                            ) : (
+                                <Button variant="outline" size="sm" onClick={() => setConfirmingResume(true)}>
+                                    <PlayCircle className="mr-2 h-4 w-4" />
+                                    Resume
+                                </Button>
+                            )
                         )}
                         <Button variant="outline" size="sm" onClick={() => loadRun()}>
                             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -201,32 +210,41 @@ export default function RunDetailsPage() {
                                 <TableCell>#{step.chunk_index}</TableCell>
                                 <TableCell>{step.qa_count}</TableCell>
                                 <TableCell>
-                                    {step.coverage_score !== undefined && step.coverage_score !== null
-                                        ? `${(step.coverage_score * 100).toFixed(0)}%`
-                                        : '-'}
+                                    {step.coverage_score !== undefined && step.coverage_score !== null ? (() => {
+                                        const normalizedScore = step.coverage_score > 1 ? step.coverage_score / 100 : step.coverage_score;
+                                        const percentage = Math.min(100, Math.round(normalizedScore * 100));
+                                        const colorClass = percentage === 100 ? "text-green-500" : (percentage > 50 ? "text-yellow-500" : "text-red-500");
+                                        return <span className={`font-medium ${colorClass}`}>{percentage}%</span>;
+                                    })() : '-'}
                                 </TableCell>
                                 <TableCell>
                                     <StatusBadge status={step.status} />
                                 </TableCell>
                                 <TableCell className="text-right space-x-2">
                                     {step.status === "FAILED" && (
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                            onClick={async () => {
-                                                if (confirm(`Retry step #${step.id}?`)) {
+                                        confirmingRetry === step.id ? (
+                                            <div className="flex items-center gap-1 justify-end">
+                                                <Button size="sm" variant="destructive" onClick={async () => {
+                                                    setConfirmingRetry(null);
                                                     try {
                                                         await import("@/lib/api").then(m => m.retryStep(step.id));
                                                         loadRun();
                                                     } catch (e) {
                                                         alert("Failed to retry step");
                                                     }
-                                                }
-                                            }}
-                                        >
-                                            <RefreshCw className="h-3 w-3 mr-1" /> Retry
-                                        </Button>
+                                                }}>Yes</Button>
+                                                <Button size="sm" variant="outline" onClick={() => setConfirmingRetry(null)}>No</Button>
+                                            </div>
+                                        ) : (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                onClick={() => setConfirmingRetry(step.id)}
+                                            >
+                                                <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                                            </Button>
+                                        )
                                     )}
                                     <Button asChild variant="ghost" size="sm">
                                         <Link href={`/steps/${step.id}?runId=${run.id}`}>View Results</Link>

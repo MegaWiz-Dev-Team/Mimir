@@ -545,8 +545,11 @@ pub async fn generate_missing_qa_for_step(
             None => return Err(anyhow::anyhow!("Evaluation report not found")),
         };
 
-        if coverage >= 0.99 {
-            info!("Coverage for step #{} reached {:.1}%, breaking loop.", step_id, coverage * 100.0);
+        // Normalize coverage score (handle old bug where score might be > 1)
+        let normalized_coverage = if coverage > 1.0 { coverage / 100.0 } else { coverage };
+
+        if normalized_coverage >= 0.99 {
+            info!("Coverage for step #{} reached {:.1}%, breaking loop.", step_id, normalized_coverage * 100.0);
             break;
         }
 
