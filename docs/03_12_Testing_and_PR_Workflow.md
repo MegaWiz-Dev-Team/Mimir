@@ -61,5 +61,26 @@ When the work is complete and tested locally, it's time to merge the code back i
 
 ---
 
+## 5. Feature Management & Sprint Planning (Agile + ISO 29110)
+
+To handle dynamic requirements while maintaining ISO 29110 traceability, Project Mimir utilizes Agile Scrum methodologies:
+
+### A. The Product Backlog
+- Any new idea, feature request, or identified bug MUST be logged as a GitHub Issue immediately. This serves as our Product Backlog.
+- Do not begin work on an issue merely because it exists. It must be scheduled into a Sprint.
+
+### B. Sprint Planning (End/Start of Sprint)
+- **Review:** At the end of a sprint, review completed work and uncompleted work.
+- **Grooming:** Prioritize the issues in the Product Backlog.
+- **Planning:** Select high-priority issues and formally declare them as the scope for the upcoming sprint.
+- **Documentation:** Update `docs/03_*_Implementation_Plan_*.md` to reflect the agreed-upon Sprint Scope before development begins.
+
+### C. Mid-Sprint Changes (Scope Creep)
+- Adding or removing features *during* an active sprint is highly discouraged.
+- **Urgent Additions:** If an urgent feature or bug fix must be injected into the current sprint, an equal amount of work MUST be removed from the sprint scope (Trade-off) to ensure timely delivery.
+- **Documentation:** Any mid-sprint scope changes must be logged in the `Issue / Change Logs` table inside `docs/iso_29110/pm/PM_02_Status_Reports.md` with explicit justification.
+
+---
+
 ## Summary of the Flow
-`Create Issue` ➔ `Create Branch (fix/issue-X)` ➔ `Write Code` ➔ `Push` ➔ `Create PR (Closes #X)` ➔ `Review` ➔ `Merge` ➔ `Issue Auto-Closed`.
+`Idea ➔ Issue (Backlog) ➔ Sprint Planning ➔ Create Branch (fix/feat-X) ➔ Write Code ➔ Push ➔ PR (Closes #X) ➔ Review ➔ Merge`.
