@@ -29,7 +29,7 @@ export default function UsersPage() {
     const [formUsername, setFormUsername] = useState("");
     const [formPassword, setFormPassword] = useState("");
     const [formTenantId, setFormTenantId] = useState("");
-    const [formRole, setFormRole] = useState("viewer");
+    const [formRole, setFormRole] = useState("VIEWER");
 
     useEffect(() => {
         loadData();
@@ -115,7 +115,7 @@ export default function UsersPage() {
     const openEditRole = (user: User) => {
         setSelectedUser(user);
         setFormTenantId(user.tenant_id || "");
-        setFormRole(user.role || "viewer");
+        setFormRole(user.role || "VIEWER");
         setIsEditRoleMode(true);
     };
 
@@ -132,7 +132,7 @@ export default function UsersPage() {
     });
 
     const getRoleBadgeClass = (role: string | null) => {
-        switch (role) {
+        switch (role?.toLowerCase()) {
             case "admin": return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
             case "editor": return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
             default: return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
@@ -149,7 +149,7 @@ export default function UsersPage() {
                 <Button onClick={() => {
                     setFormUsername("");
                     setFormPassword("");
-                    setFormRole("viewer");
+                    setFormRole("VIEWER");
                     setFormTenantId(tenants[0]?.id || "");
                     setIsAddMode(true);
                 }}>
@@ -263,11 +263,11 @@ export default function UsersPage() {
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
                                 <label className="text-sm font-medium">Username</label>
-                                <Input required placeholder="Enter username" value={formUsername} onChange={e => setFormUsername(e.target.value)} />
+                                <Input required placeholder="Enter username" value={formUsername} onChange={e => setFormUsername(e.target.value)} autoComplete="new-username" />
                             </div>
                             <div className="grid gap-2">
                                 <label className="text-sm font-medium">Temporary Password</label>
-                                <Input placeholder="Leave blank to auto-generate" type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)} />
+                                <Input placeholder="Leave blank to auto-generate" type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)} autoComplete="new-password" />
                             </div>
                             <div className="grid gap-2">
                                 <label className="text-sm font-medium">Tenant</label>
@@ -283,9 +283,9 @@ export default function UsersPage() {
                                 <Select value={formRole} onValueChange={setFormRole} required>
                                     <SelectTrigger><SelectValue placeholder="Select Role" /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="admin">Admin</SelectItem>
-                                        <SelectItem value="editor">Editor</SelectItem>
-                                        <SelectItem value="viewer">Viewer</SelectItem>
+                                        <SelectItem value="ADMIN">Admin</SelectItem>
+                                        <SelectItem value="EDITOR">Editor</SelectItem>
+                                        <SelectItem value="VIEWER">Viewer</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
