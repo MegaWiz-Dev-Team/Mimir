@@ -1,7 +1,7 @@
 import { PipelineRun, RunDetails, QAResult, EvaluationReport } from "@/types/pipeline";
 import Cookies from "js-cookie";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api") + "/v1";
 
 function getAuthHeaders(): HeadersInit {
     const token = Cookies.get("access_token");
@@ -37,13 +37,13 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 // ─── Pipeline API ───────────────────────────────────────────────────────────
 
 export async function fetchRuns(): Promise<PipelineRun[]> {
-    const res = await authFetch(`${API_BASE_URL}/v1/pipeline/runs`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/pipeline/runs`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch runs");
     return res.json();
 }
 
 export async function fetchRunDetails(id: string): Promise<RunDetails> {
-    const res = await authFetch(`${API_BASE_URL}/v1/pipeline/runs/${id}`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/pipeline/runs/${id}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch run details");
     return res.json();
 }
@@ -63,7 +63,7 @@ export async function fetchStepReport(stepId: number): Promise<EvaluationReport>
 }
 
 export async function triggerRun(provider: string = "ollama", model: string = "llama3.2", testRun: boolean = false) {
-    const res = await authFetch(`${API_BASE_URL}/v1/pipeline/run`, {
+    const res = await authFetch(`${API_BASE_URL}/pipeline/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, model, test_run: testRun }),
@@ -105,7 +105,7 @@ export async function deleteModel(modelId: string) {
 export async function fetchQcClusters(status?: string) {
     try {
         const query = status ? `?status=${status}` : '';
-        const response = await authFetch(`${API_BASE_URL}/v1/qc/clusters${query}`);
+        const response = await authFetch(`${API_BASE_URL}/qc/clusters${query}`);
         return await response.json();
     } catch (error) {
         console.error("Fetch QC clusters error:", error);
@@ -115,7 +115,7 @@ export async function fetchQcClusters(status?: string) {
 
 export async function resolveQcCluster(clusterId: string, resolutionType: string, goldenAnswer?: string) {
     try {
-        const response = await authFetch(`${API_BASE_URL}/v1/qc/resolve/${clusterId}`, {
+        const response = await authFetch(`${API_BASE_URL}/qc/resolve/${clusterId}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ resolution_type: resolutionType, golden_answer: goldenAnswer })
@@ -130,7 +130,7 @@ export async function resolveQcCluster(clusterId: string, resolutionType: string
 
 export async function triggerQcGeneration() {
     try {
-        const response = await authFetch(`${API_BASE_URL}/v1/qc/generate`, { method: "POST" });
+        const response = await authFetch(`${API_BASE_URL}/qc/generate`, { method: "POST" });
         return await response.json();
     } catch (error) {
         console.error("Trigger QC generation error:", error);
