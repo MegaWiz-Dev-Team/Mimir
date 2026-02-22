@@ -15,9 +15,9 @@ use mimir_core_ai::services::iam::IamService;
 pub fn iam_routes() -> Router<MySqlPool> {
     Router::new()
         .route("/users", get(get_users).post(create_user))
-        .route("/users/:id/role", patch(update_user_role))
-        .route("/users/:id/password", patch(update_user_password))
-        .route("/users/:id", delete(delete_user))
+        .route("/users/{id}/role", patch(update_user_role))
+        .route("/users/{id}/password", patch(update_user_password))
+        .route("/users/{id}", delete(delete_user))
         .route("/tenants", get(get_tenants))
         .route_layer(middleware::from_fn(tenant_auth_middleware))
 }

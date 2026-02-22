@@ -44,3 +44,15 @@ pub struct UpdateUserRoleRequest {
 pub struct UpdateUserPasswordRequest {
     pub password: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginResponse {
+    pub token: String,
+    pub tenant_id: String,
+}
