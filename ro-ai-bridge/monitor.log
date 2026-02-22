@@ -1,1883 +1,645 @@
-[2m2026-02-20T04:45:13.105346Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:REDACTED-PW@localhost:3306/ro_landverse
-[2m2026-02-20T04:45:13.285447Z[0m [32m INFO[0m [2mro_ai_bridge::services::db[0m[2m:[0m ✅ Database migrations applied
-[2m2026-02-20T04:45:13.297645Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
-[2m2026-02-20T04:48:44.296504Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📋 Loaded QA config from data/qa_config.json
-[2m2026-02-20T04:48:44.296942Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 📋 QA Config: default_count=3, 3 size rules, 3 file patterns
-[2m2026-02-20T04:48:44.316095Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::pipeline[0m[2m:[0m 🚀 Starting Pipeline Run: 67694632-f27f-4383-be63-100ae59d123f
-[2m2026-02-20T04:48:44.316139Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::pipeline[0m[2m:[0m 📋 QA Config: default_count=3, 3 size rules, 3 file patterns
-[2m2026-02-20T04:48:44.342598Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'Home.md' (176819 chars): 5 Q/A pairs
-[2m2026-02-20T04:48:44.348132Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 5 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:48:54.562855Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 80614
+   Compiling mimir-core-ai v0.1.0 (/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/mimir-core-ai)
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/mimir_core_ai-1nkuqguoj4wdq/s-hg0e2a6uam-1m2ffqj-working`
+
+warning: unused import: `Context`
+ --> mimir-core-ai/src/services/mcp_client.rs:1:22
+  |
+1 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `AtomicFact`, `CoverageReport`, `QAPair`, and `WikiChunk`
+ --> mimir-core-ai/src/qa_qc/indexer.rs:2:13
+  |
+2 | use super::{WikiChunk, QAPair, AtomicFact, CoverageReport};
+  |             ^^^^^^^^^  ^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused import: `rig::completion::Prompt`
+ --> mimir-core-ai/src/qa_qc/indexer.rs:5:5
+  |
+5 | use rig::completion::Prompt;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `chrono::Utc`
+  --> mimir-core-ai/src/qa_qc/indexer.rs:11:5
+   |
+11 | use chrono::Utc;
+   |     ^^^^^^^^^^^
+
+warning: unused import: `Context`
+ --> mimir-core-ai/src/qa_qc/clustering.rs:1:22
+  |
+1 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+
+warning: field `uri` is never read
+  --> mimir-core-ai/src/services/mcp_client.rs:18:5
+   |
+17 | struct SseEndpointEvent {
+   |        ---------------- field in this struct
+18 |     uri: String,
+   |     ^^^
+   |
+   = note: `SseEndpointEvent` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `id` is never read
+  --> mimir-core-ai/src/services/mcp_client.rs:33:5
+   |
+30 | struct JsonRpcResponse {
+   |        --------------- field in this struct
+...
+33 |     id: u64,
+   |     ^^
+   |
+   = note: `JsonRpcResponse` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+   Compiling ro-ai-domain-game v0.1.0 (/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/ro-ai-domain-game)
+warning: `mimir-core-ai` (lib) generated 8 warnings (run `cargo fix --lib -p mimir-core-ai` to apply 4 suggestions)
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/ro_ai_domain_game-1kw2iwqe50wsq/s-hg0e2ctqp2-0xaf8p5-working`
+
+warning: unused import: `json`
+ --> ro-ai-domain-game/src/api/rathena_gateway.rs:6:18
+  |
+6 | use serde_json::{json, Value};
+  |                  ^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `warn`
+ --> ro-ai-domain-game/src/api/rathena_gateway.rs:7:28
+  |
+7 | use tracing::{info, error, warn};
+  |                            ^^^^
+
+warning: unused import: `super::*`
+   --> ro-ai-domain-game/src/tools/rag_tools.rs:276:5
+    |
+276 | use super::*;
+    |     ^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+   --> ro-ai-domain-game/src/tools/rag_tools.rs:277:5
+    |
+277 | use std::sync::Arc;
+    |     ^^^^^^^^^^^^^^
+
+warning: unused import: `tokio::sync::Mutex`
+   --> ro-ai-domain-game/src/tools/rag_tools.rs:278:5
+    |
+278 | use tokio::sync::Mutex;
+    |     ^^^^^^^^^^^^^^^^^^
+
+   Compiling ro-ai-bridge v0.1.0 (/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge)
+warning: `ro-ai-domain-game` (lib) generated 6 warnings (run `cargo fix --lib -p ro-ai-domain-game` to apply 5 suggestions)
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/ro_ai_bridge-34rn0d6wx0vlc/s-hg0e2fnpqy-1csfqa6-working`
+
+warning: `ro-ai-bridge` (lib) generated 1 warning
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/monitor-1ygvea5fmcge9/s-hg0e2ix1qz-0y124c1-working`
+
+warning: field `session_id` is never read
+  --> src/bin/monitor.rs:61:5
+   |
+53 | struct ChatRequest {
+   |        ----------- field in this struct
+...
+61 |     session_id: Option<String>,
+   |     ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `ro-ai-bridge` (bin "monitor") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.49s
+     Running `target/debug/monitor`
+[2m2026-02-21T15:27:43.909773Z[0m [32m INFO[0m [2mmimir_core_ai::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:REDACTED-PW@localhost:3306/ro_landverse
+[2m2026-02-21T15:27:44.201611Z[0m [32m INFO[0m [2mmimir_core_ai::services::db[0m[2m:[0m ✅ Database migrations applied
+[2m2026-02-21T15:27:44.218205Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
+[2m2026-02-21T15:30:40.829938Z[0m [32m INFO[0m [2mmimir_core_ai::config[0m[2m:[0m 📋 Loaded QA config from data/qa_config.json
+[2m2026-02-21T15:30:40.948283Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:30:48.150181Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81052
 Cached content token count: n/a
-Candidates token count: 312
-Total token count: 82560
-[2m2026-02-20T04:48:54.594271Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:49:10.730488Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 80604
+Candidates token count: 283
+Total token count: 82298
+[2m2026-02-21T15:30:48.150952Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:30:48.249757Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:31:06.615665Z[0m [32m INFO[0m [2mmimir_core_ai::config[0m[2m:[0m 📋 Loaded QA config from data/qa_config.json
+[2m2026-02-21T15:31:06.630665Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:31:16.377571Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68216
 Cached content token count: n/a
-Candidates token count: 1471
-Total token count: 84321
-[2m2026-02-20T04:49:10.731250Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:49:35.557083Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1382
+Candidates token count: 362
+Total token count: 70096
+[2m2026-02-21T15:31:16.378387Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:31:16.434828Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:31:17.535528Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1738
 Cached content token count: n/a
-Candidates token count: 1139
-Total token count: 7575
-[2m2026-02-20T04:49:35.598946Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'Game_Guide.md' (149322 chars): 5 Q/A pairs
-[2m2026-02-20T04:49:35.602197Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 5 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:49:44.251483Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 67521
+Candidates token count: 543
+Total token count: 9265
+[2m2026-02-21T15:31:17.545089Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 31.9%
+[2m2026-02-21T15:31:17.546999Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:31:24.957706Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81019
 Cached content token count: n/a
-Candidates token count: 428
-Total token count: 69014
-[2m2026-02-20T04:49:44.274159Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:50:23.059163Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 67511
+Candidates token count: 285
+Total token count: 82425
+[2m2026-02-21T15:31:24.958008Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:31:24.977563Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:31:45.253919Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1957
 Cached content token count: n/a
-Candidates token count: 2892
-Total token count: 77246
-[2m2026-02-20T04:50:23.059847Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:51:03.590689Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2915
+Candidates token count: 635
+Total token count: 6780
+[2m2026-02-21T15:31:45.275631Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 39.0%
+[2m2026-02-21T15:31:45.277043Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:31:55.509914Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81021
 Cached content token count: n/a
-Candidates token count: 1898
-Total token count: 14145
-[2m2026-02-20T04:51:03.773782Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_moonstone.md' (71 chars): 2 Q/A pairs
-[2m2026-02-20T04:51:03.781119Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:51:08.637911Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 115
+Candidates token count: 280
+Total token count: 83137
+[2m2026-02-21T15:31:55.510536Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:31:55.548717Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:32:14.239754Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 7087
 Cached content token count: n/a
-Candidates token count: 85
-Total token count: 1068
-[2m2026-02-20T04:51:08.655456Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:51:10.757541Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 105
+Candidates token count: 1002
+Total token count: 23164
+[2m2026-02-21T15:32:14.304419Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 21.0%
+[2m2026-02-21T15:32:14.307310Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:32:17.691794Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2170
 Cached content token count: n/a
-Candidates token count: 18
-Total token count: 335
-[2m2026-02-20T04:51:10.757647Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:51:14.235710Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 238
+Candidates token count: 818
+Total token count: 7534
+[2m2026-02-21T15:32:17.709762Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 44.0%
+[2m2026-02-21T15:32:17.715102Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:32:24.744039Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81018
 Cached content token count: n/a
-Candidates token count: 84
-Total token count: 842
-[2m2026-02-20T04:51:14.250263Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_moonstone.md' (1702 chars): 2 Q/A pairs
-[2m2026-02-20T04:51:14.255122Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:51:18.203876Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 444
+Candidates token count: 323
+Total token count: 82398
+[2m2026-02-21T15:32:24.744425Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:32:24.780085Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:32:31.748314Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68236
 Cached content token count: n/a
-Candidates token count: 140
-Total token count: 1194
-[2m2026-02-20T04:51:18.255805Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:51:22.088774Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 434
+Candidates token count: 327
+Total token count: 72140
+[2m2026-02-21T15:32:31.748725Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:32:31.767484Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:32:51.219938Z[0m [32m INFO[0m [2mmimir_core_ai::config[0m[2m:[0m 📋 Loaded QA config from data/qa_config.json
+[2m2026-02-21T15:32:51.251303Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 2 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:32:51.493247Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2425
+Cached content token count: 1013
+Candidates token count: 609
+Total token count: 9316
+[2m2026-02-21T15:32:51.520458Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 54.0%
+[2m2026-02-21T15:32:51.524592Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:32:57.048559Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 653
 Cached content token count: n/a
-Candidates token count: 425
-Total token count: 1271
-[2m2026-02-20T04:51:22.089282Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:51:27.733083Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 564
+Candidates token count: 154
+Total token count: 1811
+[2m2026-02-21T15:32:57.049048Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 2 new Q/A pairs for step #4
+[2m2026-02-21T15:32:57.073665Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:33:02.880162Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81066
 Cached content token count: n/a
-Candidates token count: 235
-Total token count: 1840
-[2m2026-02-20T04:51:27.757188Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_shop_of_desires.md' (660 chars): 2 Q/A pairs
-[2m2026-02-20T04:51:27.760461Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:51:30.558013Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 196
+Candidates token count: 277
+Total token count: 83430
+[2m2026-02-21T15:33:02.880509Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:33:02.902968Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:33:03.902522Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 621
 Cached content token count: n/a
-Candidates token count: 125
-Total token count: 746
-[2m2026-02-20T04:51:30.565378Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:51:34.060469Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 186
+Candidates token count: 83
+Total token count: 1905
+[2m2026-02-21T15:33:03.908893Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #4 to 93.0%
+[2m2026-02-21T15:33:03.911424Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 2 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:33:05.607483Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 482
 Cached content token count: n/a
-Candidates token count: 160
-Total token count: 797
-[2m2026-02-20T04:51:34.060575Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:51:39.459863Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 399
-Cached content token count: n/a
-Candidates token count: 138
-Total token count: 1518
-[2m2026-02-20T04:51:39.485347Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_shop_of_desires.md' (1519 chars): 2 Q/A pairs
-[2m2026-02-20T04:51:39.489207Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:51:42.697508Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 469
-Cached content token count: n/a
-Candidates token count: 119
-Total token count: 931
-[2m2026-02-20T04:51:42.707907Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:51:47.064547Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 459
-Cached content token count: n/a
-Candidates token count: 263
-Total token count: 1252
-[2m2026-02-20T04:51:47.064732Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:51:53.834368Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 466
-Cached content token count: n/a
-Candidates token count: 302
-Total token count: 1895
-[2m2026-02-20T04:51:53.873205Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'blockchain_undefined.md' (2852 chars): 3 Q/A pairs
-[2m2026-02-20T04:51:53.877477Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:51:58.573953Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 566
-Cached content token count: n/a
-Candidates token count: 157
-Total token count: 1375
-[2m2026-02-20T04:51:58.604240Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:52:05.129801Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 556
-Cached content token count: n/a
-Candidates token count: 385
-Total token count: 1936
-[2m2026-02-20T04:52:05.129945Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:52:14.345302Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 574
-Cached content token count: n/a
-Candidates token count: 348
-Total token count: 2852
-[2m2026-02-20T04:52:14.358812Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_afk.md' (2881 chars): 3 Q/A pairs
-[2m2026-02-20T04:52:14.362514Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:52:19.156528Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 577
-Cached content token count: n/a
-Candidates token count: 182
-Total token count: 1428
-[2m2026-02-20T04:52:19.166728Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:52:25.199763Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 567
-Cached content token count: n/a
-Candidates token count: 385
-Total token count: 1960
-[2m2026-02-20T04:52:25.199895Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:52:39.332994Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 617
-Cached content token count: n/a
-Candidates token count: 244
-Total token count: 4175
-[2m2026-02-20T04:52:39.449613Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (106 chars): 2 Q/A pairs
-[2m2026-02-20T04:52:39.469885Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:52:42.160866Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 124
+Candidates token count: 42
+Total token count: 658
+[2m2026-02-21T15:33:05.607825Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 1 new Q/A pairs for step #4
+[2m2026-02-21T15:33:05.650257Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:33:11.787422Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 657
 Cached content token count: n/a
 Candidates token count: 82
-Total token count: 440
-[2m2026-02-20T04:52:42.167776Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:52:46.102620Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 114
+Total token count: 1996
+[2m2026-02-21T15:33:11.795142Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #4 to 100.0%
+[2m2026-02-21T15:33:11.796924Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Coverage for step #4 reached 100.0%, breaking loop.
+[2m2026-02-21T15:33:26.533589Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 7348
 Cached content token count: n/a
-Candidates token count: 30
-Total token count: 860
-[2m2026-02-20T04:52:46.102708Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:52:48.443819Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 244
+Candidates token count: 1065
+Total token count: 21490
+[2m2026-02-21T15:33:26.556966Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 24.3%
+[2m2026-02-21T15:33:26.560848Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:33:34.831366Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68241
 Cached content token count: n/a
-Candidates token count: 59
-Total token count: 714
-[2m2026-02-20T04:52:48.451757Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (410 chars): 2 Q/A pairs
-[2m2026-02-20T04:52:48.454104Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:52:51.313400Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 153
+Candidates token count: 300
+Total token count: 69858
+[2m2026-02-21T15:33:34.831752Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:33:34.951148Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:33:50.393820Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2636
+Cached content token count: 2027
+Candidates token count: 527
+Total token count: 15438
+[2m2026-02-21T15:33:50.431630Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 61.0%
+[2m2026-02-21T15:33:50.436332Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:34:04.198705Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81019
+Cached content token count: n/a
+Candidates token count: 230
+Total token count: 82857
+[2m2026-02-21T15:34:04.199180Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:34:04.227062Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:34:24.804000Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2800
+Cached content token count: n/a
+Candidates token count: 470
+Total token count: 8072
+[2m2026-02-21T15:34:24.816556Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 67.0%
+[2m2026-02-21T15:34:24.822402Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:34:30.842440Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81010
+Cached content token count: n/a
+Candidates token count: 215
+Total token count: 81966
+[2m2026-02-21T15:34:30.842957Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:34:30.864035Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:34:54.188033Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2949
+Cached content token count: 2030
+Candidates token count: 547
+Total token count: 8985
+[2m2026-02-21T15:34:54.229222Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 75.0%
+[2m2026-02-21T15:34:54.236626Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:35:03.446973Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81015
+Cached content token count: n/a
+Candidates token count: 259
+Total token count: 82700
+[2m2026-02-21T15:35:03.447547Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:35:03.649629Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:35:08.066756Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 7582
+Cached content token count: n/a
+Candidates token count: 1277
+Total token count: 32087
+[2m2026-02-21T15:35:08.228597Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 25.5%
+[2m2026-02-21T15:35:08.251615Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:35:21.327914Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68197
+Cached content token count: n/a
+Candidates token count: 290
+Total token count: 71110
+[2m2026-02-21T15:35:21.328306Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:35:21.389311Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:35:22.962647Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3142
+Cached content token count: 2031
+Candidates token count: 279
+Total token count: 8494
+[2m2026-02-21T15:35:22.968630Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 82.0%
+[2m2026-02-21T15:35:22.970066Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:35:28.715733Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81002
+Cached content token count: n/a
+Candidates token count: 337
+Total token count: 81877
+[2m2026-02-21T15:35:28.716204Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:35:28.734003Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:35:52.864028Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3413
+Cached content token count: 2032
+Candidates token count: 1113
+Total token count: 9914
+[2m2026-02-21T15:35:52.904313Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 95.8%
+[2m2026-02-21T15:35:52.909359Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:36:02.489059Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 81113
+Cached content token count: n/a
+Candidates token count: 252
+Total token count: 83037
+[2m2026-02-21T15:36:02.489468Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #1
+[2m2026-02-21T15:36:02.516505Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:36:17.211144Z[0m [32m INFO[0m [2mmimir_core_ai::config[0m[2m:[0m 📋 Loaded QA config from data/qa_config.json
+[2m2026-02-21T15:36:17.260416Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m 🔄 Retrying Step #155 (File: rol_main_features_undefined_1.md, Chunk: 3) with 2 Q/A pairs
+[2m2026-02-21T15:36:17.260447Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
+[2m2026-02-21T15:36:20.281194Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 134
+Cached content token count: n/a
+Candidates token count: 114
+Total token count: 539
+[2m2026-02-21T15:36:20.309829Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
+[2m2026-02-21T15:36:25.324073Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3599
+Cached content token count: 3049
+Candidates token count: 249
+Total token count: 9799
+[2m2026-02-21T15:36:25.338918Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 96.0%
+[2m2026-02-21T15:36:25.342707Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:36:28.259785Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 124
+Cached content token count: n/a
+Candidates token count: 38
+Total token count: 1706
+[2m2026-02-21T15:36:28.259894Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:36:30.659502Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 80905
+Cached content token count: n/a
+Candidates token count: 160
+Total token count: 81566
+[2m2026-02-21T15:36:30.659964Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 3 new Q/A pairs for step #1
+[2m2026-02-21T15:36:30.694006Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:36:31.777305Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 313
 Cached content token count: n/a
 Candidates token count: 95
-Total token count: 609
-[2m2026-02-20T04:52:51.326536Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:52:53.154566Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 143
+Total token count: 915
+[2m2026-02-21T15:36:31.829826Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m ✅ Retry Step #155 Completed
+[2m2026-02-21T15:36:42.091405Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 7806
 Cached content token count: n/a
-Candidates token count: 85
-Total token count: 396
-[2m2026-02-20T04:52:53.154685Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:52:56.533532Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 307
+Candidates token count: 1207
+Total token count: 29706
+[2m2026-02-21T15:36:42.100840Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 27.0%
+[2m2026-02-21T15:36:42.103012Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:36:54.925996Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3717
+Cached content token count: 3050
+Candidates token count: 73
+Total token count: 9901
+[2m2026-02-21T15:36:54.938922Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #1 to 100.0%
+[2m2026-02-21T15:36:54.951590Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Coverage for step #1 reached 100.0%, breaking loop.
+[2m2026-02-21T15:36:58.110719Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68183
 Cached content token count: n/a
-Candidates token count: 108
-Total token count: 1008
-[2m2026-02-20T04:52:56.542425Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (1106 chars): 2 Q/A pairs
-[2m2026-02-20T04:52:56.544921Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:53:00.160375Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 356
+Candidates token count: 330
+Total token count: 71764
+[2m2026-02-21T15:36:58.110879Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:36:58.156516Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:38:27.899316Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 8070
 Cached content token count: n/a
-Candidates token count: 187
-Total token count: 1011
-[2m2026-02-20T04:53:00.189080Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:53:04.008836Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 346
+Candidates token count: 1275
+Total token count: 31725
+[2m2026-02-21T15:38:27.908161Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 28.0%
+[2m2026-02-21T15:38:27.911932Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:38:46.022098Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68148
 Cached content token count: n/a
-Candidates token count: 139
-Total token count: 844
-[2m2026-02-20T04:53:04.008960Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:53:08.736805Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 446
+Candidates token count: 391
+Total token count: 72444
+[2m2026-02-21T15:38:46.022600Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:38:46.039885Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:39:43.168212Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 8395
+Cached content token count: 7145
+Candidates token count: 1293
+Total token count: 23804
+[2m2026-02-21T15:39:43.214909Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 19.0%
+[2m2026-02-21T15:39:43.219276Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:39:54.220862Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68090
 Cached content token count: n/a
-Candidates token count: 112
-Total token count: 1484
-[2m2026-02-20T04:53:08.749882Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (2251 chars): 3 Q/A pairs
-[2m2026-02-20T04:53:08.753228Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:53:13.622950Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 509
+Candidates token count: 425
+Total token count: 70310
+[2m2026-02-21T15:39:54.221361Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:39:54.252282Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:41:00.022842Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 8753
+Cached content token count: 8167
+Candidates token count: 1373
+Total token count: 26452
+[2m2026-02-21T15:41:00.042788Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 21.2%
+[2m2026-02-21T15:41:00.051509Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:41:14.194668Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68180
 Cached content token count: n/a
-Candidates token count: 246
-Total token count: 1272
-[2m2026-02-20T04:53:13.636743Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:53:20.086368Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 499
+Candidates token count: 295
+Total token count: 71466
+[2m2026-02-21T15:41:14.194930Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:41:14.220381Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:42:29.477600Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 8981
+Cached content token count: 8168
+Candidates token count: 1320
+Total token count: 29149
+[2m2026-02-21T15:42:29.507140Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 39.0%
+[2m2026-02-21T15:42:29.510275Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:42:41.850772Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68173
 Cached content token count: n/a
-Candidates token count: 344
-Total token count: 1887
-[2m2026-02-20T04:53:20.086834Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:53:27.452653Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 635
+Candidates token count: 330
+Total token count: 70707
+[2m2026-02-21T15:42:41.851404Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:42:41.902348Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:43:51.586193Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 9248
 Cached content token count: n/a
-Candidates token count: 192
-Total token count: 2374
-[2m2026-02-20T04:53:27.468764Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (941 chars): 2 Q/A pairs
-[2m2026-02-20T04:53:27.473071Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 2 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:53:30.386461Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 250
+Candidates token count: 1008
+Total token count: 29001
+[2m2026-02-21T15:43:51.606074Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 37.0%
+[2m2026-02-21T15:43:51.611463Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:44:10.530203Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68185
 Cached content token count: n/a
-Candidates token count: 134
-Total token count: 777
-[2m2026-02-20T04:53:30.396411Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:53:35.266020Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 240
+Candidates token count: 350
+Total token count: 72725
+[2m2026-02-21T15:44:10.530798Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:44:10.606161Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:45:25.260216Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 9527
+Cached content token count: 8169
+Candidates token count: 953
+Total token count: 30116
+[2m2026-02-21T15:45:25.349591Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 59.0%
+[2m2026-02-21T15:45:25.360129Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:45:46.680130Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68139
 Cached content token count: n/a
-Candidates token count: 174
-Total token count: 1331
-[2m2026-02-20T04:53:35.266574Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:53:43.172174Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 411
+Candidates token count: 362
+Total token count: 73200
+[2m2026-02-21T15:45:46.680678Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:45:46.858085Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:47:17.761399Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 9809
 Cached content token count: n/a
-Candidates token count: 147
-Total token count: 1997
-[2m2026-02-20T04:53:43.204673Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (4398 chars): 3 Q/A pairs
-[2m2026-02-20T04:53:43.208027Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:53:46.964986Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2079
+Candidates token count: 1011
+Total token count: 33975
+[2m2026-02-21T15:47:17.938297Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 47.0%
+[2m2026-02-21T15:47:17.950722Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:47:29.613588Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68126
 Cached content token count: n/a
-Candidates token count: 187
-Total token count: 2756
-[2m2026-02-20T04:53:46.974463Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:53:53.483426Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 2069
+Candidates token count: 309
+Total token count: 70727
+[2m2026-02-21T15:47:29.619112Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:47:29.800634Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:49:05.881398Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 10045
 Cached content token count: n/a
-Candidates token count: 432
-Total token count: 3553
-[2m2026-02-20T04:53:53.483941Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:54:02.101110Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 620
+Candidates token count: 977
+Total token count: 36171
+[2m2026-02-21T15:49:05.930346Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 50.0%
+[2m2026-02-21T15:49:05.938063Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:49:14.339334Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68104
 Cached content token count: n/a
-Candidates token count: 201
-Total token count: 2646
-[2m2026-02-20T04:54:02.122614Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (8032 chars): 3 Q/A pairs
-[2m2026-02-20T04:54:02.127318Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:54:06.474866Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3903
+Candidates token count: 307
+Total token count: 69901
+[2m2026-02-21T15:49:14.340066Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:49:14.377325Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:50:48.193724Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 10274
 Cached content token count: n/a
-Candidates token count: 218
-Total token count: 4659
-[2m2026-02-20T04:54:06.486234Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:54:12.331698Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3893
-Cached content token count: n/a
-Candidates token count: 536
-Total token count: 5169
-[2m2026-02-20T04:54:12.332173Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:54:21.921298Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 683
-Cached content token count: n/a
-Candidates token count: 320
-Total token count: 2766
-[2m2026-02-20T04:54:21.932075Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_and.md' (6804 chars): 3 Q/A pairs
-[2m2026-02-20T04:54:21.935690Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:54:25.316618Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3810
-Cached content token count: n/a
-Candidates token count: 159
-Total token count: 4398
-[2m2026-02-20T04:54:25.325802Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:54:28.902849Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 3800
-Cached content token count: n/a
-Candidates token count: 175
-Total token count: 4157
-[2m2026-02-20T04:54:28.903091Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:54:33.610188Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 431
-Cached content token count: n/a
-Candidates token count: 161
-Total token count: 1523
-[2m2026-02-20T04:54:33.622238Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_dungeon_village.md' (3874 chars): 3 Q/A pairs
-[2m2026-02-20T04:54:33.625395Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 3 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:54:38.013858Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1619
-Cached content token count: n/a
-Candidates token count: 196
-Total token count: 2464
-[2m2026-02-20T04:54:38.041127Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:54:41.392931Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 1609
+Candidates token count: 1291
+Total token count: 36261
+[2m2026-02-21T15:50:48.280264Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 35.1%
+[2m2026-02-21T15:50:48.288798Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:51:06.129411Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68124
 Cached content token count: n/a
 Candidates token count: 328
-Total token count: 2263
-[2m2026-02-20T04:54:41.393067Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T04:54:51.261582Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 561
+Total token count: 72560
+[2m2026-02-21T15:51:06.130282Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:51:06.167581Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:52:18.195216Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 10534
+Cached content token count: 9193
+Candidates token count: 932
+Total token count: 29879
+[2m2026-02-21T15:52:18.224943Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 48.0%
+[2m2026-02-21T15:52:18.228180Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:52:27.273034Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68128
 Cached content token count: n/a
-Candidates token count: 172
-Total token count: 2852
-[2m2026-02-20T04:54:51.293640Z[0m [32m INFO[0m [2mro_ai_bridge::config[0m[2m:[0m 📏 Size rule matched for 'game_guide_enchant_landstone.md' (109874 chars): 5 Q/A pairs
-[2m2026-02-20T04:54:51.298403Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::generator[0m[2m:[0m       Generating 5 Q/A pairs for chunk via gemini-2.5-flash (Agent approach)...
-[2m2026-02-20T04:54:58.801093Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 17075
+Candidates token count: 285
+Total token count: 69939
+[2m2026-02-21T15:52:27.273474Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:52:27.297514Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:53:36.188688Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 10750
 Cached content token count: n/a
-Candidates token count: 516
-Total token count: 18505
-[2m2026-02-20T04:54:58.832684Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::extractor[0m[2m:[0m       Extracting ACUs (Agent approach)...
-[2m2026-02-20T04:57:02.191868Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 17065
+Candidates token count: 1026
+Total token count: 29875
+[2m2026-02-21T15:53:36.209357Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 55.0%
+[2m2026-02-21T15:53:36.223117Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:53:48.495797Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68132
 Cached content token count: n/a
-Candidates token count: 19863
-Total token count: 52574
-[2m2026-02-20T04:57:02.193708Z[0m [32m INFO[0m [2mro_ai_bridge::agents::wiki_workshop::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
-[2m2026-02-20T05:00:46.220524Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 17666
+Candidates token count: 305
+Total token count: 70813
+[2m2026-02-21T15:53:48.496407Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:53:48.531989Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:55:15.164270Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 10990
 Cached content token count: n/a
-Candidates token count: 20972
-Total token count: 83198
-[2m2026-02-20T05:00:46.227206Z[0m [31mERROR[0m [2mro_ai_bridge::agents::wiki_workshop::pipeline[0m[2m:[0m Step failed: Failed to parse Report JSON: EOF while parsing a string at line 1586 column 77. Raw: ```json
-{
-  "coverage_score": 0.024911032028468,
-  "missing_facts": [
-    {
-      "fact": "The system is called Enchant Landstone System."
-    },
-    {
-      "fact": "Type P Landstones are designed to enhance abilities for physical melee characters."
-    },
-    {
-      "fact": "Type M Landstones are designed to enhance abilities for magical characters."
-    },
-    {
-      "fact": "Type Special Landstones are special stones that can enhance abilities for all classes."
-    },
-    {
-      "fact": "All listed Landstones have an EP of 8.0."
-    },
-    {
-      "fact": "All listed Landstones are of type 'Etc'."
-    },
-    {
-      "fact": "All listed Landstones have a weight of 1."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type R provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type R provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type R grants Max HP+4%, Max SP+4%, and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type R grants Max HP+5%, Max SP+5%, and increases ranged physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type R reduces Delay by 1%."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type R grants All Status +2 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type R grants Max HP+4%, Max SP+4%, and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type R grants Max HP+5%, Max SP+5%, and increases ranged physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Unfrozen Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 10% resistance to Frozen status when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Unfrozen Dusk Landstone Type R grants 15% resistance to Frozen status and Vit+3 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Unfrozen Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Unfrozen Dusk Landstone Type R grants Max HP+4%, Max SP+4%, and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Unfrozen Dusk Landstone Type R grants Max HP+5%, Max SP+5%, and increases ranged physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type R grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type R grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type R grants Flee+3, Luk+1 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type R grants P.Dodge+10 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type R grants Str+1."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type R grants Str+2, ATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type R grants Str+2 and increases ranged attack by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type R increases ranged attack by 2% when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type R grants Vit+2."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type R has a 1% chance to reduce attack from Shadow element monsters by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type R grants Crit Dmg+3%."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type R grants Crit Dmg+3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type R grants Crit Dmg+4% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type R ignores 3% of enemy physical defense when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type R increases movement speed by 2%, increases ranged physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type R ignores 3% of Shadow element monster physical defense when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type R increases movement speed by 2%, increases ranged physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type R increases physical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type R increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type R increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type R grants ATK+15 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type R increases movement speed by 2%, increases ranged physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type R provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type R provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type R provides DEF+4, MDEF+2 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type R reduces Delay by 1%."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type R grants 10% resistance to Frozen status when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type R grants Max HP+3%, Max SP+3%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type R grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type R grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type R grants Flee+3, Luk+1 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type R grants Str+1."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type R grants Str+2, ATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type R grants Str+2 and increases ranged attack by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type R grants Vit+2."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type R grants Crit Dmg+3%."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type R grants Crit Dmg+3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type R grants Crit Dmg+4% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type R increases physical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type R increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type R increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Large Void Landstone Type R increases movement speed by 1% and increases ranged physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Large Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type R provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type R provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type R reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Iron Dusk Landstone Type R grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Iron Dusk Landstone Type R grants Max HP+2%, Max SP+2%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type R reduces Delay by 1%."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type R reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Quick Dusk Landstone Type R grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Quick Dusk Landstone Type R grants Max HP+2%, Max SP+2%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type R is an Armor item."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type R grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type R grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type R grants Max HP+2%, Max SP+2%, and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type R grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type R grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Flash Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Power Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [R] Power Dusk Landstone Type R grants Str+1."
-    },
-    {
-      "fact": "The [R] Power Dusk Landstone Type R grants Str+2, ATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Power Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type R is a Garment item."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type R grants Vit+2."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type R reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type R grants 1 SP upon killing a monster with physical attack and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Pure Fatal Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [R] Pure Fatal Void Landstone Type R grants Crit Dmg+3%."
-    },
-    {
-      "fact": "The [R] Pure Fatal Void Landstone Type R grants Crit Dmg+3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type R increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type R increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Void Landstone Type R increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type R is a Footgear item."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type R increases physical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type R increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Large Void Landstone Type R increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Large Void Landstone Type R increases movement speed by 2% and increases ranged physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P provides DEF+4, MDEF+2 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type P has a 1% chance to reduce all incoming attack (including Player) by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type P grants Max HP+4%, Max SP+4%, and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type P grants Max HP+5%, Max SP+5%, and increases melee physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type P reduces Delay by 1%."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type P grants All Status +2 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type P grants Max HP+4%, Max SP+4%, and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Quick Dusk Landstone Type P grants Max HP+5%, Max SP+5%, and increases melee physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 10% resistance to Frozen status when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type P grants 15% resistance to Frozen status and Vit+3 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type P grants Max HP+4%, Max SP+4%, and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type P grants Max HP+5%, Max SP+5%, and increases melee physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type P grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type P grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type P grants Flee+3, Luk+1 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type P grants P.Dodge+10 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type P grants Str+1."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type P grants Str+2, ATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type P grants Str+2 and increases melee attack by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Power Dusk Landstone Type P increases melee attack by 2% when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type P grants Vit+2."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type P has a 1% chance to reduce attack from Shadow element monsters by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type P grants Crit Dmg+3%."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type P grants Crit Dmg+3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type P grants Crit Dmg+4% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Pure Fatal Void Landstone Type P ignores 3% of enemy physical defense when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Pure Fatal Void Landstone Type P increases movement speed by 2%, increases melee physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type P ignores 3% of Shadow element monster physical defense when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type P increases movement speed by 2%, increases melee physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type P increases physical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type P increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type P increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type P grants ATK+15 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type P increases movement speed by 2%, increases melee physical attack by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type P provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type P provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type P provides DEF+4, MDEF+2 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type P reduces Delay by 1%."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type P grants 10% resistance to Frozen status when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type P grants Max HP+3%, Max SP+3%, and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type P grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type P grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type P grants Flee+3, Luk+1 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type P grants Str+1."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type P grants Str+2, ATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Power Dusk Landstone Type P grants Str+2 and increases melee attack by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type P grants Vit+2."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type P grants Crit Dmg+3%."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type P grants Crit Dmg+3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Pure Fatal Void Landstone Type P grants Crit Dmg+4% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Pure Fatal Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type P increases physical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type P increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type P increases physical attack against Large size monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Large Void Landstone Type P increases movement speed by 1% and increases melee physical attack by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Large Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type P provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type P provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type P reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Iron Dusk Landstone Type P grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Iron Dusk Landstone Type P grants Max HP+2%, Max SP+2%, and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type P reduces Delay by 1%."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type P reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Quick Dusk Landstone Type P grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Quick Dusk Landstone Type P grants Max HP+2%, Max SP+2%, and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type P is an Armor item."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type P grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type P grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type P grants Max HP+2%, Max SP+2%, and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type P grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type P grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Flash Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Power Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [R] Power Dusk Landstone Type P grants Str+1."
-    },
-    {
-      "fact": "The [R] Power Dusk Landstone Type P grants Str+2, ATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Power Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type P is a Garment item."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type P grants Vit+2."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type P reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type P grants 1 SP upon killing a monster with physical attack and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Pure Fatal Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [R] Pure Fatal Void Landstone Type P grants Crit Dmg+3%."
-    },
-    {
-      "fact": "The [R] Pure Fatal Void Landstone Type P grants Crit Dmg+3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type P increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Pure Fatal Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type P increases physical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Void Landstone Type P increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type P is a Footgear item."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type P increases physical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type P increases physical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Large Void Landstone Type P increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Large Void Landstone Type P increases movement speed by 2% and increases melee physical attack by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M provides DEF+4, MDEF+2 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Iron Dusk Landstone Type M has a 1% chance to reduce all incoming attack (including Player) by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Iron Dusk Landstone Type M grants Max HP+5%, Max SP+5%, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type M reduces Delay by 1%."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Quick Dusk Landstone Type M grants All Status +2 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 10% resistance to Frozen status when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Resistance Dusk Landstone Type M grants 15% resistance to Frozen status and Vit+3 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 5%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+4%, and reduces variable cast time by 5% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Resistance Dusk Landstone Type M grants Max HP+5%, Max SP+5%, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type M grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type M grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type M grants Flee+3, Luk+1 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Flash Dusk Landstone Type M grants P.Dodge+10 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Flash Dusk Landstone Type M grants 30 HP upon killing a monster with magical attack, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Magic Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Magic Dusk Landstone Type M grants Int+2."
-    },
-    {
-      "fact": "The [SSR] Magic Dusk Landstone Type M grants Int+2, MATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Magic Dusk Landstone Type M grants Int+2 and increases magical attack to all elements by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Magic Dusk Landstone Type M increases magical attack to all elements by 2% when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Magic Dusk Landstone Type M grants 30 HP upon killing a monster with magical attack, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type M grants Vit+2."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Dusk Landstone Type M has a 1% chance to reduce attack from Shadow element monsters by 2% for 3 seconds upon receiving physical or magical attack when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Dusk Landstone Type M grants 30 HP upon killing a monster with magical attack, MATK+5%, and reduces variable cast time by 5% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Elemental Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Elemental Void Landstone Type M increases magical attack of all elements by 1%."
-    },
-    {
-      "fact": "The [SSR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Elemental Void Landstone Type M ignores 3% of enemy magical defense when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Elemental Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Elemental Void Landstone Type M increases movement speed by 2%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Elemental Void Landstone Type M increases movement speed by 2%, MATK+5%, reduces variable cast time by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Shadow Void Landstone Type M ignores 3% of Shadow element monster physical defense when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type M increases movement speed by 2%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Shadow Void Landstone Type M increases movement speed by 2%, MATK+5%, reduces variable cast time by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type M increases magical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type M increases magical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type M increases magical attack against Large size monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SSR] Large Void Landstone Type M grants MATK+15 when upgraded to +10 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type M increases movement speed by 2%, MATK+4%, and reduces variable cast time by 4% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SSR] Large Void Landstone Type M increases movement speed by 2%, MATK+5%, reduces variable cast time by 5%, and reduces fixed cast time by 0.1 seconds when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type M provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type M provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type M provides DEF+4, MDEF+2 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "The [SR] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Iron Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type M reduces Delay by 1%."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Quick Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Unfrozen Dusk Landstone Type M grants 10% resistance to Frozen status when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type M grants Max HP+3%, Max SP+3%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Unfrozen Dusk Landstone Type M grants Max HP+4%, Max SP+4%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type M grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type M grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Flash Dusk Landstone Type M grants Flee+3, Luk+1 when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Magic Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [SR] Magic Dusk Landstone Type M grants Int+1."
-    },
-    {
-      "fact": "The [SR] Magic Dusk Landstone Type M grants Int+2, MATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Magic Dusk Landstone Type M grants Int+2 and increases magical attack to all elements by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type M grants Vit+2."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Elemental Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Elemental Void Landstone Type M increases magical attack of all elements by 1%."
-    },
-    {
-      "fact": "The [SR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Elemental Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Elemental Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Shadow Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type M increases magical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type M increases magical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SR] Large Void Landstone Type M increases magical attack against Large size monsters by 2% when upgraded to +9 or higher."
-    },
-    {
-      "fact": "Wearing 3 [SR] Large Void Landstone Type M increases movement speed by 1%, MATK+3%, and reduces variable cast time by 3%."
-    },
-    {
-      "fact": "Wearing 3 [SR] Large Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type M provides DEF+2, MDEF+1."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type M provides DEF+3, MDEF+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Iron Dusk Landstone Type M reduces attack from all monster types (including Player) by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Iron Dusk Landstone Type M grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Iron Dusk Landstone Type M grants Max HP+2%, Max SP+2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type M reduces Delay by 1%."
-    },
-    {
-      "fact": "The [R] Quick Dusk Landstone Type M reduces Delay by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Quick Dusk Landstone Type M grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Quick Dusk Landstone Type M grants Max HP+2%, Max SP+2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type M is an Armor item."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status."
-    },
-    {
-      "fact": "The [R] Unfrozen Dusk Landstone Type M grants 5% resistance to Frozen status when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type M grants Max HP+1%, Max SP+1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Unfrozen Dusk Landstone Type M grants Max HP+2%, Max SP+2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type M grants Flee+2, Luk+1."
-    },
-    {
-      "fact": "The [R] Flash Dusk Landstone Type M grants Flee+2, Luk+1 when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Flash Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Magic Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [R] Magic Dusk Landstone Type M grants Int+1."
-    },
-    {
-      "fact": "The [R] Magic Dusk Landstone Type M grants Int+2, MATK+1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Magic Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type M is a Garment item."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type M grants Vit+2."
-    },
-    {
-      "fact": "The [R] Shadow Dusk Landstone Type M reduces attack from Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Dusk Landstone Type M grants 20 HP upon killing a monster with magical attack, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Elemental Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [R] Elemental Void Landstone Type M increases magical attack of all elements by 1%."
-    },
-    {
-      "fact": "The [R] Elemental Void Landstone Type M increases magical attack of all elements by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Elemental Void Landstone Type M increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Elemental Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1%."
-    },
-    {
-      "fact": "The [R] Shadow Void Landstone Type M increases magical attack against Shadow element monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Void Landstone Type M increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Shadow Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type M is a Footgear item."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type M increases magical attack against Large size monsters by 1%."
-    },
-    {
-      "fact": "The [R] Large Void Landstone Type M increases magical attack against Large size monsters by 1% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "Wearing 3 [R] Large Void Landstone Type M increases movement speed by 1%."
-    },
-    {
-      "fact": "Wearing 3 [R] Large Void Landstone Type M increases movement speed by 2%, MATK+3%, and reduces variable cast time by 3% when upgraded to +7 or higher."
-    },
-    {
-      "fact": "The [SSR] Heavy Cranial Void Landstone reduces damage received from demi-human monsters by 1%."
-    },
-    {
-      "fact": "The [SSR] Heavy Cranial Void Landstone reduces damage received
-[2m2026-02-20T05:00:46.304037Z[0m [31mERROR[0m [2mmonitor[0m[2m:[0m Background pipeline failed: error returned from database: 1406 (22001): Data too long for column 'error_message' at row 1
+Candidates token count: 774
+Total token count: 35683
+[2m2026-02-21T15:55:15.207027Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 40.2%
+[2m2026-02-21T15:55:15.213366Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:55:34.539856Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68107
+Cached content token count: n/a
+Candidates token count: 394
+Total token count: 72874
+[2m2026-02-21T15:55:34.540146Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:55:34.566928Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:57:01.811194Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 11307
+Cached content token count: 10216
+Candidates token count: 874
+Total token count: 35408
+[2m2026-02-21T15:57:01.832719Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 60.0%
+[2m2026-02-21T15:57:01.836240Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:57:15.938260Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68058
+Cached content token count: n/a
+Candidates token count: 250
+Total token count: 71219
+[2m2026-02-21T15:57:15.938642Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:57:15.972963Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T15:58:27.555669Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 11490
+Cached content token count: n/a
+Candidates token count: 1021
+Total token count: 32329
+[2m2026-02-21T15:58:27.601432Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 56.0%
+[2m2026-02-21T15:58:27.607630Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T15:58:40.012142Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68090
+Cached content token count: n/a
+Candidates token count: 385
+Total token count: 70876
+[2m2026-02-21T15:58:40.013040Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T15:58:40.059720Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:00:02.891287Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 11809
+Cached content token count: n/a
+Candidates token count: 1176
+Total token count: 34908
+[2m2026-02-21T16:00:02.977932Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 61.0%
+[2m2026-02-21T16:00:02.985832Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:00:12.475911Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68110
+Cached content token count: n/a
+Candidates token count: 335
+Total token count: 70002
+[2m2026-02-21T16:00:12.476402Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:00:12.506877Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:01:21.887884Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 12077
+Cached content token count: n/a
+Candidates token count: 1287
+Total token count: 30685
+[2m2026-02-21T16:01:21.929156Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 64.0%
+[2m2026-02-21T16:01:21.946552Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:01:31.529254Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68090
+Cached content token count: n/a
+Candidates token count: 292
+Total token count: 70006
+[2m2026-02-21T16:01:31.529603Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:01:31.627446Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:02:51.608230Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 12302
+Cached content token count: n/a
+Candidates token count: 1268
+Total token count: 34026
+[2m2026-02-21T16:02:51.658216Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 73.7%
+[2m2026-02-21T16:02:51.663901Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:03:03.819851Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68078
+Cached content token count: n/a
+Candidates token count: 292
+Total token count: 70798
+[2m2026-02-21T16:03:03.820317Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:03:03.845162Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:04:22.264778Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 12525
+Cached content token count: n/a
+Candidates token count: 940
+Total token count: 35032
+[2m2026-02-21T16:04:22.325922Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 76.4%
+[2m2026-02-21T16:04:22.333986Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:04:41.176117Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68090
+Cached content token count: n/a
+Candidates token count: 294
+Total token count: 72585
+[2m2026-02-21T16:04:41.176667Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:04:41.197708Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:06:35.192252Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 12753
+Cached content token count: n/a
+Candidates token count: 1681
+Total token count: 43901
+[2m2026-02-21T16:06:35.508041Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 77.2%
+[2m2026-02-21T16:06:35.530092Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:06:52.349969Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68107
+Cached content token count: n/a
+Candidates token count: 322
+Total token count: 71619
+[2m2026-02-21T16:06:52.350436Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:06:52.380896Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:08:05.879057Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 13006
+Cached content token count: n/a
+Candidates token count: 944
+Total token count: 32555
+[2m2026-02-21T16:08:05.942297Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 85.0%
+[2m2026-02-21T16:08:05.945315Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:08:21.339370Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68103
+Cached content token count: n/a
+Candidates token count: 328
+Total token count: 71694
+[2m2026-02-21T16:08:21.339711Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:08:21.366626Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:09:33.023817Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 13255
+Cached content token count: 12263
+Candidates token count: 832
+Total token count: 33377
+[2m2026-02-21T16:09:33.035708Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 85.0%
+[2m2026-02-21T16:09:33.038857Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:09:48.296238Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68055
+Cached content token count: n/a
+Candidates token count: 293
+Total token count: 71645
+[2m2026-02-21T16:09:48.296753Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:09:48.339971Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:11:03.027581Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 13479
+Cached content token count: 12264
+Candidates token count: 807
+Total token count: 34302
+[2m2026-02-21T16:11:03.048810Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 91.0%
+[2m2026-02-21T16:11:03.053538Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:11:16.337507Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68055
+Cached content token count: n/a
+Candidates token count: 272
+Total token count: 70896
+[2m2026-02-21T16:11:16.337971Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:11:16.369299Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:12:37.810172Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 13683
+Cached content token count: 13286
+Candidates token count: 426
+Total token count: 36247
+[2m2026-02-21T16:12:37.852497Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 95.4%
+[2m2026-02-21T16:12:37.857182Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:12:45.941356Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 68009
+Cached content token count: n/a
+Candidates token count: 327
+Total token count: 69360
+[2m2026-02-21T16:12:45.942010Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:12:45.966411Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:14:36.223784Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 13940
+Cached content token count: 13287
+Candidates token count: 330
+Total token count: 43847
+[2m2026-02-21T16:14:36.233889Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 97.7%
+[2m2026-02-21T16:14:36.236203Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::generator[0m[2m:[0m       Generating 5 missing Q/A pairs for chunk via gemini-2.5-flash...
+[2m2026-02-21T16:14:46.156707Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 67868
+Cached content token count: n/a
+Candidates token count: 277
+Total token count: 69761
+[2m2026-02-21T16:14:46.157342Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Generated 5 new Q/A pairs for step #2
+[2m2026-02-21T16:14:46.178729Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::verifier[0m[2m:[0m       Verifying Coverage (Agent approach)...
+[2m2026-02-21T16:16:06.751181Z[0m [32m INFO[0m [2mrig[0m[2m:[0m Gemini completion token usage: Prompt token count: 14151
+Cached content token count: 13287
+Candidates token count: 63
+Total token count: 35556
+[2m2026-02-21T16:16:06.804904Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Updated coverage score for step #2 to 100.0%
+[2m2026-02-21T16:16:06.811246Z[0m [32m INFO[0m [2mmimir_core_ai::qa_qc::pipeline[0m[2m:[0m Coverage for step #2 reached 100.0%, breaking loop.

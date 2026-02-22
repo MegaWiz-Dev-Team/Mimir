@@ -66,9 +66,10 @@ pub async fn evaluate_agent(
             }
             
             let persona = create_eval_persona("simple_npc", 1);
+            let preamble = format!("{}\nAlways reply in the same language as the user's input.", persona.system_prompt);
             let client = ollama::Client::new();
             let agent = client.agent(model_id)
-                .preamble(&persona.system_prompt)
+                .preamble(&preamble)
                 .build();
             
             tokio::time::timeout(
