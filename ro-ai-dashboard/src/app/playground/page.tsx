@@ -199,15 +199,21 @@ export default function PlaygroundPage() {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Set greeting when persona changes
+    // Set greeting and auto-select tier when persona changes
     useEffect(() => {
+        if (selectedPersona.name === "Mimir") {
+            setTier(1);
+        } else if (selectedPersona.name === "sage_ariel") {
+            setTier(2);
+        }
+
         if (messages.length === 0 && selectedPersona.greeting) {
             setMessages([{
                 role: "assistant",
                 content: selectedPersona.greeting,
             }]);
         }
-    }, [persona, selectedPersona.greeting]);
+    }, [persona, selectedPersona.name, selectedPersona.greeting]);
 
     // Cleanup streaming on unmount
     useEffect(() => {
@@ -614,12 +620,12 @@ export default function PlaygroundPage() {
                             {vectorStats && (
                                 <div className="grid grid-cols-2 gap-2 text-xs">
                                     <div className="p-2 bg-muted rounded-md text-center">
-                                        <div className="font-medium text-foreground text-sm">{vectorStats.collections?.ro_items?.items_count || 0}</div>
-                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Item DB</div>
+                                        <div className="font-medium text-foreground text-sm">{vectorStats.database?.total_qa || 0}</div>
+                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Text DB</div>
                                     </div>
                                     <div className="p-2 bg-muted rounded-md text-center">
-                                        <div className="font-medium text-foreground text-sm">{vectorStats.collections?.ro_monsters?.items_count || 0}</div>
-                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Mob DB</div>
+                                        <div className="font-medium text-foreground text-sm">{vectorStats.qdrant?.result?.points_count || 0}</div>
+                                        <div className="text-muted-foreground uppercase tracking-wider text-[9px]">Vector DB</div>
                                     </div>
                                 </div>
                             )}
@@ -709,14 +715,14 @@ export default function PlaygroundPage() {
                                             )}
 
                                             {/* Action Display for Tier 1 NPC Actions */}
-                                            {msg.role === "assistant" && msg.action && (
+                                            {msg.role === "assistant" && msg.action && msg.action.command && (
                                                 <div className="mt-2 bg-green-500/10 border border-green-500/20 rounded-md p-3 text-sm">
                                                     <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium mb-1">
                                                         <CheckCircle2 className="h-4 w-4" />
-                                                        Action Invoked: {msg.action.name}
+                                                        Action Invoked: {msg.action.command}
                                                     </div>
                                                     <pre className="text-xs overflow-x-auto text-muted-foreground">
-                                                        {JSON.stringify(msg.action.args, null, 2)}
+                                                        {JSON.stringify(msg.action.params, null, 2)}
                                                     </pre>
                                                 </div>
                                             )}

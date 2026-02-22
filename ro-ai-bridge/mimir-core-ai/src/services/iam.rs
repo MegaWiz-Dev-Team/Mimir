@@ -9,8 +9,12 @@ use argon2::{
 use jsonwebtoken::{encode, EncodingKey, Header};
 use sqlx::MySqlPool;
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 use crate::middleware::tenant::TenantClaims;
+use crate::models::iam::{
+    CreateUserRequest, Tenant, UpdateUserPasswordRequest, UpdateUserRoleRequest, User, UserWithRole,
+};
 
 pub struct IamService {
     db: MySqlPool,
@@ -94,5 +98,102 @@ impl IamService {
         )?;
 
         Ok(token)
+    }
+
+    pub async fn get_users(&self) -> Result<Vec<UserWithRole>> {
+        let users = sqlx::query_as!(
+            UserWithRole,
+            r#"
+            SELECT 
+                u.id, 
+                u.username, 
+                tu.tenant_id, 
+                tu.role, 
+                u.created_at
+            FROM users u
+            LEFT JOIN tenant_users tu ON u.id = tu.user_id
+            "#
+        )
+        .fetch_all(&self.db).await?;
+        
+        Ok(users)
+    }
+
+    pub async fn get_tenants(&self) -> Result<Vec<Tenant>> {
+        let tenants = sqlx::query_as!(
+            Tenant,
+            "SELECT id, name, created_at, updated_at FROM tenants"
+        )
+        .fetch_all(&self.db).await?;
+        Ok(tenants)
+    }
+
+    pub async fn create_user(&self, req: CreateUserRequest) -> Result<User> {
+        let user_id = Uuid::new_v4().to_string();
+        
+        // Use provided password or generate random temp one
+        let password = req.password.unwrap_or_else(|| "temp123!".to_string());
+        let hash = Self::hash_password(&password)?;
+
+        let mut tx = self.db.begin().await?;
+
+        sqlx::query!(
+            "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
+            user_id,
+            req.username,
+            hash
+        )
+        .execute(&mut *tx).await?;
+
+        sqlx::query!(
+            "INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (?, ?, ?)",
+            req.tenant_id,
+            user_id,
+            req.role
+        )
+        .execute(&mut *tx).await?;
+
+        tx.commit().await?;
+
+        let user = sqlx::query_as!(
+            User,
+            "SELECT id, username, created_at, updated_at FROM users WHERE id = ?",
+            user_id
+        )
+        .fetch_one(&self.db).await?;
+
+        Ok(user)
+    }
+
+    pub async fn update_user_role(&self, user_id: &str, req: UpdateUserRoleRequest) -> Result<()> {
+        sqlx::query!(
+            "UPDATE tenant_users SET role = ?, tenant_id = ? WHERE user_id = ?",
+            req.role,
+            req.tenant_id,
+            user_id
+        )
+        .execute(&self.db).await?;
+        Ok(())
+    }
+
+    pub async fn update_user_password(&self, user_id: &str, req: UpdateUserPasswordRequest) -> Result<()> {
+        let hash = Self::hash_password(&req.password)?;
+        sqlx::query!(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            hash,
+            user_id
+        )
+        .execute(&self.db).await?;
+        Ok(())
+    }
+
+    pub async fn delete_user(&self, user_id: &str) -> Result<()> {
+        let mut tx = self.db.begin().await?;
+        sqlx::query!("DELETE FROM tenant_users WHERE user_id = ?", user_id)
+            .execute(&mut *tx).await?;
+        sqlx::query!("DELETE FROM users WHERE id = ?", user_id)
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
     }
 }

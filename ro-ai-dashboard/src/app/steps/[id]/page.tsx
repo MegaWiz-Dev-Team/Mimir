@@ -20,6 +20,7 @@ export default function StepDetailsPage() {
     const [report, setReport] = useState<EvaluationReport | null>(null);
     const [loading, setLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [confirmingForceRetry, setConfirmingForceRetry] = useState(false);
     const [showAllCovered, setShowAllCovered] = useState(false);
     const [showAllMissing, setShowAllMissing] = useState(false);
     const [runId, setRunId] = useState<string | null>(null);
@@ -99,15 +100,26 @@ export default function StepDetailsPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Step Details #{id}</h1>
                     <p className="text-muted-foreground">Analysis and Generation Results</p>
                 </div>
-                <Button variant="outline" onClick={async () => {
-                    if (confirm("Retry this step?")) {
-                        await import("@/lib/api").then(m => m.retryStep(id));
-                        // Since backend update is now sync, we can just reload immediately
-                        window.location.reload();
-                    }
-                }}>
-                    <RefreshCw className="mr-2 h-4 w-4" /> [Beta] Force Retry Step
-                </Button>
+                {confirmingForceRetry ? (
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground mr-1">Force retry this step?</span>
+                        <Button size="sm" variant="destructive" onClick={async () => {
+                            setConfirmingForceRetry(false);
+                            if (!id) return;
+                            try {
+                                await import("@/lib/api").then(m => m.retryStep(id));
+                                window.location.reload();
+                            } catch (e) {
+                                alert("Failed to force retry step");
+                            }
+                        }}>Yes</Button>
+                        <Button size="sm" variant="outline" onClick={() => setConfirmingForceRetry(false)}>No</Button>
+                    </div>
+                ) : (
+                    <Button variant="outline" onClick={() => setConfirmingForceRetry(true)}>
+                        <RefreshCw className="mr-2 h-4 w-4" /> [Beta] Force Retry Step
+                    </Button>
+                )}
             </div>
 
             <div className="grid gap-8 lg:grid-cols-3">
@@ -195,7 +207,7 @@ export default function StepDetailsPage() {
                                             Missing Facts
                                         </CardTitle>
                                     </div>
-                                    {report.coverage_score < 1.0 && report.missing_facts && report.missing_facts.length > 0 && (
+                                    {report.coverage_score !== undefined && (report.coverage_score > 1 ? report.coverage_score / 100 : report.coverage_score) < 1.0 && report.missing_facts && report.missing_facts.length > 0 && (
                                         <Button
                                             size="sm"
                                             variant="secondary"

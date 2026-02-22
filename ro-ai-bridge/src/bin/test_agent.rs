@@ -9,13 +9,14 @@ async fn main() -> anyhow::Result<()> {
 
     let persona = Persona {
         name: "test".to_string(),
+        avatar_url: None,
         display_name: "Test NPC".to_string(),
         tier: 1,
         model_id: None,
-        system_prompt: "You are a test NPC.".to_string(),
+        system_prompt: "You are a test NPC. If someone says please heal me, use your heal tool.".to_string(),
         greeting: Some("Hello!".to_string()),
         allowed_actions: vec![],
-        personality_traits: vec!["friendly".to_string()],
+        personality_traits: vec!["friendly".to_string()],    
     };
 
     let agent = SimpleNpcAgent::new(persona);

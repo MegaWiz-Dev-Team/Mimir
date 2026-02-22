@@ -1,0 +1,12 @@
+# SI-03: Traceability Matrix (ตารางสอบกลับความต้องการ)
+**Project Name:** Project Mimir
+
+ตารางนี้ใช้เพื่อสอบทวนว่า Requirement ทุกข้อได้ถูกออกแบบ พัฒนา และทดสอบครบถ้วน
+
+| Req ID  | Requirement Description              | Design/Module  | Code/Component                   | Test Case ID | Status  |
+| ------- | ------------------------------------ | -------------- | -------------------------------- | ------------ | ------- |
+| REQ-001 | User & Tenant Management (Sprint 1)  | IAM Module     | `IamService`, `UsersPage`        | TC-001       | Done    |
+| REQ-002 | Vector Data Management (Sprint 2)    | Vector Module  | `Qdrant Client`, `Vector UI`     | TC-002       | Pending |
+| REQ-003 | Quality Control (Sprint 3)           | QC Module      | `Clustering Worker`, `Kanban UI` | TC-003       | Pending |
+| REQ-004 | Agent Evaluations (Sprint 4)         | Eval Module    | `Background Job`, `Wizard UI`    | TC-004       | Pending |
+| REQ-005 | Data Ingress & Monitoring (Sprint 5) | Ingress Module | `WebSocket Server`, `Log UI`     | TC-005       | Pending |
