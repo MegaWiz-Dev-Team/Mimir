@@ -13,6 +13,8 @@ use ro_ai_bridge::config::Config;
 use mimir_core_ai::services::db;
 use ro_ai_bridge::routes::eval::eval_routes;
 use ro_ai_bridge::routes::iam::iam_routes;
+use ro_ai_bridge::routes::auth::auth_routes;
+use ro_ai_bridge::routes::pipeline::pipeline_routes;
 
 #[tokio::main]
 async fn main() {
@@ -37,6 +39,8 @@ async fn main() {
         .route("/health", get(health_check))
         .merge(eval_routes())
         .nest("/api/v1/iam", iam_routes())
+        .nest("/api/v1/auth", auth_routes())
+        .nest("/api/v1/pipeline", pipeline_routes())
         .with_state(pool)
         .layer(cors);
 
