@@ -24,7 +24,7 @@ pub fn iam_routes() -> Router<MySqlPool> {
 }
 
 fn check_admin(tenant_ctx: &TenantContext) -> Result<(), StatusCode> {
-    if tenant_ctx.role != "admin" {
+    if tenant_ctx.role.to_lowercase() != "admin" {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
