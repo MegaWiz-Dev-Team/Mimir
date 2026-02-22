@@ -27,22 +27,6 @@ pub async fn tenant_auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // 1. Try to get tenant_id from X-Tenant-Id header first (for development/legacy bypassing full JWT)
-    let mut tenant_from_header = None;
-    if let Some(tenant_header) = req.headers().get("X-Tenant-Id") {
-        if let Ok(tenant_str) = tenant_header.to_str() {
-            tenant_from_header = Some(tenant_str.to_string());
-        }
-    }
-
-    if let Some(tenant_id) = tenant_from_header {
-        req.extensions_mut().insert(TenantContext { 
-            tenant_id,
-            role: "admin".to_string(), // Trust header value role as admin for legacy
-        });
-        return Ok(next.run(req).await);
-    }
-
     let auth_header = req.headers().get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
 
@@ -50,18 +34,10 @@ pub async fn tenant_auth_middleware(
         if auth.starts_with("Bearer ") {
             auth.trim_start_matches("Bearer ")
         } else {
-            req.extensions_mut().insert(TenantContext {
-                tenant_id: "default_tenant".to_string(),
-                role: "admin".to_string(), // Default fallback is admin for legacy endpoints
-            });
-            return Ok(next.run(req).await);
+            return Err(StatusCode::UNAUTHORIZED);
         }
     } else {
-        req.extensions_mut().insert(TenantContext {
-            tenant_id: "default_tenant".to_string(),
-            role: "admin".to_string(),
-        });
-        return Ok(next.run(req).await);
+        return Err(StatusCode::UNAUTHORIZED);
     };
 
     let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
