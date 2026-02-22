@@ -224,11 +224,13 @@ async fn trigger_run(
     let run_id = uuid::Uuid::new_v4().to_string();
     let run_id_inner = run_id.clone();
     
-    // Run in background
     tokio::spawn(async move {
         // Pass qa_config to pipeline - it will calculate count per chunk
-        if let Err(e) = run_pipeline_with_config(&db, run_id_inner, &provider, &model, "data/wiki", is_test, qa_config, tenant_id).await {
-            error!("Background pipeline failed: {}", e);
+        if let Err(e) = run_pipeline_with_config(&db, run_id_inner.clone(), &provider, &model, "data/wiki", is_test, qa_config, tenant_id).await {
+            tracing::error!("Background pipeline failed: {}", e);
+            let _ = sqlx::query("UPDATE pipeline_runs SET status = 'FAILED' WHERE id = ?")
+                .bind(run_id_inner)
+                .execute(&db).await;
         }
     });
 
@@ -413,7 +415,11 @@ async fn retry_step_handler(
     
     tokio::spawn(async move {
         if let Err(e) = mimir_core_ai::qa_qc::pipeline::retry_step_with_config(&db, id, qa_config).await {
-            error!("Background retry Step #{} failed: {}", id, e);
+            tracing::error!("Background retry Step #{} failed: {}", id, e);
+            let _ = sqlx::query("UPDATE pipeline_steps SET status = 'FAILED', error_message = ? WHERE id = ?")
+                .bind(e.to_string())
+                .bind(id)
+                .execute(&db).await;
         }
     });
 

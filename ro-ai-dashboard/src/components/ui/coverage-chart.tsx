@@ -7,8 +7,10 @@ interface CoverageChartProps {
 }
 
 export function CoverageChart({ score }: CoverageChartProps) {
-    const percentage = Math.round(score * 100);
-    const data = [{ name: "Coverage", value: percentage, fill: "#22c55e" }];
+    // Normalize: If score > 1, assume it's already a percentage (e.g. 18.05). Otherwise, keep it as a decimal.
+    const normalizedScore = score > 1 ? score / 100 : score;
+    const percentage = Math.min(100, Math.round(normalizedScore * 100));
+    const data = [{ name: "Coverage", value: percentage, fill: percentage === 100 ? "#22c55e" : (percentage > 50 ? "#eab308" : "#ef4444") }];
 
     return (
         <div className="relative h-[200px] w-full flex items-center justify-center">

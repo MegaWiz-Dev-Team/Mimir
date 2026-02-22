@@ -35,7 +35,7 @@ pub async fn verify_coverage(
         
         Task:
         1. Check if each Atomic Fact is answered or inferred by at least one Q/A pair.
-        2. Calculate `coverage_score` as (Covered Facts / Total Facts).
+        2. Calculate `coverage_score` as a decimal between 0.0 and 1.0 (e.g. 0.18 for 18%).
         3. List any `missing_facts` that are NOT covered (maximum 30 items to prevent output truncation).
         4. Provide a brief `reasoning`.
         

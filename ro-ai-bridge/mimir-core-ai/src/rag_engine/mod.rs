@@ -422,6 +422,7 @@ You have access to a knowledge document base containing domain-specific intellig
 2. If you're uncertain, acknowledge the limitation
 3. Cite your sources when providing specific data
 4. Keep responses informative but concise
+5. Always reply in the same language as the user's input
 
 ## Personality Traits
 {}"#,
@@ -446,7 +447,7 @@ You have access to a knowledge document base containing domain-specific intellig
         // Step 3: Build context-enhanced prompt
         let context = self.build_context(&all_sources, &db_context);
         let enhanced_message = format!(
-            "Context from knowledge base:\n{}\n\nUser question: {}",
+            "Context from knowledge base:\n{}\n\nUser question: {}\n\nIMPORTANT: You must reply in the EXACT SAME LANGUAGE as the user question above.",
             context,
             message
         );

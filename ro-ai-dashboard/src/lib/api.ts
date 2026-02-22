@@ -37,13 +37,13 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 // ─── Pipeline API ───────────────────────────────────────────────────────────
 
 export async function fetchRuns(): Promise<PipelineRun[]> {
-    const res = await authFetch(`${API_BASE_URL}/pipeline/runs`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/v1/pipeline/runs`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch runs");
     return res.json();
 }
 
 export async function fetchRunDetails(id: string): Promise<RunDetails> {
-    const res = await authFetch(`${API_BASE_URL}/pipeline/runs/${id}`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/v1/pipeline/runs/${id}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch run details");
     return res.json();
 }
@@ -63,7 +63,7 @@ export async function fetchStepReport(stepId: number): Promise<EvaluationReport>
 }
 
 export async function triggerRun(provider: string = "ollama", model: string = "llama3.2", testRun: boolean = false) {
-    const res = await authFetch(`${API_BASE_URL}/pipeline/run`, {
+    const res = await authFetch(`${API_BASE_URL}/v1/pipeline/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, model, test_run: testRun }),
@@ -486,4 +486,68 @@ export function streamChat(
 
     // Return cleanup function
     return () => controller.abort();
+}
+
+// ─── IAM (User Management) API ─────────────────────────────────────────────
+
+export interface User {
+    id: string;
+    username: string;
+    tenant_id: string | null;
+    role: string | null;
+    created_at: string | null;
+}
+
+export interface Tenant {
+    id: string;
+    name: string;
+    created_at: string | null;
+    updated_at: string | null;
+}
+
+export async function fetchUsers(): Promise<User[]> {
+    const res = await authFetch(`${API_BASE_URL}/iam/users`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch users");
+    return res.json();
+}
+
+export async function fetchTenants(): Promise<Tenant[]> {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch tenants");
+    return res.json();
+}
+
+export async function createUser(data: any): Promise<User> {
+    const res = await authFetch(`${API_BASE_URL}/iam/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to create user");
+    return res.json();
+}
+
+export async function updateUserRole(id: string, data: { tenant_id: string; role: string }): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/users/${id}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update user role");
+}
+
+export async function updateUserPassword(id: string, password: string): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/users/${id}/password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+    });
+    if (!res.ok) throw new Error("Failed to update user password");
+}
+
+export async function deleteUser(id: string): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/users/${id}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete user");
 }
