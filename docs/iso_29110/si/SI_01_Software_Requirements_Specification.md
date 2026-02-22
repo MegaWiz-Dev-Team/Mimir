@@ -12,6 +12,7 @@
 | REQ-003 | **Quality Control:** ระบบต้องมีการใช้ LLM วิเคราะห์ความขัดแย้งของข้อมูล (Clustering) และให้ User สรุป Golden Answer ได้ผ่านหน้าจอ Kanban | Medium   |
 | REQ-004 | **Agent Evaluation:** ระบบต้องสามารถรันประเมินความแม่นยำของ AI (Evaluation) แบบ Background Job และแสดงผล Progress/Heatmap       | Medium   |
 | REQ-005 | **Data Ingress:** ระบบต้องรองรับการนำเข้าข้อมูล (Web, File, MCP) และแสดงสถานะการดูดข้อมูลแบบ Real-time (Streaming Logs)             | High     |
+| REQ-006 | **Tenant Settings:** ระบบต้องมีหน้า Settings ให้ผู้ใช้สามารถแก้ไขชื่อ (Name) และจัดการข้อมูล Tenant ของตนเองได้                          | High     |
 
 ## 3. Non-Functional Requirements (ความต้องการด้านอื่นๆ ที่ไม่ใช่ฟังก์ชัน)
 - **Security & Multi-Tenancy:**
