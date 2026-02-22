@@ -7,6 +7,7 @@
 | 2026-02-22 | Sprint 1     | Completed | [ดูรายละเอียด PM_02_1_Sprint1_Report](PM_02_1_Sprint1_Report.md) |
 
 ## 2. Issue / Change Logs (บันทึกปัญหาและการเปลี่ยนแปลง)
-| Date       | Issue / Change Request           | Raised By | Status | Resolution          |
-| ---------- | -------------------------------- | --------- | ------ | ------------------- |
-| 2026-02-23 | #19 Tenant Settings Page Feature | User      | Open   | PR Opened on GitHub |
+| Date       | Issue / Change Request                                     | Raised By | Status | Resolution          |
+| ---------- | ---------------------------------------------------------- | --------- | ------ | ------------------- |
+| 2026-02-23 | #19 Tenant Settings Page Feature                           | User      | Closed | PR Merged on GitHub |
+| 2026-02-22 | [#17] Users page redirects to login due to undefined token | USER      | Open   | PR Opened on GitHub |
