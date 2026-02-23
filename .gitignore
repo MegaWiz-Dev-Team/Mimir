@@ -40,3 +40,4 @@ venv/
 # Log Files
 *.log
 monitor.log
+ro-ai-bridge/monitor.log
