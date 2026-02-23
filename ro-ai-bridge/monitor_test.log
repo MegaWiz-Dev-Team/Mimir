@@ -102,8 +102,6 @@ warning: unused import: `post`
 
 warning: `ro-ai-bridge` (lib) generated 2 warnings (run `cargo fix --lib -p ro-ai-bridge` to apply 1 suggestion)
    Compiling ro-ai-bridge v0.1.0 (/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge)
-warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge/target/debug/incremental/monitor-3aae7mibugkkb/s-hg22bevdp5-14uwskl-working`
-
 warning: field `session_id` is never read
   --> src/bin/monitor.rs:63:5
    |
@@ -115,9 +113,9 @@ warning: field `session_id` is never read
    |
    = note: `#[warn(dead_code)]` on by default
 
-warning: `ro-ai-bridge` (bin "monitor") generated 2 warnings
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.68s
+warning: `ro-ai-bridge` (bin "monitor") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.24s
      Running `target/debug/monitor`
-[2m2026-02-23T03:53:22.485449Z[0m [32m INFO[0m [2mmimir_core_ai::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:REDACTED-PW@localhost:3306/ro_landverse
-[2m2026-02-23T03:53:22.553051Z[0m [32m INFO[0m [2mmimir_core_ai::services::db[0m[2m:[0m ✅ Database migrations applied
-[2m2026-02-23T03:53:22.560524Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
+[2m2026-02-23T03:00:30.279584Z[0m [32m INFO[0m [2mmimir_core_ai::services::db[0m[2m:[0m 🔌 Connecting to database: mysql://mimir:REDACTED-PW@localhost:3306/ro_landverse
+[2m2026-02-23T03:00:30.338211Z[0m [32m INFO[0m [2mmimir_core_ai::services::db[0m[2m:[0m ✅ Database migrations applied
+[2m2026-02-23T03:00:30.343157Z[0m [32m INFO[0m [2mmonitor[0m[2m:[0m 🚀 Monitor API running on http://0.0.0.0:8080
