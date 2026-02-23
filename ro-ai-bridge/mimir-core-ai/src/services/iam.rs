@@ -206,4 +206,151 @@ impl IamService {
         .execute(&self.db).await?;
         Ok(())
     }
+
+    pub async fn get_tenant_config(&self, tenant_id: &str) -> Result<crate::models::iam::TenantConfig> {
+        let config = sqlx::query_as!(
+            crate::models::iam::TenantConfig,
+            r#"
+            SELECT 
+                tenant_id, 
+                default_provider, 
+                default_model, 
+                provider_api_keys, 
+                qa_rules, 
+                system_prompt, 
+                max_daily_tokens, 
+                is_dedicated_vector_db, 
+                created_at, 
+                updated_at
+            FROM tenant_configs 
+            WHERE tenant_id = ?
+            "#,
+            tenant_id
+        )
+        .fetch_one(&self.db).await?;
+        Ok(config)
+    }
+
+    pub async fn update_tenant_config(&self, tenant_id: &str, req: crate::models::iam::UpdateTenantConfigRequest) -> Result<()> {
+        let config = self.get_tenant_config(tenant_id).await?;
+
+        let default_provider = req.default_provider.unwrap_or(config.default_provider.unwrap_or_else(|| "ollama".to_string()));
+        let default_model = req.default_model.unwrap_or(config.default_model.unwrap_or_else(|| "llama3.2".to_string()));
+        let provider_api_keys = req.provider_api_keys.or(config.provider_api_keys);
+        let qa_rules = req.qa_rules.or(config.qa_rules);
+        let system_prompt = req.system_prompt.or(config.system_prompt);
+        let max_daily_tokens = req.max_daily_tokens.unwrap_or(config.max_daily_tokens);
+        let is_dedicated_vector_db = req.is_dedicated_vector_db.unwrap_or(config.is_dedicated_vector_db);
+
+        sqlx::query!(
+            r#"
+            UPDATE tenant_configs 
+            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?
+            WHERE tenant_id = ?
+            "#,
+            default_provider,
+            default_model,
+            provider_api_keys,
+            qa_rules,
+            system_prompt,
+            max_daily_tokens,
+            is_dedicated_vector_db,
+            tenant_id
+        )
+        .execute(&self.db).await?;
+        Ok(())
+    }
+
+    pub async fn create_tenant(&self, req: crate::models::iam::CreateTenantRequest) -> Result<crate::models::iam::Tenant> {
+        let tenant_id = uuid::Uuid::new_v4().to_string();
+        let mut tx = self.db.begin().await?;
+
+        // 1. Core Tenant Record
+        sqlx::query!("INSERT INTO tenants (id, name) VALUES (?, ?)", tenant_id, req.name)
+            .execute(&mut *tx).await?;
+
+        // 2. Initialize Configs
+        sqlx::query!(
+            "INSERT INTO tenant_configs (tenant_id, is_dedicated_vector_db) VALUES (?, ?)",
+            tenant_id,
+            req.is_dedicated_vector_db
+        ).execute(&mut *tx).await?;
+
+        // 3. Admin User Creation
+        let user_id = uuid::Uuid::new_v4().to_string();
+        let password = req.admin_password.unwrap_or_else(|| "admin123".to_string());
+        let hash = Self::hash_password(&password)?;
+        sqlx::query!(
+            "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
+            user_id, req.admin_email, hash
+        ).execute(&mut *tx).await?;
+
+        sqlx::query!(
+            "INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (?, ?, 'admin')",
+            tenant_id, user_id
+        ).execute(&mut *tx).await?;
+
+        // Commit DB transaction
+        tx.commit().await?;
+
+        // 4. Data Isolation / Vector DB Provisioning
+        let qdrant = crate::services::qdrant::QdrantService::new();
+        if req.is_dedicated_vector_db {
+            let collection_name = format!("{}_docs", tenant_id);
+            // Default Vector size 768 for nomic-embed-text or 1536 for others. We use 768 as base
+            qdrant.init_collection(&collection_name, 768).await.unwrap_or_else(|e| {
+                tracing::warn!("Failed to init Qdrant collection {}: {}", collection_name, e);
+            });
+        }
+
+        let tenant = sqlx::query_as!(
+            crate::models::iam::Tenant,
+            "SELECT id, name, created_at, updated_at FROM tenants WHERE id = ?",
+            tenant_id
+        ).fetch_one(&self.db).await?;
+
+        Ok(tenant)
+    }
+
+    pub async fn delete_tenant(&self, tenant_id: &str) -> Result<()> {
+        let config = self.get_tenant_config(tenant_id).await.unwrap_or_else(|_| crate::models::iam::TenantConfig {
+                tenant_id: tenant_id.to_string(),
+                default_provider: None,
+                default_model: None,
+                provider_api_keys: None,
+                qa_rules: None,
+                system_prompt: None,
+                max_daily_tokens: 100000,
+                is_dedicated_vector_db: false,
+                created_at: None,
+                updated_at: None,
+            });
+        
+        // 1. Qdrant Cleanup
+        let qdrant = crate::services::qdrant::QdrantService::new();
+        if config.is_dedicated_vector_db {
+            let collection_name = format!("{}_docs", tenant_id);
+            let _ = qdrant.delete_collection(&collection_name).await;
+        }
+
+        // 2. DB Cleanup (tenants has CASCADE for tenant_configs, tenant_users, pipeline_runs, etc)
+        // Wait, users are not cascade deleted just because tenant_users is. We need to delete orphaned users.
+        let mut tx = self.db.begin().await?;
+        
+        // Get all users who belong entirely to this tenant to delete them. 
+        // For simplicity, we just delete users whose ONLY tenant is this one.
+        sqlx::query!(
+            r#"
+            DELETE FROM users WHERE id IN (
+                SELECT user_id FROM tenant_users WHERE tenant_id = ?
+            )
+            "#,
+            tenant_id
+        ).execute(&mut *tx).await?;
+
+        sqlx::query!("DELETE FROM tenants WHERE id = ?", tenant_id).execute(&mut *tx).await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
 }
