@@ -46,6 +46,8 @@ struct RunResponse {
 struct SearchRequest {
     query: String,
     limit: Option<usize>,
+    tenant_id: Option<String>,
+    show_expired: Option<bool>,
 }
 
 /// Chat request for agent interactions
@@ -162,6 +164,7 @@ async fn main() -> Result<()> {
         .route("/api/vector/stats", get(get_vector_stats))
         .route("/api/vector/index", post(trigger_indexing))
         .route("/api/vector/search", post(search_vectors))
+        .route("/api/vector/{id}", axum::routing::delete(delete_vector_handler))
         // Agent chat endpoints
         .route("/api/agents/chat", post(chat_handler))
         .route("/api/agents/chat/stream", post(chat_stream_handler))
@@ -538,6 +541,7 @@ async fn trigger_indexing(State(state): State<Arc<AppState>>) -> impl IntoRespon
 
 async fn search_vectors(
     State(state): State<Arc<AppState>>,
+    Extension(tenant): Extension<TenantContext>,
     Json(payload): Json<SearchRequest>,
 ) -> impl IntoResponse {
     use rig::embeddings::EmbeddingModel;
@@ -545,14 +549,37 @@ async fn search_vectors(
     let ollama_client = ollama::Client::new();
     let embed_model = ollama_client.embedding_model("nomic-embed-text");
     
+    let target_tenant = if tenant.role == "SuperAdmin" {
+        payload.tenant_id.unwrap_or(tenant.tenant_id)
+    } else {
+        tenant.tenant_id
+    };
+
+    let show_expired = payload.show_expired.unwrap_or(false);
+
     match embed_model.embed_text(&payload.query).await {
         Ok(embedding) => {
             let vector_f32: Vec<f32> = embedding.vec.into_iter().map(|f| f as f32).collect();
-            match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), "default_tenant").await {
+            match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
                 Ok(results) => Json(results).into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
             }
         },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    }
+}
+
+async fn delete_vector_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(tenant): Extension<TenantContext>,
+    axum::extract::Path(id): axum::extract::Path<u64>,
+) -> impl IntoResponse {
+    if tenant.role != "SuperAdmin" && tenant.role != "admin" {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Unauthorized to delete vectors"}))).into_response();
+    }
+    
+    match state.qdrant.delete_point("wiki_qa", id).await {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({"status": "success"}))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
     }
 }
