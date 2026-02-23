@@ -151,26 +151,26 @@ async fn main() -> Result<()> {
         .route("/api/v1/qc/generate", post(generate_qc_clusters))
         
         // Pipeline endpoints
-        .route("/api/pipeline/run", post(trigger_run))
-        .route("/api/pipeline/runs", get(list_runs))
-        .route("/api/pipeline/runs/{id}", get(get_run_details))
-        .route("/api/pipeline/steps/{id}/qa", get(get_step_qa))
-        .route("/api/pipeline/steps/{id}/report", get(get_step_report))
-        .route("/api/pipeline/steps/{id}/retry", post(retry_step_handler))
-        .route("/api/pipeline/steps/{id}/generate_missing", post(generate_missing_qa_handler))
-        .route("/api/pipeline/runs/{id}/resume", post(resume_run_handler))
-        .route("/api/vector/stats", get(get_vector_stats))
-        .route("/api/vector/index", post(trigger_indexing))
-        .route("/api/vector/search", post(search_vectors))
-        .route("/api/vector/{id}", axum::routing::delete(delete_vector_handler))
+        .route("/api/v1/pipeline/run", post(trigger_run))
+        .route("/api/v1/pipeline/runs", get(list_runs))
+        .route("/api/v1/pipeline/runs/{id}", get(get_run_details))
+        .route("/api/v1/pipeline/steps/{id}/qa", get(get_step_qa))
+        .route("/api/v1/pipeline/steps/{id}/report", get(get_step_report))
+        .route("/api/v1/pipeline/steps/{id}/retry", post(retry_step_handler))
+        .route("/api/v1/pipeline/steps/{id}/generate_missing", post(generate_missing_qa_handler))
+        .route("/api/v1/pipeline/runs/{id}/resume", post(resume_run_handler))
+        .route("/api/v1/vector/stats", get(get_vector_stats))
+        .route("/api/v1/vector/index", post(trigger_indexing))
+        .route("/api/v1/vector/search", post(search_vectors))
+        .route("/api/v1/vector/{id}", axum::routing::delete(delete_vector_handler))
         // Agent chat endpoints
-        .route("/api/agents/chat", post(chat_handler))
-        .route("/api/agents/chat/stream", post(chat_stream_handler))
+        .route("/api/v1/agents/chat", post(chat_handler))
+        .route("/api/v1/agents/chat/stream", post(chat_stream_handler))
         // Model config endpoints
-        .route("/api/models", get(models_handler))
-        .route("/api/personas/{name}/config", post(update_persona_config_handler))
+        .route("/api/v1/models", get(models_handler))
+        .route("/api/v1/personas/{name}/config", post(update_persona_config_handler))
         // Wiki content endpoint
-        .route("/api/wiki/{filename}", get(get_wiki_content))
+        .route("/api/v1/wiki/{filename}", get(get_wiki_content))
         .layer(axum::middleware::from_fn(tenant_auth_middleware));
 
     let app = Router::new()
