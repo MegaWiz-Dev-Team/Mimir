@@ -30,8 +30,7 @@ export default function LoginPage() {
                 const data = await res.json().catch(() => ({}));
                 throw new Error(data.error || "Login failed");
             }
-
-            const { token: access_token, tenant_id } = await res.json();
+            const { access_token, tenant_id } = await res.json();
 
             // Store in cookies
             if (access_token) Cookies.set("access_token", access_token, { expires: 1 }); // 1 day
