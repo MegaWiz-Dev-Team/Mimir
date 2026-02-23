@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
-import { LogOut, LayoutDashboard, Database, Users, ShieldCheck, Link as LinkIcon, Bot, Activity } from "lucide-react";
+import { LogOut, LayoutDashboard, Database, Users, ShieldCheck, Link as LinkIcon, Bot, Activity, Settings } from "lucide-react";
 
 export function Navbar() {
     const pathname = usePathname();
@@ -38,6 +38,7 @@ export function Navbar() {
         { name: "Playground", href: "/playground", icon: Bot },
         { name: "Evaluations", href: "/evaluations", icon: Activity },
         { name: "Users", href: "/users", icon: Users },
+        { name: "Settings", href: "/settings", icon: Settings },
     ];
 
     return (
