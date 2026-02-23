@@ -57,7 +57,41 @@ pub struct LoginRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct CreateTenantRequest {
+    pub name: String,
+    pub is_dedicated_vector_db: bool,
+    pub admin_email: String,
+    pub admin_password: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LoginResponse {
+
     pub token: String,
     pub tenant_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TenantConfig {
+    pub tenant_id: String,
+    pub default_provider: Option<String>,
+    pub default_model: Option<String>,
+    pub provider_api_keys: Option<serde_json::Value>,
+    pub qa_rules: Option<serde_json::Value>,
+    pub system_prompt: Option<String>,
+    pub max_daily_tokens: i64,
+    pub is_dedicated_vector_db: bool,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateTenantConfigRequest {
+    pub default_provider: Option<String>,
+    pub default_model: Option<String>,
+    pub provider_api_keys: Option<serde_json::Value>,
+    pub qa_rules: Option<serde_json::Value>,
+    pub system_prompt: Option<String>,
+    pub max_daily_tokens: Option<i64>,
+    pub is_dedicated_vector_db: Option<bool>,
 }
