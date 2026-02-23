@@ -15,8 +15,8 @@
 ## 3. Project Schedule & Milestones (ตารางเวลาและจุดส่งมอบ)
 - **Sprint 1: Security Foundation & IAM** [ระบุช่วงเวลา]
   - Backend API (CRUD Users/Tenants), Auth Middleware, Frontend Dashboard
-- **Sprint 2: Data Isolation & Vector Management** [ระบุช่วงเวลา]
-  - Tenant ID migrations, Ingestion Pipeline update, Vector Search UI
+- **Sprint 2: Data Isolation & Vector Management + Tenant Settings** [ระบุช่วงเวลา]
+  - Tenant ID migrations, Ingestion Pipeline update, Vector Search UI, Tenant Settings UI
 - **Sprint 3: Quality Control & Hallucination Prevention** [ระบุช่วงเวลา]
   - Data Clustering, LLM Consensus Checker, Conflict Resolution UI
 - **Sprint 4: Agent Evaluations System** [ระบุช่วงเวลา]

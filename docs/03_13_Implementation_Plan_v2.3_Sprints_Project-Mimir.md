@@ -24,15 +24,17 @@
 
 ---
 
-### 🏃 Sprint 2: Data Isolation & Vector Management (การปกป้องและจัดการฐานข้อมูลจำลอง)
-**เป้าหมาย:** บังคับใช้การแยกข้อมูลของลูกค้าแต่ละรายออกจากกันอย่างเด็ดขาดทั้งใน RDBMS และ Vector DB พร้อมทั้งให้แอดมินจัดการขยะใน Qdrant ได้ง่ายขึ้น
+### 🏃 Sprint 2: Data Isolation & Vector Management + Tenant Settings (การปกป้องและจัดการฐานข้อมูลจำลองและตั้งค่าผู้ใช้งาน)
+**เป้าหมาย:** บังคับใช้การแยกข้อมูลของลูกค้าแต่ละรายออกจากกันอย่างเด็ดขาดทั้งใน RDBMS และ Vector DB พร้อมทั้งให้แอดมินจัดการขยะใน Qdrant ได้ง่ายขึ้น และเพิ่มหน้าต่าง Settings สำหรับจัดการชื่อและข้อมูลของ Tenant
 **อ้างอิง:** `01_07_Vector_Management_Implementation_Plan_Project-Mimir.md`
 
 - **Backend (API & Database)**:
   - ทำ Database Migrations (`ALTER TABLE`) เติมคอลัมน์ `tenant_id` ลงในทุกตารางที่ยังตกหล่น (เช่น `pipeline_runs`, `eval_runs`, etc.)
   - อัปเดต Ingestion Pipeline ให้ใส่ Payload `tenant_id` และ `is_active` ลงใน Qdrant ทุกครั้ง
   - แก้ไขโค้ด `POST /api/vector/search` ให้เลิกฮาร์ดโค้ด `"default_tenant"` และให้อิงตาม Token ผู้ใช้แทน
+  - สร้าง API `GET/PUT /api/v1/tenants/me` สำหรับแก้ไขข้อมูล Name และจัดการ Tenant ของผู้ใช้ปัจจุบัน
 - **Frontend (UX/UI)**:
+  - เพิ่มหน้าต่าง **Settings** สำหรับแก้ไขชื่อผู้ใช้งานและจัดการข้อมูล Tenant 
   - เพิ่มปุ่ม **"Delete Vector" 🗑️** ในหน้าผลการค้นหา เพื่อให้แอดมินลบข้อมูลเพี้ยนจากระบบ RAG ทิ้งได้ทันที
   - ทำ **Expandable Rows** คลิกเพื่อกางดูเนื้อหา Document ต้นฉบับเต็มรูปแบบ
   - เพิ่ม **Similarity Score Badges** นอกเหนือจากตัวเลขเฉยๆ (เขียว/เหลือง/แดง)

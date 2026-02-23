@@ -46,6 +46,11 @@ pub struct UpdateUserPasswordRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateTenantRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,

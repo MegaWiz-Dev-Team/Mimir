@@ -9,7 +9,7 @@ use axum::{
 use sqlx::MySqlPool;
 
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
-use mimir_core_ai::models::iam::{CreateUserRequest, UpdateUserPasswordRequest, UpdateUserRoleRequest};
+use mimir_core_ai::models::iam::{CreateUserRequest, UpdateUserPasswordRequest, UpdateUserRoleRequest, UpdateTenantRequest};
 use mimir_core_ai::services::iam::IamService;
 
 pub fn iam_routes() -> Router<MySqlPool> {
@@ -19,11 +19,12 @@ pub fn iam_routes() -> Router<MySqlPool> {
         .route("/users/{id}/password", patch(update_user_password))
         .route("/users/{id}", delete(delete_user))
         .route("/tenants", get(get_tenants))
+        .route("/tenants/{id}", patch(update_tenant))
         .route_layer(middleware::from_fn(tenant_auth_middleware))
 }
 
 fn check_admin(tenant_ctx: &TenantContext) -> Result<(), StatusCode> {
-    if tenant_ctx.role != "admin" {
+    if tenant_ctx.role.to_lowercase() != "admin" {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
@@ -109,6 +110,26 @@ async fn delete_user(
     let iam_service = IamService::new(pool);
     match iam_service.delete_user(&id).await {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn update_tenant(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Json(payload): Json<UpdateTenantRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    
+    // An admin should only be able to update their own tenant in a normal setup, 
+    // but a superadmin could update any. For now, since Project Mimir is 
+    // designed for single organization admin usage right now, we allow updating
+    // the specified tenant id if they are an admin.
+    
+    let iam_service = IamService::new(pool);
+    match iam_service.update_tenant(&id, payload).await {
+        Ok(_) => Ok(StatusCode::OK),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

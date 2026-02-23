@@ -196,4 +196,14 @@ impl IamService {
         tx.commit().await?;
         Ok(())
     }
+
+    pub async fn update_tenant(&self, tenant_id: &str, req: crate::models::iam::UpdateTenantRequest) -> Result<()> {
+        sqlx::query!(
+            "UPDATE tenants SET name = ? WHERE id = ?",
+            req.name,
+            tenant_id
+        )
+        .execute(&self.db).await?;
+        Ok(())
+    }
 }
