@@ -2,12 +2,15 @@
 **Project Name:** Project Mimir
 
 ## 1. Meeting Minutes / Progress Reports (บันทึกการประชุม / รายงานความคืบหน้า)
-| Date       | Sprint/Phase | Status    | Key Decisions / References                                     |
-| ---------- | ------------ | --------- | -------------------------------------------------------------- |
-| 2026-02-22 | Sprint 1     | Completed | [ดูรายละเอียด PM_02_1_Sprint1_Report](PM_02_1_Sprint1_Report.md) |
+| Date       | Sprint/Phase | Status    | Key Decisions / References                                             |
+| ---------- | ------------ | --------- | ---------------------------------------------------------------------- |
+| 2026-02-22 | Sprint 1     | Completed | [ดูรายละเอียด PM_02_1_Sprint1_Report](PM_02_1_Sprint1_Report.md)         |
+| 2026-02-23 | Sprint 2     | Completed | [ดูรายละเอียด SI_04_2_Sprint2_TestScript](SI_04_2_Sprint2_TestScript.md) |
 
 ## 2. Issue / Change Logs (บันทึกปัญหาและการเปลี่ยนแปลง)
 | Date       | Issue / Change Request                                     | Raised By | Status | Resolution          |
 | ---------- | ---------------------------------------------------------- | --------- | ------ | ------------------- |
-| 2026-02-23 | #19 Tenant Settings Page Feature                           | User      | Closed | PR Merged on GitHub |
-| 2026-02-22 | [#17] Users page redirects to login due to undefined token | USER      | Open   | PR Opened on GitHub |
+| 2026-02-23 | #27 Bug: Missing Settings Menu from Navbar                 | User      | Closed | PR #28 Merged       |
+| 2026-02-23 | #25 Bug: Users table fail to load                          | System    | Closed | PR #26 Merged       |
+| 2026-02-23 | #19 Tenant Settings Page Feature                           | User      | Closed | PR #20 Merged       |
+| 2026-02-22 | [#17] Users page redirects to login due to undefined token | USER      | Closed | PR Opened on GitHub |
