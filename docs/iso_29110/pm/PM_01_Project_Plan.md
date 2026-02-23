@@ -17,11 +17,13 @@
   - Backend API (CRUD Users/Tenants), Auth Middleware, Frontend Dashboard
 - **Sprint 2: Data Isolation & Vector Management + Tenant Settings** [ระบุช่วงเวลา]
   - Tenant ID migrations, Ingestion Pipeline update, Vector Search UI, Tenant Settings UI
-- **Sprint 3: Quality Control & Hallucination Prevention** [ระบุช่วงเวลา]
+- **Sprint 3: Tenant Configuration & Provisioning Workflow** [ระบุช่วงเวลา]
+  - Centralized Config Schema, New Tenant Provisioning Flow, Tenant Management UI
+- **Sprint 4: Quality Control & Hallucination Prevention** [ระบุช่วงเวลา]
   - Data Clustering, LLM Consensus Checker, Conflict Resolution UI
-- **Sprint 4: Agent Evaluations System** [ระบุช่วงเวลา]
+- **Sprint 5: Agent Evaluations System** [ระบุช่วงเวลา]
   - Evaluation Background Job, Real-time Progress Bar, QA Results by Tenant
-- **Sprint 5: Data Ingress Monitoring** [ระบุช่วงเวลา]
+- **Sprint 6: Data Ingress Monitoring** [ระบุช่วงเวลา]
   - Data Source CRUD APIs, Streaming Logs UI, Real-time status websockets
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
