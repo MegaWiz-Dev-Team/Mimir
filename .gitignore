@@ -36,3 +36,7 @@ venv/
 *.pdf
 *.docx
 ._*
+
+# Log Files
+*.log
+monitor.log
