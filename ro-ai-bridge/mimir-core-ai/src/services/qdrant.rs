@@ -109,16 +109,23 @@ impl QdrantService {
         Ok(body)
     }
 
-    pub async fn search(&self, collection_name: &str, vector: Vec<f32>, limit: usize, tenant_id: &str) -> Result<serde_json::Value> {
+    pub async fn search(&self, collection_name: &str, vector: Vec<f32>, limit: usize, tenant_id: &str, show_expired: bool) -> Result<serde_json::Value> {
         let url = format!("{}/collections/{}/points/search", self.base_url, collection_name);
+        
+        let mut must_conditions = vec![
+            json!({ "key": "tenant_id", "match": { "value": tenant_id } })
+        ];
+        
+        if !show_expired {
+            must_conditions.push(json!({ "key": "is_active", "match": { "value": true } }));
+        }
+
         let body = json!({
             "vector": vector,
             "limit": limit,
             "with_payload": true,
             "filter": {
-                "must": [
-                    { "key": "tenant_id", "match": { "value": tenant_id } }
-                ]
+                "must": must_conditions
             }
         });
 
@@ -134,5 +141,24 @@ impl QdrantService {
 
         let res = resp.json().await?;
         Ok(res)
+    }
+
+    pub async fn delete_point(&self, collection_name: &str, point_id: u64) -> Result<()> {
+        let url = format!("{}/collections/{}/points/delete", self.base_url, collection_name);
+        let body = json!({
+            "points": [point_id]
+        });
+
+        let resp = self.client.post(&url)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let error = resp.text().await?;
+            return Err(anyhow::anyhow!("Failed to delete point: {}", error));
+        }
+
+        Ok(())
     }
 }

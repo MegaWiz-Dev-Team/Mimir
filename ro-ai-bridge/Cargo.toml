@@ -20,6 +20,7 @@ futures = { workspace = true }
 html2md = { workspace = true }
 reqwest = { workspace = true }
 reqwest-eventsource = { workspace = true }
+jsonwebtoken = { workspace = true }
 rig-core = { workspace = true }
 schemars = { workspace = true }
 scraper = { workspace = true }

@@ -213,7 +213,7 @@ impl RagRetriever {
     pub async fn search_wiki(&self, query: &str, limit: usize, tenant_id: &str) -> Result<Vec<SourceCitation>> {
         let vector = self.get_embedding(query).await?;
         
-        let results = self.qdrant.search(COLLECTION_WIKI_QA, vector, limit, tenant_id).await?;
+        let results = self.qdrant.search(COLLECTION_WIKI_QA, vector, limit, tenant_id, false).await?;
         
         let citations = Self::parse_search_results(results, "wiki")?;
         Ok(citations)
@@ -222,7 +222,7 @@ impl RagRetriever {
     pub async fn search_game_data(&self, query: &str, limit: usize, tenant_id: &str) -> Result<Vec<SourceCitation>> {
         let vector = self.get_embedding(query).await?;
         
-        let results = self.qdrant.search(COLLECTION_GAME_DATA, vector, limit, tenant_id).await?;
+        let results = self.qdrant.search(COLLECTION_GAME_DATA, vector, limit, tenant_id, false).await?;
         
         let citations = Self::parse_search_results(results, "game_data")?;
         Ok(citations)

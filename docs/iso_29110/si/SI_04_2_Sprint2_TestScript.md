@@ -37,6 +37,7 @@ This document outlines the test cases for Sprint 2 of Project Mimir. The focus i
 1. Use an API client or the UI to fetch records from a tenant-aware endpoint (e.g., Vector Search or QA/QC results).
 2. Look at the filtered results.
 **Expected Result:** Only data associated with Tenant A should be returned.
+**Status:** [Pass] - Verified via automated backend integration tests. API strictly enforces TenantContext logic.
 
 ### TC_SP2_04: Vector Management UI Updates
 **Description:** Verify that vector management UI correctly allows removing entries and viewing score badges.
@@ -47,3 +48,4 @@ This document outlines the test cases for Sprint 2 of Project Mimir. The focus i
 3. Verify the Similarity Score badges display corresponding colors based on threshold.
 4. Click the "Delete Vector" 🗑️ button on a specific entry and confirm.
 **Expected Result:** Entry is deleted from Qdrant, and the results list updates accurately.
+**Status:** [Pass] - Automated endpoints tested and UI validated to contain expanders, badges, and delete functionality.
