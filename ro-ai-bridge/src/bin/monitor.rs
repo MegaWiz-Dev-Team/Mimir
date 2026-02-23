@@ -143,9 +143,7 @@ async fn main() -> Result<()> {
         iam,
     });
 
-    let app = Router::new()
-        // Auth
-        .route("/api/v1/auth/login", post(auth_login))
+    let auth_routes = Router::new()
         
         // Quality Control
         .route("/api/v1/qc/clusters", get(get_qc_clusters))
@@ -173,7 +171,12 @@ async fn main() -> Result<()> {
         .route("/api/personas/{name}/config", post(update_persona_config_handler))
         // Wiki content endpoint
         .route("/api/wiki/{filename}", get(get_wiki_content))
-        .layer(axum::middleware::from_fn(tenant_auth_middleware))
+        .layer(axum::middleware::from_fn(tenant_auth_middleware));
+
+    let app = Router::new()
+        // Auth (Public)
+        .route("/api/v1/auth/login", post(auth_login))
+        .merge(auth_routes)
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
