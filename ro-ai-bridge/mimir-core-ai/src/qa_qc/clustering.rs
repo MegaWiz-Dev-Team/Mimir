@@ -153,8 +153,7 @@ Return a STRICT JSON list:
         let resp = agent.prompt(input_text).await;
         match resp {
             Ok(json_str) => {
-                let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();
-                if let Ok(results) = serde_json::from_str::<Vec<serde_json::Value>>(cleaned) {
+                if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
                     for r in results {
                         let c_type = r["type"].as_str().unwrap_or("DUPLICATE");
                         let topic = r["topic"].as_str().unwrap_or("Unknown Topic");
@@ -191,12 +190,71 @@ Return a STRICT JSON list:
                         }
                     }
                 } else {
-                    warn!("Failed to parse Gemini output as JSON: {}", cleaned);
+                    warn!("Failed to parse Gemini output as JSON: {}", json_str);
                 }
             },
             Err(e) => error!("Gemini prompt failed: {}", e)
         }
 
         Ok(())
+    }
+
+    /// Extracted helper to parse Gemini JSON output
+    pub fn parse_gemini_clustering_output(json_str: &str) -> std::result::Result<Vec<serde_json::Value>, serde_json::Error> {
+        let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();
+        serde_json::from_str::<Vec<serde_json::Value>>(cleaned)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_gemini_clean_json() {
+        let json_input = r#"[
+            {
+                "type": "CONFLICT",
+                "topic": "Combat",
+                "reasoning": "Contradicting advice",
+                "qa_id_1": 1,
+                "qa_id_2": 2,
+                "golden_answer": null
+            }
+        ]"#;
+
+        let res = ClusteringService::parse_gemini_clustering_output(json_input).unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0]["type"], "CONFLICT");
+        assert_eq!(res[0]["qa_id_1"], 1);
+    }
+
+    #[test]
+    fn test_parse_gemini_markdown_wrapped_json() {
+        let json_input = r#"```json
+[
+    {
+        "type": "DUPLICATE",
+        "topic": "Movement",
+        "reasoning": "Same info",
+        "qa_id_1": 4,
+        "qa_id_2": 5,
+        "golden_answer": "Just walk"
+    }
+]
+```"#;
+
+        let res = ClusteringService::parse_gemini_clustering_output(json_input).unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0]["type"], "DUPLICATE");
+        assert_eq!(res[0]["qa_id_1"], 4);
+        assert_eq!(res[0]["golden_answer"], "Just walk");
+    }
+
+    #[test]
+    fn test_parse_gemini_invalid_json() {
+        let json_input = "Not a json response";
+        let res = ClusteringService::parse_gemini_clustering_output(json_input);
+        assert!(res.is_err());
     }
 }
