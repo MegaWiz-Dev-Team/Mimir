@@ -223,10 +223,10 @@ async fn trigger_run(
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
     
     let default_provider_str = tenant_config.as_ref()
-        .and_then(|c| c.default_provider.clone())
+        .map(|c| c.default_provider.clone())
         .unwrap_or_else(|| "ollama".to_string());
     let default_model_str = tenant_config.as_ref()
-        .and_then(|c| c.default_model.clone());
+        .map(|c| c.default_model.clone());
 
     let provider = payload.provider.unwrap_or(default_provider_str);
     let model = payload.model.or(default_model_str).unwrap_or_else(|| {
@@ -615,17 +615,17 @@ async fn chat_handler(
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
     
     let default_provider_str = tenant_config.as_ref()
-        .and_then(|c| c.default_provider.clone())
+        .map(|c| c.default_provider.clone())
         .unwrap_or_else(|| "ollama".to_string());
     let default_model_str = tenant_config.as_ref()
-        .and_then(|c| c.default_model.clone());
+        .map(|c| c.default_model.clone());
 
     let provider = payload.provider.as_deref()
         .unwrap_or(&default_provider_str)
         .parse::<LlmProvider>()
         .unwrap_or(LlmProvider::Ollama);
     
-    let model_name = payload.model.clone()
+    let model = payload.model.clone()
         .or(default_model_str)
         .unwrap_or_else(|| {
             match provider {
@@ -635,7 +635,7 @@ async fn chat_handler(
         });
 
     info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
-          payload.tier, payload.persona, provider, model_name, payload.message, payload.tenant_id);
+          payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
     
     // Load persona
     let persona = match Persona::load_by_name_cached(&payload.persona) {
@@ -652,7 +652,7 @@ async fn chat_handler(
     match payload.tier {
         1 => {
             // Tier 1: Simple NPC (no RAG)
-            let agent = SimpleNpcAgent::with_model(persona, &model_name);
+            let agent = SimpleNpcAgent::with_model(persona, &model);
             
             match agent.chat(&payload.message).await {
                 Ok(response) => {
@@ -664,7 +664,7 @@ async fn chat_handler(
                         persona: payload.persona,
                         latency_ms: start.elapsed().as_millis() as u64,
                         provider: provider.to_string(),
-                        model: model_name,
+                        model: model.clone(),
                         confidence_score: None,
                         confidence_level: None,
                         sources: None,
@@ -692,7 +692,7 @@ async fn chat_handler(
                 state.qdrant.clone(),
                 plugins,
                 provider.clone(),
-                model.as_deref(),
+                Some(&model),
                 None,
                 tenant_id.clone(),
             );
@@ -705,7 +705,7 @@ async fn chat_handler(
                         persona: payload.persona,
                         latency_ms: response.latency_ms,
                         provider: provider.to_string(),
-                        model: model_name,
+                        model: model.clone(),
                         confidence_score: Some(response.confidence_score),
                         confidence_level: Some(format!("{:?}", response.confidence_level)),
                         sources: Some(response.sources.iter().map(|s| {
@@ -747,17 +747,17 @@ async fn chat_stream_handler(
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
     
     let default_provider_str = tenant_config.as_ref()
-        .and_then(|c| c.default_provider.clone())
+        .map(|c| c.default_provider.clone())
         .unwrap_or_else(|| "ollama".to_string());
     let default_model_str = tenant_config.as_ref()
-        .and_then(|c| c.default_model.clone());
+        .map(|c| c.default_model.clone());
 
     let provider = payload.provider.as_deref()
         .unwrap_or(&default_provider_str)
         .parse::<LlmProvider>()
         .unwrap_or(LlmProvider::Ollama);
     
-    let model_name = payload.model.clone()
+    let model = payload.model.clone()
         .or(default_model_str)
         .unwrap_or_else(|| {
             match provider {
@@ -767,7 +767,7 @@ async fn chat_stream_handler(
         });
     
     info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
-          payload.tier, payload.persona, provider, model_name, payload.message, payload.tenant_id);
+          payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
     let (tx, rx) = mpsc::channel(100);
     let start = std::time::Instant::now();
     
@@ -795,7 +795,7 @@ async fn chat_stream_handler(
         match tier {
             1 => {
                 // Tier 1: Simple NPC (no RAG) - simulate streaming
-                let agent = SimpleNpcAgent::with_model(persona, &model_name);
+                let agent = SimpleNpcAgent::with_model(persona, &model);
                 
                 match agent.chat(&message).await {
                     Ok(response) => {
@@ -846,7 +846,7 @@ async fn chat_stream_handler(
                     qdrant, 
                     plugins,
                     provider.clone(),
-                    model.as_deref(),
+                    Some(&model),
                     None,
                     tenant_id.clone(),
                 );

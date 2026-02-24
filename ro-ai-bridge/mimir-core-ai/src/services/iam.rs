@@ -213,13 +213,13 @@ impl IamService {
             r#"
             SELECT 
                 tenant_id, 
-                default_provider, 
-                default_model, 
-                provider_api_keys, 
-                qa_rules, 
+                default_provider AS "default_provider!", 
+                default_model AS "default_model!", 
+                provider_api_keys AS "provider_api_keys: sqlx::types::Json<serde_json::Value>", 
+                qa_rules AS "qa_rules: sqlx::types::Json<serde_json::Value>", 
                 system_prompt, 
-                max_daily_tokens, 
-                is_dedicated_vector_db, 
+                max_daily_tokens AS "max_daily_tokens!", 
+                is_dedicated_vector_db AS "is_dedicated_vector_db: bool" , 
                 created_at, 
                 updated_at
             FROM tenant_configs 
@@ -234,8 +234,8 @@ impl IamService {
     pub async fn update_tenant_config(&self, tenant_id: &str, req: crate::models::iam::UpdateTenantConfigRequest) -> Result<()> {
         let config = self.get_tenant_config(tenant_id).await?;
 
-        let default_provider = req.default_provider.unwrap_or(config.default_provider.unwrap_or_else(|| "ollama".to_string()));
-        let default_model = req.default_model.unwrap_or(config.default_model.unwrap_or_else(|| "llama3.2".to_string()));
+        let default_provider = req.default_provider.unwrap_or(config.default_provider.clone());
+        let default_model = req.default_model.unwrap_or(config.default_model.clone());
         let provider_api_keys = req.provider_api_keys.or(config.provider_api_keys);
         let qa_rules = req.qa_rules.or(config.qa_rules);
         let system_prompt = req.system_prompt.or(config.system_prompt);
@@ -315,8 +315,8 @@ impl IamService {
     pub async fn delete_tenant(&self, tenant_id: &str) -> Result<()> {
         let config = self.get_tenant_config(tenant_id).await.unwrap_or_else(|_| crate::models::iam::TenantConfig {
                 tenant_id: tenant_id.to_string(),
-                default_provider: None,
-                default_model: None,
+                default_provider: "ollama".to_string(),
+                default_model: "llama3.2".to_string(),
                 provider_api_keys: None,
                 qa_rules: None,
                 system_prompt: None,

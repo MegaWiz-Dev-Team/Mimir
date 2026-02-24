@@ -411,7 +411,11 @@ export function streamChat(
 ): () => void {
     const controller = new AbortController();
 
-    authFetch(`${API_BASE_URL}/agents/chat/stream`, {
+    const token = Cookies.get("access_token") || "";
+    const tenantId = Cookies.get("tenant_id") || "";
+    const query = new URLSearchParams({ token, tenant_id: tenantId }).toString();
+
+    authFetch(`${API_BASE_URL}/agents/chat/stream?${query}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -530,13 +534,13 @@ export async function fetchUsers(): Promise<User[]> {
 }
 
 export async function fetchTenants(): Promise<Tenant[]> {
-    const res = await authFetch(`${API_BASE_URL}/tenants`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch tenants");
     return res.json();
 }
 
 export async function createTenant(data: CreateTenantRequest): Promise<Tenant> {
-    const res = await authFetch(`${API_BASE_URL}/tenants`, {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -546,20 +550,20 @@ export async function createTenant(data: CreateTenantRequest): Promise<Tenant> {
 }
 
 export async function deleteTenant(id: string): Promise<void> {
-    const res = await authFetch(`${API_BASE_URL}/tenants/${id}`, {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}`, {
         method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete tenant");
 }
 
 export async function fetchTenantConfig(id: string): Promise<TenantConfig> {
-    const res = await authFetch(`${API_BASE_URL}/tenants/${id}/config`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}/config`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch tenant config");
     return res.json();
 }
 
 export async function updateTenantConfig(id: string, data: Partial<TenantConfig>): Promise<void> {
-    const res = await authFetch(`${API_BASE_URL}/tenants/${id}/config`, {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}/config`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -603,7 +607,7 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export async function updateTenant(id: string, name: string): Promise<void> {
-    const res = await authFetch(`${API_BASE_URL}/tenants/${id}`, {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
