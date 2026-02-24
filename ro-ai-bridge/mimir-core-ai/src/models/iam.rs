@@ -74,10 +74,10 @@ pub struct LoginResponse {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TenantConfig {
     pub tenant_id: String,
-    pub default_provider: Option<String>,
-    pub default_model: Option<String>,
-    pub provider_api_keys: Option<serde_json::Value>,
-    pub qa_rules: Option<serde_json::Value>,
+    pub default_provider: String,
+    pub default_model: String,
+    pub provider_api_keys: Option<sqlx::types::Json<serde_json::Value>>,
+    pub qa_rules: Option<sqlx::types::Json<serde_json::Value>>,
     pub system_prompt: Option<String>,
     pub max_daily_tokens: i64,
     pub is_dedicated_vector_db: bool,
@@ -89,8 +89,8 @@ pub struct TenantConfig {
 pub struct UpdateTenantConfigRequest {
     pub default_provider: Option<String>,
     pub default_model: Option<String>,
-    pub provider_api_keys: Option<serde_json::Value>,
-    pub qa_rules: Option<serde_json::Value>,
+    pub provider_api_keys: Option<sqlx::types::Json<serde_json::Value>>,
+    pub qa_rules: Option<sqlx::types::Json<serde_json::Value>>,
     pub system_prompt: Option<String>,
     pub max_daily_tokens: Option<i64>,
     pub is_dedicated_vector_db: Option<bool>,
