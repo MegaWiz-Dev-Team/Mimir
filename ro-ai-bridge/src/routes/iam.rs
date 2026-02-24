@@ -9,7 +9,10 @@ use axum::{
 use sqlx::MySqlPool;
 
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
-use mimir_core_ai::models::iam::{CreateUserRequest, UpdateUserPasswordRequest, UpdateUserRoleRequest, UpdateTenantRequest};
+use mimir_core_ai::models::iam::{
+    CreateUserRequest, UpdateUserPasswordRequest, UpdateUserRoleRequest, UpdateTenantRequest,
+    CreateTenantRequest, UpdateTenantConfigRequest, TenantConfig
+};
 use mimir_core_ai::services::iam::IamService;
 
 pub fn iam_routes() -> Router<MySqlPool> {
@@ -18,8 +21,9 @@ pub fn iam_routes() -> Router<MySqlPool> {
         .route("/users/{id}/role", patch(update_user_role))
         .route("/users/{id}/password", patch(update_user_password))
         .route("/users/{id}", delete(delete_user))
-        .route("/tenants", get(get_tenants))
-        .route("/tenants/{id}", patch(update_tenant))
+        .route("/tenants", get(get_tenants).post(create_tenant))
+        .route("/tenants/{id}", patch(update_tenant).delete(delete_tenant))
+        .route("/tenants/{id}/config", get(get_tenant_config).patch(update_tenant_config))
         .route_layer(middleware::from_fn(tenant_auth_middleware))
 }
 
@@ -129,6 +133,63 @@ async fn update_tenant(
     
     let iam_service = IamService::new(pool);
     match iam_service.update_tenant(&id, payload).await {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn create_tenant(
+    State(pool): State<MySqlPool>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Json(payload): Json<CreateTenantRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    
+    let iam_service = IamService::new(pool);
+    match iam_service.create_tenant(payload).await {
+        Ok(tenant) => Ok((StatusCode::CREATED, Json(tenant))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn delete_tenant(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    
+    let iam_service = IamService::new(pool);
+    match iam_service.delete_tenant(&id).await {
+        Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_tenant_config(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    
+    let iam_service = IamService::new(pool);
+    match iam_service.get_tenant_config(&id).await {
+        Ok(config) => Ok(Json(config)),
+        Err(_) => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn update_tenant_config(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Json(payload): Json<UpdateTenantConfigRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    
+    let iam_service = IamService::new(pool);
+    match iam_service.update_tenant_config(&id, payload).await {
         Ok(_) => Ok(StatusCode::OK),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }

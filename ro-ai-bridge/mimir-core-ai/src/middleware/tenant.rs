@@ -30,13 +30,22 @@ pub async fn tenant_auth_middleware(
     let auth_header = req.headers().get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
 
+    // Fallback to query parameters for SSE/WebSocket
+    let query_string = req.uri().query().unwrap_or("");
+    let query_params: std::collections::HashMap<String, String> =
+        serde_urlencoded::from_str(query_string).unwrap_or_default();
+
     let token = if let Some(auth) = auth_header {
         if auth.starts_with("Bearer ") {
-            auth.trim_start_matches("Bearer ")
+            auth.trim_start_matches("Bearer ").to_string()
         } else {
+            tracing::error!("Auth missing Bearer prefix in Header");
             return Err(StatusCode::UNAUTHORIZED);
         }
+    } else if let Some(t) = query_params.get("token") {
+        t.to_string()
     } else {
+        tracing::error!("Auth missing token entirely in Header or Query");
         return Err(StatusCode::UNAUTHORIZED);
     };
 
@@ -44,12 +53,15 @@ pub async fn tenant_auth_middleware(
     
     // Decode and validate token
     let token_data = match decode::<TenantClaims>(
-        token,
+        &token,
         &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::new(Algorithm::HS256),
     ) {
         Ok(c) => c,
-        Err(_) => return Err(StatusCode::UNAUTHORIZED),
+        Err(e) => {
+            tracing::error!("JWT Validation Failed: {}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
     };
 
     req.extensions_mut().insert(TenantContext {

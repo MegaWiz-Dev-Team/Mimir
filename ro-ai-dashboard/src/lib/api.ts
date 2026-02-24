@@ -411,7 +411,11 @@ export function streamChat(
 ): () => void {
     const controller = new AbortController();
 
-    authFetch(`${API_BASE_URL}/agents/chat/stream`, {
+    const token = Cookies.get("access_token") || "";
+    const tenantId = Cookies.get("tenant_id") || "";
+    const query = new URLSearchParams({ token, tenant_id: tenantId }).toString();
+
+    authFetch(`${API_BASE_URL}/agents/chat/stream?${query}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -505,6 +509,24 @@ export interface Tenant {
     updated_at: string | null;
 }
 
+export interface TenantConfig {
+    tenant_id: string;
+    default_provider?: string;
+    default_model?: string;
+    provider_api_keys?: Record<string, any>;
+    qa_rules?: Record<string, any>;
+    system_prompt?: string;
+    max_daily_tokens: number;
+    is_dedicated_vector_db: boolean;
+}
+
+export interface CreateTenantRequest {
+    name: string;
+    is_dedicated_vector_db: boolean;
+    admin_email: string;
+    admin_password?: string;
+}
+
 export async function fetchUsers(): Promise<User[]> {
     const res = await authFetch(`${API_BASE_URL}/iam/users`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch users");
@@ -515,6 +537,38 @@ export async function fetchTenants(): Promise<Tenant[]> {
     const res = await authFetch(`${API_BASE_URL}/iam/tenants`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch tenants");
     return res.json();
+}
+
+export async function createTenant(data: CreateTenantRequest): Promise<Tenant> {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to create tenant");
+    return res.json();
+}
+
+export async function deleteTenant(id: string): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete tenant");
+}
+
+export async function fetchTenantConfig(id: string): Promise<TenantConfig> {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}/config`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch tenant config");
+    return res.json();
+}
+
+export async function updateTenantConfig(id: string, data: Partial<TenantConfig>): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/tenants/${id}/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update tenant config");
 }
 
 export async function createUser(data: any): Promise<User> {

@@ -114,8 +114,8 @@ impl SimpleNpcAgent {
                 let client = gemini::Client::from_env();
                 AgentImplementation::Gemini(client.agent(&model_name)
                     .preamble(&preamble)
-                    .tool(HealTool::new(action_capture.clone()))
-                    .tool(BuffTool::new(action_capture.clone()))
+                    // Removed native tools as rig-core 0.10.0 has JSON parsing issues with tool responses
+                    // We rely on the ReAct-style prompt fallback instead
                     .build())
             },
             _ => {
@@ -123,8 +123,8 @@ impl SimpleNpcAgent {
                 let client = ollama::Client::new();
                 AgentImplementation::Ollama(client.agent(&model_name)
                     .preamble(&preamble)
-                    .tool(HealTool::new(action_capture.clone()))
-                    .tool(BuffTool::new(action_capture.clone()))
+                    // Removed native tools as rig-core 0.10.0 fails to parse Ollama's tool response body
+                    // We rely on the ReAct-style prompt fallback instead
                     .build())
             }
         };
