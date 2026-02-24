@@ -37,7 +37,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - หากต้องการลบ กดที่ไอคอน "ถังขยะ" หลังชื่อ Tenant
    - ระบบจะทำการลบข้อมูลที่เกี่ยวข้อง (รวมถึงบัญชีผู้ใช้, Config, และข้อมูลใน Vector DB) อย่างหมดจด
 
-![ภาพตัวอย่างหน้า Tenant Management](/Users/paripolt/.gemini/antigravity/brain/7a76097f-90af-4d4c-a196-5a86716b23de/sprint3_e2e_correct_credentials_1771941079220.webp)
+![ภาพตัวอย่างหน้า Tenant Management](./images/sprint3_e2e_correct_credentials.webp)
 
 #### การตั้งค่า Tenant Configuration (สำหรับ Tenant Admin)
 ในแต่ละ Workspace ผู้ดูแลระบบของพื้นที่สามารถปรับแต่ง AI ของตัวเองได้:
@@ -88,7 +88,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
 4. หาก AI ได้รับอนุญาตให้สั่งการในเกม จะเห็นโครงสร้างคำสั่งสีเขียวใต้ข้อความ (เช่น `[ACTION: heal]`)
 5. หากใช้ข้อมูลอ้างอิง ระบบจะแสดงกล่อง **"Source Citation"** ดึงพิกัดเอกสารที่ใช้อ้างอิงมาแสดงด้านล่าง
 
-![ภาพตัวอย่างการใช้ AI Playground (Actions)](/Users/paripolt/.gemini/antigravity/brain/7a76097f-90af-4d4c-a196-5a86716b23de/sprint3_e2e_ts04_final_fix_1771948496619.webp)
+![ภาพตัวอย่างการใช้ AI Playground (Actions)](./images/sprint3_e2e_ts04_final_fix.webp)
 
 #### การควบคุมคุณภาพข้อมูล (Quality Control)
 ใช้สำหรับตรวจสอบและแก้ไขคำถาม-คำตอบ (Q/A) ที่ AI สกัดออกมาก่อนนำไปใช้งานจริง:
