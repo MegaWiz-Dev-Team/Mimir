@@ -130,6 +130,11 @@ impl QAConfig {
         }
     }
 
+    /// Load configuration from a generic JSON Value (e.g., from DB)
+    pub fn from_value(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(value)
+    }
+
     /// Determine Q/A count based on file name and content size
     /// Priority: file pattern > size rule > default
     pub fn get_qa_count(&self, file_name: &str, content_size: usize) -> usize {

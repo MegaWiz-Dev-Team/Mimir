@@ -217,11 +217,23 @@ async fn trigger_run(
     tenant_ctx: Option<Extension<TenantContext>>,
     Json(payload): Json<RunRequest>,
 ) -> Json<RunResponse> {
-    let provider = payload.provider.unwrap_or_else(|| "ollama".to_string());
-    let model = payload.model.unwrap_or_else(|| "llama3.2".to_string());
-    let is_test = payload.test_run.unwrap_or(false);
     let tenant_id = tenant_ctx.map(|ctx| ctx.tenant_id.clone())
         .unwrap_or_else(|| payload.tenant_id.unwrap_or_else(|| "default_tenant".to_string()));
+        
+    let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
+    
+    let default_provider_str = tenant_config.as_ref()
+        .map(|c| c.default_provider.clone())
+        .unwrap_or_else(|| "ollama".to_string());
+    let default_model_str = tenant_config.as_ref()
+        .map(|c| c.default_model.clone());
+
+    let provider = payload.provider.unwrap_or(default_provider_str);
+    let model = payload.model.or(default_model_str).unwrap_or_else(|| {
+        if provider == "gemini" { "gemini-2.5-flash".to_string() } else { "llama3.2".to_string() }
+    });
+    
+    let is_test = payload.test_run.unwrap_or(false);
     
     // Load QA config from file (uses defaults if file not found)
     let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
@@ -599,25 +611,31 @@ async fn chat_handler(
 ) -> impl IntoResponse {
     let start = std::time::Instant::now();
     
-    // Parse provider (default to Ollama)
-    let provider = payload.provider.as_ref()
-        .and_then(|p| p.parse::<LlmProvider>().ok())
+    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
+    let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
+    
+    let default_provider_str = tenant_config.as_ref()
+        .map(|c| c.default_provider.clone())
+        .unwrap_or_else(|| "ollama".to_string());
+    let default_model_str = tenant_config.as_ref()
+        .map(|c| c.default_model.clone());
+
+    let provider = payload.provider.as_deref()
+        .unwrap_or(&default_provider_str)
+        .parse::<LlmProvider>()
         .unwrap_or(LlmProvider::Ollama);
     
-    // Get model name based on provider
-    let model = payload.model.clone();
-    let model_name = model.clone().unwrap_or_else(|| {
-        match provider {
-            LlmProvider::Ollama => "llama3.2".to_string(),
-            LlmProvider::Gemini => "gemini-2.0-flash".to_string(),
-        }
-    });
-    
+    let model = payload.model.clone()
+        .or(default_model_str)
+        .unwrap_or_else(|| {
+            match provider {
+                LlmProvider::Ollama => "llama3.2".to_string(),
+                LlmProvider::Gemini => "gemini-2.5-flash".to_string(),
+            }
+        });
+
     info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
-          payload.tier, payload.persona, provider, model_name, payload.message, payload.tenant_id);
-    
-    // Default to default_tenant if missing
-    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
+          payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
     
     // Load persona
     let persona = match Persona::load_by_name_cached(&payload.persona) {
@@ -634,7 +652,7 @@ async fn chat_handler(
     match payload.tier {
         1 => {
             // Tier 1: Simple NPC (no RAG)
-            let agent = SimpleNpcAgent::with_model(persona, &model_name);
+            let agent = SimpleNpcAgent::with_model(persona, &model);
             
             match agent.chat(&payload.message).await {
                 Ok(response) => {
@@ -646,7 +664,7 @@ async fn chat_handler(
                         persona: payload.persona,
                         latency_ms: start.elapsed().as_millis() as u64,
                         provider: provider.to_string(),
-                        model: model_name,
+                        model: model.clone(),
                         confidence_score: None,
                         confidence_level: None,
                         sources: None,
@@ -674,7 +692,7 @@ async fn chat_handler(
                 state.qdrant.clone(),
                 plugins,
                 provider.clone(),
-                model.as_deref(),
+                Some(&model),
                 None,
                 tenant_id.clone(),
             );
@@ -687,7 +705,7 @@ async fn chat_handler(
                         persona: payload.persona,
                         latency_ms: response.latency_ms,
                         provider: provider.to_string(),
-                        model: model_name,
+                        model: model.clone(),
                         confidence_score: Some(response.confidence_score),
                         confidence_level: Some(format!("{:?}", response.confidence_level)),
                         sources: Some(response.sources.iter().map(|s| {
@@ -725,23 +743,31 @@ async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ChatRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
-    // Parse provider (default to Ollama)
-    let provider = payload.provider.as_ref()
-        .and_then(|p| p.parse::<LlmProvider>().ok())
+    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
+    let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
+    
+    let default_provider_str = tenant_config.as_ref()
+        .map(|c| c.default_provider.clone())
+        .unwrap_or_else(|| "ollama".to_string());
+    let default_model_str = tenant_config.as_ref()
+        .map(|c| c.default_model.clone());
+
+    let provider = payload.provider.as_deref()
+        .unwrap_or(&default_provider_str)
+        .parse::<LlmProvider>()
         .unwrap_or(LlmProvider::Ollama);
     
-    // Get model name based on provider
-    let model = payload.model.clone();
-    let model_name = model.clone().unwrap_or_else(|| {
-        match provider {
-            LlmProvider::Ollama => "llama3.2".to_string(),
-            LlmProvider::Gemini => "gemini-2.0-flash".to_string(),
-        }
-    });
+    let model = payload.model.clone()
+        .or(default_model_str)
+        .unwrap_or_else(|| {
+            match provider {
+                LlmProvider::Ollama => "llama3.2".to_string(),
+                LlmProvider::Gemini => "gemini-2.5-flash".to_string(),
+            }
+        });
     
     info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
-          payload.tier, payload.persona, provider, model_name, payload.message, payload.tenant_id);
-    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
+          payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
     let (tx, rx) = mpsc::channel(100);
     let start = std::time::Instant::now();
     
@@ -769,7 +795,7 @@ async fn chat_stream_handler(
         match tier {
             1 => {
                 // Tier 1: Simple NPC (no RAG) - simulate streaming
-                let agent = SimpleNpcAgent::with_model(persona, &model_name);
+                let agent = SimpleNpcAgent::with_model(persona, &model);
                 
                 match agent.chat(&message).await {
                     Ok(response) => {
@@ -820,7 +846,7 @@ async fn chat_stream_handler(
                     qdrant, 
                     plugins,
                     provider.clone(),
-                    model.as_deref(),
+                    Some(&model),
                     None,
                     tenant_id.clone(),
                 );
