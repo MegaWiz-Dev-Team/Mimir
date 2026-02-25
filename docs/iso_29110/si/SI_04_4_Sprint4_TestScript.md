@@ -47,11 +47,12 @@
 | **TC_SP4_06** | Resolve Cluster: Accept A or B  | 1. ลากการ์ดที่มีป้าย `CONFLICT` จากคอลัมน์ "Pending Review" ไปวางในคอลัมน์ "Resolved"<br>2. ในหน้าต่าง Modal ที่ปรากฏขึ้น ให้เลือกกด 'Accept A' หรือ 'Accept B' | ระบบเรียกใช้ API `/api/v1/qc/resolve/{id}` พร้อมกับพารามิเตอร์ `ACCEPT_A` หรือ `ACCEPT_B` และการ์ดถูกย้ายไปที่คอลัมน์ "Resolved" สำเร็จ                     | ✅ Pass                  | #37 / #38      | ![Conflict](/Users/paripolt/.gemini/antigravity/brain/0e601dc7-a32e-48ea-a343-65b9cdb8eca8/conflict_resolution_modal_1771957218944.png)                 |
 | **TC_SP4_07** | Resolve Cluster: Merge          | 1. ลากการ์ดที่มีป้าย `DUPLICATE` จากคอลัมน์ "Pending Review" ไปวางในคอลัมน์ "Resolved"<br>2. พิมพ์คำตอบใหม่ที่เป็นการรวมข้อมูล (Golden Answer) และกดยืนยัน        | ระบบเรียกใช้ API พร้อบกับพารามิเตอร์ `MERGE` และบันทึกคำตอบ `golden_answer` ลงฐานข้อมูล การ์ดเปลี่ยนสถานะและแสดงผลใน "Resolved" สำเร็จ                      | ✅ Pass                  | #37 / #38      | ![Duplicate](/Users/paripolt/.gemini/antigravity/brain/0e601dc7-a32e-48ea-a343-65b9cdb8eca8/duplicate_resolution_modal_1771957291575.png)               |
 | **TC_SP4_08** | Auto-scan QC UI Feedback Status | 1. กดปุ่ม "Auto-scan QC issues"<br>2. สังเกตการเปลี่ยนแปลงบนหน้าจอ<br>3. กด Refresh (F5) ขณะที่ระบบยังทำงานอยู่                                           | ปุ่มเปลียนเป็นสถานะกำลังโหลด (Disabled) ทันที มีข้อความว่า 'Scanning...' และเมื่อกด Refresh ปุ่มยังคงทับซ้อนและกดซ้ำไม่ได้จนกว่าจะจบ Job เบื้องหลัง                   | ✅ Pass                  | #39            | ![Final Verification](/Users/paripolt/.gemini/antigravity/brain/0e601dc7-a32e-48ea-a343-65b9cdb8eca8/qc_autoscan_final_verification_1771988212110.webp) |
+| **TC_SP4_09** | Vector Stats API Resolution     | 1. เข้าหน้าจอ `/vector` หรือยิง API `GET /api/v1/vector/stats`                                                                                    | ระบบตอบกลับด้วย HTTP 200 OK และหน้าจอแสดงข้อมูลสถิติจาก Qdrant ได้สำเร็จโดยไม่ติดปัญหา 404                                                               | ✅ Pass                  | #41 / #42      | -                                                                                                                                                       |
 
 **สรุปผลการทดสอบ Sprint 4 (Sign-off):** 
 - [x] ผ่านเกณฑ์ทั้งหมด (All Passed) นำผลไปกรอกที่ SI_04 Test Plan
 - [ ] ไม่ผ่านบางส่วน (Partial Fail) - ระบุข้อที่ต้องแก้โค้ดและ Issue Tracking: _________________________________________
 
 **อ้างอิง (GitHub References):**
-- **Issue:** #37, #39 (Sprint 4 - Quality Control & Hallucination Prevention)
-- **Pull Request:** #38
+- **Issue:** #37, #39, #41 (Sprint 4 - Quality Control & Hallucination Prevention)
+- **Pull Request:** #38, #42
