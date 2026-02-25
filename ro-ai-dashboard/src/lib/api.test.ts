@@ -114,3 +114,96 @@ describe('Quality Control API client functionality', () => {
         expect(result).toEqual({ is_generating: false });
     });
 });
+
+import { fetchSources, createSource, deleteSource, syncSource } from './api';
+
+describe('Data Sources API client functionality', () => {
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+        global.fetch = jest.fn();
+        (Cookies.get as jest.Mock).mockReturnValue('mock-tenant-id');
+        process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8080';
+    });
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+        jest.resetAllMocks();
+    });
+
+    it('fetchSources should call correct endpoint and return sources', async () => {
+        const mockSources = [{ id: 1, name: 'Test Source', source_type: 'web', url: 'https://test.com', status: 'active', is_active: true }];
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => mockSources
+        });
+
+        const result = await fetchSources();
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8080/api/v1/sources',
+            expect.objectContaining({
+                cache: 'no-store',
+                headers: {
+                    'Authorization': 'Bearer mock-tenant-id',
+                    'X-Tenant-Id': 'mock-tenant-id',
+                }
+            })
+        );
+        expect(result).toEqual(mockSources);
+    });
+
+    it('createSource should call POST correct endpoint with payload', async () => {
+        const payload = { name: 'New Source', source_type: 'web' as const, url: 'https://new.com' };
+        const mockResponse = { id: 2, ...payload, status: 'active', is_active: true };
+
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => mockResponse
+        });
+
+        const result = await createSource(payload);
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8080/api/v1/sources',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify(payload)
+            })
+        );
+        expect(result).toEqual(mockResponse);
+    });
+
+    it('deleteSource should call DELETE endpoint', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => ({ success: true })
+        });
+
+        await deleteSource(123);
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8080/api/v1/sources/123',
+            expect.objectContaining({
+                method: 'DELETE'
+            })
+        );
+    });
+
+    it('syncSource should call POST sync endpoint', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => ({ message: 'Sync started' })
+        });
+
+        await syncSource(123);
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8080/api/v1/sources/123/sync',
+            expect.objectContaining({
+                method: 'POST'
+            })
+        );
+    });
+});

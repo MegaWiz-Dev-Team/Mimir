@@ -23,7 +23,7 @@
 | ID            | Test Scenario                  | Action / Steps (ขั้นตอนการทดสอบ)                                               | Expected Result (ผลที่คาดหวัง)                                                  | ผลการประเมิน (Pass/Fail) | Issue # / PR # | หมายเหตุ |
 | ------------- | ------------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------- | -------------- | ------- |
 | **TC_SP5_U1** | Backend Unit Tests Executions  | 1. รันสคริปต์ `cargo test -p mimir-core-ai ingress` ในโฟลเดอร์รหัสต้นฉบับฝั่ง Backend | Unit tests สำหรับฟังก์ชัน CRUD ของ Data Sources และ Parsers ผ่านทั้งหมด (All Passed) | ✅ Pass                  | #49 / #50      | -       |
-| **TC_SP5_U2** | Frontend Unit Tests Executions | 1. รันสคริปต์ `npm run test` ในโฟลเดอร์ Dashboard                                | Unit tests ของฟังก์ชันเรียก API ด้าน Frontend สำหรับ Sources ผ่านทั้งหมด (All Passed)  | ➖ Pending               |                | -       |
+| **TC_SP5_U2** | Frontend Unit Tests Executions | 1. รันสคริปต์ `npm run test` ในโฟลเดอร์ Dashboard                                | Unit tests ของฟังก์ชันเรียก API ด้าน Frontend สำหรับ Sources ผ่านทั้งหมด (All Passed)  | ✅ Pass                  | #49 / #50      | -       |
 
 ---
 
