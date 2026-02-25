@@ -66,8 +66,8 @@ impl IngressManager {
         info!("Successfully extracted {} bytes of text from {}. Preview: {}...", clean_text.len(), url, preview);
 
         // TODO: Send robust extracted text to Qdrant via QdrantService
-        // For now, returning success message to mark the job as completed.
-        Ok(format!("Successfully fetched and processed {} bytes from {}", clean_text.len(), url))
+        // Returning the raw text to be stored in the database for preview
+        Ok(clean_text)
     }
 }
 

@@ -639,6 +639,9 @@ export interface DataSource {
     config_json: any;
     schedule: string | null;
     last_sync_status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | null;
+    raw_markdown?: string | null;
+    mb_size?: number | null;
+    total_chunks?: number | null;
     last_sync_at: string | null;
     created_at: string;
     updated_at: string;

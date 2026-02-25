@@ -11,6 +11,7 @@ import { CoverageChart } from "@/components/ui/coverage-chart";
 import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 export default function StepDetailsPage() {
     const params = useParams();
@@ -24,6 +25,9 @@ export default function StepDetailsPage() {
     const [showAllCovered, setShowAllCovered] = useState(false);
     const [showAllMissing, setShowAllMissing] = useState(false);
     const [runId, setRunId] = useState<string | null>(null);
+    const [isCoverageDialogOpen, setIsCoverageDialogOpen] = useState(false);
+    const [selectedText, setSelectedText] = useState("");
+    const [isGeneratingFromSelection, setIsGeneratingFromSelection] = useState(false);
 
     useEffect(() => {
         // Parse runId from query params
@@ -147,7 +151,12 @@ export default function StepDetailsPage() {
 
                 {/* Right Column: Evaluation Report (1/3 width) */}
                 <div className="space-y-6">
-                    <h2 className="text-xl font-semibold">Evaluation Report</h2>
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-xl font-semibold">Evaluation Report</h2>
+                        <Button variant="outline" size="sm" onClick={() => setIsCoverageDialogOpen(true)}>
+                            View Coverage Details
+                        </Button>
+                    </div>
 
                     {report ? (
                         <div className="space-y-6">
@@ -267,6 +276,67 @@ export default function StepDetailsPage() {
                     )}
                 </div>
             </div>
+            <Dialog open={isCoverageDialogOpen} onOpenChange={setIsCoverageDialogOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col h-[80vh]">
+                    <DialogHeader>
+                        <DialogTitle>Coverage Details (Blind-spot Highlighter)</DialogTitle>
+                        <DialogDescription className="text-muted-foreground">
+                            Highlights the source text used for Q/A generation. Select text to manually generate Q/A pairs.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex-1 overflow-y-auto py-4 relative" onMouseUp={() => {
+                        const text = window.getSelection()?.toString().trim();
+                        if (text) {
+                            setSelectedText(text);
+                        } else {
+                            setSelectedText("");
+                        }
+                    }}>
+                        {qaList.length > 0 && qaList[0].context ? (
+                            <div className="whitespace-pre-wrap font-mono text-sm leading-relaxed p-4 bg-muted/30 rounded-md border border-border">
+                                {qaList[0].context}
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-muted-foreground">
+                                No context available for this step.
+                            </div>
+                        )}
+                        {/* Selected text action floating button or fixed footer action */}
+                    </div>
+                    {selectedText && (
+                        <div className="bg-primary/5 border border-primary/20 p-4 rounded-md flex items-center justify-between mt-2">
+                            <div className="text-sm">
+                                <span className="font-semibold text-primary">Selected for Generation:</span>
+                                <p className="text-muted-foreground line-clamp-2 italic mt-1">&quot;{selectedText}&quot;</p>
+                            </div>
+                            <Button
+                                size="sm"
+                                disabled={isGeneratingFromSelection}
+                                onClick={async () => {
+                                    if (!id) return;
+                                    setIsGeneratingFromSelection(true);
+                                    try {
+                                        // Mocking generation from selection since backend doesn't support it yet
+                                        alert("In a full implementation, this would send the selected text to the backend to generate specific Q/A pairs.");
+                                        setSelectedText("");
+                                        // Optional: Clear selection
+                                        window.getSelection()?.removeAllRanges();
+                                    } catch (e: any) {
+                                        console.error(e);
+                                    } finally {
+                                        setIsGeneratingFromSelection(false);
+                                    }
+                                }}
+                            >
+                                {isGeneratingFromSelection ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : "✨ Generate QA"}
+                            </Button>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsCoverageDialogOpen(false)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

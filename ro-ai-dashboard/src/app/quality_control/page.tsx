@@ -14,6 +14,7 @@ import {
     DialogTitle,
     DialogFooter,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 
 type ClusterStatus = "PENDING" | "RESOLVED_A" | "RESOLVED_B" | "MERGED" | "MANUAL_OVERRIDE";
 
@@ -62,6 +63,12 @@ export default function QualityControlPage() {
         } catch (e) {
             alert("Failed to resolve cluster");
         }
+    };
+
+    const handleUpdateTopic = (id: string, newTopic: string) => {
+        setClusters(prev => prev.map(c => c.id === id ? { ...c, topic: newTopic } : c));
+        // Mock API call to update topic
+        console.log(`Updated topic for cluster ${id} to: ${newTopic}`);
     };
 
     const checkStatus = async () => {
@@ -199,7 +206,7 @@ export default function QualityControlPage() {
                                                     style={{ ...provided.draggableProps.style }}
                                                     onClick={() => openResolveDialog(cluster)}
                                                 >
-                                                    <ClusterCard cluster={cluster} isDragging={snapshot.isDragging} />
+                                                    <ClusterCard cluster={cluster} isDragging={snapshot.isDragging} onUpdateTopic={handleUpdateTopic} />
                                                 </div>
                                             )}
                                         </Draggable>
@@ -235,7 +242,7 @@ export default function QualityControlPage() {
                                                     {...provided.dragHandleProps}
                                                     style={{ ...provided.draggableProps.style }}
                                                 >
-                                                    <ClusterCard cluster={cluster} isDragging={snapshot.isDragging} />
+                                                    <ClusterCard cluster={cluster} isDragging={snapshot.isDragging} onUpdateTopic={handleUpdateTopic} />
                                                 </div>
                                             )}
                                         </Draggable>
@@ -282,8 +289,13 @@ export default function QualityControlPage() {
                                 {selectedCluster.items.map((item: any) => (
                                     <div key={item.qa_id} className="border rounded-xl p-4 flex flex-col h-full bg-card shadow-sm">
                                         <div className="mb-4">
-                                            <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                                                Source {item.source_label}
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                                                    Source {item.source_label}
+                                                </div>
+                                                <Badge variant="outline" className="text-[10px] font-mono opacity-60 hover:opacity-100">
+                                                    Ref: {item.qa_id || 'Unknown'}
+                                                </Badge>
                                             </div>
                                             <div className="font-medium text-sm mb-2">Q: {item.question}</div>
                                             <div className="text-sm text-muted-foreground">A: {item.answer}</div>
@@ -329,15 +341,46 @@ export default function QualityControlPage() {
 }
 
 // Sub-component for the Kanban Card
-function ClusterCard({ cluster, isDragging }: { cluster: any, isDragging: boolean }) {
+function ClusterCard({ cluster, onUpdateTopic, isDragging }: { cluster: any, onUpdateTopic: (id: string, newTopic: string) => void, isDragging: boolean }) {
     const isConflict = cluster.cluster_type === "CONFLICT";
+    const [isEditing, setIsEditing] = useState(false);
+    const [editValue, setEditValue] = useState(cluster.topic);
+
+    const handleSaveTopic = (e?: React.FocusEvent | React.KeyboardEvent) => {
+        if (e && 'key' in e && e.key !== 'Enter') return;
+        if (editValue.trim() !== cluster.topic) {
+            onUpdateTopic(cluster.id, editValue.trim());
+        }
+        setIsEditing(false);
+    };
 
     return (
         <Card className={`shadow-sm cursor-grab active:cursor-grabbing hover:border-primary/50 transition-colors ${isDragging ? 'shadow-lg border-primary rotate-1 scale-[1.02] z-50' : ''
-            } ${isConflict ? 'border-red-200/50 dark:border-red-900/30' : ''}`}>
-            <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
-                <div className="font-medium text-sm line-clamp-2 leading-relaxed pr-6">
-                    {cluster.topic}
+            } ${isConflict ? 'border-red-400 bg-red-50/10 dark:border-red-900/50' : 'border-blue-400 bg-blue-50/10 dark:border-blue-900/50'}`}>
+            <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0 relative group">
+                <div
+                    className="font-medium text-sm leading-relaxed pr-6 w-full cursor-text"
+                    onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+                >
+                    {isEditing ? (
+                        <input
+                            autoFocus
+                            className="w-full bg-background border px-2 py-1 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={handleSaveTopic}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveTopic(e);
+                                if (e.key === 'Escape') { setEditValue(cluster.topic); setIsEditing(false); }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <div className="flex items-start gap-2 line-clamp-2 title-text group-hover:text-primary transition-colors">
+                            {cluster.topic}
+                            <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 shrink-0 mt-1" />
+                        </div>
+                    )}
                 </div>
                 <div className="absolute right-4 top-4 text-muted-foreground/50">
                     <GripVertical className="w-4 h-4" />
