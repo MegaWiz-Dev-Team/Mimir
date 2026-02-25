@@ -628,3 +628,48 @@ export async function updateTenant(id: string, name: string): Promise<void> {
     });
     if (!res.ok) throw new Error("Failed to update tenant");
 }
+
+// ─── Data Sources Ingress API ─────────────────────────────────────────────
+
+export interface DataSource {
+    id: number;
+    tenant_id: string;
+    name: string;
+    source_type: 'web' | 'tabular' | 'document' | 'mcp';
+    config_json: any;
+    schedule: string | null;
+    last_sync_status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | null;
+    last_sync_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function fetchSources(): Promise<DataSource[]> {
+    const res = await authFetch(`${API_BASE_URL}/sources`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch sources");
+    return res.json();
+}
+
+export async function createSource(data: Partial<DataSource>): Promise<DataSource> {
+    const res = await authFetch(`${API_BASE_URL}/sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to create source");
+    return res.json();
+}
+
+export async function deleteSource(id: number): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${id}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete source");
+}
+
+export async function syncSource(id: number): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${id}/sync`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to trigger sequence sync");
+}

@@ -39,9 +39,7 @@
   - ทำ **Expandable Rows** คลิกเพื่อกางดูเนื้อหา Document ต้นฉบับเต็มรูปแบบ
   - เพิ่ม **Similarity Score Badges** นอกเหนือจากตัวเลขเฉยๆ (เขียว/เหลือง/แดง)
 
----
-
-### 🏃 Sprint 3: Quality Control & Hallucination Prevention (ระบบตีย่อยและรักษาคุณภาพข้อมูล)
+### 🏃 Sprint 4: Quality Control & Hallucination Prevention (ระบบตีย่อยและรักษาคุณภาพข้อมูล)
 **เป้าหมาย:** ป้องกันไม่ให้แอดมินทำ RAG ด้วยชุดข้อมูลที่ขัดแย้งกันเอง (Conflict) หรือข้อมูลซ้ำซ้อนจนล้น (Duplicate)
 **อ้างอิง:** `01_06_Quality_Control_Implementation_Plan_Project-Mimir.md`
 
@@ -55,7 +53,20 @@
 
 ---
 
-### 🏃 Sprint 4: Agent Evaluations System (ระบบสถิติและวัดผลปัญญาประดิษฐ์)
+### 🏃 Sprint 5: Data Ingress Monitoring (ระบบดูดข้อมูลและแจ้งเตือน)
+**เป้าหมาย:** ปรับปรุงขั้นตอนการเริ่มต้นระบบให้ลื่นไหล มั่นใจได้ว่าการดูดข้อมูลหน้าเว็บไซต์หรือเอกสารไม่ตายกลางทาง
+**อ้างอิง:** `01_05_Sources_Implementation_Plan_Project-Mimir.md`
+
+- **Backend (Ingress API)**:
+  - สร้าง CRUD API รองรับแหล่งข้อมูลหลายประเภท (Web URL, File Upload, MCP Connection)
+  - ใช้ `tokio::mpsc` หรือ Redis Pub/Sub ดักจับ Output จาก Ingestion Script พ่นออกเป็น Server-Sent Events (SSE) หรือ WebSockets
+- **Frontend (UX/UI)**:
+  - ลบ UI เก่าที่เป็นแค่หน้า Mock ทิ้ง
+  - สร้าง **Real-time Console / Streaming Logs UI** สำหรับดูการทำงานของ Bot Crawler ว่าทำงานถึงไหน ดึงมากี่เพจ เจอ Error ตรงไหน ทันทีโดยไม่ต้องกด F5
+
+---
+
+### 🏃 Sprint 6: Agent Evaluations System (ระบบสถิติและวัดผลปัญญาประดิษฐ์)
 **เป้าหมาย:** ทำให้แอดมินเลือกใช้งานโมเดลราคาถูกหรือแพงได้อย่างเหมาะสม และพิสูจน์ความฉลาดของระบบได้อย่างเป็นรูปธรรม
 **อ้างอิง:** `01_08_Evaluations_Implementation_Plan_Project-Mimir.md`
 
@@ -67,19 +78,6 @@
   - **Real-time Progress Bar** ขณะคอยให้ระบบรันคะแนนโมเดลนับ백ๆ คำถาม
   - **Inline Override Score**: ให้สิทธิมนุษย์ในการตบตีคะแนนของ LLM-judge หากมันให้คะแนนลำเอียง
   - อัปเกรดตาราง **Heatmap Tooltips** (Agent x Model) โชว์ดาว 🌟 Best in Class
-
----
-
-### 🏃 Sprint 5: Data Ingress Monitoring (ระบบดูดข้อมูลและแจ้งเตือน)
-**เป้าหมาย:** ปรับปรุงขั้นตอนการเริ่มต้นระบบให้ลื่นไหล มั่นใจได้ว่าการดูดข้อมูลหน้าเว็บไซต์หรือเอกสารไม่ตายกลางทาง
-**อ้างอิง:** `01_05_Sources_Implementation_Plan_Project-Mimir.md`
-
-- **Backend (Ingress API)**:
-  - สร้าง CRUD API รองรับแหล่งข้อมูลหลายประเภท (Web URL, File Upload, MCP Connection)
-  - ใช้ `tokio::mpsc` หรือ Redis Pub/Sub ดักจับ Output จาก Ingestion Script พ่นออกเป็น Server-Sent Events (SSE) หรือ WebSockets
-- **Frontend (UX/UI)**:
-  - ลบ UI เก่าที่เป็นแค่หน้า Mock ทิ้ง
-  - สร้าง **Real-time Console / Streaming Logs UI** สำหรับดูการทำงานของ Bot Crawler ว่าทำงานถึงไหน ดึงมากี่เพจ เจอ Error ตรงไหน ทันทีโดยไม่ต้องกด F5
 
 ---
 
