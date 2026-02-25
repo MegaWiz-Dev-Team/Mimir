@@ -7,7 +7,7 @@ edition = "2021"
 members = [
     "mimir-core-ai",
     "ro-ai-domain-game"
-, "set_admin"]
+]
 resolver = "2"
 
 [dependencies]
