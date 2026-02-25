@@ -354,3 +354,37 @@ impl IamService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_password_valid() {
+        let password = "mysecretpassword123";
+        // An actual valid Argon2id hash for "mysecretpassword123"
+        let hash = "$argon2id$v=19$m=19456,t=2,p=1$B8oIfP/9K2Y7YmS/i/rPTA$Yq79+1s0Tnjd/I3cQO30V9F5B4n2rTTrE232E+73504";
+        
+        // This should pass if the underlying library and traits are correctly decoding Argon2
+        let is_valid = IamService::verify_password(password, hash).unwrap();
+        assert!(is_valid, "Password should be verified against its valid hash");
+    }
+
+    #[test]
+    fn test_verify_password_invalid() {
+        let password = "wrongpassword999";
+        let hash = "$argon2id$v=19$m=19456,t=2,p=1$B8oIfP/9K2Y7YmS/i/rPTA$Yq79+1s0Tnjd/I3cQO30V9F5B4n2rTTrE232E+73504"; // Hash for "mysecretpassword123"
+        
+        let is_valid = IamService::verify_password(password, hash).unwrap();
+        assert!(!is_valid, "Password should not be verified against another password's hash");
+    }
+
+    #[test]
+    fn test_verify_password_malformed_hash() {
+        let password = "mysecretpassword123";
+        let invalid_hash = "not_an_argon_hash_at_all";
+        
+        let result = IamService::verify_password(password, invalid_hash);
+        assert!(result.is_err(), "verify_password should return Err on invalid hash string format");
+    }
+}
