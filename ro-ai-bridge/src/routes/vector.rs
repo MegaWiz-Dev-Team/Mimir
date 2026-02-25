@@ -134,7 +134,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
-    use tower::ServiceExt; // for `oneshot` and `ready`
+    // use tower::ServiceExt; // for `oneshot` and `ready`
     
     // We would need a mock DB pool to fully test this without side effects.
     // Given the complexity of mocking sqlx::MySqlPool, we will just ensure 
