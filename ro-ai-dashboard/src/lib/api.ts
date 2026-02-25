@@ -673,3 +673,13 @@ export async function syncSource(id: number): Promise<void> {
     });
     if (!res.ok) throw new Error("Failed to trigger sequence sync");
 }
+
+export async function updateSource(id: number, data: Partial<DataSource>): Promise<DataSource> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update source");
+    return res.json();
+}
