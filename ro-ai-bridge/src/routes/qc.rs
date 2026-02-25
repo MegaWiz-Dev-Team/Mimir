@@ -156,5 +156,12 @@ async fn seed_qa_data(
 /// GET /api/v1/qc/status — Check if background clustering is running
 async fn get_qc_status() -> Json<serde_json::Value> {
     let is_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
-    Json(serde_json::json!({"is_generating": is_running}))
+    let processed = mimir_core_ai::qa_qc::clustering::PROCESSED_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+    let total = mimir_core_ai::qa_qc::clustering::TOTAL_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+    
+    Json(serde_json::json!({
+        "is_generating": is_running,
+        "processed_count": processed,
+        "total_count": total
+    }))
 }

@@ -7,14 +7,20 @@ use uuid::Uuid;
 use rig::providers::gemini;
 use rig::completion::Prompt;
 use std::env;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+// Global flag to prevent multiple clustering jobs executing concurrently
 pub static IS_CLUSTERING_RUNNING: AtomicBool = AtomicBool::new(false);
+pub static PROCESSED_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static TOTAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 struct ClusteringGuard;
 impl Drop for ClusteringGuard {
     fn drop(&mut self) {
         IS_CLUSTERING_RUNNING.store(false, Ordering::SeqCst);
+        PROCESSED_COUNT.store(0, Ordering::SeqCst);
+        TOTAL_COUNT.store(0, Ordering::SeqCst);
+        info!("Released global Clustering lock.");
     }
 }
 
@@ -125,29 +131,49 @@ impl ClusteringService {
         }
         
         let _guard = ClusteringGuard;
+        PROCESSED_COUNT.store(0, Ordering::SeqCst);
         
         info!("Starting Clustering Job for tenant: {}", tenant_id);
-        
-        // MVP: Fetch recent 10 unclustered QA results
-        let qas = sqlx::query(
-            r#"SELECT id, question, answer 
+
+        // Fetch total unclustered QA count for tracking
+        let total_row: (i64,) = sqlx::query_as(
+            r#"SELECT COUNT(*) 
                FROM qa_results 
                WHERE tenant_id = ? 
-               AND id NOT IN (SELECT qa_id FROM qa_cluster_items)
-               LIMIT 10"#
+               AND id NOT IN (SELECT qa_id FROM qa_cluster_items)"#
         )
         .bind(tenant_id)
-        .fetch_all(pool).await?;
-
-        if qas.len() < 2 {
+        .fetch_one(pool)
+        .await?;
+        
+        TOTAL_COUNT.store(total_row.0 as usize, Ordering::SeqCst);
+        
+        if total_row.0 < 2 {
             info!("Not enough unclustered QA pairs to form conflicts/duplicates.");
             return Ok(());
         }
 
-        // Use Gemini to group and detect conflicts
-        let client = gemini::Client::new(&env::var("GEMINI_API_KEY").unwrap_or_default());
-        let agent = client.agent("gemini-2.5-flash")
-            .preamble("You are a Data Quality AI. Analyze the list of Q/A pairs. 
+        loop {
+            // Fetch batch of 10 unclustered QA results
+            let qas = sqlx::query(
+                r#"SELECT id, question, answer 
+                   FROM qa_results 
+                   WHERE tenant_id = ? 
+                   AND id NOT IN (SELECT qa_id FROM qa_cluster_items)
+                   LIMIT 10"#
+            )
+            .bind(tenant_id)
+            .fetch_all(pool).await?;
+
+            if qas.len() < 2 {
+                info!("Finished clustering loop: Not enough unclustered QA pairs remaining.");
+                break;
+            }
+
+            // Use Gemini to group and detect conflicts
+            let client = gemini::Client::new(&env::var("GEMINI_API_KEY").unwrap_or_default());
+            let agent = client.agent("gemini-2.5-flash")
+                .preamble("You are a Data Quality AI. Analyze the list of Q/A pairs. 
 Find 1 conflict (contradicting info) AND 1 duplicate (similar info) if possible.
 Return a STRICT JSON list: 
 [
@@ -160,57 +186,61 @@ Return a STRICT JSON list:
     \"golden_answer\": \"(Provide a merged answer ONLY IF type is DUPLICATE, else act as if None)\"
   }
 ]")
-            .build();
+                .build();
 
-        let mut input_text = String::from("QA Pairs:\n");
-        for qa in &qas {
-            input_text.push_str(&format!("ID: {} | Q: {} | A: {}\n", qa.get::<i64, _>("id"), qa.get::<String, _>("question"), qa.get::<String, _>("answer")));
-        }
+            let mut input_text = String::from("QA Pairs:\n");
+            for qa in &qas {
+                input_text.push_str(&format!("ID: {} | Q: {} | A: {}\n", qa.get::<i64, _>("id"), qa.get::<String, _>("question"), qa.get::<String, _>("answer")));
+            }
 
-        let resp = agent.prompt(input_text).await;
-        match resp {
-            Ok(json_str) => {
-                if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
-                    for r in results {
-                        let c_type = r["type"].as_str().unwrap_or("DUPLICATE");
-                        let topic = r["topic"].as_str().unwrap_or("Unknown Topic");
-                        let reasoning = r["reasoning"].as_str().unwrap_or("");
-                        let golden = r["golden_answer"].as_str();
-                        let id1 = r["qa_id_1"].as_i64().unwrap_or(0);
-                        let id2 = r["qa_id_2"].as_i64().unwrap_or(0);
+            let resp = agent.prompt(input_text).await;
+            match resp {
+                Ok(json_str) => {
+                    if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
+                        for r in results {
+                            let c_type = r["type"].as_str().unwrap_or("DUPLICATE");
+                            let topic = r["topic"].as_str().unwrap_or("Unknown Topic");
+                            let reasoning = r["reasoning"].as_str().unwrap_or("");
+                            let golden = r["golden_answer"].as_str();
+                            let id1 = r["qa_id_1"].as_i64().unwrap_or(0);
+                            let id2 = r["qa_id_2"].as_i64().unwrap_or(0);
 
-                        if id1 > 0 && id2 > 0 {
-                            let cluster_id = Uuid::new_v4().to_string();
-                            sqlx::query(
-                                "INSERT INTO qa_clusters (id, tenant_id, topic, reasoning, cluster_type, golden_answer, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')"
-                            )
-                            .bind(&cluster_id)
-                            .bind(tenant_id)
-                            .bind(topic)
-                            .bind(reasoning)
-                            .bind(c_type)
-                            .bind(golden)
-                            .execute(pool).await?;
-
-                            sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'A')")
+                            if id1 > 0 && id2 > 0 {
+                                let cluster_id = Uuid::new_v4().to_string();
+                                sqlx::query(
+                                    "INSERT INTO qa_clusters (id, tenant_id, topic, reasoning, cluster_type, golden_answer, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')"
+                                )
                                 .bind(&cluster_id)
-                                .bind(id1)
-                                .execute(pool)
-                                .await?;
-                            sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'B')")
-                                .bind(&cluster_id)
-                                .bind(id2)
-                                .execute(pool)
-                                .await?;
-                            
-                            info!("Created Cluster: {}", cluster_id);
+                                .bind(tenant_id)
+                                .bind(topic)
+                                .bind(reasoning)
+                                .bind(c_type)
+                                .bind(golden)
+                                .execute(pool).await?;
+
+                                sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'A')")
+                                    .bind(&cluster_id)
+                                    .bind(id1)
+                                    .execute(pool)
+                                    .await?;
+                                sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'B')")
+                                    .bind(&cluster_id)
+                                    .bind(id2)
+                                    .execute(pool)
+                                    .await?;
+                                
+                                info!("Created Cluster: {}", cluster_id);
+                            }
                         }
+                    } else {
+                        warn!("Failed to parse Gemini output as JSON: {}", json_str);
                     }
-                } else {
-                    warn!("Failed to parse Gemini output as JSON: {}", json_str);
-                }
-            },
-            Err(e) => error!("Gemini prompt failed: {}", e)
+                },
+                Err(e) => error!("Gemini prompt failed: {}", e)
+            }
+            
+            // Advance progress count by the number of QA items processed in this iteration
+            PROCESSED_COUNT.fetch_add(qas.len(), Ordering::SeqCst);
         }
 
         Ok(())
