@@ -2,8 +2,8 @@
 **Project Name:** Project Mimir
 
 ## 1. Test Plan (แผนการทดสอบ)
-- **Test Strategy:** [เช่น Focus on Unit Tests for core services, UAT for Dashboard]
-- **Environment:** [เช่น Local development environment, MariaDB]
+- **Test Strategy:** TDD approach with Backend/Frontend Unit Tests, and detailed manual UI/API verification per Sprint.
+- **Environment:** Local development environment, Docker (MariaDB, Qdrant, Redis), Rust Backend, Next.js Frontend.
 
 ## 2. Test Cases & Execution Report (ผลการทดสอบ)
 | Test Case ID | Test Description                              | Expected Result                                              | Actual Result                            | Status  | Date Tested | Tested By |
