@@ -31,7 +31,7 @@ const COLUMNS: KanbanColumn[] = [
 export default function QualityControlPage() {
     const [clusters, setClusters] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [generating, setGenerating] = useState(false);
+    const [generatingStatus, setGeneratingStatus] = useState({ is_generating: false, processed_count: 0, total_count: 0 });
 
     // Dialog state
     const [selectedCluster, setSelectedCluster] = useState<any | null>(null);
@@ -67,7 +67,11 @@ export default function QualityControlPage() {
     const checkStatus = async () => {
         try {
             const status = await fetchQcStatus();
-            setGenerating(status.is_generating);
+            setGeneratingStatus({
+                is_generating: status.is_generating,
+                processed_count: status.processed_count || 0,
+                total_count: status.total_count || 0
+            });
             return status.is_generating;
         } catch (e) {
             console.error("Failed to check QC status");
@@ -80,11 +84,11 @@ export default function QualityControlPage() {
         let interval: NodeJS.Timeout;
 
         // Initial check
-        if (!generating) {
+        if (!generatingStatus.is_generating) {
             checkStatus();
         }
 
-        if (generating) {
+        if (generatingStatus.is_generating) {
             interval = setInterval(async () => {
                 const isStillGenerating = await checkStatus();
                 // If it finished generating, reload the data
@@ -97,15 +101,15 @@ export default function QualityControlPage() {
         return () => {
             if (interval) clearInterval(interval);
         };
-    }, [generating]);
+    }, [generatingStatus.is_generating]);
 
     const handleGenerate = async () => {
-        setGenerating(true);
+        setGeneratingStatus(prev => ({ ...prev, is_generating: true }));
         try {
             await triggerQcGeneration();
         } catch (e) {
             alert("Failed to trigger generation");
-            setGenerating(false);
+            setGeneratingStatus(prev => ({ ...prev, is_generating: false }));
         }
     };
 
@@ -157,8 +161,11 @@ export default function QualityControlPage() {
                     <Button variant="outline" onClick={loadData} disabled={loading}>
                         <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
                     </Button>
-                    <Button onClick={handleGenerate} disabled={generating}>
-                        <Zap className="w-4 h-4 mr-2" /> {generating ? "Scanning..." : "Auto-scan QC Issues"}
+                    <Button onClick={handleGenerate} disabled={generatingStatus.is_generating}>
+                        <Zap className="w-4 h-4 mr-2" />
+                        {generatingStatus.is_generating
+                            ? `Scanning (${generatingStatus.processed_count} / ${generatingStatus.total_count})...`
+                            : "Auto-scan QC Issues"}
                     </Button>
                 </div>
             </div>
