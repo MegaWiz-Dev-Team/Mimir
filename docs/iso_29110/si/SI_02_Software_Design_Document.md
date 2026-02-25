@@ -14,10 +14,11 @@
 - **Vector DB (Qdrant):** ใช้ Payload-based Partitioning โดยยัด `{"tenant_id": "<value>"}` ลงไปใน Payload ของทุก Vector เพื่อความปลอดภัย
 - [ER Diagram Placeholder - รอสร้างและนำภาพมาแนบ]
 
-## 3. Subsystem Design (การออกแบบระบบย่อยจาก Sprint 1-6)
+## 3. Subsystem Design (การออกแบบระบบย่อยจาก Sprint 1-7)
 - **IAM Module:** จัดการ `tenant_auth_middleware` (Sprint 1)
 - **Vector & Pipeline Module:** จัดการ Data Ingestion และ Semantic Search (Sprint 2)
 - **Tenant Configuration Module:** จัดการ Settings และ Provisioning Workflow แบบ Centralized (Sprint 3)
 - **Quality Control Module:** Background Worker จัดการ Data Clustering (Sprint 4)
 - **Ingress Module:** WebSocket/SSE รันสถานะของ Data Crawler (Sprint 5)
 - **Evaluation Module:** รัน Metric Evaluation แบบ Asynchronous (Sprint 6)
+- **Pipeline UI/UX Module:** ปรับปรุง Flow การทำงาน (Ingress Preview, ACU Coverage, Conflict Resolution, Vector Traceability) แบบ End-to-End (Sprint 7)

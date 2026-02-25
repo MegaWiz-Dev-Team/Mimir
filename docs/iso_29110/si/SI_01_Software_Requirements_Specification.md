@@ -5,14 +5,15 @@
 - [อธิบายภาพรวมของระบบ แพลตฟอร์มนี้คืออะไร]
 
 ## 2. Functional Requirements (ความต้องการด้านฟังก์ชัน)
-| Req ID  | Requirement Description                                                                                                    | Priority |
-| ------- | -------------------------------------------------------------------------------------------------------------------------- | -------- |
-| REQ-001 | **Security & IAM:** ระบบต้องรองรับการจัดการสิทธิ์แบบ Multi-tenant (CRUD Users/Tenants) และ Authentication ผ่าน JWT Token          | High     |
-| REQ-002 | **Vector Management:** ระบบต้องสามารถแยกเก็บข้อมูลแยกตาม Tenant กรองข้อมูลเก่า/หมดอายุ และแก้ไข Vector Data ได้จากหน้า UI             | High     |
-| REQ-004 | **Quality Control:** ระบบต้องมีการใช้ LLM วิเคราะห์ความขัดแย้งของข้อมูล (Clustering) และให้ User สรุป Golden Answer ได้ผ่านหน้าจอ Kanban | Medium   |
-| REQ-005 | **Data Ingress:** ระบบต้องรองรับการนำเข้าข้อมูล (Web, File, MCP) และแสดงสถานะการดูดข้อมูลแบบ Real-time (Streaming Logs)             | High     |
-| REQ-003 | **Agent Evaluation:** ระบบต้องสามารถรันประเมินความแม่นยำของ AI (Evaluation) แบบ Background Job และแสดงผล Progress/Heatmap       | Medium   |
-| REQ-006 | **Tenant Settings:** ระบบต้องมีหน้า Settings ให้ผู้ใช้สามารถแก้ไขชื่อ (Name) และจัดการข้อมูล Tenant ของตนเองได้                          | High     |
+| Req ID  | Requirement Description                                                                                                                                                                                       | Priority |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| REQ-001 | **Security & IAM:** ระบบต้องรองรับการจัดการสิทธิ์แบบ Multi-tenant (CRUD Users/Tenants) และ Authentication ผ่าน JWT Token                                                                                             | High     |
+| REQ-002 | **Vector Management:** ระบบต้องสามารถแยกเก็บข้อมูลแยกตาม Tenant กรองข้อมูลเก่า/หมดอายุ และแก้ไข Vector Data ได้จากหน้า UI                                                                                                | High     |
+| REQ-004 | **Quality Control:** ระบบต้องมีการใช้ LLM วิเคราะห์ความขัดแย้งของข้อมูล (Clustering) และให้ User สรุป Golden Answer ได้ผ่านหน้าจอ Kanban                                                                                    | Medium   |
+| REQ-005 | **Data Ingress:** ระบบต้องรองรับการนำเข้าข้อมูล (Web, File, MCP) และแสดงสถานะการดูดข้อมูลแบบ Real-time (Streaming Logs)                                                                                                | High     |
+| REQ-003 | **Agent Evaluation:** ระบบต้องสามารถรันประเมินความแม่นยำของ AI (Evaluation) แบบ Background Job และแสดงผล Progress/Heatmap                                                                                          | Medium   |
+| REQ-006 | **Tenant Settings:** ระบบต้องมีหน้า Settings ให้ผู้ใช้สามารถแก้ไขชื่อ (Name) และจัดการข้อมูล Tenant ของตนเองได้                                                                                                             | High     |
+| REQ-007 | **UX/UI Pipeline & Traceability:** ระบบต้องรองรับการดู Markdown Preview, แสดงผล ACU Coverage (%), มี Conflict Resolution UI, และตรวจสอบย้อนกลับ (Traceability) ของผลลัพธ์ย้อนจาก Vector DB ไปยัง Source Document URL ได้ | High     |
 
 ## 3. Non-Functional Requirements (ความต้องการด้านอื่นๆ ที่ไม่ใช่ฟังก์ชัน)
 - **Security & Multi-Tenancy:**
@@ -24,4 +25,5 @@
   - โครงสร้าง Containerization (Docker/Local) พร้อมขยายตัวสู่ Kubernetes (K8s) สถาปัตยกรรมคลาวด์.
 - **Usability:**
   - Dashboard ต้องมี Tenant Switcher แบบ Global สำหรับ Super Admin.
+  - ระบบควรมี Global Pipeline Status Bar เพื่อให้เห็นภาพรวมของข้อมูลในแต่ละกระบวนการได้อย่างชัดเจน
   - ดีไซน์ต้อง Responsive ด้วย Next.js และ shadcn/ui.

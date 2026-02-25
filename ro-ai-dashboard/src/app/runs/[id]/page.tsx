@@ -213,8 +213,16 @@ export default function RunDetailsPage() {
                                     {step.coverage_score !== undefined && step.coverage_score !== null ? (() => {
                                         const normalizedScore = step.coverage_score > 1 ? step.coverage_score / 100 : step.coverage_score;
                                         const percentage = Math.min(100, Math.round(normalizedScore * 100));
-                                        const colorClass = percentage === 100 ? "text-green-500" : (percentage > 50 ? "text-yellow-500" : "text-red-500");
-                                        return <span className={`font-medium ${colorClass}`}>{percentage}%</span>;
+                                        const colorClass = percentage === 100 ? "bg-green-500" : (percentage >= 50 ? "bg-amber-500" : "bg-red-500");
+                                        const textColor = percentage === 100 ? "text-green-500" : (percentage >= 50 ? "text-amber-500" : "text-red-500");
+                                        return (
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                                                    <div className={`h-full ${colorClass}`} style={{ width: `${percentage}%` }} />
+                                                </div>
+                                                <span className={`font-medium min-w-[36px] ${textColor}`}>{percentage}%</span>
+                                            </div>
+                                        );
                                     })() : '-'}
                                 </TableCell>
                                 <TableCell>

@@ -1,0 +1,4 @@
+ALTER TABLE data_sources 
+ADD COLUMN raw_markdown LONGTEXT NULL,
+ADD COLUMN mb_size DOUBLE NULL,
+ADD COLUMN total_chunks INT NULL;
