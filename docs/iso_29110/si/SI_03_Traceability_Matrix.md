@@ -10,6 +10,7 @@
 | REQ-006 | Tenant Settings & Prov. (Sprint 3)   | Tenant Config Module | `Settings UI`, `Provision API`   | TC-003       | Done    |
 | REQ-003 | Quality Control (Sprint 4)           | QC Module            | `Clustering Worker`, `Kanban UI` | TC-004       | Done    |
 | BUG-039 | Auto-scan QC UI Feedback (Issue #39) | QC Module            | `Kanban UI`, `Dashboard API`     | TC-004       | Pending |
+| BUG-040 | Auto-scan QC Loop & Progress (#40)   | QC Module            | `clustering.rs`, `qc.rs`, `UI`   | TC-004       | Pending |
 | BUG-041 | Vector Stats API 404 (Issue #41)     | Vector Module        | `vector.rs`, `lib/api.ts`        | TC-002       | Pending |
 | BUG-043 | Auth Redirect on Admin Pages         | IAM Module           | `login/page.tsx`, `api.ts`       | TC-001       | Done    |
 | REQ-004 | Agent Evaluations (Sprint 5)         | Eval Module          | `Background Job`, `Wizard UI`    | TC-005       | Pending |
