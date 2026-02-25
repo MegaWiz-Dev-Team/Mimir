@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, createSource, deleteSource, syncSource, DataSource } from "@/lib/api";
+import { fetchSources, createSource, deleteSource, syncSource, updateSource, DataSource } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,10 @@ export default function SourcesPage() {
     const [showConsole, setShowConsole] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
     const [syncingSourceId, setSyncingSourceId] = useState<number | null>(null);
+
+    // Configure Source State
+    const [configuringSource, setConfiguringSource] = useState<DataSource | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         loadSources();
@@ -58,6 +62,26 @@ export default function SourcesPage() {
         } catch (error) {
             console.error("Failed to create source", error);
             alert("Failed to create source");
+        }
+    };
+
+    const handleSaveConfig = async () => {
+        if (!configuringSource) return;
+        setIsSaving(true);
+        try {
+            await updateSource(configuringSource.id, {
+                name: configuringSource.name,
+                source_type: configuringSource.source_type,
+                config_json: configuringSource.config_json,
+                schedule: configuringSource.schedule
+            });
+            setConfiguringSource(null);
+            loadSources();
+        } catch (error) {
+            console.error("Failed to update source", error);
+            alert("Failed to update source");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -157,7 +181,7 @@ export default function SourcesPage() {
                                             <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
                                                 <RefreshCw className="w-4 h-4" />
                                             </Button>
-                                            <Button variant="ghost" size="sm" title="Configure"><Settings className="w-4 h-4" /></Button>
+                                            <Button variant="ghost" size="sm" title="Configure" onClick={() => setConfiguringSource(s)}><Settings className="w-4 h-4" /></Button>
                                             <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -239,6 +263,64 @@ export default function SourcesPage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDeletingId(null)}>Cancel</Button>
                         <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700" onClick={() => deletingId && handleDelete(deletingId)}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={configuringSource !== null} onOpenChange={(open) => !open && setConfiguringSource(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Configure Data Source</DialogTitle>
+                        <DialogDescription className="sr-only">Update settings for this data source</DialogDescription>
+                    </DialogHeader>
+                    {configuringSource && (
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="config-name">Source Name</Label>
+                                <Input
+                                    id="config-name"
+                                    value={configuringSource.name}
+                                    onChange={e => setConfiguringSource({ ...configuringSource, name: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="config-type">Source Type</Label>
+                                <Input
+                                    id="config-type"
+                                    value={configuringSource.source_type}
+                                    disabled
+                                    className="bg-muted capitalize"
+                                />
+                            </div>
+                            {configuringSource.source_type === 'web' && (
+                                <div className="grid gap-2">
+                                    <Label htmlFor="config-url">Target URL</Label>
+                                    <Input
+                                        id="config-url"
+                                        value={configuringSource.config_json?.url || ""}
+                                        onChange={e => setConfiguringSource({
+                                            ...configuringSource,
+                                            config_json: { ...configuringSource.config_json, url: e.target.value }
+                                        })}
+                                    />
+                                </div>
+                            )}
+                            <div className="grid gap-2">
+                                <Label htmlFor="config-schedule">Execution Schedule</Label>
+                                <Input
+                                    id="config-schedule"
+                                    value={configuringSource.schedule || ""}
+                                    placeholder="e.g. Manual, Daily, 0 * * * *"
+                                    onChange={e => setConfiguringSource({ ...configuringSource, schedule: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setConfiguringSource(null)}>Cancel</Button>
+                        <Button onClick={handleSaveConfig} disabled={isSaving}>
+                            {isSaving ? "Saving..." : "Save Changes"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
