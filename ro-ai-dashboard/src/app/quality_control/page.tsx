@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, AlertTriangle, ArrowRight, Save, Edit3, RefreshCw, Zap, GripVertical, FileText } from "lucide-react";
-import { fetchQcClusters, resolveQcCluster, triggerQcGeneration } from "@/lib/api";
+import { fetchQcClusters, resolveQcCluster, triggerQcGeneration, fetchQcStatus } from "@/lib/api";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import {
     Dialog,
@@ -64,15 +64,47 @@ export default function QualityControlPage() {
         }
     };
 
+    const checkStatus = async () => {
+        try {
+            const status = await fetchQcStatus();
+            setGenerating(status.is_generating);
+            return status.is_generating;
+        } catch (e) {
+            console.error("Failed to check QC status");
+            return false;
+        }
+    };
+
+    // Poll status when generating or on initial load
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+
+        // Initial check
+        if (!generating) {
+            checkStatus();
+        }
+
+        if (generating) {
+            interval = setInterval(async () => {
+                const isStillGenerating = await checkStatus();
+                // If it finished generating, reload the data
+                if (!isStillGenerating) {
+                    loadData();
+                }
+            }, 3000);
+        }
+
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [generating]);
+
     const handleGenerate = async () => {
         setGenerating(true);
         try {
             await triggerQcGeneration();
-            alert("QC generation started. Please wait a few seconds and refresh.");
-            setTimeout(loadData, 5000);
         } catch (e) {
             alert("Failed to trigger generation");
-        } finally {
             setGenerating(false);
         }
     };
@@ -229,8 +261,8 @@ export default function QualityControlPage() {
                         <div className="py-4 space-y-6">
                             {/* AI Reasoning Panel */}
                             <div className={`p-4 rounded-lg border text-sm ${selectedCluster.cluster_type === 'CONFLICT'
-                                    ? 'bg-red-50/50 border-red-100 dark:bg-red-950/20 dark:border-red-900/30'
-                                    : 'bg-blue-50/50 border-blue-100 dark:bg-blue-950/20 dark:border-blue-900/30'
+                                ? 'bg-red-50/50 border-red-100 dark:bg-red-950/20 dark:border-red-900/30'
+                                : 'bg-blue-50/50 border-blue-100 dark:bg-blue-950/20 dark:border-blue-900/30'
                                 }`}>
                                 <h4 className="font-semibold mb-1 flex items-center gap-2">
                                     <Zap className="w-4 h-4 text-yellow-500" /> AI Analysis
