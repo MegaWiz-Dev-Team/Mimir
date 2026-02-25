@@ -11,7 +11,8 @@ use std::convert::Infallible;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::models::sources::{DataSource, CreateDataSourceRequest, UpdateDataSourceRequest};
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{info, error};
+use mimir_core_ai::services::ingress::IngressManager;
 
 pub fn sources_routes() -> Router<DbPool> {
     Router::new()
@@ -181,8 +182,35 @@ async fn sync_source(
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
     })?;
 
-    // In a real application, we would spawn a background task or send to a message queue here.
-    // We will simulate it picking up the job asynchronously for now.
+    let pool_clone = pool.clone();
+    let source_clone = source.unwrap();
+    // Spawn a background task to process the source
+    tokio::spawn(async move {
+        info!("Started background sync task for source id {}", id);
+        match IngressManager::process_source(&source_clone).await {
+            Ok(msg) => {
+                info!("Sync completed for {} ({}): {}", source_clone.name, id, msg);
+                let _ = sqlx::query!(
+                    "UPDATE data_sources SET last_sync_status = 'COMPLETED', last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    id
+                )
+                .execute(&pool_clone)
+                .await
+                .map_err(|e| error!("Failed to update source {} to COMPLETED: {}", id, e));
+            },
+            Err(e) => {
+                error!("Sync failed for {} ({}): {}", source_clone.name, id, e);
+                let _ = sqlx::query!(
+                    "UPDATE data_sources SET last_sync_status = 'FAILED' WHERE id = ?",
+                    id
+                )
+                .execute(&pool_clone)
+                .await
+                .map_err(|e| error!("Failed to update source {} to FAILED: {}", id, e));
+            }
+        }
+    });
+
     info!("Triggered sync for source id {}", id);
 
     Ok((StatusCode::ACCEPTED, Json(json!({
@@ -219,3 +247,6 @@ async fn stream_logs(
             .text("keep-alive-text"),
     )
 }
+
+// TODO: Refactor test to use `sqlx::AnyPool` or inject a mock repository interface 
+// to support sqlite in-memory testing instead of the hardcoded `MySqlPool` required by app state.

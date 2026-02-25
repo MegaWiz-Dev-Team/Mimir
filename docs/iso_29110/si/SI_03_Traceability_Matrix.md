@@ -14,6 +14,7 @@
 | BUG-041 | Vector Stats API 404 (Issue #41)     | Vector Module        | `vector.rs`, `lib/api.ts`        | TC-002       | Done    |
 | BUG-043 | Auth Redirect on Admin Pages         | IAM Module           | `login/page.tsx`, `api.ts`       | TC-001       | Done    |
 | BUG-046 | Admin Login Authentication Hash      | IAM Module           | `iam.rs`, `Docker MariaDB`       | TC-001       | Done    |
-| BUG-051 | "Configure" button on Sources page   | Ingress Module       | `sources/page.tsx`               | TC-005       | Pending |
+| BUG-051 | "Configure" button on Sources page   | Ingress Module       | `sources/page.tsx`               | TC-005       | Done    |
+| SYS-053 | Background Data Sync Worker (#53)    | Ingress Module       | `ingress.rs`, `sources.rs`       | TC-005       | Pending |
 | REQ-005 | Data Ingress & Monitoring (Sprint 5) | Ingress Module       | `WebSocket Server`, `Log UI`     | TC-005       | Done    |
 | REQ-003 | Agent Evaluations (Sprint 6)         | Eval Module          | `Background Job`, `Wizard UI`    | TC-006       | Pending |
