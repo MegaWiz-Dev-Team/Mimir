@@ -11,5 +11,6 @@
 | REQ-003 | Quality Control (Sprint 4)           | QC Module            | `Clustering Worker`, `Kanban UI` | TC-004       | Done    |
 | BUG-039 | Auto-scan QC UI Feedback (Issue #39) | QC Module            | `Kanban UI`, `Dashboard API`     | TC-004       | Pending |
 | BUG-041 | Vector Stats API 404 (Issue #41)     | Vector Module        | `vector.rs`, `lib/api.ts`        | TC-002       | Pending |
+| BUG-043 | Auth Redirect on Admin Pages         | IAM Module           | `login/page.tsx`, `api.ts`       | TC-001       | Done    |
 | REQ-004 | Agent Evaluations (Sprint 5)         | Eval Module          | `Background Job`, `Wizard UI`    | TC-005       | Pending |
 | REQ-005 | Data Ingress & Monitoring (Sprint 6) | Ingress Module       | `WebSocket Server`, `Log UI`     | TC-006       | Pending |
