@@ -15,6 +15,7 @@ export default function SourcesPage() {
     const [sources, setSources] = useState<DataSource[]>([]);
     const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
+    const [deletingId, setDeletingId] = useState<number | null>(null);
 
     // Add Source Form State
     const [newName, setNewName] = useState("");
@@ -61,9 +62,9 @@ export default function SourcesPage() {
     };
 
     const handleDelete = async (id: number) => {
-        if (!confirm("Are you sure you want to delete this source?")) return;
         try {
             await deleteSource(id);
+            setDeletingId(null);
             loadSources();
         } catch (error) {
             console.error("Failed to delete source", error);
@@ -157,7 +158,7 @@ export default function SourcesPage() {
                                                 <RefreshCw className="w-4 h-4" />
                                             </Button>
                                             <Button variant="ghost" size="sm" title="Configure"><Settings className="w-4 h-4" /></Button>
-                                            <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => handleDelete(s.id!)}>
+                                            <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         </TableCell>
@@ -173,6 +174,7 @@ export default function SourcesPage() {
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Add New Data Source</DialogTitle>
+                        <DialogDescription className="sr-only">Form to add a new data source</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
@@ -224,6 +226,20 @@ export default function SourcesPage() {
                         ))}
                         <div className="animate-pulse">_</div>
                     </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={deletingId !== null} onOpenChange={(open) => !open && setDeletingId(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Confirm Deletion</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete this data source? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeletingId(null)}>Cancel</Button>
+                        <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700" onClick={() => deletingId && handleDelete(deletingId)}>Delete</Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

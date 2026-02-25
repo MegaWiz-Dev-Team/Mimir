@@ -16,9 +16,9 @@ use tracing::info;
 pub fn sources_routes() -> Router<DbPool> {
     Router::new()
         .route("/", get(list_sources).post(create_source))
-        .route("/:id", put(update_source).delete(delete_source))
-        .route("/:id/sync", post(sync_source))
-        .route("/:id/logs", get(stream_logs))
+        .route("/{id}", put(update_source).delete(delete_source))
+        .route("/{id}/sync", post(sync_source))
+        .route("/{id}/logs", get(stream_logs))
 }
 
 async fn list_sources(
