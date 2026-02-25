@@ -1,4 +1,4 @@
-import { fetchQcClusters, resolveQcCluster, triggerQcGeneration } from './api';
+import { fetchQcClusters, resolveQcCluster, triggerQcGeneration, fetchQcStatus } from './api';
 import Cookies from 'js-cookie';
 
 // Mock js-cookie
@@ -82,5 +82,35 @@ describe('Quality Control API client functionality', () => {
         });
 
         await expect(triggerQcGeneration()).rejects.toThrow('Failed to trigger QC generation');
+    });
+
+    it('fetchQcStatus should fetch status and return correct object', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => ({ is_generating: true })
+        });
+
+        const result = await fetchQcStatus();
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8080/api/v1/qc/status',
+            expect.objectContaining({
+                headers: {
+                    'Authorization': 'Bearer mock-tenant-id',
+                    'X-Tenant-Id': 'mock-tenant-id',
+                }
+            })
+        );
+        expect(result).toEqual({ is_generating: true });
+    });
+
+    it('fetchQcStatus should return false when failing to fetch', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: false,
+            statusText: 'Internal Server Error'
+        });
+
+        const result = await fetchQcStatus();
+        expect(result).toEqual({ is_generating: false });
     });
 });

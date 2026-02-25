@@ -137,6 +137,20 @@ export async function triggerQcGeneration() {
         throw error;
     }
 }
+
+export async function fetchQcStatus() {
+    try {
+        const response = await authFetch(`${API_BASE_URL}/qc/status`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch QC status: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("Fetch QC status error:", error);
+        return { is_generating: false };
+    }
+}
+
 export async function generateMissingQA(stepId: number) {
     const res = await authFetch(`${API_BASE_URL}/pipeline/steps/${stepId}/generate_missing`, {
         method: "POST",

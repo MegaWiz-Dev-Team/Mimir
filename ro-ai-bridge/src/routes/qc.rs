@@ -35,6 +35,7 @@ pub fn qc_routes() -> Router<DbPool> {
         .route("/clusters", get(list_clusters))
         .route("/resolve/{id}", post(resolve_cluster))
         .route("/generate", post(trigger_generate))
+        .route("/status", get(get_qc_status))
         .route("/seed", post(seed_qa_data))
 }
 
@@ -150,4 +151,10 @@ async fn seed_qa_data(
     }
     
     Json(serde_json::json!({ "inserted": success_count }))
+}
+
+/// GET /api/v1/qc/status — Check if background clustering is running
+async fn get_qc_status() -> Json<serde_json::Value> {
+    let is_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
+    Json(serde_json::json!({"is_generating": is_running}))
 }

@@ -7,6 +7,16 @@ use uuid::Uuid;
 use rig::providers::gemini;
 use rig::completion::Prompt;
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static IS_CLUSTERING_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct ClusteringGuard;
+impl Drop for ClusteringGuard {
+    fn drop(&mut self) {
+        IS_CLUSTERING_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClusterItemDTO {
@@ -109,6 +119,13 @@ impl ClusteringService {
 
     /// Generate clusters and detect conflicts using Gemini (Mock HDBSCAN for Phase 7 MVP)
     pub async fn trigger_clustering(pool: &MySqlPool, tenant_id: &str) -> Result<()> {
+        if IS_CLUSTERING_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            info!("Clustering job is already running, skipping trigger.");
+            return Ok(());
+        }
+        
+        let _guard = ClusteringGuard;
+        
         info!("Starting Clustering Job for tenant: {}", tenant_id);
         
         // MVP: Fetch recent 10 unclustered QA results
