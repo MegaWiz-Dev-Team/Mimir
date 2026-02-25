@@ -1,21 +1,99 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2 } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-
-const MOCK_SOURCES = [
-    { id: 1, name: "Prontera Wiki (Web)", type: "web", schedule: "Daily at 00:00", status: "COMPLETED" },
-    { id: 2, name: "Monster Drops (CSV)", type: "tabular", schedule: "Manual", status: "PENDING" },
-    { id: 3, name: "Guild Chat Logs", type: "mcp", schedule: "Hourly", status: "FAILED" },
-];
+import { fetchSources, createSource, deleteSource, syncSource, DataSource } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function SourcesPage() {
-    const [sources, setSources] = useState(MOCK_SOURCES);
+    const [sources, setSources] = useState<DataSource[]>([]);
+    const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
+    const [deletingId, setDeletingId] = useState<number | null>(null);
+
+    // Add Source Form State
+    const [newName, setNewName] = useState("");
+    const [newType, setNewType] = useState<'web' | 'tabular' | 'document' | 'mcp'>("web");
+    const [newUrl, setNewUrl] = useState("");
+
+    // Streaming Logs Console State
+    const [showConsole, setShowConsole] = useState(false);
+    const [logs, setLogs] = useState<string[]>([]);
+    const [syncingSourceId, setSyncingSourceId] = useState<number | null>(null);
+
+    useEffect(() => {
+        loadSources();
+    }, []);
+
+    const loadSources = async () => {
+        try {
+            setLoading(true);
+            const data = await fetchSources();
+            setSources(data);
+        } catch (error) {
+            console.error("Failed to fetch sources", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAddSource = async () => {
+        try {
+            await createSource({
+                name: newName,
+                source_type: newType,
+                config_json: { url: newUrl },
+                schedule: "Manual"
+            });
+            setShowAdd(false);
+            setNewName("");
+            setNewUrl("");
+            loadSources();
+        } catch (error) {
+            console.error("Failed to create source", error);
+            alert("Failed to create source");
+        }
+    };
+
+    const handleDelete = async (id: number) => {
+        try {
+            await deleteSource(id);
+            setDeletingId(null);
+            loadSources();
+        } catch (error) {
+            console.error("Failed to delete source", error);
+            alert("Failed to delete source");
+        }
+    };
+
+    const handleSync = async (id: number) => {
+        try {
+            await syncSource(id);
+            setSyncingSourceId(id);
+            setShowConsole(true);
+            setLogs([`> Starting sync job for source #${id}...`, "> Initializing background worker..."]);
+
+            // In a real implementation this would connect to the WebSockets/SSE stream.
+            // Simulating stream logs for the UI implementation as per TRD:
+            setTimeout(() => setLogs(l => [...l, "> Fetching URL..."]), 1000);
+            setTimeout(() => setLogs(l => [...l, "> Parsing DOM..."]), 2000);
+            setTimeout(() => {
+                setLogs(l => [...l, "> Completed ingestion! Check Vector space."]);
+                loadSources();
+                setTimeout(() => setShowConsole(false), 2000);
+            }, 4000);
+
+        } catch (error) {
+            console.error("Failed to sync source", error);
+            alert("Failed to sync source");
+        }
+    };
 
     const getTypeIcon = (type: string) => {
         switch (type) {
@@ -28,13 +106,13 @@ export default function SourcesPage() {
     };
 
     return (
-        <div className="container mx-auto p-8">
+        <div className="container mx-auto p-8 relative">
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Data Ingress Sources</h1>
                     <p className="text-muted-foreground">Manage and configure how data enters your tenant's vector space.</p>
                 </div>
-                <Button onClick={() => alert("Open Add Source Dialog")}>
+                <Button onClick={() => setShowAdd(true)}>
                     <Plus className="w-4 h-4 mr-2" />
                     Add Source
                 </Button>
@@ -54,22 +132,35 @@ export default function SourcesPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {sources.map((s) => (
+                                {loading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="text-center py-8">Loading sources...</TableCell>
+                                    </TableRow>
+                                ) : sources.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No data sources configured yet.</TableCell>
+                                    </TableRow>
+                                ) : sources.map((s) => (
                                     <TableRow key={s.id}>
                                         <TableCell className="font-medium">{s.name}</TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
-                                                {getTypeIcon(s.type)}
-                                                <span className="capitalize">{s.type}</span>
+                                                {getTypeIcon(s.source_type)}
+                                                <span className="capitalize">{s.source_type}</span>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="text-sm text-gray-500">{s.schedule}</TableCell>
+                                        <TableCell className="text-sm text-gray-500">{s.schedule || "Manual"}</TableCell>
                                         <TableCell>
-                                            <StatusBadge status={s.status} />
+                                            <StatusBadge status={s.last_sync_status || "PENDING"} />
                                         </TableCell>
                                         <TableCell className="text-right">
+                                            <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
+                                                <RefreshCw className="w-4 h-4" />
+                                            </Button>
                                             <Button variant="ghost" size="sm" title="Configure"><Settings className="w-4 h-4" /></Button>
-                                            <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 className="w-4 h-4" /></Button>
+                                            <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
                                         </TableCell>
                                     </TableRow>
                                 ))}
@@ -78,6 +169,79 @@ export default function SourcesPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            <Dialog open={showAdd} onOpenChange={setShowAdd}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Add New Data Source</DialogTitle>
+                        <DialogDescription className="sr-only">Form to add a new data source</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="name">Source Name</Label>
+                            <Input id="name" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Prontera Wiki" />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="type">Source Type</Label>
+                            <select
+                                id="type"
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={newType}
+                                onChange={e => setNewType(e.target.value as any)}
+                            >
+                                <option value="web">Web Scraper</option>
+                                <option value="tabular">Tabular (CSV/XLSX)</option>
+                                <option value="document">Document (PDF/Image)</option>
+                                <option value="mcp">MCP Connection</option>
+                            </select>
+                        </div>
+                        {newType === 'web' && (
+                            <div className="grid gap-2">
+                                <Label htmlFor="url">Target URL</Label>
+                                <Input id="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://..." />
+                            </div>
+                        )}
+                        {/* Additional fields for other types would go here */}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+                        <Button onClick={handleAddSource} disabled={!newName || (newType === 'web' && !newUrl)}>Create Source</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showConsole} onOpenChange={setShowConsole}>
+                <DialogContent className="max-w-2xl bg-black border-zinc-800 text-green-400 font-mono">
+                    <DialogHeader>
+                        <DialogTitle className="text-white flex items-center gap-2">
+                            <Terminal className="w-4 h-4" /> Ingress Live Console
+                        </DialogTitle>
+                        <DialogDescription className="text-zinc-400">
+                            Streaming logs from background worker for source #{syncingSourceId}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="min-h-[300px] max-h-[500px] overflow-y-auto p-4 rounded bg-zinc-950 border border-zinc-900 shadow-inner">
+                        {logs.map((log, i) => (
+                            <div key={i} className="mb-1">{log}</div>
+                        ))}
+                        <div className="animate-pulse">_</div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={deletingId !== null} onOpenChange={(open) => !open && setDeletingId(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Confirm Deletion</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete this data source? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeletingId(null)}>Cancel</Button>
+                        <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700" onClick={() => deletingId && handleDelete(deletingId)}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -21,10 +21,10 @@
   - Centralized Config Schema, New Tenant Provisioning Flow, Tenant Management UI
 - **Sprint 4: Quality Control & Hallucination Prevention** [ระบุช่วงเวลา]
   - Data Clustering, LLM Consensus Checker, Conflict Resolution UI
-- **Sprint 5: Agent Evaluations System** [ระบุช่วงเวลา]
-  - Evaluation Background Job, Real-time Progress Bar, QA Results by Tenant
-- **Sprint 6: Data Ingress Monitoring** [ระบุช่วงเวลา]
+- **Sprint 5: Data Ingress Monitoring** [ระบุช่วงเวลา]
   - Data Source CRUD APIs, Streaming Logs UI, Real-time status websockets
+- **Sprint 6: Agent Evaluations System** [ระบุช่วงเวลา]
+  - Evaluation Background Job, Real-time Progress Bar, QA Results by Tenant
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                       | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                 |

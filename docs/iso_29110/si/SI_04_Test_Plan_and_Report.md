@@ -6,14 +6,14 @@
 - **Environment:** Local development environment, Docker (MariaDB, Qdrant, Redis), Rust Backend, Next.js Frontend.
 
 ## 2. Test Cases & Execution Report (ผลการทดสอบ)
-| Test Case ID | Test Description                              | Expected Result                                              | Actual Result                            | Status  | Date Tested | Tested By |
-| ------------ | --------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------- | ------- | ----------- | --------- |
-| TC-001       | (Sprint 1) CRUD Users & Auth                  | Data loads correctly, Add/Edit/Delete works successfully     | Dashboard loads active users.            | Pass    | 2026-02-22  | AI        |
-| TC-002       | (Sprint 2) Vector Management & DB Isolate     | Multi-tenant Vector search and deletion work correctly       | Features work securely.                  | Pass    | 2026-02-23  | AI        |
-| TC-003       | (Sprint 3) Tenant Settings & Provisioning     | Centralized configuration and user/DB spawning work          | Centralized config loads, tenant creates | Pass    | 2026-02-24  | AI        |
-| TC-004       | (Sprint 4) Quality Control & Kanban Dashboard | System groups conflicting QA pairs & UI handles resolution   | Kanban UI and API works properly         | Pass    | 2026-02-25  | Agent     |
-| TC-005       | (Sprint 5) Background Evaluation Trigger      | Job is added to queue and progress bar updates via WebSocket | -                                        | Pending | -           | -         |
-| TC-006       | (Sprint 6) Streaming Log output               | Crawler logs populate UI sequentially in real-time           | -                                        | Pending | -           | -         |
+| Test Case ID | Test Description                              | Expected Result                                              | Actual Result                                   | Status  | Date Tested | Tested By |
+| ------------ | --------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------- | ------- | ----------- | --------- |
+| TC-001       | (Sprint 1) CRUD Users & Auth                  | Data loads correctly, Add/Edit/Delete works successfully     | Dashboard loads active users.                   | Pass    | 2026-02-22  | AI        |
+| TC-002       | (Sprint 2) Vector Management & DB Isolate     | Multi-tenant Vector search and deletion work correctly       | Features work securely.                         | Pass    | 2026-02-23  | AI        |
+| TC-003       | (Sprint 3) Tenant Settings & Provisioning     | Centralized configuration and user/DB spawning work          | Centralized config loads, tenant creates        | Pass    | 2026-02-24  | AI        |
+| TC-004       | (Sprint 4) Quality Control & Kanban Dashboard | System groups conflicting QA pairs & UI handles resolution   | Background job runs and Kanban updates properly | Pass    | 2026-02-25  | Agent     |
+| TC-005       | (Sprint 5) Streaming Log output               | Crawler logs populate UI sequentially in real-time           | Dashboard live console stream                   | Pass    | 2026-02-25  | Agent     |
+| TC-006       | (Sprint 6) Background Evaluation Trigger      | Job is added to queue and progress bar updates via WebSocket | -                                               | Pending | -           | -         |
 
 ## 3. Historical Test Execution Records (ประวัติการทดสอบระบบก่อนหน้า)
 

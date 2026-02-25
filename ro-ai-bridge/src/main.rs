@@ -45,6 +45,7 @@ async fn main() {
         .nest("/api/v1/pipeline", pipeline_routes())
         .nest("/api/v1/qc", qc_routes())
         .nest("/api/v1/vector", vector_routes())
+        .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes())
         .with_state(pool)
         .layer(cors);
 
