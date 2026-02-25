@@ -16,6 +16,7 @@ use ro_ai_bridge::routes::iam::iam_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
 use ro_ai_bridge::routes::pipeline::pipeline_routes;
 use ro_ai_bridge::routes::qc::qc_routes;
+use ro_ai_bridge::routes::vector::vector_routes;
 
 #[tokio::main]
 async fn main() {
@@ -43,6 +44,7 @@ async fn main() {
         .nest("/api/v1/auth", auth_routes())
         .nest("/api/v1/pipeline", pipeline_routes())
         .nest("/api/v1/qc", qc_routes())
+        .nest("/api/v1/vector", vector_routes())
         .with_state(pool)
         .layer(cors);
 
