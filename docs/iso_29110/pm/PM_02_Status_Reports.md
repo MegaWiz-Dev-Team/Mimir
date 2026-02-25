@@ -9,7 +9,7 @@
 | 2026-02-24 | Sprint 3                                    | Completed | [ดูรายละเอียด SI_04_3_Sprint3_TestScript](SI_04_3_Sprint3_TestScript.md) |
 | 2026-02-25 | Sprint 4                                    | Completed | [ดูรายละเอียด SI_04_4_Sprint4_TestScript](SI_04_4_Sprint4_TestScript.md) |
 | 2026-02-25 | Sprint 5                                    | Completed | [ดูรายละเอียด SI_04_5_Sprint5_TestScript](SI_04_5_Sprint5_TestScript.md) |
-| 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Open                                                                   | PR #50 Created |
+| 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
 ## 2. Issue / Change Logs (บันทึกปัญหาและการเปลี่ยนแปลง)
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution          |

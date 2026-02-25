@@ -362,20 +362,18 @@ mod tests {
     #[test]
     fn test_verify_password_valid() {
         let password = "mysecretpassword123";
-        // An actual valid Argon2id hash for "mysecretpassword123"
-        let hash = "$argon2id$v=19$m=19456,t=2,p=1$B8oIfP/9K2Y7YmS/i/rPTA$Yq79+1s0Tnjd/I3cQO30V9F5B4n2rTTrE232E+73504";
+        let hash = IamService::hash_password(password).unwrap();
         
-        // This should pass if the underlying library and traits are correctly decoding Argon2
-        let is_valid = IamService::verify_password(password, hash).unwrap();
+        let is_valid = IamService::verify_password(password, &hash).unwrap();
         assert!(is_valid, "Password should be verified against its valid hash");
     }
 
     #[test]
     fn test_verify_password_invalid() {
         let password = "wrongpassword999";
-        let hash = "$argon2id$v=19$m=19456,t=2,p=1$B8oIfP/9K2Y7YmS/i/rPTA$Yq79+1s0Tnjd/I3cQO30V9F5B4n2rTTrE232E+73504"; // Hash for "mysecretpassword123"
+        let hash = IamService::hash_password("mysecretpassword123").unwrap();
         
-        let is_valid = IamService::verify_password(password, hash).unwrap();
+        let is_valid = IamService::verify_password(password, &hash).unwrap();
         assert!(!is_valid, "Password should not be verified against another password's hash");
     }
 

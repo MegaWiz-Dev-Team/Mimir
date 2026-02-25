@@ -1,4 +1,4 @@
-CREATE TABLE data_sources (
+CREATE TABLE IF NOT EXISTS data_sources (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     tenant_id VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,

@@ -31,23 +31,23 @@
 
 | ID            | Test Scenario           | Action / Steps (ขั้นตอนการทดสอบ)                                           | Expected Result (ผลที่คาดหวัง)                                             | ผลการประเมิน (Pass/Fail) | Issue # / PR # | หมายเหตุ / รูปภาพ |
 | ------------- | ----------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ----------------------- | -------------- | --------------- |
-| **TC_SP5_01** | Create Data Source API  | 1. ส่ง Request `POST /api/sources` พร้อม payload ข้อมูล source (เช่น Web URL) | ระบบบันทึกข้อมูลลงฐานข้อมูลและตอบกลับด้วยรายละเอียด Source ใหม่ที่สร้างขึ้น (HTTP 201) | ➖ Pending               |                |                 |
-| **TC_SP5_02** | Fetch Data Sources API  | 1. ส่ง Request `GET /api/sources`                                         | ระบบคืนค่ารายการ Sources ที่เกี่ยวข้องกับ Tenant ของผู้ใช้ (HTTP 200 OK)           | ➖ Pending               |                |                 |
-| **TC_SP5_03** | Trigger Source Sync API | 1. ส่ง Request `POST /api/sources/:id/sync`                               | ระบบส่งสัญญาณให้ Background worker เริ่มดึงข้อมูล และตอบกลับ HTTP 202 Accepted   | ➖ Pending               |                |                 |
+| **TC_SP5_01** | Create Data Source API  | 1. ส่ง Request `POST /api/sources` พร้อม payload ข้อมูล source (เช่น Web URL) | ระบบบันทึกข้อมูลลงฐานข้อมูลและตอบกลับด้วยรายละเอียด Source ใหม่ที่สร้างขึ้น (HTTP 201) | ✅ Pass                  | #49 / #50      |                 |
+| **TC_SP5_02** | Fetch Data Sources API  | 1. ส่ง Request `GET /api/sources`                                         | ระบบคืนค่ารายการ Sources ที่เกี่ยวข้องกับ Tenant ของผู้ใช้ (HTTP 200 OK)           | ✅ Pass                  | #49 / #50      |                 |
+| **TC_SP5_03** | Trigger Source Sync API | 1. ส่ง Request `POST /api/sources/:id/sync`                               | ระบบส่งสัญญาณให้ Background worker เริ่มดึงข้อมูล และตอบกลับ HTTP 202 Accepted   | ✅ Pass                  | #49 / #50      |                 |
 
 ---
 
 ### ส่วนที่ 3: การตรวจสอบระบบผ่านหน้าจอ (Frontend UI Verification)
 
-| ID            | Test Scenario                  | Action / Steps (ขั้นตอนการทดสอบ)                                  | Expected Result (ผลที่คาดหวัง)                                                                         | ผลการประเมิน (Pass/Fail) | Issue # / PR # | หมายเหตุ / รูปภาพ |
-| ------------- | ------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------- | -------------- | --------------- |
-| **TC_SP5_04** | Sources Page Access            | 1. ล็อกอินเข้าสู่แดชบอร์ด<br>2. ไปที่เมนู "Sources"                      | ระบบแสดงรายการ Data Sources จริงจาก Backend ไม่ใช่ Mock Data                                           | ➖ Pending               |                |                 |
-| **TC_SP5_05** | Add New Web Source             | 1. คลิกปุ่ม "Add Source"<br>2. กรอก URL ของเว็บไซต์เป้าหมาย แล้วกดบันทึก | Dialog ปิดลงและรายการใหม่ปรากฏขึ้นในตาราง Data Sources                                                  | ➖ Pending               |                |                 |
-| **TC_SP5_06** | Trigger Sync & Console Monitor | 1. คลิกปุ่ม "Sync" ที่รายการ Source<br>2. สังเกตที่หน้าต่าง Console Log   | ระบบจะเริ่มทำงานดึงข้อมูล พร้อมพ่น Log ออกมาบนจอแบบ Real-time (WebSockets/SSE) ให้เห็นความคืบหน้าถึงไหนและดึงกี่เพจ | ➖ Pending               |                |                 |
-| **TC_SP5_07** | Delete Source                  | 1. คลิกปุ่ม "Delete" และยืนยันการลบ                                  | รายการ Source หายไปจากตารางและฐานข้อมูลสำเร็จ                                                           | ➖ Pending               |                |                 |
+| ID            | Test Scenario                  | Action / Steps (ขั้นตอนการทดสอบ)                                  | Expected Result (ผลที่คาดหวัง)                                                                         | ผลการประเมิน (Pass/Fail) | Issue # / PR # | หมายเหตุ / รูปภาพ             |
+| ------------- | ------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------- | -------------- | --------------------------- |
+| **TC_SP5_04** | Sources Page Access            | 1. ล็อกอินเข้าสู่แดชบอร์ด<br>2. ไปที่เมนู "Sources"                      | ระบบแสดงรายการ Data Sources จริงจาก Backend ไม่ใช่ Mock Data                                           | ✅ Pass                  | #49 / #50      |                             |
+| **TC_SP5_05** | Add New Web Source             | 1. คลิกปุ่ม "Add Source"<br>2. กรอก URL ของเว็บไซต์เป้าหมาย แล้วกดบันทึก | Dialog ปิดลงและรายการใหม่ปรากฏขึ้นในตาราง Data Sources                                                  | ✅ Pass                  | #49 / #50      |                             |
+| **TC_SP5_06** | Trigger Sync & Console Monitor | 1. คลิกปุ่ม "Sync" ที่รายการ Source<br>2. สังเกตที่หน้าต่าง Console Log   | ระบบจะเริ่มทำงานดึงข้อมูล พร้อมพ่น Log ออกมาบนจอแบบ Real-time (WebSockets/SSE) ให้เห็นความคืบหน้าถึงไหนและดึงกี่เพจ | ✅ Pass                  | #49 / #50      | รูปภาพวีดีโอ ui_test_sprint5   |
+| **TC_SP5_07** | Delete Source                  | 1. คลิกปุ่ม "Delete" และยืนยันการลบ                                  | รายการ Source หายไปจากตารางและฐานข้อมูลสำเร็จ                                                           | ✅ Pass                  | #49 / #50      | สร้าง React Dialog แทน alert |
 
 **สรุปผลการทดสอบ Sprint 5 (Sign-off):** 
-- [ ] ผ่านเกณฑ์ทั้งหมด (All Passed) นำผลไปกรอกที่ SI_04 Test Plan
+- [x] ผ่านเกณฑ์ทั้งหมด (All Passed) นำผลไปกรอกที่ SI_04 Test Plan
 - [ ] ไม่ผ่านบางส่วน (Partial Fail) - ระบุข้อที่ต้องแก้โค้ดและ Issue Tracking: _________________________________________
 
 **อ้างอิง (GitHub References):**
