@@ -1,0 +1,32 @@
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use chrono::{DateTime, Utc};
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct DataSource {
+    pub id: i64,
+    pub tenant_id: String,
+    pub name: String,
+    pub source_type: String, // "web", "tabular", "document", "mcp"
+    pub config_json: serde_json::Value,
+    pub schedule: Option<String>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_at: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateDataSourceRequest {
+    pub name: String,
+    pub source_type: String,
+    pub config_json: serde_json::Value,
+    pub schedule: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateDataSourceRequest {
+    pub name: Option<String>,
+    pub config_json: Option<serde_json::Value>,
+    pub schedule: Option<String>,
+}

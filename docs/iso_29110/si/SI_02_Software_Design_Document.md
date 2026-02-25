@@ -19,5 +19,5 @@
 - **Vector & Pipeline Module:** จัดการ Data Ingestion และ Semantic Search (Sprint 2)
 - **Tenant Configuration Module:** จัดการ Settings และ Provisioning Workflow แบบ Centralized (Sprint 3)
 - **Quality Control Module:** Background Worker จัดการ Data Clustering (Sprint 4)
-- **Evaluation Module:** รัน Metric Evaluation แบบ Asynchronous (Sprint 5)
-- **Ingress Module:** WebSocket/SSE รันสถานะของ Data Crawler (Sprint 6)
+- **Ingress Module:** WebSocket/SSE รันสถานะของ Data Crawler (Sprint 5)
+- **Evaluation Module:** รัน Metric Evaluation แบบ Asynchronous (Sprint 6)
