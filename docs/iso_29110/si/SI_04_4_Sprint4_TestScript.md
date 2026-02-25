@@ -53,5 +53,5 @@
 - [ ] ไม่ผ่านบางส่วน (Partial Fail) - ระบุข้อที่ต้องแก้โค้ดและ Issue Tracking: _________________________________________
 
 **อ้างอิง (GitHub References):**
-- **Issue:** #XX (Sprint 4 - Quality Control & Hallucination Prevention)
-- **Pull Request:** #XX
+- **Issue:** #37, #39 (Sprint 4 - Quality Control & Hallucination Prevention)
+- **Pull Request:** #38
