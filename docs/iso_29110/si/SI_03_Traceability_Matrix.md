@@ -13,5 +13,6 @@
 | BUG-040 | Auto-scan QC Loop & Progress (#40)   | QC Module            | `clustering.rs`, `qc.rs`, `UI`   | TC-004       | Pending |
 | BUG-041 | Vector Stats API 404 (Issue #41)     | Vector Module        | `vector.rs`, `lib/api.ts`        | TC-002       | Pending |
 | BUG-043 | Auth Redirect on Admin Pages         | IAM Module           | `login/page.tsx`, `api.ts`       | TC-001       | Done    |
+| BUG-046 | Admin Login Authentication Hash      | IAM Module           | `iam.rs`, `Docker MariaDB`       | TC-SP4-12    | Done    |
 | REQ-004 | Agent Evaluations (Sprint 5)         | Eval Module          | `Background Job`, `Wizard UI`    | TC-005       | Pending |
 | REQ-005 | Data Ingress & Monitoring (Sprint 6) | Ingress Module       | `WebSocket Server`, `Log UI`     | TC-006       | Pending |
