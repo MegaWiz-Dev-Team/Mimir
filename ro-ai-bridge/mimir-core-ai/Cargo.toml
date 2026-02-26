@@ -21,7 +21,7 @@ scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-sqlx = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite"] }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }

@@ -173,12 +173,14 @@ async fn main() -> Result<()> {
         .route("/api/v1/wiki/{filename}", get(get_wiki_content))
         .layer(axum::middleware::from_fn(tenant_auth_middleware));
 
-    let iam_router = ro_ai_bridge::routes::iam::iam_routes().with_state(pool);
+    let iam_router = ro_ai_bridge::routes::iam::iam_routes().with_state(pool.clone());
+    let eval_router = ro_ai_bridge::routes::eval::eval_routes().with_state(pool.clone());
 
     let app = Router::new()
         // Auth (Public)
         .route("/api/v1/auth/login", post(auth_login))
         .nest("/api/v1/iam", iam_router)
+        .merge(eval_router)
         .merge(auth_routes)
         .layer(
             tower_http::cors::CorsLayer::new()

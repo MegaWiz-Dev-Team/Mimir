@@ -96,6 +96,9 @@ mod tests {
             last_sync_at: None,
             created_at: Some(Utc::now()),
             updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
         };
 
         let result = IngressManager::process_source(&source).await;
@@ -116,6 +119,9 @@ mod tests {
             last_sync_at: None,
             created_at: Some(Utc::now()),
             updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
         };
         let result2 = IngressManager::process_source(&bad_config_source).await;
         assert!(result2.is_err());
@@ -135,6 +141,9 @@ mod tests {
             last_sync_at: None,
             created_at: Some(Utc::now()),
             updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
         };
 
         let result = IngressManager::process_source(&source).await;
