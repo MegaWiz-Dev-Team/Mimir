@@ -44,7 +44,7 @@ export default function StepDetailsPage() {
                 setQaList(qaData);
                 setReport(reportData);
             } catch (error) {
-                console.error("Failed to load step details", error);
+                console.warn("[Steps] Failed to load step details:", error);
             } finally {
                 setLoading(false);
             }
@@ -70,7 +70,7 @@ export default function StepDetailsPage() {
                         setIsGenerating(false);
                     }
                 } catch (error) {
-                    console.error("Failed to poll step details", error);
+                    console.warn("[Steps] Failed to poll step details:", error);
                 }
             }, 3000); // Poll every 3 seconds
         }
@@ -221,7 +221,7 @@ export default function StepDetailsPage() {
                                                     // Trigger background task but don't wait for completion
                                                     await generateMissingQA(id);
                                                 } catch (e: any) {
-                                                    console.error("Generate QA Error:", e);
+                                                    console.warn("[Steps] Generate QA Error:", e);
                                                     alert(e.message || "Failed to start generating missing Q/A");
                                                     setIsGenerating(false);
                                                 }

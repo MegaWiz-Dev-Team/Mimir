@@ -35,11 +35,11 @@ export default function SettingsPage() {
                     const configData = await fetchTenantConfig(firstTenant.id);
                     setConfig(configData);
                 } catch (err) {
-                    console.error("Failed to load tenant config", err);
+                    console.warn("[Settings] Failed to load tenant config:", err);
                 }
             }
         } catch (error) {
-            console.error("Failed to load tenants:", error);
+            console.warn("[Settings] Failed to load tenants:", error);
             alert("Failed to load tenant data. Are you logged in as Admin?");
         } finally {
             setIsLoading(false);
@@ -59,7 +59,7 @@ export default function SettingsPage() {
             alert("Tenant settings updated successfully.");
             loadData();
         } catch (error) {
-            console.error(error);
+            console.warn("[Settings]", error);
             alert("Failed to update tenant.");
         } finally {
             setIsSaving(false);

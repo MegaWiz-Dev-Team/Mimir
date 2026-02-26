@@ -44,7 +44,7 @@ export default function QualityControlPage() {
             const data = await fetchQcClusters("");
             setClusters(data.clusters || []);
         } catch (e) {
-            console.error(e);
+            console.warn("[QC]", e);
         } finally {
             setLoading(false);
         }
@@ -74,7 +74,7 @@ export default function QualityControlPage() {
             });
             return status.is_generating;
         } catch (e) {
-            console.error("Failed to check QC status");
+            console.warn("[QC] Failed to check QC status");
             return false;
         }
     };
