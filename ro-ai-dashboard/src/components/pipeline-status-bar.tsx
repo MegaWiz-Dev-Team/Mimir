@@ -36,7 +36,7 @@ export function PipelineStatusBar() {
                     vectorized,
                 });
             } catch (error) {
-                console.error("Failed to load pipeline stats", error);
+                console.warn("[PipelineStatusBar] Failed to load pipeline stats:", error);
             }
         };
 

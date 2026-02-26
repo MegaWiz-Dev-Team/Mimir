@@ -322,7 +322,7 @@ export default function StepDetailsPage() {
                                         // Optional: Clear selection
                                         window.getSelection()?.removeAllRanges();
                                     } catch (e: any) {
-                                        console.error(e);
+                                        console.warn("[Steps]", e);
                                     } finally {
                                         setIsGeneratingFromSelection(false);
                                     }
