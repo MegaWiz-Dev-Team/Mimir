@@ -459,31 +459,31 @@ export default function SourcesPage() {
 
             {/* ═══ Add Source Wizard — Sliding Drawer ═══ */}
             <Sheet open={showWizard} onOpenChange={(open) => { if (!open) setShowWizard(false); }}>
-                <SheetContent className="sm:max-w-lg overflow-y-auto">
-                    <SheetHeader>
-                        <SheetTitle>{getStepTitle()}</SheetTitle>
+                <SheetContent className="sm:max-w-xl overflow-y-auto">
+                    <SheetHeader className="px-6 pt-6 pb-4">
+                        <SheetTitle className="text-lg">{getStepTitle()}</SheetTitle>
                         <SheetDescription>
                             Step {wizardStep} of 3 — {getStepTitle()}
                         </SheetDescription>
                         {/* Step indicator */}
-                        <div className="flex items-center gap-2 pt-2">
+                        <div className="flex items-center gap-2 pt-3">
                             {[1, 2, 3].map((step) => (
                                 <div
                                     key={step}
-                                    className={`h-1.5 flex-1 rounded-full transition-colors ${step <= wizardStep ? "bg-primary" : "bg-muted"
+                                    className={`h-2 flex-1 rounded-full transition-colors ${step <= wizardStep ? "bg-primary" : "bg-muted"
                                         }`}
                                 />
                             ))}
                         </div>
                     </SheetHeader>
 
-                    <div className="py-6 flex-1">
+                    <div className="px-6 py-4 flex-1">
                         {wizardStep === 1 && <IngressTypeSelector onSelect={handleTypeSelect} />}
                         {wizardStep === 2 && renderStep2Content()}
                         {wizardStep === 3 && renderStep3Content()}
                     </div>
 
-                    <SheetFooter className="flex-row justify-between gap-2">
+                    <SheetFooter className="flex-row justify-between gap-2 px-6 py-4 border-t">
                         {wizardStep > 1 && (
                             <Button variant="outline" onClick={() => setWizardStep((s) => Math.max(1, s - 1) as 1 | 2 | 3)}>
                                 <ArrowLeft className="w-4 h-4 mr-1" />
