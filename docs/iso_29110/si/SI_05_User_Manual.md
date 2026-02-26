@@ -102,7 +102,14 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
 ![Quality Control Kanban Board](./images/sprint4_qc_initial.png)
 ![Conflict Resolution Modal](./images/sprint4_qc_conflict.png)
 
-#### การประเมินประสิทธิภาพ AI (Evaluations)
-การดูสถิติและวัดผลประสิทธิภาพการตอบคำถามของตัวแบบ (Model Metrics):
+#### การประเมินประสิทธิภาพ AI (Evaluations) (Sprint 6)
+การดูสถิติและวัดผลประสิทธิภาพการตอบคำถามของตัวแบบ (Model Metrics) เทียบกับคู่มือ (Golden Answers):
 1. ที่แถบเมนูด้านซ้ายคลิก **Evaluations**
-2. ระบบจะแสดงตัวชี้วัด เช่น ความแม่นยำ (Accuracy), ภาพหลอน (Hallucination Rate), ตลอดจนเวลาที่ใช้ในการตอบ เพื่อใช้ประกอบการตัวสินใจสลับใช้ LLM ตัวอื่นๆ ใน Settings
+2. ระบบจะแสดงประวัติการทfสอบทั้งหมด สามารถดู Progress แบบ Real-time ได้ในกรณีที่เพิ่งสั่งรัน
+3. **การสั่งรัน Evaluation ใหม่:** 
+   - กดปุ่ม **"New Evaluation"** ที่มุมขวาบน
+   - จะมี Wizard ขึ้นมาให้เลือก **Agent** (เช่น `oracle_rag`), **Model** (เช่น `gemini-2.5-flash`), และ **จำกัดจำนวนคำถาม**
+   - กด **Confirm & Run** ระบบจะสั่งงาน Background Job ให้ทดสอบแทนมนุษย์
+4. **การดูและแก้ไขคะแนน (Score Override):**
+   - ในหน้ารายละเอียดของแต่ละการรัน จะมี Heatmap แสดงคะแนนรวม (มี 🌟 ในช่องที่คะแนนรวมสูงสุด)
+   - หากเนื้อหาที่ LLM-as-a-judge ประเมินมาให้คะแนนคลาดเคลื่อนจากความเป็นจริง แอดมินสามารถกางผลลัพธ์ย่อยดู แล้วกดปุ่ม **Override** เพื่อแก้ไขคะแนน (Accuracy, Completeness, Relevance) หรือใส่ Notes กำกับด้วยตัวเองได้ทันที

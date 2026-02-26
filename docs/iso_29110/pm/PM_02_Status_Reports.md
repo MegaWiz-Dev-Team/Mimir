@@ -9,11 +9,14 @@
 | 2026-02-24 | Sprint 3                                    | Completed | [ดูรายละเอียด SI_04_3_Sprint3_TestScript](SI_04_3_Sprint3_TestScript.md) |
 | 2026-02-25 | Sprint 4                                    | Completed | [ดูรายละเอียด SI_04_4_Sprint4_TestScript](SI_04_4_Sprint4_TestScript.md) |
 | 2026-02-25 | Sprint 5                                    | Completed | [ดูรายละเอียด SI_04_5_Sprint5_TestScript](SI_04_5_Sprint5_TestScript.md) |
+| 2026-02-26 | Sprint 6                                    | Completed | [ดูรายละเอียด SI_04_6_Sprint6_TestScript](SI_04_6_Sprint6_TestScript.md) |
+| 2026-02-26 | Sprint 7                                    | Completed | [ดูรายละเอียด SI_04_7_Sprint7_TestScript](SI_04_7_Sprint7_TestScript.md) |
 | 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
-## 2. Issue / Change Logs (บันทึกปัญหาและการเปลี่ยนแปลง)
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution          |
 | ---------- | ------------------------------------------------------------------------ | --------- | ------ | ------------------- |
+| 2026-02-26 | Issue #71: Sprint 6 Agent Evaluations System                             | User      | Closed | Closed              |
+| 2026-02-26 | Issue #73: Sprint 7 Final Testing UI Component                           | User      | Closed | Closed              |
 | 2026-02-25 | Issue #51: "Configure" button on Sources page does nothing               | User      | Closed | PR #52 Merged       |
 | 2026-02-25 | Issue #53: Implement actual background worker for Data Ingress Sync      | User      | Closed | PR #54 Merged       |
 | 2026-02-25 | Issue #43: Users page redirects to login abruptly (Failed to load users) | User      | Open   | PR #44 Created      |

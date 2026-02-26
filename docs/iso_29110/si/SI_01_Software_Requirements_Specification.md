@@ -5,15 +5,15 @@
 - [อธิบายภาพรวมของระบบ แพลตฟอร์มนี้คืออะไร]
 
 ## 2. Functional Requirements (ความต้องการด้านฟังก์ชัน)
-| Req ID  | Requirement Description                                                                                                                                                                                       | Priority |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| REQ-001 | **Security & IAM:** ระบบต้องรองรับการจัดการสิทธิ์แบบ Multi-tenant (CRUD Users/Tenants) และ Authentication ผ่าน JWT Token                                                                                             | High     |
-| REQ-002 | **Vector Management:** ระบบต้องสามารถแยกเก็บข้อมูลแยกตาม Tenant กรองข้อมูลเก่า/หมดอายุ และแก้ไข Vector Data ได้จากหน้า UI                                                                                                | High     |
-| REQ-004 | **Quality Control:** ระบบต้องมีการใช้ LLM วิเคราะห์ความขัดแย้งของข้อมูล (Clustering) และให้ User สรุป Golden Answer ได้ผ่านหน้าจอ Kanban                                                                                    | Medium   |
-| REQ-005 | **Data Ingress:** ระบบต้องรองรับการนำเข้าข้อมูล (Web, File, MCP) และแสดงสถานะการดูดข้อมูลแบบ Real-time (Streaming Logs)                                                                                                | High     |
-| REQ-003 | **Agent Evaluation:** ระบบต้องสามารถรันประเมินความแม่นยำของ AI (Evaluation) แบบ Background Job และแสดงผล Progress/Heatmap                                                                                          | Medium   |
-| REQ-006 | **Tenant Settings:** ระบบต้องมีหน้า Settings ให้ผู้ใช้สามารถแก้ไขชื่อ (Name) และจัดการข้อมูล Tenant ของตนเองได้                                                                                                             | High     |
-| REQ-007 | **UX/UI Pipeline & Traceability:** ระบบต้องรองรับการดู Markdown Preview, แสดงผล ACU Coverage (%), มี Conflict Resolution UI, และตรวจสอบย้อนกลับ (Traceability) ของผลลัพธ์ย้อนจาก Vector DB ไปยัง Source Document URL ได้ | High     |
+| Req ID  | Requirement Description                                                                                                                                                                              | Priority |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| REQ-001 | **Security & IAM:** ระบบต้องรองรับการจัดการสิทธิ์แบบ Multi-tenant (CRUD Users/Tenants) และ Authentication ผ่าน JWT Token                                                                                    | High     |
+| REQ-002 | **Vector Management:** ระบบต้องสามารถแยกเก็บข้อมูลแยกตาม Tenant กรองข้อมูลเก่า/หมดอายุ และแก้ไข Vector Data ได้จากหน้า UI                                                                                       | High     |
+| REQ-004 | **Quality Control:** ระบบต้องมีการใช้ LLM วิเคราะห์ความขัดแย้งของข้อมูล (Clustering) และให้ User สรุป Golden Answer ได้ผ่านหน้าจอ Kanban                                                                           | Medium   |
+| REQ-005 | **Data Ingress:** ระบบต้องรองรับการนำเข้าข้อมูล (Web, File, MCP) และแสดงสถานะการดูดข้อมูลแบบ Real-time (Streaming Logs)                                                                                       | High     |
+| REQ-003 | **Agent Evaluation:** ระบบต้องสามารถรันประเมินความแม่นยำของ AI (Evaluation) แบบ Background Job, มีหน้าต่าง Wizard ในการเลือก Agent/Model, และแสดง Progress พร้อมคะแนนทดสอบแบบ Heatmap ที่สามารถ Override คะแนนได้ | Medium   |
+| REQ-006 | **Tenant Settings:** ระบบต้องมีหน้า Settings ให้ผู้ใช้สามารถแก้ไขชื่อ (Name) และจัดการข้อมูล Tenant ของตนเองได้                                                                                                    | High     |
+| REQ-007 | **UX/UI Pipeline & Traceability:** ระบบต้องรองรับการดู Markdown Preview, แสดงผลความคืบหน้าแบบ Real-time, มี UI จัดการข้อมูลขัดแย้ง, และการตรวจสอบย้อนกลับ (Traceability) ไปยัง Source Document URL ได้อย่างง่ายดาย    | High     |
 
 ## 3. Non-Functional Requirements (ความต้องการด้านอื่นๆ ที่ไม่ใช่ฟังก์ชัน)
 - **Security & Multi-Tenancy:**
