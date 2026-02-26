@@ -3,6 +3,42 @@ use crate::services::extraction;
 use anyhow::{Result, Context};
 use tracing::{info, error, warn};
 
+/// Retry an async operation with exponential backoff.
+///
+/// - `max_retries`: number of retry attempts (3 = 1 initial + 3 retries)
+/// - `base_delay_ms`: initial delay in milliseconds (doubles each retry)
+pub async fn retry_with_backoff<F, Fut, T>(
+    operation_name: &str,
+    max_retries: u32,
+    base_delay_ms: u64,
+    f: F,
+) -> Result<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut last_err = None;
+    for attempt in 0..=max_retries {
+        match f().await {
+            Ok(val) => return Ok(val),
+            Err(e) => {
+                if attempt < max_retries {
+                    let delay = base_delay_ms * 2u64.pow(attempt);
+                    warn!(
+                        "{} failed (attempt {}/{}), retrying in {}ms: {}",
+                        operation_name, attempt + 1, max_retries + 1, delay, e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    error!("{} failed after {} attempts: {}", operation_name, max_retries + 1, e);
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap())
+}
+
 pub struct IngressManager;
 
 impl IngressManager {
