@@ -25,7 +25,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
 7. เมื่อกรอกข้อมูลครบถ้วน คลิกที่ปุ่มสีน้ำเงิน **"Sign In"**
 8. หากรหัสผ่านถูกต้อง ระบบจะพาคุณเข้าสู่หน้าจอ Dashboard อัตโนมัติ หากกรอกผิดจะมีข้อความสีแดงแจ้งเตือน "Invalid email or password"
 
-![หน้าจอล็อกอิน (Login Screen)](images/mockups/mock_login.png)
+![หน้าจอล็อกอิน (Login Screen)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_login.png)
 
 ---
 
@@ -52,7 +52,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - คลิกปุ่ม **"Save"** หรือ **"Create"** ด้านล่างสุดของ Pop-up เพื่อยืนยัน
    - ระบบจะใช้เวลาสักครู่ในการสร้าง Database Schema ย่อย และนำคุณกลับสู่หน้าตารางหลัก
 
-![หน้ารายการจัดการพื้นที่ทำงาน (Tenant Management)](images/mockups/mock_tenant.png)
+![หน้ารายการจัดการพื้นที่ทำงาน (Tenant Management)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_tenant.png)
 
 #### การตั้งค่า Tenant Configuration (Settings)
 ในแต่ละ Workspace ผู้ดูแลระบบของพื้นที่สามารถปรับแต่ง AI ของตัวเองได้ รวมถึงเปลี่ยนกุญแจ API
@@ -69,7 +69,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
 6. เมื่อตรวจสอบข้อมูลครบถ้วน คลิกปุ่มสีฟ้ามุมขวาล่าง **"Save Configuration"**
 7. แถบแจ้งเตือนสีเขียว "Settings saved successfully" จะแสดงขึ้นที่มุมจอเป็นการยืนยัน
 
-![หน้าต่างการตั้งค่า (Settings)](images/mockups/mock_settings.png)
+![หน้าต่างการตั้งค่า (Settings)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_settings.png)
 
 #### การจัดการผู้ใช้งาน (Users)
 สำหรับให้สิทธ์คนเข้าถึงแพลตฟอร์ม
@@ -87,7 +87,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - คลิกช่อง Dropdown **"Assign Role"** เลือกระดับสิทธิ์ให้เหมาะสม (ตัวเลือก: `Tenant Admin`, `Developer`, `Reviewer`)
    - คลิกปุ่ม **"Send Invitation"** ระบบจะส่งอีเมลพร้อมลิงก์สร้างรหัสผ่านให้บัญชีปลายทาง
 
-![หน้ารายชื่อผู้ใช้งาน (Users)](images/mockups/mock_users.png)
+![หน้ารายชื่อผู้ใช้งาน (Users)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_users.png)
 
 ---
 
@@ -105,7 +105,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
 5. หลังจากคลิก สังเกตป้ายกำกับ (Badge) บนตารางเชื่อมต่อ ตัวหนังสือสถานะจะกระพริบเปลี่ยนจาก `IDLE` (สีเทา) กลายเป็น `RUNNING` (สีส้ม) 
 6. ระบบจะทำงานในแกน Background เมื่อดำเนินการตัดคำเสร็จเรียบร้อย ป้ายกำกับจะเปลี่ยนเป็น `COMPLETED` (สีเขียว) หรือ `QC NEEDED` (สีเหลือง)
 
-![หน้าจอควบคุมข้อมูลและดูสถิติ (Data Pipeline Dashboard)](images/mockups/mock_dashboard.png)
+![หน้าจอควบคุมข้อมูลและดูสถิติ (Data Pipeline Dashboard)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_dashboard.png)
 
 #### การควบคุมคุณภาพเนื้อหา (Quality Control)
 หาก AI สกัดเจอข้อมูลที่ขัดแย้งกัน หรือมีข้อมูลซ้ำซ้อนอย่างมีนัยสำคัญ ข้อมูลจะมาพักไว้ที่บอร์ด QC Kanban เพื่อรอมนุษย์วิเคราะห์
@@ -126,7 +126,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - หรือหากต้องการแต่งข้อความใหม่เอง ให้กรอกข้อความลงในช่อง **"Custom Resolution"** ด้านล่างสุด แล้วกดปุ่ม **"Save Resolution"**
 6. หลังไขปัญหาเสร็จสิ้น ข้อมูลจะถูกบันทึกและปูทางส่งต่อไปฝังในฐานข้อมูล Vector อัตโนมัติ
 
-![หน้าจอ Quality Control Kanban](images/mockups/mock_qc.png)
+![หน้าจอ Quality Control Kanban](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_qc.png)
 
 #### ฐานข้อมูลเวกเตอร์ (Vector Explorer)
 เมื่อจัดเตรียมข้อมูลจนผ่านการ QC เรียบร้อย ข้อมูลจะถูกฝังค่า Embedding เวกเตอร์ลงใน Qdrant Engine คุณสามารถตรวจสอบได้ดังนี้
@@ -141,7 +141,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - หากข้อมูลไม่ได้ผ่านการหยุดที่ด่านหน้า QC บอร์ด ระบบจะประทับตราสีเขียวเรืองแสงพิมพ์ว่า `✓ Auto-Verified` 
    - หากข้อมูลเคยถูกจับมาระงับในด่าน QC แล้วคุณเข้าไปจัดการ Merge เรียบร้อย ระบบจะประทับตราว่า `✓ QC Approved` พร้อมแปะต้นกำเนิดไฟล​์ไว้คู่กัน
 
-![หน้าต่างตรวจสอบเวกเตอร์ข้อมูล (Vector Explorer)](images/mockups/mock_vector.png)
+![หน้าต่างตรวจสอบเวกเตอร์ข้อมูล (Vector Explorer)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_vector.png)
 
 ---
 
@@ -162,7 +162,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - ภายใต้กล่องคำตอบ หาก AI ตัวนั้นมีการยิงคำสั่งกลับเข้าระบบเกม ระบบจะแสดงโค้ดคำสั่งพร้อมป้ายกำกับสีเขียว เช่น `[ACTION: heal target="user" amount="100%"]` 
    - ด้านล่างสุดจะมีข้อความแถบเทาย่อขนาดเล็ก (Citation) เช่น `📑 Source: wiki/zones/elven_forest.md (Similarity: 0.92)` ซึ่งตรงนี้คุณสามารถ **คลิกเพื่อลิงก์กระโดดไปดูต้นฉบับ** กลับไปยังหน้า PDF บน Vector Explorer ได้ทันที
 
-![หน้าต่างทดสอบแชทบอท (Playground)](images/mockups/mock_playground.png)
+![หน้าต่างทดสอบแชทบอท (Playground)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_playground.png)
 
 #### การวัดผลด้วยชุดข้อสอบ (Agent Evaluations)
 ฟีเจอร์นี้เป็นเสาหลักในการทดสอบว่า AI ตอบคำถามได้ถูกต้อง ไม่มั่วข้อมูล (Hallucination) โดยการตั้งค่าทดสอบรวดเดียวหลักร้อยคำถามได้
@@ -185,7 +185,7 @@ Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ M
    - หน้าต่างแถบดึงซ้ายจะม้วนเปิดออก (Sliding Panel) รายงานหมวดย่อยของคำถามคำตอบเป็นลิสต์ประเด็น เช่น ความแม่นยำ (Accuracy) ความเกี่ยวเนื่อง (Relevance) 
    - หากเห็นคะแนนที่ AI ของฐานข้อมูล (Eval Model) ประเมินมาผิดพลาด เช่น "การตอบคำว่าใช่" ควรได้ 100% แต่ AI ดันให้มาร้อยละ 0 มนุษย์สามารถกดปุ่มดินสอเล็กๆ **"Edit Score"** ตรงใต้ความเห็นนั้น พิมพ์เกรดเปอร์เซ็นต์ตัวเลขแก้ลงไป แล้วกด **"Save Override"** คะแนนในบอร์ดใหญ่ก็จะพลิกคำนวณใหม่ตามเจตจำนงของคุณทันที
 
-![หน้าจอแสดงผลการประเมินเอเจนต์ (Agent Evaluations Heatmap)](images/mockups/mock_eval.png)
+![หน้าจอแสดงผลการประเมินเอเจนต์ (Agent Evaluations Heatmap)](https://raw.githubusercontent.com/megacare-dev/Project-Mimir/feature/user-manual-mockups/docs/iso_29110/si/images/mockups/mock_eval.png)
 
 ---
 *บันทึกโดย: AI Assistant (คู่มือฉบับสมบูรณ์สำหรับ Project Mimir - Phase 1 ล่าสุด)*
