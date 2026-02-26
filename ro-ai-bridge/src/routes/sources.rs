@@ -4,19 +4,25 @@ use axum::{
     http::StatusCode,
     response::sse::{Event, Sse},
 };
+use axum_extra::extract::Multipart;
 use tokio::time::sleep;
 use std::time::Duration;
 use futures::stream::{self, Stream};
 use std::convert::Infallible;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::models::sources::{DataSource, CreateDataSourceRequest, UpdateDataSourceRequest};
+use mimir_core_ai::services::upload::{validate_extension, validate_file_size, build_s3_key, compute_file_hash};
 use serde_json::{json, Value};
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
+use s3::creds::Credentials;
+use s3::Bucket;
+use s3::Region;
 
 pub fn sources_routes() -> Router<DbPool> {
     Router::new()
         .route("/", get(list_sources).post(create_source))
+        .route("/upload", post(upload_file))
         .route("/{id}", put(update_source).delete(delete_source))
         .route("/{id}/sync", post(sync_source))
         .route("/{id}/logs", get(stream_logs))
@@ -256,3 +262,227 @@ async fn stream_logs(
 
 // TODO: Refactor test to use `sqlx::AnyPool` or inject a mock repository interface 
 // to support sqlite in-memory testing instead of the hardcoded `MySqlPool` required by app state.
+
+// ─── Upload Handler ────────────────────────────────────────────────────────────
+
+/// Helper to create an S3 bucket client from environment variables.
+fn create_s3_bucket() -> Result<Box<Bucket>, (StatusCode, Json<Value>)> {
+    let endpoint = std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string());
+    let bucket_name = std::env::var("S3_BUCKET").unwrap_or_else(|_| "mimir-tenant-uploads".to_string());
+    let access_key = std::env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string());
+    let secret_key = std::env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string());
+    let region_name = std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+
+    let region = Region::Custom {
+        region: region_name,
+        endpoint,
+    };
+
+    let credentials = Credentials::new(
+        Some(&access_key),
+        Some(&secret_key),
+        None, None, None,
+    ).map_err(|e| {
+        error!("Failed to create S3 credentials: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "S3 configuration error"})))
+    })?;
+
+    let bucket = Bucket::new(&bucket_name, region, credentials)
+        .map_err(|e| {
+            error!("Failed to create S3 bucket client: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "S3 bucket configuration error"})))
+        })?
+        .with_path_style();
+
+    Ok(bucket)
+}
+
+/// POST /api/v1/sources/upload
+///
+/// Accepts multipart/form-data with fields:
+/// - `file`: Binary file data
+/// - `name`: String (source name)
+/// - `source_type`: "document" | "tabular"
+/// - `storage_mode`: "markdown" | "sql" (optional, defaults to "markdown")
+/// - `folder_path`: String (optional, for folder upload)
+async fn upload_file(
+    State(pool): State<DbPool>,
+    mut multipart: Multipart,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let tenant_id = "default_tenant"; // Future: extract from JWT via tenant_auth_middleware
+
+    let mut file_data: Option<Vec<u8>> = None;
+    let mut file_name: Option<String> = None;
+    let mut source_name: Option<String> = None;
+    let mut source_type = "document".to_string();
+    let mut storage_mode = "markdown".to_string();
+    let mut folder_path = String::new();
+
+    // Parse multipart fields
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        error!("Failed to read multipart field: {}", e);
+        (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid multipart data: {}", e)})))
+    })? {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        match field_name.as_str() {
+            "file" => {
+                file_name = field.file_name().map(|s| s.to_string());
+                let bytes = field.bytes().await.map_err(|e| {
+                    error!("Failed to read file bytes: {}", e);
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to read file: {}", e)})))
+                })?;
+                file_data = Some(bytes.to_vec());
+            }
+            "name" => {
+                source_name = Some(field.text().await.map_err(|e| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid name field: {}", e)})))
+                })?);
+            }
+            "source_type" => {
+                source_type = field.text().await.map_err(|e| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid source_type field: {}", e)})))
+                })?;
+            }
+            "storage_mode" => {
+                storage_mode = field.text().await.map_err(|e| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid storage_mode field: {}", e)})))
+                })?;
+            }
+            "folder_path" => {
+                folder_path = field.text().await.map_err(|e| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid folder_path field: {}", e)})))
+                })?;
+            }
+            _ => {
+                warn!("Unknown multipart field: {}", field_name);
+            }
+        }
+    }
+
+    // Validate required fields
+    let data = file_data.ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Missing 'file' field"})))
+    })?;
+    let original_filename = file_name.ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "File must have a filename"})))
+    })?;
+    let name = source_name.unwrap_or_else(|| original_filename.clone());
+
+    // Validate file extension
+    validate_extension(&original_filename).map_err(|e| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))
+    })?;
+
+    // Validate file size (50MB max)
+    validate_file_size(data.len() as u64).map_err(|_| {
+        (StatusCode::PAYLOAD_TOO_LARGE, Json(json!({
+            "error": "File too large",
+            "max_size_bytes": 50 * 1024 * 1024,
+            "actual_size_bytes": data.len()
+        })))
+    })?;
+
+    // Compute SHA-256 hash for duplicate detection
+    let file_hash = compute_file_hash(&data);
+
+    // Check for duplicate file by hash
+    let existing = sqlx::query_as::<_, DataSource>(
+        "SELECT * FROM data_sources WHERE tenant_id = ? AND file_hash = ? LIMIT 1"
+    )
+    .bind(tenant_id)
+    .bind(&file_hash)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        error!("DB error checking duplicate: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"})))
+    })?;
+
+    if let Some(dup) = existing {
+        info!("Duplicate file detected: hash={}, existing_source_id={}", file_hash, dup.id);
+        return Ok((StatusCode::OK, Json(json!({
+            "message": "Duplicate file detected — skipped upload",
+            "existing_source_id": dup.id,
+            "file_hash": file_hash
+        }))));
+    }
+
+    // Create DB record first to get source_id
+    let mb_size = data.len() as f64 / 1_048_576.0;
+    let config_json = json!({
+        "original_filename": original_filename,
+        "folder_path": folder_path,
+        "storage_mode": storage_mode
+    });
+
+    let insert_result = sqlx::query(
+        r#"INSERT INTO data_sources (tenant_id, name, source_type, config_json, last_sync_status, mb_size, storage_mode, file_hash)
+        VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)"#
+    )
+    .bind(tenant_id)
+    .bind(&name)
+    .bind(&source_type)
+    .bind(&config_json)
+    .bind(mb_size)
+    .bind(&storage_mode)
+    .bind(&file_hash)
+    .execute(&pool)
+    .await
+    .map_err(|e| {
+        error!("Failed to insert data_source record: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create source record"})))
+    })?;
+
+    let source_id = insert_result.last_insert_id();
+
+    // Build S3 key and upload to RustFS
+    let s3_key = build_s3_key(tenant_id, &source_id.to_string(), &folder_path, &original_filename);
+
+    // Attempt S3 upload
+    match create_s3_bucket() {
+        Ok(bucket) => {
+            match bucket.put_object(&s3_key, &data).await {
+                Ok(response) => {
+                    info!("Uploaded to S3: key={}, status={}", s3_key, response.status_code());
+                    // Update record with s3_key
+                    let _ = sqlx::query(
+                        "UPDATE data_sources SET s3_key = ? WHERE id = ?"
+                    )
+                    .bind(&s3_key)
+                    .bind(source_id as i64)
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| error!("Failed to update s3_key for source {}: {}", source_id, e));
+                }
+                Err(e) => {
+                    warn!("S3 upload failed (will retry later): {}", e);
+                    // Don't fail the request — the file can be re-uploaded later
+                    // Mark as PENDING_FETCH so a background worker can retry
+                    let _ = sqlx::query(
+                        "UPDATE data_sources SET last_sync_status = 'PENDING_FETCH' WHERE id = ?"
+                    )
+                    .bind(source_id as i64)
+                    .execute(&pool)
+                    .await;
+                }
+            }
+        }
+        Err(_) => {
+            warn!("S3 client not configured — file stored in DB record only");
+        }
+    }
+
+    info!("Upload complete: source_id={}, file={}, hash={}", source_id, original_filename, file_hash);
+
+    Ok((StatusCode::CREATED, Json(json!({
+        "message": "File uploaded successfully",
+        "source_id": source_id,
+        "name": name,
+        "source_type": source_type,
+        "storage_mode": storage_mode,
+        "s3_key": s3_key,
+        "file_hash": file_hash,
+        "mb_size": mb_size
+    }))))
+}

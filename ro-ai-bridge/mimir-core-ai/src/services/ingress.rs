@@ -99,6 +99,9 @@ mod tests {
             mb_size: None,
             raw_markdown: None,
             total_chunks: None,
+            storage_mode: None,
+            s3_key: None,
+            file_hash: None,
         };
 
         let result = IngressManager::process_source(&source).await;
@@ -122,6 +125,9 @@ mod tests {
             mb_size: None,
             raw_markdown: None,
             total_chunks: None,
+            storage_mode: None,
+            s3_key: None,
+            file_hash: None,
         };
         let result2 = IngressManager::process_source(&bad_config_source).await;
         assert!(result2.is_err());
@@ -144,6 +150,9 @@ mod tests {
             mb_size: None,
             raw_markdown: None,
             total_chunks: None,
+            storage_mode: None,
+            s3_key: None,
+            file_hash: None,
         };
 
         let result = IngressManager::process_source(&source).await;

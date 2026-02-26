@@ -5,3 +5,4 @@ pub mod db;
 pub mod qdrant;
 pub mod ingress;
 pub mod iam;
+pub mod upload;
