@@ -1,5 +1,6 @@
 use crate::models::sources::DataSource;
 use crate::services::extraction;
+use crate::services::sql_import;
 use anyhow::{Result, Context};
 use tracing::{info, error, warn};
 
@@ -46,14 +47,42 @@ impl IngressManager {
     ///
     /// Routes to the appropriate extraction function based on `source_type`
     /// and file extension (from `s3_key`). Returns Markdown content for `raw_markdown`.
+    ///
+    /// When `storage_mode = "sql"` and `source_type = "tabular"`, returns a
+    /// summary string. Use `process_extraction_sql()` for the full SQL import result.
     pub fn process_extraction(source: &DataSource, data: &[u8]) -> Result<String> {
         let s3_key = source.s3_key.as_deref().unwrap_or("unknown");
+        let storage_mode = source.storage_mode.as_deref().unwrap_or("markdown");
+
         info!(
-            "Phase 3: Extracting source_id={}, type={}, s3_key={}, size={} bytes",
-            source.id, source.source_type, s3_key, data.len()
+            "Phase 3: Extracting source_id={}, type={}, s3_key={}, storage_mode={}, size={} bytes",
+            source.id, source.source_type, s3_key, storage_mode, data.len()
         );
 
+        // SQL mode branch for tabular data
+        if storage_mode == "sql" && source.source_type == "tabular" {
+            let result = sql_import::process_tabular_for_sql(
+                s3_key, data, &source.tenant_id, source.id
+            )?;
+            return Ok(format!(
+                "SQL Import: table={}, {} rows, {} batches",
+                result.table_name, result.total_rows, result.insert_batches.len()
+            ));
+        }
+
         extraction::extract(&source.source_type, s3_key, data)
+    }
+
+    /// Phase 3 (SQL Mode): Extract and prepare SQL import for tabular data.
+    ///
+    /// Returns `SqlImportResult` with DDL and INSERT statements for execution.
+    pub fn process_extraction_sql(source: &DataSource, data: &[u8]) -> Result<sql_import::SqlImportResult> {
+        let s3_key = source.s3_key.as_deref().unwrap_or("unknown");
+        info!(
+            "Phase 3 (SQL Mode): source_id={}, s3_key={}, size={} bytes",
+            source.id, s3_key, data.len()
+        );
+        sql_import::process_tabular_for_sql(s3_key, data, &source.tenant_id, source.id)
     }
 
     /// Phase 2: Fetch raw content for Web/MCP sources.
@@ -284,5 +313,68 @@ mod tests {
         let result = IngressManager::process_fetch(&source).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not applicable"));
+    }
+
+    #[test]
+    fn test_process_extraction_csv_sql_mode() {
+        let source = DataSource {
+            id: 20,
+            tenant_id: "test_tenant".to_string(),
+            name: "SQL CSV Source".to_string(),
+            source_type: "tabular".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: Some("PENDING".to_string()),
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: Some("sql".to_string()),
+            s3_key: Some("test/20/data.csv".to_string()),
+            file_hash: None,
+        };
+
+        let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
+        let result = IngressManager::process_extraction(&source, csv_data);
+        assert!(result.is_ok(), "SQL mode extraction should succeed: {:?}", result.err());
+        let summary = result.unwrap();
+        assert!(summary.contains("SQL Import:"), "Should return SQL import summary");
+        assert!(summary.contains("tenant_test_tenant_src_20"), "Should contain table name");
+        assert!(summary.contains("2 rows"), "Should report row count");
+    }
+
+    #[test]
+    fn test_process_extraction_sql_returns_ddl() {
+        let source = DataSource {
+            id: 30,
+            tenant_id: "t1".to_string(),
+            name: "SQL Import Test".to_string(),
+            source_type: "tabular".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: Some("sql".to_string()),
+            s3_key: Some("test/30/data.csv".to_string()),
+            file_hash: None,
+        };
+
+        let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
+        let result = IngressManager::process_extraction_sql(&source, csv_data);
+        assert!(result.is_ok(), "process_extraction_sql should succeed: {:?}", result.err());
+
+        let import = result.unwrap();
+        assert_eq!(import.table_name, "tenant_t1_src_30");
+        assert!(import.create_table_ddl.contains("CREATE TABLE IF NOT EXISTS tenant_t1_src_30"));
+        assert!(import.create_table_ddl.contains("name VARCHAR(255)"));
+        assert!(import.create_table_ddl.contains("age DECIMAL"));
+        assert_eq!(import.total_rows, 2);
     }
 }
