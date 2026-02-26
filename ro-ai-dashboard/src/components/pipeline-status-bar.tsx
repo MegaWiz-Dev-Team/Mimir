@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import Cookies from "js-cookie";
 import { fetchSources, fetchRuns, fetchQcClusters, fetchVectorStats } from "@/lib/api";
 import { ArrowRight, Database, PlayCircle, ShieldCheck, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 
 export function PipelineStatusBar() {
+    const pathname = usePathname();
+    const token = Cookies.get("access_token");
+
+    // Hide on login page or when not authenticated
+    if (pathname === "/login" || !token) return null;
+
     const [counts, setCounts] = useState({
         sources: 0,
         running: 0,
