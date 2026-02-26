@@ -17,6 +17,9 @@ pub struct DataSource {
     pub last_sync_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+    pub storage_mode: Option<String>,   // "markdown" | "sql"
+    pub s3_key: Option<String>,         // RustFS object path
+    pub file_hash: Option<String>,      // SHA-256 for dedup
 }
 
 #[derive(Debug, Deserialize)]

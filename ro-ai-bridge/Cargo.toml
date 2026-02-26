@@ -39,6 +39,9 @@ async-trait = "0.1.89"
 mimir-core-ai = { version = "0.1.0", path = "mimir-core-ai" }
 ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
 async-stream = "0.3.6"
+rust-s3 = { workspace = true }
+sha2 = { workspace = true }
+axum-extra = { workspace = true }
 
 [workspace.dependencies]
 anyhow = "1.0.101"
@@ -67,3 +70,6 @@ tracing-subscriber = "0.3.22"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.10.0"
 tower-http = { version = "0.6.8", features = ["cors"] }
+rust-s3 = "0.35"
+sha2 = "0.10"
+axum-extra = { version = "0.10", features = ["multipart"] }
