@@ -122,7 +122,7 @@ impl IamService {
     pub async fn get_tenants(&self) -> Result<Vec<Tenant>> {
         let tenants = sqlx::query_as!(
             Tenant,
-            "SELECT id, name, created_at, updated_at FROM tenants"
+            "SELECT id, name, domain, created_at, updated_at FROM tenants"
         )
         .fetch_all(&self.db).await?;
         Ok(tenants)
@@ -265,8 +265,10 @@ impl IamService {
         let tenant_id = uuid::Uuid::new_v4().to_string();
         let mut tx = self.db.begin().await?;
 
+        let domain = req.domain.unwrap_or_else(|| "general".to_string());
+
         // 1. Core Tenant Record
-        sqlx::query!("INSERT INTO tenants (id, name) VALUES (?, ?)", tenant_id, req.name)
+        sqlx::query!("INSERT INTO tenants (id, name, domain) VALUES (?, ?, ?)", tenant_id, req.name, domain)
             .execute(&mut *tx).await?;
 
         // 2. Initialize Configs
@@ -305,11 +307,21 @@ impl IamService {
 
         let tenant = sqlx::query_as!(
             crate::models::iam::Tenant,
-            "SELECT id, name, created_at, updated_at FROM tenants WHERE id = ?",
+            "SELECT id, name, domain, created_at, updated_at FROM tenants WHERE id = ?",
             tenant_id
         ).fetch_one(&self.db).await?;
 
         Ok(tenant)
+    }
+
+    /// Get the domain string for a tenant by ID.
+    pub async fn get_tenant_domain(&self, tenant_id: &str) -> Result<String> {
+        let row = sqlx::query!(
+            "SELECT domain FROM tenants WHERE id = ?",
+            tenant_id
+        )
+        .fetch_one(&self.db).await?;
+        Ok(row.domain)
     }
 
     pub async fn delete_tenant(&self, tenant_id: &str) -> Result<()> {

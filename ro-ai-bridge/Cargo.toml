@@ -6,7 +6,8 @@ edition = "2021"
 [workspace]
 members = [
     "mimir-core-ai",
-    "ro-ai-domain-game"
+    "ro-ai-domain-game",
+    "ro-ai-domain-medical"
 ]
 resolver = "2"
 
@@ -38,6 +39,7 @@ tower-http = { workspace = true }
 async-trait = "0.1.89"
 mimir-core-ai = { version = "0.1.0", path = "mimir-core-ai" }
 ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
+ro-ai-domain-medical = { version = "0.1.0", path = "ro-ai-domain-medical" }
 async-stream = "0.3.6"
 rust-s3 = { workspace = true }
 sha2 = { workspace = true }
