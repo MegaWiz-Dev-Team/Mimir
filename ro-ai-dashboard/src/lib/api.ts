@@ -103,52 +103,34 @@ export async function deleteModel(modelId: string) {
 // ─── Data Quality Control ───────────────────────────────────────────────────
 
 export async function fetchQcClusters(status?: string) {
-    try {
-        const query = status ? `?status=${status}` : '';
-        const response = await authFetch(`${API_BASE_URL}/qc/clusters${query}`);
-        return await response.json();
-    } catch (error) {
-        console.warn("[API] Fetch QC clusters error:", error);
-        return { clusters: [] };
-    }
+    const query = status ? `?status=${status}` : '';
+    const response = await authFetch(`${API_BASE_URL}/qc/clusters${query}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch QC clusters");
+    return await response.json();
 }
 
 export async function resolveQcCluster(clusterId: string, resolutionType: string, goldenAnswer?: string) {
-    try {
-        const response = await authFetch(`${API_BASE_URL}/qc/resolve/${clusterId}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resolution_type: resolutionType, golden_answer: goldenAnswer })
-        });
-        if (!response.ok) throw new Error("Failed to resolve cluster");
-        return true;
-    } catch (error) {
-        console.warn("[API] Resolve QC cluster error:", error);
-        throw error;
-    }
+    const response = await authFetch(`${API_BASE_URL}/qc/resolve/${clusterId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resolution_type: resolutionType, golden_answer: goldenAnswer })
+    });
+    if (!response.ok) throw new Error("Failed to resolve cluster");
+    return true;
 }
 
 export async function triggerQcGeneration() {
-    try {
-        const response = await authFetch(`${API_BASE_URL}/qc/generate`, { method: "POST" });
-        return await response.json();
-    } catch (error) {
-        console.warn("[API] Trigger QC generation error:", error);
-        throw error;
-    }
+    const response = await authFetch(`${API_BASE_URL}/qc/generate`, { method: "POST" });
+    if (!response.ok) throw new Error("Failed to trigger QC generation");
+    return await response.json();
 }
 
 export async function fetchQcStatus() {
-    try {
-        const response = await authFetch(`${API_BASE_URL}/qc/status`);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch QC status: ${response.statusText}`);
-        }
-        return await response.json();
-    } catch (error) {
-        console.warn("[API] Fetch QC status error:", error);
-        return { is_generating: false };
+    const response = await authFetch(`${API_BASE_URL}/qc/status`, { cache: "no-store" });
+    if (!response.ok) {
+        throw new Error(`Failed to fetch QC status: ${response.statusText}`);
     }
+    return await response.json();
 }
 
 export async function generateMissingQA(stepId: number) {
