@@ -99,7 +99,7 @@ export default function SourcesPage() {
             setPreviewingSource(null);
             loadSources();
         } catch (error) {
-            console.error("Failed to save markdown", error);
+            console.warn("[Sources] Failed to save markdown:", error);
             alert("Failed to save markdown");
         } finally {
             setIsSaving(false);
