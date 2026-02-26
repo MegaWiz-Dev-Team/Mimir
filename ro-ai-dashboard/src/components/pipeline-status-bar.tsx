@@ -11,6 +11,7 @@ export function PipelineStatusBar() {
     const pathname = usePathname();
     const token = Cookies.get("access_token");
 
+    const [mounted, setMounted] = useState(false);
     const [counts, setCounts] = useState({
         sources: 0,
         running: 0,
@@ -19,8 +20,12 @@ export function PipelineStatusBar() {
     });
 
     useEffect(() => {
-        // Don't fetch if on login page or unauthenticated
-        if (pathname === "/login" || !token) return;
+        setMounted(true);
+    }, []);
+
+    useEffect(() => {
+        // Don't fetch if on login page, unauthenticated, or not mounted
+        if (!mounted || pathname === "/login" || !token) return;
 
         const loadCounts = async () => {
             try {
@@ -51,10 +56,10 @@ export function PipelineStatusBar() {
         loadCounts();
         const interval = setInterval(loadCounts, 10000); // 10s refresh
         return () => clearInterval(interval);
-    }, [pathname, token]);
+    }, [pathname, token, mounted]);
 
     // Hide on login page or when not authenticated
-    if (pathname === "/login" || !token) return null;
+    if (!mounted || pathname === "/login" || !token) return null;
 
     const steps = [
         { label: "Sources", count: counts.sources, icon: Database, href: "/sources", color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-950/30 text-blue-700" },
