@@ -188,10 +188,16 @@ async fn sync_source(
     tokio::spawn(async move {
         info!("Started background sync task for source id {}", id);
         match IngressManager::process_source(&source_clone).await {
-            Ok(msg) => {
-                info!("Sync completed for {} ({}): {}", source_clone.name, id, msg);
+            Ok(raw_text) => {
+                let mb_size = raw_text.len() as f64 / 1_048_576.0;
+                let total_chunks = (raw_text.len() as f64 / 500.0).ceil() as i32;
+                
+                info!("Sync completed for {} ({}): {} bytes processed", source_clone.name, id, raw_text.len());
                 let _ = sqlx::query!(
-                    "UPDATE data_sources SET last_sync_status = 'COMPLETED', last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    raw_text,
+                    mb_size,
+                    total_chunks,
                     id
                 )
                 .execute(&pool_clone)

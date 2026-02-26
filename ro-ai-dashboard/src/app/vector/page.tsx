@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Database, Search, RefreshCw, Zap, ArrowLeft, CheckCircle2, AlertCircle, Filter } from "lucide-react";
+import { Database, Search, RefreshCw, Zap, ArrowLeft, CheckCircle2, AlertCircle, Filter, FileText } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 
@@ -28,7 +29,7 @@ export default function VectorPage() {
             const data = await fetchVectorStats();
             setStats(data);
         } catch (error) {
-            console.error("Failed to load vector stats", error);
+            console.warn("[Vector] Failed to load vector stats:", error);
         } finally {
             setLoading(false);
         }
@@ -60,7 +61,7 @@ export default function VectorPage() {
             const results = await searchVectors(searchQuery);
             setSearchResults(results);
         } catch (error) {
-            console.error("Search failed", error);
+            console.warn("[Vector] Search failed:", error);
         } finally {
             setSearching(false);
         }
@@ -202,9 +203,22 @@ export default function VectorPage() {
                                                         </TableCell>
                                                         <TableCell>
                                                             <div className="text-sm font-medium mb-1">Q: {res.payload.question}</div>
-                                                            <div className="text-xs text-muted-foreground line-clamp-2">A: {res.payload.answer}</div>
+                                                            <div className="text-xs text-muted-foreground line-clamp-2 mb-2">A: {res.payload.answer}</div>
+                                                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="text-[10px] bg-blue-50/50 text-blue-700 hover:bg-blue-100 cursor-pointer transition-colors"
+                                                                    onClick={() => window.open(`http://localhost:8080/api/wiki/${res.payload.source}`, '_blank')}
+                                                                    title="View Source Document"
+                                                                >
+                                                                    <FileText className="w-3 h-3 mr-1" /> {res.payload.source}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="text-[10px] bg-green-50/50 text-green-700" title="Approval Status">
+                                                                    <CheckCircle2 className="w-3 h-3 mr-1" /> System Approved
+                                                                </Badge>
+                                                            </div>
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="align-top">
                                                             <div className="text-xs font-mono">{res.payload.source}</div>
                                                             <div className="text-[10px] text-muted-foreground">Chunk #{res.payload.chunk}</div>
                                                         </TableCell>
