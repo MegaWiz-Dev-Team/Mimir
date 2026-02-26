@@ -105,7 +105,7 @@ export default function EvaluationsPage() {
                 setSelectedRunId(data[0].id);
             }
         } catch (e) {
-            console.error("Failed to load eval runs", e);
+            console.warn("[Evaluations] Failed to load eval runs:", e);
         } finally {
             setLoading(false);
         }
@@ -118,7 +118,7 @@ export default function EvaluationsPage() {
             const data: MatrixResponse = await res.json();
             setMatrix(data);
         } catch (e) {
-            console.error("Failed to load matrix", e);
+            console.warn("[Evaluations] Failed to load matrix:", e);
         }
     }, []);
 
@@ -133,7 +133,7 @@ export default function EvaluationsPage() {
             const data: EvalScore[] = await res.json();
             setScores(data);
         } catch (e) {
-            console.error("Failed to load scores", e);
+            console.warn("[Evaluations] Failed to load scores:", e);
         } finally {
             setLoadingScores(false);
         }

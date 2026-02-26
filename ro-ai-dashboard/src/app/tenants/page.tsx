@@ -28,7 +28,7 @@ export default function TenantsPage() {
             const data = await fetchTenants();
             setTenants(data);
         } catch (error) {
-            console.error(error);
+            console.warn("[Tenants]", error);
             alert("Failed to load tenants. Ensure you are an Admin.");
         } finally {
             setIsLoading(false);
@@ -57,7 +57,7 @@ export default function TenantsPage() {
 
             loadTenants();
         } catch (error) {
-            console.error(error);
+            console.warn("[Tenants]", error);
             alert("Failed to create tenant");
         } finally {
             setIsCreating(false);
@@ -72,7 +72,7 @@ export default function TenantsPage() {
             alert("Tenant deleted");
             loadTenants();
         } catch (error) {
-            console.error(error);
+            console.warn("[Tenants]", error);
             alert("Failed to delete tenant");
         }
     };
