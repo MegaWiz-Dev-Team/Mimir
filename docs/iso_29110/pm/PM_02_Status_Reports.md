@@ -15,7 +15,7 @@
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution          |
 | ---------- | ------------------------------------------------------------------------ | --------- | ------ | ------------------- |
 | 2026-02-25 | Issue #51: "Configure" button on Sources page does nothing               | User      | Closed | PR #52 Merged       |
-| 2026-02-25 | Issue #53: Implement actual background worker for Data Ingress Sync      | User      | Open   | Backend Worker dev  |
+| 2026-02-25 | Issue #53: Implement actual background worker for Data Ingress Sync      | User      | Closed | PR #54 Merged       |
 | 2026-02-25 | Issue #43: Users page redirects to login abruptly (Failed to load users) | User      | Open   | PR #44 Created      |
 | 2026-02-25 | Issue #41: Vector Stats API 404 (Failed to fetch vector stats)           | User      | Open   | PR #42 Created      |
 | 2026-02-25 | Issue #39: Auto-scan QC UI Feedback                                      | User      | Closed | PR Merged           |

@@ -95,7 +95,7 @@ export async function deleteModel(modelId: string) {
         });
         return await response.json();
     } catch (error) {
-        console.error("Delete model error:", error);
+        console.warn("[API] Delete model error:", error);
         throw error;
     }
 }
@@ -108,7 +108,7 @@ export async function fetchQcClusters(status?: string) {
         const response = await authFetch(`${API_BASE_URL}/qc/clusters${query}`);
         return await response.json();
     } catch (error) {
-        console.error("Fetch QC clusters error:", error);
+        console.warn("[API] Fetch QC clusters error:", error);
         return { clusters: [] };
     }
 }
@@ -123,7 +123,7 @@ export async function resolveQcCluster(clusterId: string, resolutionType: string
         if (!response.ok) throw new Error("Failed to resolve cluster");
         return true;
     } catch (error) {
-        console.error("Resolve QC cluster error:", error);
+        console.warn("[API] Resolve QC cluster error:", error);
         throw error;
     }
 }
@@ -133,7 +133,7 @@ export async function triggerQcGeneration() {
         const response = await authFetch(`${API_BASE_URL}/qc/generate`, { method: "POST" });
         return await response.json();
     } catch (error) {
-        console.error("Trigger QC generation error:", error);
+        console.warn("[API] Trigger QC generation error:", error);
         throw error;
     }
 }
@@ -146,7 +146,7 @@ export async function fetchQcStatus() {
         }
         return await response.json();
     } catch (error) {
-        console.error("Fetch QC status error:", error);
+        console.warn("[API] Fetch QC status error:", error);
         return { is_generating: false };
     }
 }
@@ -488,7 +488,7 @@ export function streamChat(
                                 onError(event.error);
                             }
                         } catch (e) {
-                            console.error("SSE parse error", e, "Data:", eventData);
+                            console.warn("[API] SSE parse error", e, "Data:", eventData);
                         }
                     }
 
@@ -639,6 +639,9 @@ export interface DataSource {
     config_json: any;
     schedule: string | null;
     last_sync_status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | null;
+    raw_markdown?: string | null;
+    mb_size?: number | null;
+    total_chunks?: number | null;
     last_sync_at: string | null;
     created_at: string;
     updated_at: string;

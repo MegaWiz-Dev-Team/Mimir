@@ -45,7 +45,7 @@ export default function UsersPage() {
             setUsers(usersData);
             setTenants(tenantsData);
         } catch (error) {
-            console.error("Failed to load users:", error);
+            console.warn("[Users] Failed to load users:", error);
             alert("Failed to load users. Are you logged in as Admin?");
         } finally {
             setIsLoading(false);
@@ -66,7 +66,7 @@ export default function UsersPage() {
             setFormPassword("");
             loadData();
         } catch (error) {
-            console.error(error);
+            console.warn("[Users]", error);
             alert("Failed to create user.");
         }
     };
@@ -82,7 +82,7 @@ export default function UsersPage() {
             setIsEditRoleMode(false);
             loadData();
         } catch (error) {
-            console.error(error);
+            console.warn("[Users]", error);
             alert("Failed to update user role.");
         }
     };
@@ -96,7 +96,7 @@ export default function UsersPage() {
             setFormPassword("");
             alert("Password updated successfully.");
         } catch (error) {
-            console.error(error);
+            console.warn("[Users]", error);
             alert("Failed to reset password.");
         }
     };
@@ -107,7 +107,7 @@ export default function UsersPage() {
             await deleteUser(user.id);
             loadData();
         } catch (error) {
-            console.error(error);
+            console.warn("[Users]", error);
             alert("Failed to delete user.");
         }
     };

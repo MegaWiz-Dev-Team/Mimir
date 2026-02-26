@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fetchSources, createSource, deleteSource, syncSource, updateSource, DataSource } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -31,6 +31,9 @@ export default function SourcesPage() {
     const [configuringSource, setConfiguringSource] = useState<DataSource | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Markdown Preview State
+    const [previewingSource, setPreviewingSource] = useState<DataSource | null>(null);
+
     useEffect(() => {
         loadSources();
     }, []);
@@ -41,7 +44,7 @@ export default function SourcesPage() {
             const data = await fetchSources();
             setSources(data);
         } catch (error) {
-            console.error("Failed to fetch sources", error);
+            console.warn("[Sources] Failed to fetch sources:", error);
         } finally {
             setLoading(false);
         }
@@ -60,7 +63,7 @@ export default function SourcesPage() {
             setNewUrl("");
             loadSources();
         } catch (error) {
-            console.error("Failed to create source", error);
+            console.warn("[Sources] Failed to create source:", error);
             alert("Failed to create source");
         }
     };
@@ -78,8 +81,26 @@ export default function SourcesPage() {
             setConfiguringSource(null);
             loadSources();
         } catch (error) {
-            console.error("Failed to update source", error);
+            console.warn("[Sources] Failed to update source:", error);
             alert("Failed to update source");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSaveMarkdown = async () => {
+        if (!previewingSource) return;
+        setIsSaving(true);
+        try {
+            // Re-use updateSource to save markdown if your API supports updating it
+            await updateSource(previewingSource.id, {
+                raw_markdown: previewingSource.raw_markdown
+            });
+            setPreviewingSource(null);
+            loadSources();
+        } catch (error) {
+            console.warn("[Sources] Failed to save markdown:", error);
+            alert("Failed to save markdown");
         } finally {
             setIsSaving(false);
         }
@@ -91,7 +112,7 @@ export default function SourcesPage() {
             setDeletingId(null);
             loadSources();
         } catch (error) {
-            console.error("Failed to delete source", error);
+            console.warn("[Sources] Failed to delete source:", error);
             alert("Failed to delete source");
         }
     };
@@ -114,7 +135,7 @@ export default function SourcesPage() {
             }, 4000);
 
         } catch (error) {
-            console.error("Failed to sync source", error);
+            console.warn("[Sources] Failed to sync source:", error);
             alert("Failed to sync source");
         }
     };
@@ -166,7 +187,16 @@ export default function SourcesPage() {
                                     </TableRow>
                                 ) : sources.map((s) => (
                                     <TableRow key={s.id}>
-                                        <TableCell className="font-medium">{s.name}</TableCell>
+                                        <TableCell className="font-medium">
+                                            {s.name}
+                                            {(s.mb_size != null || s.total_chunks != null) && (
+                                                <div className="text-xs text-muted-foreground mt-1 font-normal flex items-center gap-2">
+                                                    <span>{s.mb_size?.toFixed(2) || "0.00"} MB</span>
+                                                    <span>•</span>
+                                                    <span>{s.total_chunks || 0} chunks</span>
+                                                </div>
+                                            )}
+                                        </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
                                                 {getTypeIcon(s.source_type)}
@@ -180,6 +210,9 @@ export default function SourcesPage() {
                                         <TableCell className="text-right">
                                             <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
                                                 <RefreshCw className="w-4 h-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="sm" title="Preview Markdown" onClick={() => setPreviewingSource(s)}>
+                                                <Eye className="w-4 h-4" />
                                             </Button>
                                             <Button variant="ghost" size="sm" title="Configure" onClick={() => setConfiguringSource(s)}><Settings className="w-4 h-4" /></Button>
                                             <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
@@ -319,6 +352,32 @@ export default function SourcesPage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setConfiguringSource(null)}>Cancel</Button>
                         <Button onClick={handleSaveConfig} disabled={isSaving}>
+                            {isSaving ? "Saving..." : "Save Changes"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Markdown Preview & Edit Dialog */}
+            <Dialog open={previewingSource !== null} onOpenChange={(open) => !open && setPreviewingSource(null)}>
+                <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col h-[80vh]">
+                    <DialogHeader>
+                        <DialogTitle>Markdown Preview {previewingSource?.name ? `- ${previewingSource.name}` : ''}</DialogTitle>
+                        <DialogDescription className="text-muted-foreground">
+                            Preview and quick-edit the raw markdown extracted from this source.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex-1 overflow-hidden py-2">
+                        <textarea
+                            className="w-full h-full bg-muted/30 p-4 rounded-md font-mono text-sm resize-none focus:outline-none focus:ring-1 border border-border"
+                            value={previewingSource?.raw_markdown || ""}
+                            onChange={(e) => setPreviewingSource(prev => prev ? { ...prev, raw_markdown: e.target.value } : null)}
+                            placeholder="Data is empty or has not been synced yet."
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPreviewingSource(null)}>Cancel</Button>
+                        <Button onClick={handleSaveMarkdown} disabled={isSaving}>
                             {isSaving ? "Saving..." : "Save Changes"}
                         </Button>
                     </DialogFooter>

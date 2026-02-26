@@ -30,7 +30,7 @@ export default function Dashboard() {
       const data = await fetchRuns();
       setRuns(data);
     } catch (error) {
-      console.error("Failed to load runs", error);
+      console.warn("[Dashboard] Failed to load runs:", error);
     } finally {
       setLoading(false);
     }
@@ -57,7 +57,7 @@ export default function Dashboard() {
           }
         }
       } catch (err) {
-        console.warn("Failed to fetch models from DB, using fallback:", err);
+        console.warn("[Dashboard] Failed to fetch models from DB, using fallback:", err);
         if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
           setModel(PROVIDERS[0].models[0].id);
         }

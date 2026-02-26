@@ -25,6 +25,8 @@
   - Data Source CRUD APIs, Streaming Logs UI, Real-time status websockets
 - **Sprint 6: Agent Evaluations System** [ระบุช่วงเวลา]
   - Evaluation Background Job, Real-time Progress Bar, QA Results by Tenant
+- **Sprint 7: UX/UI Pipeline Refinement & Traceability** [ระบุช่วงเวลา]
+  - Ingress Markdown Preview, ACU Coverage Dashboard, Conflict Resolution UI, Vector End-to-End Traceability
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                       | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                 |
