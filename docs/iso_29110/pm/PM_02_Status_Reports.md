@@ -2,19 +2,22 @@
 **Project Name:** Project Mimir
 
 ## 1. Meeting Minutes / Progress Reports (บันทึกการประชุม / รายงานความคืบหน้า)
-| Date       | Sprint/Phase                                | Status    | Key Decisions / References                                             |
-| ---------- | ------------------------------------------- | --------- | ---------------------------------------------------------------------- |
-| 2026-02-22 | Sprint 1                                    | Completed | [ดูรายละเอียด PM_02_1_Sprint1_Report](PM_02_1_Sprint1_Report.md)         |
-| 2026-02-23 | Sprint 2                                    | Completed | [ดูรายละเอียด SI_04_2_Sprint2_TestScript](SI_04_2_Sprint2_TestScript.md) |
-| 2026-02-24 | Sprint 3                                    | Completed | [ดูรายละเอียด SI_04_3_Sprint3_TestScript](SI_04_3_Sprint3_TestScript.md) |
-| 2026-02-25 | Sprint 4                                    | Completed | [ดูรายละเอียด SI_04_4_Sprint4_TestScript](SI_04_4_Sprint4_TestScript.md) |
-| 2026-02-25 | Sprint 5                                    | Completed | [ดูรายละเอียด SI_04_5_Sprint5_TestScript](SI_04_5_Sprint5_TestScript.md) |
-| 2026-02-26 | Sprint 6                                    | Completed | [ดูรายละเอียด SI_04_6_Sprint6_TestScript](SI_04_6_Sprint6_TestScript.md) |
-| 2026-02-26 | Sprint 7                                    | Completed | [ดูรายละเอียด SI_04_7_Sprint7_TestScript](SI_04_7_Sprint7_TestScript.md) |
-| 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
+| Date       | Sprint/Phase                                | Status      | Key Decisions / References                                             |
+| ---------- | ------------------------------------------- | ----------- | ---------------------------------------------------------------------- |
+| 2026-02-22 | Sprint 1                                    | Completed   | [ดูรายละเอียด PM_02_1_Sprint1_Report](PM_02_1_Sprint1_Report.md)         |
+| 2026-02-23 | Sprint 2                                    | Completed   | [ดูรายละเอียด SI_04_2_Sprint2_TestScript](SI_04_2_Sprint2_TestScript.md) |
+| 2026-02-24 | Sprint 3                                    | Completed   | [ดูรายละเอียด SI_04_3_Sprint3_TestScript](SI_04_3_Sprint3_TestScript.md) |
+| 2026-02-25 | Sprint 4                                    | Completed   | [ดูรายละเอียด SI_04_4_Sprint4_TestScript](SI_04_4_Sprint4_TestScript.md) |
+| 2026-02-25 | Sprint 5                                    | Completed   | [ดูรายละเอียด SI_04_5_Sprint5_TestScript](SI_04_5_Sprint5_TestScript.md) |
+| 2026-02-26 | Sprint 6                                    | Completed   | [ดูรายละเอียด SI_04_6_Sprint6_TestScript](SI_04_6_Sprint6_TestScript.md) |
+| 2026-02-26 | Sprint 7                                    | Completed   | [ดูรายละเอียด SI_04_7_Sprint7_TestScript](SI_04_7_Sprint7_TestScript.md) |
+| 2026-02-26 | Sprint 8 (In Progress)                      | In Progress | [ดูรายละเอียด SI_04_8_Sprint8_TestScript](SI_04_8_Sprint8_TestScript.md) |
+| 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User        | Closed                                                                 | PR #50 Merged |
 
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution         |
 | ---------- | ------------------------------------------------------------------------ | --------- | ------ | ------------------ |
+| 2026-02-26 | Issue #77: Data Connection Wizard UI — 3-Step Sheet Drawer               | User      | Closed | PR #78 Merged      |
+| 2026-02-26 | Issue #73: File/Folder Upload API + RustFS Integration                   | User      | Closed | PR #80 Merged      |
 | 2026-02-26 | Issue #73: Sprint 7 Final Testing UI Component                           | User      | Closed | Closed             |
 | 2026-02-26 | Issue #71: Sprint 6 Agent Evaluations System                             | User      | Closed | Closed             |
 | 2026-02-26 | Issue #68: Fix React Hydration Mismatch in Navbar and PipelineStatusBar  | User      | Closed | PR Merged          |
