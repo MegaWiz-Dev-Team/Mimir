@@ -668,3 +668,56 @@ export async function updateSource(id: number, data: Partial<DataSource>): Promi
     if (!res.ok) throw new Error("Failed to update source");
     return res.json();
 }
+
+export function uploadFile(
+    sourceId: number,
+    file: File,
+    onProgress?: (percent: number) => void
+): Promise<any> {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const formData = new FormData();
+        formData.append("file", file);
+
+        xhr.upload.addEventListener("progress", (event) => {
+            if (event.lengthComputable && onProgress) {
+                onProgress(Math.round((event.loaded / event.total) * 100));
+            }
+        });
+
+        xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    resolve(JSON.parse(xhr.responseText));
+                } catch {
+                    resolve({ ok: true });
+                }
+            } else {
+                reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+
+        const headers = getAuthHeaders() as Record<string, string>;
+        xhr.open("POST", `${API_BASE_URL}/sources/${sourceId}/upload`);
+        Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+        xhr.send(formData);
+    });
+}
+
+export interface FeatureFlags {
+    ocr_enabled: boolean;
+    dicom_enabled: boolean;
+    domain: string;
+}
+
+export async function getFeatureFlags(domain?: string): Promise<FeatureFlags> {
+    const query = domain ? `?domain=${encodeURIComponent(domain)}` : "";
+    const res = await authFetch(`${API_BASE_URL}/feature-flags${query}`, { cache: "no-store" });
+    if (!res.ok) {
+        // Return sensible defaults if the endpoint is not yet available
+        return { ocr_enabled: false, dicom_enabled: false, domain: domain || "general" };
+    }
+    return res.json();
+}

@@ -4,23 +4,40 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, createSource, deleteSource, syncSource, updateSource, DataSource } from "@/lib/api";
+import { fetchSources, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, DataSource, FeatureFlags } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { IngressTypeSelector, IngressType } from "@/components/ingress-type-selector";
+import { UploadDropzone } from "@/components/upload-dropzone";
+import { FolderUpload } from "@/components/folder-upload";
+import { UploadProgress, UploadFileStatus } from "@/components/upload-progress";
+import { AdvancedSettings, AdvancedSettingsData } from "@/components/advanced-settings";
 
 export default function SourcesPage() {
     const [sources, setSources] = useState<DataSource[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showAdd, setShowAdd] = useState(false);
     const [deletingId, setDeletingId] = useState<number | null>(null);
 
-    // Add Source Form State
+    // ─── Wizard Drawer State ────────────────────────────────────────────
+    const [showWizard, setShowWizard] = useState(false);
+    const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+    const [selectedType, setSelectedType] = useState<IngressType | null>(null);
     const [newName, setNewName] = useState("");
-    const [newType, setNewType] = useState<'web' | 'tabular' | 'document' | 'mcp'>("web");
     const [newUrl, setNewUrl] = useState("");
+    const [mcpConnectionString, setMcpConnectionString] = useState("");
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+    const [uploadFiles, setUploadFiles] = useState<UploadFileStatus[]>([]);
+    const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettingsData>({
+        ocrEnabled: false,
+        useHeaderRow: true,
+        storageMode: "markdown",
+    });
+    const [featureFlags, setFeatureFlags] = useState<FeatureFlags | null>(null);
+    const [activeTab, setActiveTab] = useState<"file" | "folder">("file");
 
     // Streaming Logs Console State
     const [showConsole, setShowConsole] = useState(false);
@@ -36,6 +53,7 @@ export default function SourcesPage() {
 
     useEffect(() => {
         loadSources();
+        loadFeatureFlags();
     }, []);
 
     const loadSources = async () => {
@@ -50,21 +68,106 @@ export default function SourcesPage() {
         }
     };
 
-    const handleAddSource = async () => {
+    const loadFeatureFlags = async () => {
         try {
-            await createSource({
+            const flags = await getFeatureFlags();
+            setFeatureFlags(flags);
+        } catch (error) {
+            console.warn("[Sources] Failed to fetch feature flags:", error);
+        }
+    };
+
+    const resetWizard = () => {
+        setWizardStep(1);
+        setSelectedType(null);
+        setNewName("");
+        setNewUrl("");
+        setMcpConnectionString("");
+        setSelectedFiles([]);
+        setUploadFiles([]);
+        setActiveTab("file");
+        setAdvancedSettings({ ocrEnabled: false, useHeaderRow: true, storageMode: "markdown" });
+    };
+
+    const openWizard = () => {
+        resetWizard();
+        setShowWizard(true);
+    };
+
+    const handleTypeSelect = (type: IngressType) => {
+        setSelectedType(type);
+        setWizardStep(2);
+    };
+
+    const handleFilesAdded = (files: File[]) => {
+        setSelectedFiles((prev) => [...prev, ...files]);
+    };
+
+    const handleFolderSelected = (files: File[]) => {
+        setSelectedFiles(files);
+    };
+
+    const handleCreateSource = async () => {
+        if (!selectedType || !newName) return;
+        setIsSaving(true);
+
+        try {
+            const configJson: any = {};
+            if (selectedType === "web") configJson.url = newUrl;
+            if (selectedType === "mcp") configJson.connection_string = mcpConnectionString;
+            if (selectedType === "tabular") configJson.storage_mode = advancedSettings.storageMode;
+            if (selectedType === "document") configJson.ocr_enabled = advancedSettings.ocrEnabled;
+            configJson.use_header_row = advancedSettings.useHeaderRow;
+
+            const source = await createSource({
                 name: newName,
-                source_type: newType,
-                config_json: { url: newUrl },
-                schedule: "Manual"
+                source_type: selectedType,
+                config_json: configJson,
+                schedule: "Manual",
             });
-            setShowAdd(false);
-            setNewName("");
-            setNewUrl("");
+
+            // Upload files if any
+            if (selectedFiles.length > 0 && source.id) {
+                const fileStatuses: UploadFileStatus[] = selectedFiles.map((f) => ({
+                    name: f.name,
+                    progress: 0,
+                    status: "pending" as const,
+                }));
+                setUploadFiles(fileStatuses);
+
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    setUploadFiles((prev) =>
+                        prev.map((f, idx) => (idx === i ? { ...f, status: "uploading" as const } : f))
+                    );
+                    try {
+                        await uploadFile(source.id!, selectedFiles[i], (pct) => {
+                            setUploadFiles((prev) =>
+                                prev.map((f, idx) => (idx === i ? { ...f, progress: pct } : f))
+                            );
+                        });
+                        setUploadFiles((prev) =>
+                            prev.map((f, idx) =>
+                                idx === i ? { ...f, progress: 100, status: "complete" as const } : f
+                            )
+                        );
+                    } catch {
+                        setUploadFiles((prev) =>
+                            prev.map((f, idx) =>
+                                idx === i ? { ...f, status: "error" as const } : f
+                            )
+                        );
+                    }
+                }
+            }
+
+            setShowWizard(false);
+            resetWizard();
             loadSources();
         } catch (error) {
             console.warn("[Sources] Failed to create source:", error);
             alert("Failed to create source");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -76,7 +179,7 @@ export default function SourcesPage() {
                 name: configuringSource.name,
                 source_type: configuringSource.source_type,
                 config_json: configuringSource.config_json,
-                schedule: configuringSource.schedule
+                schedule: configuringSource.schedule,
             });
             setConfiguringSource(null);
             loadSources();
@@ -92,9 +195,8 @@ export default function SourcesPage() {
         if (!previewingSource) return;
         setIsSaving(true);
         try {
-            // Re-use updateSource to save markdown if your API supports updating it
             await updateSource(previewingSource.id, {
-                raw_markdown: previewingSource.raw_markdown
+                raw_markdown: previewingSource.raw_markdown,
             });
             setPreviewingSource(null);
             loadSources();
@@ -124,16 +226,13 @@ export default function SourcesPage() {
             setShowConsole(true);
             setLogs([`> Starting sync job for source #${id}...`, "> Initializing background worker..."]);
 
-            // In a real implementation this would connect to the WebSockets/SSE stream.
-            // Simulating stream logs for the UI implementation as per TRD:
-            setTimeout(() => setLogs(l => [...l, "> Fetching URL..."]), 1000);
-            setTimeout(() => setLogs(l => [...l, "> Parsing DOM..."]), 2000);
+            setTimeout(() => setLogs((l) => [...l, "> Fetching URL..."]), 1000);
+            setTimeout(() => setLogs((l) => [...l, "> Parsing DOM..."]), 2000);
             setTimeout(() => {
-                setLogs(l => [...l, "> Completed ingestion! Check Vector space."]);
+                setLogs((l) => [...l, "> Completed ingestion! Check Vector space."]);
                 loadSources();
                 setTimeout(() => setShowConsole(false), 2000);
             }, 4000);
-
         } catch (error) {
             console.warn("[Sources] Failed to sync source:", error);
             alert("Failed to sync source");
@@ -142,11 +241,132 @@ export default function SourcesPage() {
 
     const getTypeIcon = (type: string) => {
         switch (type) {
-            case 'web': return <Globe className="w-4 h-4 text-blue-500" />;
-            case 'tabular': return <FileSpreadsheet className="w-4 h-4 text-green-500" />;
-            case 'document': return <FileText className="w-4 h-4 text-orange-500" />;
-            case 'mcp': return <Database className="w-4 h-4 text-purple-500" />;
-            default: return <Database className="w-4 h-4" />;
+            case "web":
+                return <Globe className="w-4 h-4 text-blue-500" />;
+            case "tabular":
+                return <FileSpreadsheet className="w-4 h-4 text-green-500" />;
+            case "document":
+                return <FileText className="w-4 h-4 text-orange-500" />;
+            case "mcp":
+                return <Database className="w-4 h-4 text-purple-500" />;
+            default:
+                return <Database className="w-4 h-4" />;
+        }
+    };
+
+    const canProceedStep2 = () => {
+        if (!selectedType) return false;
+        if (!newName.trim()) return false;
+        if (selectedType === "web" && !newUrl.trim()) return false;
+        if (selectedType === "mcp" && !mcpConnectionString.trim()) return false;
+        if ((selectedType === "document" || selectedType === "tabular") && selectedFiles.length === 0)
+            return false;
+        return true;
+    };
+
+    // ─── Wizard Step Content Renderers ──────────────────────────────────
+
+    const renderStep2Content = () => {
+        if (!selectedType) return null;
+
+        return (
+            <div className="space-y-4">
+                <div className="grid gap-2">
+                    <Label htmlFor="wizard-name">Source Name</Label>
+                    <Input
+                        id="wizard-name"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder="e.g. Prontera Wiki"
+                    />
+                </div>
+
+                {selectedType === "web" && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="wizard-url">Target URL</Label>
+                        <Input
+                            id="wizard-url"
+                            value={newUrl}
+                            onChange={(e) => setNewUrl(e.target.value)}
+                            placeholder="https://..."
+                        />
+                    </div>
+                )}
+
+                {selectedType === "mcp" && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="wizard-mcp">Connection String</Label>
+                        <Input
+                            id="wizard-mcp"
+                            value={mcpConnectionString}
+                            onChange={(e) => setMcpConnectionString(e.target.value)}
+                            placeholder="mcp://host:port/path"
+                        />
+                    </div>
+                )}
+
+                {(selectedType === "document" || selectedType === "tabular") && (
+                    <div className="space-y-3">
+                        <div className="flex gap-2">
+                            <Button
+                                variant={activeTab === "file" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setActiveTab("file")}
+                            >
+                                Upload Files
+                            </Button>
+                            <Button
+                                variant={activeTab === "folder" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setActiveTab("folder")}
+                            >
+                                Upload Folder
+                            </Button>
+                        </div>
+
+                        {activeTab === "file" ? (
+                            <UploadDropzone onFilesAdded={handleFilesAdded} />
+                        ) : (
+                            <FolderUpload onFilesSelected={handleFolderSelected} />
+                        )}
+
+                        {selectedFiles.length > 0 && (
+                            <div className="text-sm text-muted-foreground">
+                                {selectedFiles.length} file(s) selected
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {uploadFiles.length > 0 && <UploadProgress files={uploadFiles} />}
+            </div>
+        );
+    };
+
+    const renderStep3Content = () => {
+        if (!selectedType) return null;
+        const domain = featureFlags?.domain || "general";
+
+        return (
+            <AdvancedSettings
+                ingressType={selectedType}
+                domain={domain}
+                settings={advancedSettings}
+                onSettingsChange={setAdvancedSettings}
+            />
+        );
+    };
+
+    // ─── Wizard Step Title ──────────────────────────────────────────────
+
+    const getStepTitle = () => {
+        switch (wizardStep) {
+            case 1:
+                return "Select Source Type";
+            case 2:
+                return "Configure Source";
+            case 3:
+                return "Advanced Settings";
         }
     };
 
@@ -155,9 +375,9 @@ export default function SourcesPage() {
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Data Ingress Sources</h1>
-                    <p className="text-muted-foreground">Manage and configure how data enters your tenant's vector space.</p>
+                    <p className="text-muted-foreground">Manage and configure how data enters your tenant&apos;s vector space.</p>
                 </div>
-                <Button onClick={() => setShowAdd(true)}>
+                <Button onClick={openWizard}>
                     <Plus className="w-4 h-4 mr-2" />
                     Add Source
                 </Button>
@@ -179,94 +399,114 @@ export default function SourcesPage() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8">Loading sources...</TableCell>
+                                        <TableCell colSpan={5} className="text-center py-8">
+                                            Loading sources...
+                                        </TableCell>
                                     </TableRow>
                                 ) : sources.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No data sources configured yet.</TableCell>
+                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                            No data sources configured yet.
+                                        </TableCell>
                                     </TableRow>
-                                ) : sources.map((s) => (
-                                    <TableRow key={s.id}>
-                                        <TableCell className="font-medium">
-                                            {s.name}
-                                            {(s.mb_size != null || s.total_chunks != null) && (
-                                                <div className="text-xs text-muted-foreground mt-1 font-normal flex items-center gap-2">
-                                                    <span>{s.mb_size?.toFixed(2) || "0.00"} MB</span>
-                                                    <span>•</span>
-                                                    <span>{s.total_chunks || 0} chunks</span>
+                                ) : (
+                                    sources.map((s) => (
+                                        <TableRow key={s.id}>
+                                            <TableCell className="font-medium">
+                                                {s.name}
+                                                {(s.mb_size != null || s.total_chunks != null) && (
+                                                    <div className="text-xs text-muted-foreground mt-1 font-normal flex items-center gap-2">
+                                                        <span>{s.mb_size?.toFixed(2) || "0.00"} MB</span>
+                                                        <span>•</span>
+                                                        <span>{s.total_chunks || 0} chunks</span>
+                                                    </div>
+                                                )}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    {getTypeIcon(s.source_type)}
+                                                    <span className="capitalize">{s.source_type}</span>
                                                 </div>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                {getTypeIcon(s.source_type)}
-                                                <span className="capitalize">{s.source_type}</span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-sm text-gray-500">{s.schedule || "Manual"}</TableCell>
-                                        <TableCell>
-                                            <StatusBadge status={s.last_sync_status || "PENDING"} />
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
-                                                <RefreshCw className="w-4 h-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="sm" title="Preview Markdown" onClick={() => setPreviewingSource(s)}>
-                                                <Eye className="w-4 h-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="sm" title="Configure" onClick={() => setConfiguringSource(s)}><Settings className="w-4 h-4" /></Button>
-                                            <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                            </TableCell>
+                                            <TableCell className="text-sm text-gray-500">
+                                                {s.schedule || "Manual"}
+                                            </TableCell>
+                                            <TableCell>
+                                                <StatusBadge status={s.last_sync_status || "PENDING"} />
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
+                                                    <RefreshCw className="w-4 h-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" title="Preview Markdown" onClick={() => setPreviewingSource(s)}>
+                                                    <Eye className="w-4 h-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" title="Configure" onClick={() => setConfiguringSource(s)}>
+                                                    <Settings className="w-4 h-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
                             </TableBody>
                         </Table>
                     </CardContent>
                 </Card>
             </div>
 
-            <Dialog open={showAdd} onOpenChange={setShowAdd}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Add New Data Source</DialogTitle>
-                        <DialogDescription className="sr-only">Form to add a new data source</DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label htmlFor="name">Source Name</Label>
-                            <Input id="name" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Prontera Wiki" />
+            {/* ═══ Add Source Wizard — Sliding Drawer ═══ */}
+            <Sheet open={showWizard} onOpenChange={(open) => { if (!open) setShowWizard(false); }}>
+                <SheetContent className="sm:max-w-xl overflow-y-auto">
+                    <SheetHeader className="px-6 pt-6 pb-4">
+                        <SheetTitle className="text-lg">{getStepTitle()}</SheetTitle>
+                        <SheetDescription>
+                            Step {wizardStep} of 3 — {getStepTitle()}
+                        </SheetDescription>
+                        {/* Step indicator */}
+                        <div className="flex items-center gap-2 pt-3">
+                            {[1, 2, 3].map((step) => (
+                                <div
+                                    key={step}
+                                    className={`h-2 flex-1 rounded-full transition-colors ${step <= wizardStep ? "bg-primary" : "bg-muted"
+                                        }`}
+                                />
+                            ))}
                         </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="type">Source Type</Label>
-                            <select
-                                id="type"
-                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                value={newType}
-                                onChange={e => setNewType(e.target.value as any)}
-                            >
-                                <option value="web">Web Scraper</option>
-                                <option value="tabular">Tabular (CSV/XLSX)</option>
-                                <option value="document">Document (PDF/Image)</option>
-                                <option value="mcp">MCP Connection</option>
-                            </select>
-                        </div>
-                        {newType === 'web' && (
-                            <div className="grid gap-2">
-                                <Label htmlFor="url">Target URL</Label>
-                                <Input id="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://..." />
-                            </div>
-                        )}
-                        {/* Additional fields for other types would go here */}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-                        <Button onClick={handleAddSource} disabled={!newName || (newType === 'web' && !newUrl)}>Create Source</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    </SheetHeader>
 
+                    <div className="px-6 py-4 flex-1">
+                        {wizardStep === 1 && <IngressTypeSelector onSelect={handleTypeSelect} />}
+                        {wizardStep === 2 && renderStep2Content()}
+                        {wizardStep === 3 && renderStep3Content()}
+                    </div>
+
+                    <SheetFooter className="flex-row justify-between gap-2 px-6 py-4 border-t">
+                        {wizardStep > 1 && (
+                            <Button variant="outline" onClick={() => setWizardStep((s) => Math.max(1, s - 1) as 1 | 2 | 3)}>
+                                <ArrowLeft className="w-4 h-4 mr-1" />
+                                Back
+                            </Button>
+                        )}
+                        <div className="flex-1" />
+                        {wizardStep === 2 && (
+                            <Button onClick={() => setWizardStep(3)} disabled={!canProceedStep2()}>
+                                Next
+                                <ArrowRight className="w-4 h-4 ml-1" />
+                            </Button>
+                        )}
+                        {wizardStep === 3 && (
+                            <Button onClick={handleCreateSource} disabled={isSaving}>
+                                {isSaving ? "Creating..." : "Create Source"}
+                            </Button>
+                        )}
+                    </SheetFooter>
+                </SheetContent>
+            </Sheet>
+
+            {/* ═══ Streaming Console Dialog ═══ */}
             <Dialog open={showConsole} onOpenChange={setShowConsole}>
                 <DialogContent className="max-w-2xl bg-black border-zinc-800 text-green-400 font-mono">
                     <DialogHeader>
@@ -285,6 +525,8 @@ export default function SourcesPage() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* ═══ Delete Confirmation Dialog ═══ */}
             <Dialog open={deletingId !== null} onOpenChange={(open) => !open && setDeletingId(null)}>
                 <DialogContent>
                     <DialogHeader>
@@ -300,6 +542,7 @@ export default function SourcesPage() {
                 </DialogContent>
             </Dialog>
 
+            {/* ═══ Configure Source Dialog ═══ */}
             <Dialog open={configuringSource !== null} onOpenChange={(open) => !open && setConfiguringSource(null)}>
                 <DialogContent>
                     <DialogHeader>
@@ -313,28 +556,25 @@ export default function SourcesPage() {
                                 <Input
                                     id="config-name"
                                     value={configuringSource.name}
-                                    onChange={e => setConfiguringSource({ ...configuringSource, name: e.target.value })}
+                                    onChange={(e) => setConfiguringSource({ ...configuringSource, name: e.target.value })}
                                 />
                             </div>
                             <div className="grid gap-2">
                                 <Label htmlFor="config-type">Source Type</Label>
-                                <Input
-                                    id="config-type"
-                                    value={configuringSource.source_type}
-                                    disabled
-                                    className="bg-muted capitalize"
-                                />
+                                <Input id="config-type" value={configuringSource.source_type} disabled className="bg-muted capitalize" />
                             </div>
-                            {configuringSource.source_type === 'web' && (
+                            {configuringSource.source_type === "web" && (
                                 <div className="grid gap-2">
                                     <Label htmlFor="config-url">Target URL</Label>
                                     <Input
                                         id="config-url"
                                         value={configuringSource.config_json?.url || ""}
-                                        onChange={e => setConfiguringSource({
-                                            ...configuringSource,
-                                            config_json: { ...configuringSource.config_json, url: e.target.value }
-                                        })}
+                                        onChange={(e) =>
+                                            setConfiguringSource({
+                                                ...configuringSource,
+                                                config_json: { ...configuringSource.config_json, url: e.target.value },
+                                            })
+                                        }
                                     />
                                 </div>
                             )}
@@ -344,7 +584,7 @@ export default function SourcesPage() {
                                     id="config-schedule"
                                     value={configuringSource.schedule || ""}
                                     placeholder="e.g. Manual, Daily, 0 * * * *"
-                                    onChange={e => setConfiguringSource({ ...configuringSource, schedule: e.target.value })}
+                                    onChange={(e) => setConfiguringSource({ ...configuringSource, schedule: e.target.value })}
                                 />
                             </div>
                         </div>
@@ -358,11 +598,11 @@ export default function SourcesPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Markdown Preview & Edit Dialog */}
+            {/* ═══ Markdown Preview & Edit Dialog ═══ */}
             <Dialog open={previewingSource !== null} onOpenChange={(open) => !open && setPreviewingSource(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col h-[80vh]">
                     <DialogHeader>
-                        <DialogTitle>Markdown Preview {previewingSource?.name ? `- ${previewingSource.name}` : ''}</DialogTitle>
+                        <DialogTitle>Markdown Preview {previewingSource?.name ? `- ${previewingSource.name}` : ""}</DialogTitle>
                         <DialogDescription className="text-muted-foreground">
                             Preview and quick-edit the raw markdown extracted from this source.
                         </DialogDescription>
@@ -371,7 +611,7 @@ export default function SourcesPage() {
                         <textarea
                             className="w-full h-full bg-muted/30 p-4 rounded-md font-mono text-sm resize-none focus:outline-none focus:ring-1 border border-border"
                             value={previewingSource?.raw_markdown || ""}
-                            onChange={(e) => setPreviewingSource(prev => prev ? { ...prev, raw_markdown: e.target.value } : null)}
+                            onChange={(e) => setPreviewingSource((prev) => (prev ? { ...prev, raw_markdown: e.target.value } : null))}
                             placeholder="Data is empty or has not been synced yet."
                         />
                     </div>

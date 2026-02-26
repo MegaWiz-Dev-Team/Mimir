@@ -10,7 +10,6 @@
 - `docs/01_requirements_and_design/01_02_BRD_Project-Mimir_TH.md`: Business Requirement Document
 - `docs/01_requirements_and_design/01_03_TRD_Project-Mimir_TH_v2.3.md`: Technical Requirement Document v2.3
 - `docs/01_requirements_and_design/01_03_TRD_Project-Mimir_TH_v2.2.md`: Technical Requirement Document v2.2 (Legacy)
-- `docs/01_requirements_and_design/01_03_TRD_Project-Mimir_TH_v2.1.md`: Technical Requirement Document v2.1
 - `docs/01_requirements_and_design/01_03_TRD_Project-Mimir_TH.md`: TRD (Legacy)
 - `docs/01_requirements_and_design/01_04_Framework_Analysis_Project-Mimir.md`: วิเคราะห์ AI Framework
 - `docs/01_requirements_and_design/01_05_AI_Model_Selection.md`: กลยุทธ์การเลือก Model
@@ -49,7 +48,7 @@
 - `docs/03_implementation_plans/03_10_Implementation_Plan_Playground_UI.md`: แผนจัดการ Playground UI
 - `docs/03_implementation_plans/03_11_Test_Plan_E2E_Phase_1_to_9.md`: แผนทดสอบระบบ E2E ของเก่า
 - `docs/03_implementation_plans/03_12_Testing_and_PR_Workflow.md`: กระบวนการทดสอบและ PR Workflow
-- `docs/03_implementation_plans/03_13_Implementation_Plan_v2.3_Sprints_Project-Mimir.md`: สรุปรวบยอดแผนงาน Sprints ทั้งหมดเพื่อการพัฒนา Multi-Tenant ตามสเปก v2.3
+- `docs/03_implementation_plans/03_13_Implementation_Plan_v2.3_Sprints_Project-Mimir.md`: สรุปแผน Sprint สำหรับ Version 2.3
 
 ## 🛡️ 04. Evaluation & Testing (การทดสอบและการประเมินผล)
 - `docs/04_evaluation_and_testing/04_01_Implementation_Plan_Agent_Evaluation.md`: แผนทดสอบ Agent Evaluation
@@ -69,10 +68,9 @@
 - `docs/06_misc_resources/01_07_Vector_Management_Implementation_Plan_Project-Mimir.md`: แผน Vector Management
 - `docs/06_misc_resources/01_08_Evaluations_Implementation_Plan_Project-Mimir.md`: แผนหน้า Evaluations
 - `docs/06_misc_resources/01_09_User_Management_Implementation_Plan_Project-Mimir.md`: แผน User Management
-- `docs/06_misc_resources/Zeroclaw/`: 
 
-## 📋 ISO 29110 Documents (เอกสารอ้างอิงและสอบกลับ Phase 1 - Version 2.3 Completion)
-เอกสารสำหรับการส่งมอบและรับรองตามมาตรฐาน
+## 📋 ISO 29110 Documents (เอกสารอ้างอิงและสอบกลับ Phase 1 (Version 2.3) Completion)
+เอกสารสำหรับการส่งมอบและรับรองตามมาตรฐาน (ไม่ย้ายตีกรอบ Folder)
 - `docs/iso_29110/pm/`: รูปแบบการจัดการโครงการประจำ Sprint และ Status Reports
 - `docs/iso_29110/si/`: แบบบันทึกความต้องการ, โครงสร้างโค้ด, ตารางแมปการทดสอบ (Traceability Matrix) และคู่มือผู้ใช้งาน
 

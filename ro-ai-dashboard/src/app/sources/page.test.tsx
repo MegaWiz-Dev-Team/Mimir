@@ -11,6 +11,8 @@ jest.mock('@/lib/api', () => ({
     deleteSource: jest.fn(),
     syncSource: jest.fn(),
     updateSource: jest.fn(),
+    uploadFile: jest.fn(),
+    getFeatureFlags: jest.fn().mockResolvedValue({ ocr_enabled: false, dicom_enabled: false, domain: 'general' }),
 }));
 
 describe('SourcesPage', () => {
