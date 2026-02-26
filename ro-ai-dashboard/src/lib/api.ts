@@ -95,7 +95,7 @@ export async function deleteModel(modelId: string) {
         });
         return await response.json();
     } catch (error) {
-        console.error("Delete model error:", error);
+        console.warn("[API] Delete model error:", error);
         throw error;
     }
 }
@@ -488,7 +488,7 @@ export function streamChat(
                                 onError(event.error);
                             }
                         } catch (e) {
-                            console.error("SSE parse error", e, "Data:", eventData);
+                            console.warn("[API] SSE parse error", e, "Data:", eventData);
                         }
                     }
 

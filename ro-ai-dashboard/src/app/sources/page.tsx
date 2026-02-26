@@ -44,7 +44,7 @@ export default function SourcesPage() {
             const data = await fetchSources();
             setSources(data);
         } catch (error) {
-            console.error("Failed to fetch sources", error);
+            console.warn("[Sources] Failed to fetch sources:", error);
         } finally {
             setLoading(false);
         }
@@ -63,7 +63,7 @@ export default function SourcesPage() {
             setNewUrl("");
             loadSources();
         } catch (error) {
-            console.error("Failed to create source", error);
+            console.warn("[Sources] Failed to create source:", error);
             alert("Failed to create source");
         }
     };
@@ -81,7 +81,7 @@ export default function SourcesPage() {
             setConfiguringSource(null);
             loadSources();
         } catch (error) {
-            console.error("Failed to update source", error);
+            console.warn("[Sources] Failed to update source:", error);
             alert("Failed to update source");
         } finally {
             setIsSaving(false);
@@ -112,7 +112,7 @@ export default function SourcesPage() {
             setDeletingId(null);
             loadSources();
         } catch (error) {
-            console.error("Failed to delete source", error);
+            console.warn("[Sources] Failed to delete source:", error);
             alert("Failed to delete source");
         }
     };
@@ -135,7 +135,7 @@ export default function SourcesPage() {
             }, 4000);
 
         } catch (error) {
-            console.error("Failed to sync source", error);
+            console.warn("[Sources] Failed to sync source:", error);
             alert("Failed to sync source");
         }
     };

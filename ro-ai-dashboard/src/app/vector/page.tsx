@@ -29,7 +29,7 @@ export default function VectorPage() {
             const data = await fetchVectorStats();
             setStats(data);
         } catch (error) {
-            console.error("Failed to load vector stats", error);
+            console.warn("[Vector] Failed to load vector stats:", error);
         } finally {
             setLoading(false);
         }
@@ -61,7 +61,7 @@ export default function VectorPage() {
             const results = await searchVectors(searchQuery);
             setSearchResults(results);
         } catch (error) {
-            console.error("Search failed", error);
+            console.warn("[Vector] Search failed:", error);
         } finally {
             setSearching(false);
         }

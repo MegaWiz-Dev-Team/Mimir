@@ -27,7 +27,7 @@ export default function RunDetailsPage() {
             const data = await fetchRunDetails(id);
             setRun(data);
         } catch (error) {
-            console.error("Failed to load run details", error);
+            console.warn("[Runs] Failed to load run details:", error);
         } finally {
             if (!silent) setLoading(false);
         }
@@ -195,7 +195,7 @@ export default function RunDetailsPage() {
                                                             alert("Original URL not found in markdown frontmatter.");
                                                         }
                                                     } catch (e) {
-                                                        console.error(e);
+                                                        console.warn("[Runs]", e);
                                                         alert("Failed to load original URL.");
                                                     }
                                                 }}
