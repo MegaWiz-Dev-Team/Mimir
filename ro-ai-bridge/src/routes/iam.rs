@@ -14,6 +14,7 @@ use mimir_core_ai::models::iam::{
     CreateTenantRequest, UpdateTenantConfigRequest, TenantConfig
 };
 use mimir_core_ai::services::iam::IamService;
+use mimir_core_ai::services::domain;
 
 pub fn iam_routes() -> Router<MySqlPool> {
     Router::new()
@@ -24,7 +25,35 @@ pub fn iam_routes() -> Router<MySqlPool> {
         .route("/tenants", get(get_tenants).post(create_tenant))
         .route("/tenants/{id}", patch(update_tenant).delete(delete_tenant))
         .route("/tenants/{id}/config", get(get_tenant_config).patch(update_tenant_config))
+        .route("/tenants/{id}/features", get(get_tenant_features))
         .route_layer(middleware::from_fn(tenant_auth_middleware))
+}
+
+/// GET /api/v1/iam/tenants/{id}/features
+/// Returns all feature flags with enabled/disabled status for the tenant's domain.
+async fn get_tenant_features(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+
+    let iam_service = IamService::new(pool);
+    let tenant_domain = iam_service.get_tenant_domain(&id).await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let features = domain::get_all_features(&tenant_domain);
+    let feature_map: serde_json::Value = features
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), serde_json::Value::Bool(v)))
+        .collect::<serde_json::Map<String, serde_json::Value>>()
+        .into();
+
+    Ok(Json(serde_json::json!({
+        "tenant_id": id,
+        "domain": tenant_domain,
+        "features": feature_map
+    })))
 }
 
 fn check_admin(tenant_ctx: &TenantContext) -> Result<(), StatusCode> {

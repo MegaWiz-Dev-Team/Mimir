@@ -22,6 +22,7 @@ pub struct UserWithRole {
 pub struct Tenant {
     pub id: String,
     pub name: String,
+    pub domain: String,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -59,6 +60,7 @@ pub struct LoginRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTenantRequest {
     pub name: String,
+    pub domain: Option<String>,
     pub is_dedicated_vector_db: bool,
     pub admin_email: String,
     pub admin_password: Option<String>,
