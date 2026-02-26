@@ -202,6 +202,7 @@ mod tests {
             allowed_actions: vec![],
             personality_traits: vec!["friendly".to_string()],
             model_id: None,
+            avatar_url: None,
         }
     }
 
