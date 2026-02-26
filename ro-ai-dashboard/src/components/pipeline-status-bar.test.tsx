@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { PipelineStatusBar } from './pipeline-status-bar';
 import * as api from '@/lib/api';
+import Cookies from 'js-cookie';
 
 // Mock next/link
 jest.mock('next/link', () => {
@@ -8,6 +9,17 @@ jest.mock('next/link', () => {
         <a href={href}>{children}</a>
     );
 });
+
+// Mock next/navigation
+const mockPathname = jest.fn();
+jest.mock('next/navigation', () => ({
+    usePathname: () => mockPathname(),
+}));
+
+// Mock js-cookie
+jest.mock('js-cookie', () => ({
+    get: jest.fn(),
+}));
 
 // Mock the API calls
 jest.mock('@/lib/api', () => ({
@@ -20,9 +32,12 @@ jest.mock('@/lib/api', () => ({
 describe('PipelineStatusBar', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        // Default: authenticated, on dashboard
+        mockPathname.mockReturnValue('/');
+        (Cookies.get as jest.Mock).mockReturnValue('valid-token');
     });
 
-    it('renders correctly', async () => {
+    it('renders correctly when authenticated', async () => {
         render(<PipelineStatusBar />);
 
         expect(screen.getByText(/Global Pipeline Status:/i)).toBeInTheDocument();
@@ -40,8 +55,25 @@ describe('PipelineStatusBar', () => {
         expect(screen.getByText(/Vectorized/i)).toBeInTheDocument();
     });
 
+    it('does NOT render on the /login page', () => {
+        mockPathname.mockReturnValue('/login');
+
+        const { container } = render(<PipelineStatusBar />);
+
+        expect(container.innerHTML).toBe('');
+        expect(screen.queryByText(/Global Pipeline Status/i)).not.toBeInTheDocument();
+    });
+
+    it('does NOT render when access_token cookie is missing', () => {
+        (Cookies.get as jest.Mock).mockReturnValue(undefined);
+
+        const { container } = render(<PipelineStatusBar />);
+
+        expect(container.innerHTML).toBe('');
+        expect(screen.queryByText(/Global Pipeline Status/i)).not.toBeInTheDocument();
+    });
+
     it('calculates counts correctly with mocked active items', async () => {
-        // Setup mock data to have active items
         (api.fetchSources as jest.Mock).mockResolvedValue([
             { id: 1, last_sync_status: 'PENDING' },
             { id: 2, last_sync_status: 'COMPLETED' }
@@ -66,14 +98,6 @@ describe('PipelineStatusBar', () => {
             expect(api.fetchSources).toHaveBeenCalledTimes(1);
         });
 
-        // Assertions based on mocked data counts
-        // Sources: 1 pending item out of 2 -> activeSources = 1
-        // Generating: 1 running item -> activeRuns = 1
-        // Pending QC: 1 pending item -> pendingQc = 1
-        // Vectorized: 42 -> vectorized = 42
-
-        // Since the counts are rendered as numbers, we can look for them or text content
-        // Just check if the component renders without errors after data loading
         expect(screen.getByText(/Global Pipeline Status/i)).toBeInTheDocument();
     });
 });
