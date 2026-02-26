@@ -117,4 +117,42 @@ describe('SourcesPage', () => {
             expect(api.fetchSources).toHaveBeenCalledTimes(2);
         });
     });
+
+    // ─── Sprint 7 Phase 1: Data Metrics Indicator ──────────────────────
+    it('displays data metrics (MB size and chunks) for sources that have them', async () => {
+        const sourcesWithMetrics = [{
+            ...mockSources[0],
+            mb_size: 12.34,
+            total_chunks: 56,
+        }];
+        (api.fetchSources as jest.Mock).mockResolvedValue(sourcesWithMetrics);
+
+        render(<SourcesPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Wiki Guide')).toBeInTheDocument();
+        });
+
+        expect(screen.getByText('12.34 MB')).toBeInTheDocument();
+        expect(screen.getByText('56 chunks')).toBeInTheDocument();
+    });
+
+    // ─── Sprint 7 Phase 1: Markdown Preview Button ─────────────────────
+    it('renders a Markdown Preview button (Eye icon) for each source', async () => {
+        render(<SourcesPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Wiki Guide')).toBeInTheDocument();
+        });
+
+        const previewButton = screen.getByTitle('Preview Markdown');
+        expect(previewButton).toBeInTheDocument();
+
+        fireEvent.click(previewButton);
+
+        // After clicking, the markdown preview dialog should render
+        await waitFor(() => {
+            expect(screen.getByText(/Markdown Preview/i)).toBeInTheDocument();
+        });
+    });
 });
