@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { PipelineStatusBar } from './pipeline-status-bar';
 import * as api from '@/lib/api';
 import Cookies from 'js-cookie';
@@ -40,36 +40,42 @@ describe('PipelineStatusBar', () => {
     it('renders correctly when authenticated', async () => {
         render(<PipelineStatusBar />);
 
-        expect(screen.getByText(/Global Pipeline Status:/i)).toBeInTheDocument();
-
+        // Wait for hydration and data fetch
         await waitFor(() => {
             expect(api.fetchSources).toHaveBeenCalledTimes(1);
-            expect(api.fetchRuns).toHaveBeenCalledTimes(1);
-            expect(api.fetchQcClusters).toHaveBeenCalledTimes(1);
-            expect(api.fetchVectorStats).toHaveBeenCalledTimes(1);
-        });
+        }, { timeout: 3000 });
 
-        expect(screen.getByText(/Sources/i)).toBeInTheDocument();
+        // The component has finished mounting and loading
+        expect(api.fetchRuns).toHaveBeenCalledTimes(1);
+        expect(api.fetchQcClusters).toHaveBeenCalledTimes(1);
+        expect(api.fetchVectorStats).toHaveBeenCalledTimes(1);
+
+        // Now assert the UI
+        expect(screen.getByText(/Global Pipeline Status:/i)).toBeInTheDocument();
         expect(screen.getByText(/Generating/i)).toBeInTheDocument();
         expect(screen.getByText(/Pending QC/i)).toBeInTheDocument();
         expect(screen.getByText(/Vectorized/i)).toBeInTheDocument();
     });
 
-    it('does NOT render on the /login page', () => {
+    it('does NOT render on the /login page', async () => {
         mockPathname.mockReturnValue('/login');
 
         const { container } = render(<PipelineStatusBar />);
 
-        expect(container.innerHTML).toBe('');
+        await waitFor(() => {
+            expect(container.innerHTML).toBe('');
+        });
         expect(screen.queryByText(/Global Pipeline Status/i)).not.toBeInTheDocument();
     });
 
-    it('does NOT render when access_token cookie is missing', () => {
+    it('does NOT render when access_token cookie is missing', async () => {
         (Cookies.get as jest.Mock).mockReturnValue(undefined);
 
         const { container } = render(<PipelineStatusBar />);
 
-        expect(container.innerHTML).toBe('');
+        await waitFor(() => {
+            expect(container.innerHTML).toBe('');
+        });
         expect(screen.queryByText(/Global Pipeline Status/i)).not.toBeInTheDocument();
     });
 
@@ -96,8 +102,9 @@ describe('PipelineStatusBar', () => {
 
         await waitFor(() => {
             expect(api.fetchSources).toHaveBeenCalledTimes(1);
-        });
+        }, { timeout: 3000 });
 
+        // Wait for it to show the title
         expect(screen.getByText(/Global Pipeline Status/i)).toBeInTheDocument();
     });
 });

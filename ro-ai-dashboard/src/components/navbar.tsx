@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
@@ -8,8 +9,13 @@ import { LogOut, LayoutDashboard, Database, Users, ShieldCheck, Link as LinkIcon
 export function Navbar() {
     const pathname = usePathname();
     const router = useRouter();
+    const [mounted, setMounted] = useState(false);
 
-    if (pathname === "/login") return null;
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    if (!mounted || pathname === "/login") return null;
 
     const tenantId = Cookies.get("tenant_id") || "default_tenant";
     // Ideally, valid tenants would come from the JWT claims, but for UI sake we'll mock or just show the current one.
