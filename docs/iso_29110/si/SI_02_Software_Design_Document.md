@@ -20,5 +20,5 @@
 - **Tenant Configuration Module:** จัดการ Settings และ Provisioning Workflow แบบ Centralized (Sprint 3)
 - **Quality Control Module:** Background Worker จัดการ Data Clustering (Sprint 4)
 - **Ingress Module:** WebSocket/SSE รันสถานะของ Data Crawler (Sprint 5)
-- **Evaluation Module:** รัน Metric Evaluation แบบ Asynchronous (Sprint 6)
-- **Pipeline UI/UX Module:** ปรับปรุง Flow การทำงาน (Ingress Preview, ACU Coverage, Conflict Resolution, Vector Traceability) แบบ End-to-End (Sprint 7)
+- **Evaluation Module:** รันระบบให้คะแนนปัญญาประดิษฐ์อัตโนมัติ (LLM-as-a-judge) ผ่านการเทียบฐานข้อมูลและสร้างสรุป Heatmap (Sprint 6)
+- **Pipeline UI/UX Module:** ปรับปรุง Flow การทำงานหลักทั้งหมดให้รองรับ Multi-tenancy ทบสอบระบบโดยรวม และตรวจสอบความถูกต้อง (Traceability) ของผลลัพธ์ (Sprint 7)
