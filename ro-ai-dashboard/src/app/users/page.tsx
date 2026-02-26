@@ -18,6 +18,7 @@ export default function UsersPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [tenantFilter, setTenantFilter] = useState("all");
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // Dialog States
     const [isAddMode, setIsAddMode] = useState(false);
@@ -37,6 +38,7 @@ export default function UsersPage() {
 
     const loadData = async () => {
         setIsLoading(true);
+        setLoadError(null);
         try {
             const [usersData, tenantsData] = await Promise.all([
                 fetchUsers(),
@@ -46,7 +48,7 @@ export default function UsersPage() {
             setTenants(tenantsData);
         } catch (error) {
             console.warn("[Users] Failed to load users:", error);
-            alert("Failed to load users. Are you logged in as Admin?");
+            setLoadError("Unable to load user data. Please check the backend connection or verify your Admin credentials.");
         } finally {
             setIsLoading(false);
         }
@@ -180,6 +182,15 @@ export default function UsersPage() {
                     </SelectContent>
                 </Select>
             </div>
+
+            {loadError && (
+                <div className="mb-6 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900/50 px-4 py-3 text-sm text-red-800 dark:text-red-300">
+                    <span>{loadError}</span>
+                    <Button variant="ghost" size="sm" onClick={() => { setLoadError(null); loadData(); }} className="text-red-600 hover:text-red-800">
+                        Retry
+                    </Button>
+                </div>
+            )}
 
             <Card>
                 <CardContent className="p-0">
