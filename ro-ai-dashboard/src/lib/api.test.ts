@@ -57,6 +57,15 @@ describe('Quality Control API client functionality', () => {
         );
     });
 
+    it('fetchQcClusters should throw an Error on response !ok', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: false,
+            statusText: 'Internal Server Error'
+        });
+
+        await expect(fetchQcClusters()).rejects.toThrow('Failed to fetch QC clusters');
+    });
+
     it('resolveQcCluster should call the respective endpoint with payload', async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
             ok: true,
@@ -104,14 +113,13 @@ describe('Quality Control API client functionality', () => {
         expect(result).toEqual({ is_generating: true });
     });
 
-    it('fetchQcStatus should return false when failing to fetch', async () => {
+    it('fetchQcStatus should throw an Error when failing to fetch', async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
             ok: false,
             statusText: 'Internal Server Error'
         });
 
-        const result = await fetchQcStatus();
-        expect(result).toEqual({ is_generating: false });
+        await expect(fetchQcStatus()).rejects.toThrow('Failed to fetch QC status: Internal Server Error');
     });
 });
 
