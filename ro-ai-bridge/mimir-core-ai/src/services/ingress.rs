@@ -1,39 +1,87 @@
 use crate::models::sources::DataSource;
+use crate::services::extraction;
 use anyhow::{Result, Context};
-use tracing::{info, error};
+use tracing::{info, error, warn};
+
+/// Retry an async operation with exponential backoff.
+///
+/// - `max_retries`: number of retry attempts (3 = 1 initial + 3 retries)
+/// - `base_delay_ms`: initial delay in milliseconds (doubles each retry)
+pub async fn retry_with_backoff<F, Fut, T>(
+    operation_name: &str,
+    max_retries: u32,
+    base_delay_ms: u64,
+    f: F,
+) -> Result<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut last_err = None;
+    for attempt in 0..=max_retries {
+        match f().await {
+            Ok(val) => return Ok(val),
+            Err(e) => {
+                if attempt < max_retries {
+                    let delay = base_delay_ms * 2u64.pow(attempt);
+                    warn!(
+                        "{} failed (attempt {}/{}), retrying in {}ms: {}",
+                        operation_name, attempt + 1, max_retries + 1, delay, e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    error!("{} failed after {} attempts: {}", operation_name, max_retries + 1, e);
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap())
+}
 
 pub struct IngressManager;
 
 impl IngressManager {
-    pub async fn process_source(source: &DataSource) -> Result<String> {
-        info!("Processing source: {}", source.name);
+    /// Phase 3: Extract content from raw data downloaded from RustFS.
+    ///
+    /// Routes to the appropriate extraction function based on `source_type`
+    /// and file extension (from `s3_key`). Returns Markdown content for `raw_markdown`.
+    pub fn process_extraction(source: &DataSource, data: &[u8]) -> Result<String> {
+        let s3_key = source.s3_key.as_deref().unwrap_or("unknown");
+        info!(
+            "Phase 3: Extracting source_id={}, type={}, s3_key={}, size={} bytes",
+            source.id, source.source_type, s3_key, data.len()
+        );
+
+        extraction::extract(&source.source_type, s3_key, data)
+    }
+
+    /// Phase 2: Fetch raw content for Web/MCP sources.
+    ///
+    /// - Web: downloads HTML via reqwest
+    /// - MCP: fetches JSON from MCP server (placeholder — requires McpClient integration)
+    ///
+    /// Returns raw bytes to be saved to RustFS.
+    pub async fn process_fetch(source: &DataSource) -> Result<Vec<u8>> {
+        info!("Phase 2: Fetching source_id={}, type={}", source.id, source.source_type);
+
         match source.source_type.as_str() {
-            "web" => {
-                Self::process_web_source(source).await
-            },
-            "tabular" => {
-                // Call TableParser
-                Ok(format!("Parsed tabular data for {}", source.name))
-            },
-            "document" => {
-                // Call VisionParser
-                Ok(format!("Extracted text from document {}", source.name))
-            },
-            "mcp" => {
-                // Call McpClient
-                Ok(format!("Fetched data via MCP for {}", source.name))
-            },
-            _ => Err(anyhow::anyhow!("Unsupported source type")),
+            "web" => Self::fetch_web(source).await,
+            "mcp" => Self::fetch_mcp(source).await,
+            _ => Err(anyhow::anyhow!(
+                "Phase 2 fetch not applicable for source_type: {}", source.source_type
+            )),
         }
     }
 
-    async fn process_web_source(source: &DataSource) -> Result<String> {
+    /// Fetch raw HTML from a web URL.
+    async fn fetch_web(source: &DataSource) -> Result<Vec<u8>> {
         let url = source.config_json.get("url")
             .and_then(|v| v.as_str())
             .context("Missing or invalid 'url' in config_json for web source")?;
 
         info!("Fetching HTML from URL: {}", url);
-        
+
         let client = reqwest::Client::new();
         let response = client.get(url)
             .timeout(std::time::Duration::from_secs(30))
@@ -45,29 +93,59 @@ impl IngressManager {
             return Err(anyhow::anyhow!("HTTP error: {}", response.status()));
         }
 
-        let html = response.text().await.context("Failed to read response body")?;
-        
-        // Very basic HTML extraction: just strip tags for now.
-        // In a production system, use a crate like `scraper` to parse the DOM properly.
-        let text = html.replace("<", " <").replace(">", "> "); // Naive spacing
-        let mut clean_text = String::new();
-        let mut in_tag = false;
-        for c in text.chars() {
-            if c == '<' {
-                in_tag = true;
-            } else if c == '>' {
-                in_tag = false;
-            } else if !in_tag {
-                clean_text.push(c);
-            }
-        }
-        
-        let preview = if clean_text.len() > 100 { &clean_text[0..100] } else { &clean_text };
-        info!("Successfully extracted {} bytes of text from {}. Preview: {}...", clean_text.len(), url, preview);
+        let bytes = response.bytes().await.context("Failed to read response body")?;
+        info!("Fetched {} bytes from {}", bytes.len(), url);
 
-        // TODO: Send robust extracted text to Qdrant via QdrantService
-        // Returning the raw text to be stored in the database for preview
-        Ok(clean_text)
+        Ok(bytes.to_vec())
+    }
+
+    /// Fetch data from an MCP server.
+    ///
+    /// Reads the `mcp_url` from `config_json`, connects to the MCP server,
+    /// fetches all resources, and returns them as JSON bytes.
+    async fn fetch_mcp(source: &DataSource) -> Result<Vec<u8>> {
+        let mcp_url = source.config_json.get("mcp_url")
+            .and_then(|v| v.as_str())
+            .context("Missing 'mcp_url' in config_json for MCP source")?;
+
+        info!("Connecting to MCP server: {}", mcp_url);
+
+        let mut mcp_client = crate::services::mcp_client::McpClient::new(mcp_url);
+        mcp_client.connect().await.context("Failed to connect to MCP server")?;
+
+        let resources = mcp_client.fetch_resources().await
+            .context("Failed to fetch MCP resources")?;
+
+        // Serialize all resources to JSON bytes
+        let json_bytes = serde_json::to_vec_pretty(&resources)
+            .context("Failed to serialize MCP resources to JSON")?;
+
+        info!("Fetched {} MCP resources ({} bytes)", resources.len(), json_bytes.len());
+        Ok(json_bytes)
+    }
+
+    /// Legacy entry point — process a source synchronously (backward compat).
+    ///
+    /// For `web` sources, performs a simple HTML→text extraction inline.
+    /// For other types, returns a placeholder message.
+    pub async fn process_source(source: &DataSource) -> Result<String> {
+        info!("Processing source: {}", source.name);
+        match source.source_type.as_str() {
+            "web" => {
+                let data = Self::fetch_web(source).await?;
+                extraction::extract_html_to_markdown(&data)
+            },
+            "tabular" => {
+                Ok(format!("Parsed tabular data for {}", source.name))
+            },
+            "document" => {
+                Ok(format!("Extracted text from document {}", source.name))
+            },
+            "mcp" => {
+                Ok(format!("Fetched data via MCP for {}", source.name))
+            },
+            _ => Err(anyhow::anyhow!("Unsupported source type")),
+        }
     }
 }
 
@@ -80,17 +158,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_ingress_process_web_source() {
-        // We will use a mock HTTP server or a known reliable URL for testing.
-        // For standard unit tests without hitting the real internet, mockito is preferred.
-        // Since we might not have mockito, let's use a very basic unit test that expects a failure for a bad URL,
-        // and a pass for a known fast endpoint or we test error handling.
-
         let source = DataSource {
             id: 1,
             tenant_id: "test_tenant".to_string(),
             name: "Test Web Source".to_string(),
             source_type: "web".to_string(),
-            config_json: json!({"url": "http://invalid.url.that.does.not.exist.local"}), // Will fail DNS
+            config_json: json!({"url": "http://invalid.url.that.does.not.exist.local"}),
             schedule: None,
             last_sync_status: None,
             last_sync_at: None,
@@ -105,12 +178,10 @@ mod tests {
         };
 
         let result = IngressManager::process_source(&source).await;
-        // The DNS should fail
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Failed to send HTTP request") || err_msg.contains("error sending request"));
 
-        // Now test a missing URL
         let bad_config_source = DataSource {
             id: 2,
             tenant_id: "test_tenant".to_string(),
@@ -158,5 +229,60 @@ mod tests {
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Unsupported source type");
+    }
+
+    #[test]
+    fn test_process_extraction_csv() {
+        let source = DataSource {
+            id: 10,
+            tenant_id: "test".to_string(),
+            name: "CSV Source".to_string(),
+            source_type: "tabular".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: Some("PENDING".to_string()),
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: Some("markdown".to_string()),
+            s3_key: Some("test/10/data.csv".to_string()),
+            file_hash: None,
+        };
+
+        let csv_data = b"Name,Score\nAlice,95\n";
+        let result = IngressManager::process_extraction(&source, csv_data);
+        assert!(result.is_ok());
+        let md = result.unwrap();
+        assert!(md.contains("| Name | Score |"));
+        assert!(md.contains("| Alice | 95 |"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_unsupported_type() {
+        let source = DataSource {
+            id: 3,
+            tenant_id: "test".to_string(),
+            name: "Doc Source".to_string(),
+            source_type: "document".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: None,
+            s3_key: None,
+            file_hash: None,
+        };
+
+        let result = IngressManager::process_fetch(&source).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not applicable"));
     }
 }

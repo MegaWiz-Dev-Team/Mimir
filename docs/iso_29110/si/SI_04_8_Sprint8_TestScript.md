@@ -22,13 +22,13 @@
 
 #### 1.1 Backend Unit Tests (Rust)
 
-| ID            | Test Scenario                        | Action / Steps (ขั้นตอนการทดสอบ)                       | Expected Result (ผลที่คาดหวัง)                                                                    | ผลการประเมิน (Pass/Fail) | Issue # / PR # | หมายเหตุ          |
-| :------------ | :----------------------------------- | :--------------------------------------------------- | :--------------------------------------------------------------------------------------------- | :---------------------- | :------------- | :--------------- |
-| **TC_SP8_U1** | File Validation (UT-001a~f)          | 1. รัน `cargo test -p mimir-core-ai upload`           | `validate_extension()` และ `validate_file_size()` ผ่านทั้ง 4 test cases                           | ✅ Pass                  | #73 / PR #80   | 4/4 tests passed |
-| **TC_SP8_U2** | S3 Key & Hashing (UT-002a~d)         | 1. รัน `cargo test -p mimir-core-ai upload`           | `build_s3_key()` และ `compute_file_hash()` ผ่านทั้ง 4 test cases                                  | ✅ Pass                  | #73 / PR #80   | 4/4 tests passed |
-| **TC_SP8_U3** | Extraction Logic (UT-003a~e)         | 1. รัน `cargo test -p mimir-core-ai extract`          | `extract_pdf()`, `extract_tabular_markdown()`, `extract_html_to_markdown()` ผ่านทั้ง 5 test cases | ⬜ N/A                   |                | ยังไม่ได้ Implement |
-| **TC_SP8_U4** | SQL Table Generation (UT-004a~e)     | 1. รัน `cargo test -p mimir-core-ai sql_table`        | `detect_column_type()` และ `generate_create_table()` ผ่านทั้ง 5 test cases                        | ⬜ N/A                   |                | ยังไม่ได้ Implement |
-| **TC_SP8_U5** | Domain Connector Routing (UT-005a~e) | 1. รัน `cargo test -p mimir-core-ai domain_connector` | `get_domain_connector()` และ `is_feature_enabled()` ผ่านทั้ง 5 test cases                         | ⬜ N/A                   |                | ยังไม่ได้ Implement |
+| ID            | Test Scenario                        | Action / Steps (ขั้นตอนการทดสอบ)                       | Expected Result (ผลที่คาดหวัง)                                                                    | ผลการประเมิน (Pass/Fail) | Issue # / PR # | หมายเหตุ            |
+| :------------ | :----------------------------------- | :--------------------------------------------------- | :--------------------------------------------------------------------------------------------- | :---------------------- | :------------- | :----------------- |
+| **TC_SP8_U1** | File Validation (UT-001a~f)          | 1. รัน `cargo test -p mimir-core-ai upload`           | `validate_extension()` และ `validate_file_size()` ผ่านทั้ง 4 test cases                           | ✅ Pass                  | #73 / PR #80   | 4/4 tests passed   |
+| **TC_SP8_U2** | S3 Key & Hashing (UT-002a~d)         | 1. รัน `cargo test -p mimir-core-ai upload`           | `build_s3_key()` และ `compute_file_hash()` ผ่านทั้ง 4 test cases                                  | ✅ Pass                  | #73 / PR #80   | 4/4 tests passed   |
+| **TC_SP8_U3** | Extraction Logic (UT-003a~e)         | 1. รัน `cargo test -p mimir-core-ai extraction`       | `extract_pdf()`, `extract_csv_to_markdown()`, `extract_html_to_markdown()` ผ่านทั้ง 12 test cases | ✅ Pass                  | #74 / PR #81   | 12/12 tests passed |
+| **TC_SP8_U4** | SQL Table Generation (UT-004a~e)     | 1. รัน `cargo test -p mimir-core-ai sql_table`        | `detect_column_type()` และ `generate_create_table()` ผ่านทั้ง 5 test cases                        | ⬜ N/A                   |                | ยังไม่ได้ Implement   |
+| **TC_SP8_U5** | Domain Connector Routing (UT-005a~e) | 1. รัน `cargo test -p mimir-core-ai domain_connector` | `get_domain_connector()` และ `is_feature_enabled()` ผ่านทั้ง 5 test cases                         | ⬜ N/A                   |                | ยังไม่ได้ Implement   |
 
 #### 1.2 Frontend Unit Tests (Jest / React Testing Library)
 
@@ -60,5 +60,5 @@
 - [ ] ไม่ผ่านบางส่วน (Partial Fail) - ระบุข้อที่ต้องแก้โค้ดและ Issue Tracking: _________________________________________
 
 **อ้างอิง (GitHub References):**
-- **Issues:** #77, #79
-- **Pull Requests:** PR #78
+- **Issues:** #73, #74, #77, #79
+- **Pull Requests:** PR #78, PR #80, PR #81
