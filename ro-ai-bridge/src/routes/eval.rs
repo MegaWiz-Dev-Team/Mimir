@@ -8,13 +8,16 @@
 //! - PATCH /api/eval/scores/:id/review — Submit human review
 
 use axum::{
-    extract::{Path, Query, State},
-    routing::{get, patch},
+    extract::{Path, Query, State, Extension},
+    routing::{get, patch, post},
     Json, Router,
+    response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use chrono::NaiveDateTime;
+use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::evaluation::runner::{start_evaluation_run, EvaluatorParams};
 
 use mimir_core_ai::services::db::DbPool;
 
@@ -116,20 +119,25 @@ pub struct HumanReviewRequest {
 
 pub fn eval_routes() -> Router<DbPool> {
     Router::new()
-        .route("/api/eval/runs", get(list_runs))
-        .route("/api/eval/runs/{id}", get(get_run_detail))
-        .route("/api/eval/runs/{id}/scores", get(get_run_scores))
-        .route("/api/eval/runs/{id}/matrix", get(get_run_matrix))
-        .route("/api/eval/scores/{id}/review", patch(submit_review))
+        .route("/api/v1/eval/runs", get(list_runs).post(start_run))
+        .route("/api/v1/eval/runs/{id}", get(get_run_detail))
+        .route("/api/v1/eval/runs/{id}/scores", get(get_run_scores))
+        .route("/api/v1/eval/runs/{id}/matrix", get(get_run_matrix))
+        .route("/api/v1/eval/scores/{id}/review", patch(submit_review))
+        .layer(axum::middleware::from_fn(tenant_auth_middleware))
 }
 
 // ─── Handlers ──────────────────────────────────────────────────────────
 
-/// GET /api/eval/runs — List all evaluation runs
-async fn list_runs(State(pool): State<DbPool>) -> Json<Vec<EvalRun>> {
+/// GET /api/v1/eval/runs — List all evaluation runs
+async fn list_runs(
+    State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
+) -> Json<Vec<EvalRun>> {
     let runs = sqlx::query_as::<_, EvalRun>(
-        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, config FROM eval_runs ORDER BY started_at DESC"
+        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, config FROM eval_runs WHERE tenant_id = ? ORDER BY started_at DESC"
     )
+    .bind(&tenant.tenant_id)
     .fetch_all(&pool)
     .await
     .unwrap_or_default();
@@ -137,15 +145,17 @@ async fn list_runs(State(pool): State<DbPool>) -> Json<Vec<EvalRun>> {
     Json(runs)
 }
 
-/// GET /api/eval/runs/:id — Get run detail with summaries
+/// GET /api/v1/eval/runs/:id — Get run detail with summaries
 async fn get_run_detail(
     State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Json<Option<RunDetailResponse>> {
     let run = sqlx::query_as::<_, EvalRun>(
-        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, config FROM eval_runs WHERE id = ?"
+        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, config FROM eval_runs WHERE id = ? AND tenant_id = ?"
     )
     .bind(&id)
+    .bind(&tenant.tenant_id)
     .fetch_optional(&pool)
     .await
     .unwrap_or(None);
@@ -165,9 +175,9 @@ async fn get_run_detail(
     Json(Some(RunDetailResponse { run, summaries }))
 }
 
-/// GET /api/eval/runs/:id/scores — Get individual scores with filtering
 async fn get_run_scores(
     State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
     Query(q): Query<ScoresQuery>,
 ) -> Json<Vec<EvalScore>> {
@@ -177,7 +187,7 @@ async fn get_run_scores(
 
     // Build dynamic query
     let mut query_str = String::from(
-        "SELECT id, run_id, agent_name, model_id, question, expected_answer, actual_answer, accuracy_score, completeness_score, relevance_score, latency_ms, judge_model, judge_reasoning, human_accuracy_score, human_completeness_score, human_relevance_score, human_notes, reviewed_by, reviewed_at, created_at FROM eval_scores WHERE run_id = ?"
+        "SELECT id, run_id, agent_name, model_id, question, expected_answer, actual_answer, accuracy_score, completeness_score, relevance_score, latency_ms, judge_model, judge_reasoning, human_accuracy_score, human_completeness_score, human_relevance_score, human_notes, reviewed_by, reviewed_at, created_at FROM eval_scores WHERE run_id = ? AND tenant_id = ?"
     );
 
     if q.agent.is_some() {
@@ -188,7 +198,7 @@ async fn get_run_scores(
     }
     query_str.push_str(&format!(" ORDER BY agent_name, model_id, id LIMIT {} OFFSET {}", limit, offset));
 
-    let mut query = sqlx::query_as::<_, EvalScore>(&query_str).bind(&id);
+    let mut query = sqlx::query_as::<_, EvalScore>(&query_str).bind(&id).bind(&tenant.tenant_id);
 
     if let Some(ref agent) = q.agent {
         query = query.bind(agent);
@@ -201,11 +211,24 @@ async fn get_run_scores(
     Json(scores)
 }
 
-/// GET /api/eval/runs/:id/matrix — Get Agent×Model heatmap data
+/// GET /api/v1/eval/runs/:id/matrix — Get Agent×Model heatmap data
 async fn get_run_matrix(
     State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Json<MatrixResponse> {
+    // First, verify tenant owns the run
+    let run_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM eval_runs WHERE id = ? AND tenant_id = ?")
+        .bind(&id)
+        .bind(&tenant.tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+        
+    if run_exists.is_none() {
+        return Json(MatrixResponse { agents: vec![], models: vec![], cells: vec![] });
+    }
+
     let summaries = sqlx::query_as::<_, EvalSummary>(
         "SELECT id, run_id, agent_name, model_id, total_questions, avg_accuracy, avg_completeness, avg_relevance, avg_latency_ms, overall_score FROM eval_summary WHERE run_id = ? ORDER BY agent_name, model_id"
     )
@@ -239,9 +262,10 @@ async fn get_run_matrix(
     Json(MatrixResponse { agents, models, cells })
 }
 
-/// PATCH /api/eval/scores/:id/review — Submit human review
+/// PATCH /api/v1/eval/scores/:id/review — Submit human review
 async fn submit_review(
     State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
     Path(id): Path<i64>,
     Json(body): Json<HumanReviewRequest>,
 ) -> Json<serde_json::Value> {
@@ -253,7 +277,7 @@ async fn submit_review(
             human_notes = COALESCE(?, human_notes),
             reviewed_by = COALESCE(?, reviewed_by),
             reviewed_at = NOW()
-        WHERE id = ?"#
+        WHERE id = ? AND tenant_id = ?"#
     )
     .bind(body.accuracy_score)
     .bind(body.completeness_score)
@@ -261,6 +285,7 @@ async fn submit_review(
     .bind(&body.notes)
     .bind(&body.reviewed_by)
     .bind(id)
+    .bind(&tenant.tenant_id)
     .execute(&pool)
     .await;
 
@@ -273,5 +298,38 @@ async fn submit_review(
             "success": false,
             "error": e.to_string()
         })),
+    }
+}
+
+/// POST /api/v1/eval/runs — Trigger a new evaluation run
+async fn start_run(
+    State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
+    Json(payload): Json<EvaluatorParams>,
+) -> axum::response::Response {
+    let mut verified_params = payload;
+    
+    // Safety check: force tenant ID to be the context tenant ID unless SuperAdmin
+    if tenant.role != "SuperAdmin" || verified_params.tenant_id.is_empty() {
+        verified_params.tenant_id = tenant.tenant_id.clone();
+    }
+    
+    if verified_params.question_limit == 0 {
+        verified_params.question_limit = 50; // Default limit
+    }
+
+    match start_evaluation_run(pool, verified_params).await {
+        Ok(run_id) => {
+            (
+                axum::http::StatusCode::ACCEPTED,
+                Json(serde_json::json!({ "run_id": run_id }))
+            ).into_response()
+        },
+        Err(e) => {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() }))
+            ).into_response()
+        }
     }
 }

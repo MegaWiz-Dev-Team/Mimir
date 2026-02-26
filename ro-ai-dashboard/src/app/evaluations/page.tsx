@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBadge } from "@/components/ui/status-badge";
 import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle } from "lucide-react";
 import Link from "next/link";
+import { EvalWizard } from "@/components/evaluations/eval-wizard";
+import { EvalScoreOverride } from "@/components/evaluations/eval-score-override";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
@@ -206,6 +208,7 @@ export default function EvaluationsPage() {
                         <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                         Refresh
                     </Button>
+                    <EvalWizard onTriggerRun={loadRuns} />
                 </div>
             </div>
 
@@ -219,9 +222,25 @@ export default function EvaluationsPage() {
                         </CardHeader>
                         <CardContent>
                             <StatusBadge status={selectedRun.status} />
-                            <p className="text-xs text-muted-foreground mt-1">
-                                {selectedRun.completed_combinations}/{selectedRun.total_combinations} combinations
-                            </p>
+                            <div className="mt-3 space-y-1">
+                                <div className="flex justify-between text-xs mb-1">
+                                    <span className="text-muted-foreground">Progress</span>
+                                    <span className="font-medium">
+                                        {selectedRun.total_combinations > 0
+                                            ? Math.round((selectedRun.completed_combinations / selectedRun.total_combinations) * 100)
+                                            : 0}%
+                                    </span>
+                                </div>
+                                <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-primary transition-all duration-500 ease-in-out"
+                                        style={{ width: `${selectedRun.total_combinations > 0 ? (selectedRun.completed_combinations / selectedRun.total_combinations) * 100 : 0}%` }}
+                                    />
+                                </div>
+                                <p className="text-[10px] text-muted-foreground mt-1 text-right">
+                                    {selectedRun.completed_combinations} / {selectedRun.total_combinations}
+                                </p>
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -408,9 +427,40 @@ export default function EvaluationsPage() {
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 {s.reviewed_at ? (
-                                                    <span className="text-emerald-400 text-xs">✓ Reviewed</span>
+                                                    <div className="flex flex-col items-center gap-1 text-xs">
+                                                        <span className="text-emerald-400">✓ Reviewed</span>
+                                                        <span className="text-[10px] text-muted-foreground">{s.human_notes}</span>
+                                                        <EvalScoreOverride
+                                                            scoreId={s.id}
+                                                            initialAccuracy={s.human_accuracy_score}
+                                                            initialCompleteness={s.human_completeness_score}
+                                                            initialRelevance={s.human_relevance_score}
+                                                            initialNotes={s.human_notes}
+                                                            onSaved={() => {
+                                                                if (expandedCell) {
+                                                                    const [a, m] = expandedCell.split("|");
+                                                                    loadScores(selectedRunId, a, m);
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
                                                 ) : (
-                                                    <span className="text-muted-foreground text-xs">Pending</span>
+                                                    <div className="flex flex-col items-center gap-1 text-xs">
+                                                        <span className="text-muted-foreground">Pending</span>
+                                                        <EvalScoreOverride
+                                                            scoreId={s.id}
+                                                            initialAccuracy={s.human_accuracy_score}
+                                                            initialCompleteness={s.human_completeness_score}
+                                                            initialRelevance={s.human_relevance_score}
+                                                            initialNotes={s.human_notes}
+                                                            onSaved={() => {
+                                                                if (expandedCell) {
+                                                                    const [a, m] = expandedCell.split("|");
+                                                                    loadScores(selectedRunId, a, m);
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
                                                 )}
                                             </TableCell>
                                         </TableRow>
