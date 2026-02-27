@@ -1,10 +1,12 @@
 use axum::{
     routing::get,
     Router,
+    Extension,
     Json,
 };
 use serde_json::{json, Value};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
 use tower_http::cors::{CorsLayer, Any};
@@ -25,6 +27,7 @@ async fn main() {
     
     // Load configuration
     let config = Config::from_env();
+    let config = Arc::new(config);
 
     // Initialize database
     let pool = db::init_db().await.expect("Failed to initialize database");
@@ -47,6 +50,7 @@ async fn main() {
         .nest("/api/v1/vector", vector_routes())
         .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes())
         .with_state(pool)
+        .layer(Extension(config.clone()))
         .layer(cors);
 
     // run it

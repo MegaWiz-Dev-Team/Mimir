@@ -22,7 +22,12 @@ pub struct IamService {
 }
 
 impl IamService {
-    pub fn new(db: MySqlPool) -> Self {
+    pub fn new(db: MySqlPool, jwt_secret: String) -> Self {
+        Self { db, jwt_secret }
+    }
+
+    /// Create with JWT secret from environment variable (for CLI binaries)
+    pub fn new_with_env(db: MySqlPool) -> Self {
         let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
         Self { db, jwt_secret }
     }
