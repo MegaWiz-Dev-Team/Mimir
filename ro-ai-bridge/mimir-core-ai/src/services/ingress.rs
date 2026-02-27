@@ -153,28 +153,52 @@ impl IngressManager {
         Ok(json_bytes)
     }
 
-    /// Legacy entry point — process a source synchronously (backward compat).
+    /// Process a source by fetching its data and running real extraction.
     ///
-    /// For `web` sources, performs a simple HTML→text extraction inline.
-    /// For other types, returns a placeholder message.
+    /// - `web`: fetch HTML → extract to Markdown
+    /// - `mcp`: fetch JSON → extract to Markdown
+    /// - `document` / `tabular`: requires pre-downloaded data — use `process_source_with_data()`
+    ///   or provide S3 bucket to download from.
     pub async fn process_source(source: &DataSource) -> Result<String> {
-        info!("Processing source: {}", source.name);
+        info!("Processing source: {} (type={})", source.name, source.source_type);
         match source.source_type.as_str() {
             "web" => {
                 let data = Self::fetch_web(source).await?;
                 extraction::extract_html_to_markdown(&data)
             },
-            "tabular" => {
-                Ok(format!("Parsed tabular data for {}", source.name))
-            },
-            "document" => {
-                Ok(format!("Extracted text from document {}", source.name))
-            },
             "mcp" => {
-                Ok(format!("Fetched data via MCP for {}", source.name))
+                let data = Self::fetch_mcp(source).await?;
+                extraction::extract_mcp_json_to_markdown(&data)
             },
-            _ => Err(anyhow::anyhow!("Unsupported source type")),
+            "document" | "tabular" => {
+                // For file-based sources, data must be provided via process_source_with_data()
+                Err(anyhow::anyhow!(
+                    "Source type '{}' requires file data — use process_source_with_data() or sync_source with S3 download",
+                    source.source_type
+                ))
+            },
+            _ => Err(anyhow::anyhow!("Unsupported source type: {}", source.source_type)),
         }
+    }
+
+    /// Process a source with pre-downloaded file data (for upload & sync flows).
+    ///
+    /// Downloads are handled by the caller (sync_source downloads from S3,
+    /// upload_file already has bytes in memory). This method runs the real
+    /// extraction pipeline and returns Markdown content.
+    pub fn process_source_with_data(source: &DataSource, data: &[u8]) -> Result<String> {
+        if data.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Empty file data for source '{}' (id={})", source.name, source.id
+            ));
+        }
+
+        info!(
+            "Processing source with data: {} (id={}, type={}, {} bytes)",
+            source.name, source.id, source.source_type, data.len()
+        );
+
+        Self::process_extraction(source, data)
     }
 }
 
@@ -257,7 +281,7 @@ mod tests {
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Unsupported source type");
+        assert_eq!(result.unwrap_err().to_string(), "Unsupported source type: unknown");
     }
 
     #[test]
@@ -376,5 +400,116 @@ mod tests {
         assert!(import.create_table_ddl.contains("name VARCHAR(255)"));
         assert!(import.create_table_ddl.contains("age DECIMAL"));
         assert_eq!(import.total_rows, 2);
+    }
+
+    // ─── New tests for process_source_with_data ────────────────────────────────
+
+    #[test]
+    fn test_process_source_with_data_document_txt() {
+        let source = DataSource {
+            id: 40,
+            tenant_id: "test".to_string(),
+            name: "TXT Document".to_string(),
+            source_type: "document".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: Some("markdown".to_string()),
+            s3_key: Some("test/40/readme.txt".to_string()),
+            file_hash: None,
+        };
+
+        let txt_data = b"Hello, this is a test document for pipeline wiring.";
+        let result = IngressManager::process_source_with_data(&source, txt_data);
+        assert!(result.is_ok(), "TXT extraction should succeed: {:?}", result.err());
+        let content = result.unwrap();
+        assert!(content.contains("Hello, this is a test document"));
+    }
+
+    #[test]
+    fn test_process_source_with_data_tabular_csv() {
+        let source = DataSource {
+            id: 41,
+            tenant_id: "test".to_string(),
+            name: "CSV Tabular".to_string(),
+            source_type: "tabular".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: Some("markdown".to_string()),
+            s3_key: Some("test/41/data.csv".to_string()),
+            file_hash: None,
+        };
+
+        let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
+        let result = IngressManager::process_source_with_data(&source, csv_data);
+        assert!(result.is_ok(), "CSV extraction should succeed: {:?}", result.err());
+        let md = result.unwrap();
+        assert!(md.contains("| Name | Age | City |"));
+        assert!(md.contains("| Alice | 30 | Bangkok |"));
+    }
+
+    #[test]
+    fn test_process_source_with_data_empty_file() {
+        let source = DataSource {
+            id: 42,
+            tenant_id: "test".to_string(),
+            name: "Empty File".to_string(),
+            source_type: "document".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: None,
+            s3_key: Some("test/42/empty.txt".to_string()),
+            file_hash: None,
+        };
+
+        let result = IngressManager::process_source_with_data(&source, b"");
+        assert!(result.is_err(), "Empty file should return error");
+        assert!(result.unwrap_err().to_string().contains("Empty file data"));
+    }
+
+    #[tokio::test]
+    async fn test_process_source_document_without_data() {
+        let source = DataSource {
+            id: 43,
+            tenant_id: "test".to_string(),
+            name: "Doc Without Data".to_string(),
+            source_type: "document".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: None,
+            s3_key: None,
+            file_hash: None,
+        };
+
+        let result = IngressManager::process_source(&source).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("requires file data"));
     }
 }
