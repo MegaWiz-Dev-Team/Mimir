@@ -11,7 +11,7 @@ use futures::stream::{self, Stream};
 use std::convert::Infallible;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::models::sources::{DataSource, CreateDataSourceRequest, UpdateDataSourceRequest};
-use mimir_core_ai::services::upload::{validate_extension, validate_file_size, build_s3_key, compute_file_hash};
+use mimir_core_ai::services::upload::{validate_extension, validate_file_size, build_s3_key, compute_file_hash, detect_source_type};
 use serde_json::{json, Value};
 use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
@@ -314,7 +314,7 @@ async fn upload_file(
     let mut file_data: Option<Vec<u8>> = None;
     let mut file_name: Option<String> = None;
     let mut source_name: Option<String> = None;
-    let mut source_type = "document".to_string();
+    let mut user_source_type: Option<String> = None;
     let mut storage_mode = "markdown".to_string();
     let mut folder_path = String::new();
 
@@ -340,9 +340,9 @@ async fn upload_file(
                 })?);
             }
             "source_type" => {
-                source_type = field.text().await.map_err(|e| {
+                user_source_type = Some(field.text().await.map_err(|e| {
                     (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid source_type field: {}", e)})))
-                })?;
+                })?);
             }
             "storage_mode" => {
                 storage_mode = field.text().await.map_err(|e| {
@@ -368,6 +368,9 @@ async fn upload_file(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "File must have a filename"})))
     })?;
     let name = source_name.unwrap_or_else(|| original_filename.clone());
+
+    // Auto-detect source_type from file extension (user-provided value is optional override)
+    let source_type = user_source_type.unwrap_or_else(|| detect_source_type(&original_filename).to_string());
 
     // Validate file extension
     validate_extension(&original_filename).map_err(|e| {
