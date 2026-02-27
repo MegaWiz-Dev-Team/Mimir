@@ -9,3 +9,4 @@ pub mod upload;
 pub mod extraction;
 pub mod sql_import;
 pub mod domain;
+pub mod chunking;
