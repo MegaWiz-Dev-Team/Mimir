@@ -38,11 +38,11 @@
 - **Sprint 11b: GraphRAG Features** [Week 7-8]
   - Graph Visualization (Sigma.js + graphology + ForceAtlas2), Knowledge Search (entity + path finding), Hybrid Search (Vector + Graph + SQL → merged context)
 - **Sprint 12: Multi-Agent & Coverage Intelligence** [Week 9-10]
-  - Tool Registry (vector_search, sql_query, graph_search), Router Agent (LLM query analysis), Synthesis Agent, ACU per Source, Blind-spot Detection, Closed-loop Actions
+  - Tool Registry (vector_search, sql_query, graph_search), Router Agent (LLM query analysis), Synthesis Agent, ACU per Source, Blind-spot Detection, Closed-loop Actions, LLM Usage Logging (llm_usage_logs table, instrument all LLM calls), LLM Analytics Dashboard (token in/out per model, latency, cost estimation), Web Hierarchy Loader (site hierarchy discovery, selective page import, duplicate detection)
 - **Sprint 13: AI Agent Studio** [Week 11-12]
-  - Agent CRUD (no-code), Agent Studio UI (visual builder), Test Chat, Agent Templates (Q&A Bot, Data Analyst, Research Assistant), Agent Deploy (API + widget), Conversation Logging, Chat History
+  - Agent CRUD (no-code), Agent Studio UI (visual builder), Test Chat, Agent Templates (Q&A Bot, Data Analyst, Research Assistant), Agent Deploy (API + widget), Conversation Logging, Chat History, LLM Performance Evaluation (quality scoring per model, A/B comparison, user feedback), Advanced Analytics (daily token budget, usage alerts, model benchmark)
 - **Sprint 14a: Production Core** [Week 13-14]
-  - Scheduled Re-sync (Cron), OCR Integration (Tesseract/PaddleOCR), External DB Connection (MySQL/PostgreSQL/SQLite), MCP Real Implementation, Performance Optimization, Reversible DB Migrations (.down.sql), Feedback & Bug Report, E2E Test Suite (full pipeline), Observability (structured logging, tracing), Secrets Management (HashiCorp Vault)
+  - Scheduled Re-sync (Cron), OCR Integration (Tesseract/PaddleOCR), External DB Connection (MySQL/PostgreSQL/SQLite), MCP Real Implementation, Performance Optimization, Reversible DB Migrations (.down.sql), Feedback & Bug Report, E2E Test Suite (full pipeline), Structured logging & request tracing, Secrets Management (HashiCorp Vault)
 - **Sprint 14b: Deploy & Docs** [Week 15-16]
   - Setup & Deployment (Docker Compose prod, .env templates, setup scripts), Deployment Test (M3 → M4 Pro), Update & Rollback (update.sh + rollback.sh + GHCR + auto-backup), API Documentation (OpenAPI/Swagger), Backup & DR, MLX + vLLM Providers Phase 2 (add + benchmark)
 - **Sprint 15: Dataset Studio** [Week 17-18]

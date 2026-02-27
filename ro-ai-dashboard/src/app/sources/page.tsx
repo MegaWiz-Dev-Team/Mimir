@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, DataSource, FeatureFlags } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, DataSource, FeatureFlags, ModelConfig } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,14 @@ export default function SourcesPage() {
 
     // Markdown Preview State
     const [previewingSource, setPreviewingSource] = useState<DataSource | null>(null);
+
+    // AI Extraction State
+    const [aiModels, setAiModels] = useState<ModelConfig[]>([]);
+    const [aiSelectedModel, setAiSelectedModel] = useState("");
+    const [aiOutputFormat, setAiOutputFormat] = useState<"markdown" | "table">("markdown");
+    const [aiExtracting, setAiExtracting] = useState(false);
+    const [aiTokensUsed, setAiTokensUsed] = useState<number | null>(null);
+    const [aiError, setAiError] = useState<string | null>(null);
 
     useEffect(() => {
         loadSources();
@@ -706,7 +714,21 @@ export default function SourcesPage() {
             </Dialog>
 
             {/* ═══ Markdown Preview & Edit Dialog ═══ */}
-            <Dialog open={previewingSource !== null} onOpenChange={(open) => !open && setPreviewingSource(null)}>
+            <Dialog open={previewingSource !== null} onOpenChange={(open) => {
+                if (!open) {
+                    setPreviewingSource(null);
+                    setAiTokensUsed(null);
+                    setAiError(null);
+                } else {
+                    // Load models when dialog opens
+                    fetchModels().then((models) => {
+                        setAiModels(models);
+                        if (models.length > 0 && !aiSelectedModel) {
+                            setAiSelectedModel(models[0].model_id);
+                        }
+                    }).catch(() => { });
+                }
+            }}>
                 <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col h-[80vh]">
                     <DialogHeader>
                         <DialogTitle>Markdown Preview {previewingSource?.name ? `- ${previewingSource.name}` : ""}</DialogTitle>
@@ -714,6 +736,93 @@ export default function SourcesPage() {
                             Preview and quick-edit the raw markdown extracted from this source.
                         </DialogDescription>
                     </DialogHeader>
+
+                    {/* 🤖 Extract with AI — shown when content is empty, has errors, or source failed */}
+                    {(!previewingSource?.raw_markdown || previewingSource.raw_markdown.trim() === "" || previewingSource.raw_markdown.startsWith("[Error") || previewingSource.last_sync_status === "FAILED") && (
+                        <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800 p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-300">
+                                <Sparkles className="w-4 h-4" />
+                                Extract with AI
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Native extraction failed or content is empty. Use an LLM to extract content from the source file.
+                            </p>
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <div className="grid gap-1">
+                                    <Label className="text-xs">Model</Label>
+                                    <select
+                                        className="h-8 px-2 rounded-md border bg-background text-sm min-w-[180px]"
+                                        value={aiSelectedModel}
+                                        onChange={(e) => setAiSelectedModel(e.target.value)}
+                                    >
+                                        {aiModels.map((m) => (
+                                            <option key={m.model_id} value={m.model_id}>
+                                                {m.model_id} ({m.provider})
+                                            </option>
+                                        ))}
+                                        {aiModels.length === 0 && <option value="">Loading models...</option>}
+                                    </select>
+                                </div>
+                                <div className="grid gap-1">
+                                    <Label className="text-xs">Output Format</Label>
+                                    <div className="flex gap-1">
+                                        <Button
+                                            variant={aiOutputFormat === "markdown" ? "default" : "outline"}
+                                            size="sm"
+                                            className="h-8 text-xs"
+                                            onClick={() => setAiOutputFormat("markdown")}
+                                        >
+                                            Markdown
+                                        </Button>
+                                        <Button
+                                            variant={aiOutputFormat === "table" ? "default" : "outline"}
+                                            size="sm"
+                                            className="h-8 text-xs"
+                                            onClick={() => setAiOutputFormat("table")}
+                                        >
+                                            Table
+                                        </Button>
+                                    </div>
+                                </div>
+                                <div className="grid gap-1">
+                                    <Label className="text-xs">&nbsp;</Label>
+                                    <Button
+                                        size="sm"
+                                        className="h-8"
+                                        disabled={aiExtracting || !aiSelectedModel || !previewingSource?.id}
+                                        onClick={async () => {
+                                            if (!previewingSource?.id) return;
+                                            setAiExtracting(true);
+                                            setAiError(null);
+                                            setAiTokensUsed(null);
+                                            try {
+                                                const result = await extractWithAi(previewingSource.id, aiSelectedModel, aiOutputFormat);
+                                                setPreviewingSource((prev) => prev ? { ...prev, raw_markdown: result.content } : null);
+                                                setAiTokensUsed(result.tokens_used);
+                                            } catch (err: any) {
+                                                setAiError(err.message || "Extraction failed");
+                                            } finally {
+                                                setAiExtracting(false);
+                                            }
+                                        }}
+                                    >
+                                        {aiExtracting ? (
+                                            <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Extracting...</>
+                                        ) : (
+                                            <><Sparkles className="w-3 h-3 mr-1" /> Extract</>
+                                        )}
+                                    </Button>
+                                </div>
+                            </div>
+                            {aiTokensUsed !== null && (
+                                <p className="text-xs text-green-600 dark:text-green-400">✓ Extracted successfully — {aiTokensUsed.toLocaleString()} tokens used</p>
+                            )}
+                            {aiError && (
+                                <p className="text-xs text-red-600 dark:text-red-400">✗ {aiError}</p>
+                            )}
+                        </div>
+                    )}
+
                     <div className="flex-1 overflow-hidden py-2">
                         <textarea
                             className="w-full h-full bg-muted/30 p-4 rounded-md font-mono text-sm resize-none focus:outline-none focus:ring-1 border border-border"

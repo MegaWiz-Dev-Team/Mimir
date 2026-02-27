@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Cookies from "js-cookie";
-import { fetchSources, fetchRuns, fetchQcClusters, fetchVectorStats } from "@/lib/api";
-import { ArrowRight, Database, PlayCircle, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { fetchSources } from "@/lib/api";
+import { ArrowRight, FolderInput, Layers, Fingerprint, MessageSquare, Cpu } from "lucide-react";
 import Link from "next/link";
 
 export function PipelineStatusBar() {
@@ -14,9 +14,10 @@ export function PipelineStatusBar() {
     const [mounted, setMounted] = useState(false);
     const [counts, setCounts] = useState({
         sources: 0,
-        running: 0,
-        pendingQc: 0,
-        vectorized: 0,
+        chunks: 0,
+        dedup: 0,
+        qa: 0,
+        vector: 0,
     });
 
     useEffect(() => {
@@ -24,29 +25,24 @@ export function PipelineStatusBar() {
     }, []);
 
     useEffect(() => {
-        // Don't fetch if on login page, unauthenticated, or not mounted
         if (!mounted || pathname === "/login" || !token) return;
 
         const loadCounts = async () => {
             try {
-                const [sources, runs, qcData, vectorStats] = await Promise.all([
-                    fetchSources().catch(() => []),
-                    fetchRuns().catch(() => []),
-                    fetchQcClusters().catch(() => ({ clusters: [] })),
-                    fetchVectorStats().catch(() => ({ database: { indexed_qa: 0 } })),
-                ]);
+                const sources = await fetchSources().catch(() => []);
 
-                // Count active/pending items 
-                const activeSources = sources.filter((s: any) => s.last_sync_status !== "COMPLETED").length || sources.length;
-                const activeRuns = runs.filter((r: any) => r.status === "RUNNING").length;
-                const pendingQc = qcData.clusters?.filter((c: any) => c.status === "PENDING").length || 0;
-                const vectorized = vectorStats.database?.indexed_qa || 0;
+                // Calculate real counts from sources data
+                const totalSources = sources.length;
+                const sourcesWithChunks = sources.filter((s: any) => (s.total_chunks || 0) > 0).length;
+                const totalChunks = sources.reduce((sum: number, s: any) => sum + (s.total_chunks || 0), 0);
+                const completedSources = sources.filter((s: any) => s.last_sync_status === "COMPLETED").length;
 
                 setCounts({
-                    sources: activeSources,
-                    running: activeRuns,
-                    pendingQc,
-                    vectorized,
+                    sources: totalSources,
+                    chunks: totalChunks,
+                    dedup: completedSources, // sources that completed dedup
+                    qa: 0,     // QA pipeline — future sprint
+                    vector: 0, // Vector — future sprint
                 });
             } catch (error) {
                 console.warn("[PipelineStatusBar] Failed to load pipeline stats:", error);
@@ -54,43 +50,44 @@ export function PipelineStatusBar() {
         };
 
         loadCounts();
-        const interval = setInterval(loadCounts, 10000); // 10s refresh
+        const interval = setInterval(loadCounts, 10000);
         return () => clearInterval(interval);
     }, [pathname, token, mounted]);
 
-    // Hide on login page or when not authenticated
     if (!mounted || pathname === "/login" || !token) return null;
 
     const steps = [
-        { label: "Sources", count: counts.sources, icon: Database, href: "/sources", color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-950/30 text-blue-700" },
-        { label: "Generating", count: counts.running, icon: PlayCircle, href: "/", color: "text-amber-500", bg: "bg-amber-50 dark:bg-amber-950/30 text-amber-700" },
-        { label: "Pending QC", count: counts.pendingQc, icon: ShieldCheck, href: "/quality_control", color: "text-red-500", bg: "bg-red-50 dark:bg-red-950/30 text-red-700" },
-        { label: "Vectorized", count: counts.vectorized, icon: CheckCircle2, href: "/vector", color: "text-green-500", bg: "bg-green-50 dark:bg-green-950/30 text-green-700" },
+        { label: "Sources", count: counts.sources, unit: "sources", icon: FolderInput, href: "/sources", color: "text-blue-500" },
+        { label: "Chunks", count: counts.chunks, unit: "chunks", icon: Layers, href: "/knowledge", color: "text-amber-500" },
+        { label: "Dedup", count: counts.dedup, unit: "done", icon: Fingerprint, href: "/sources", color: "text-emerald-500" },
+        { label: "QA", count: counts.qa, unit: "pairs", icon: MessageSquare, href: "/quality", color: "text-purple-500", future: true },
+        { label: "Vector", count: counts.vector, unit: "embedded", icon: Cpu, href: "/knowledge", color: "text-rose-500", future: true },
     ];
 
     return (
         <div className="w-full bg-card border-b">
-            <div className="container mx-auto px-8 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div className="text-sm font-semibold text-muted-foreground mr-4">Global Pipeline Status:</div>
-                    <div className="flex-1 flex items-center justify-around md:justify-start md:gap-8">
+            <div className="container mx-auto px-8 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-2">Pipeline</div>
+                    <div className="flex-1 flex items-center justify-around md:justify-start md:gap-6">
                         {steps.map((step, index) => {
                             const Icon = step.icon;
+                            const isFuture = (step as any).future;
                             return (
-                                <div key={step.label} className="flex items-center gap-4">
+                                <div key={step.label} className="flex items-center gap-3">
                                     <Link href={step.href}>
-                                        <div className={`flex flex-col sm:flex-row items-center gap-2 p-2 sm:px-4 sm:py-2 rounded-lg transition-colors hover:bg-muted cursor-pointer border border-transparent hover:border-border`}>
-                                            <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${step.color}`} />
+                                        <div className={`flex flex-col sm:flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors hover:bg-muted cursor-pointer border border-transparent hover:border-border ${isFuture ? 'opacity-50' : ''}`}>
+                                            <Icon className={`w-4 h-4 ${step.color}`} />
                                             <div className="text-center sm:text-left">
-                                                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{step.label}</div>
-                                                <div className={`text-base sm:text-lg font-bold ${step.count > 0 ? step.color : ''}`}>
-                                                    {step.count} <span className="text-xs font-normal text-muted-foreground">items</span>
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{step.label}</div>
+                                                <div className={`text-sm font-bold ${step.count > 0 ? step.color : 'text-muted-foreground'}`}>
+                                                    {isFuture ? "—" : step.count} <span className="text-[10px] font-normal text-muted-foreground">{isFuture ? "" : step.unit}</span>
                                                 </div>
                                             </div>
                                         </div>
                                     </Link>
                                     {index < steps.length - 1 && (
-                                        <ArrowRight className="w-4 h-4 text-muted-foreground/30 hidden md:block" />
+                                        <ArrowRight className="w-3 h-3 text-muted-foreground/30 hidden md:block" />
                                     )}
                                 </div>
                             );
