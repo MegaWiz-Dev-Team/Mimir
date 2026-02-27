@@ -19,6 +19,7 @@ use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
 use mimir_core_ai::services::chunking;
 use mimir_core_ai::services::link_discovery;
+use mimir_core_ai::services::dedup;
 use s3::creds::Credentials;
 use s3::Bucket;
 use s3::Region;
@@ -237,12 +238,36 @@ async fn sync_source(
 
                 info!("Sync completed for {} ({}): {} bytes, {} chunks", source_clone.name, id, raw_text.len(), total_chunks);
 
-                // Store chunks in DB
+                // Store chunks in DB (with dedup)
+                let mut dedup_tracker = dedup::DedupTracker::new();
                 for cr in &chunk_results {
+                    let content_hash = dedup::fingerprint(&cr.content);
+
+                    // Check for existing fingerprint in DB
+                    let existing: Option<(i64,)> = sqlx::query_as(
+                        "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1"
+                    )
+                    .bind(&content_hash)
+                    .fetch_optional(&pool_clone)
+                    .await
+                    .unwrap_or(None);
+
+                    if let Some((existing_source_id,)) = existing {
+                        dedup_tracker.record_duplicate(cr.chunk_index, &content_hash, existing_source_id);
+                        continue; // Skip duplicate chunk
+                    }
+
+                    // Also check within this run
+                    if let Some(existing_src) = dedup_tracker.is_seen(&content_hash) {
+                        dedup_tracker.record_duplicate(cr.chunk_index, &content_hash, existing_src);
+                        continue;
+                    }
+
+                    // Unique chunk — insert
                     let meta_str = serde_json::to_string(&cr.metadata).unwrap_or_default();
                     let token_ct = cr.token_count as i32;
                     let idx = cr.chunk_index as i32;
-                    let _ = sqlx::query(
+                    let chunk_insert = sqlx::query(
                         "INSERT INTO chunks (source_id, chunk_index, content, token_count, metadata_json) VALUES (?, ?, ?, ?, ?)"
                     )
                     .bind(id)
@@ -251,9 +276,30 @@ async fn sync_source(
                     .bind(token_ct)
                     .bind(&meta_str)
                     .execute(&pool_clone)
-                    .await
-                    .map_err(|e| error!("Failed to insert chunk {} for source {}: {}", cr.chunk_index, id, e));
+                    .await;
+
+                    // Record fingerprint
+                    if let Ok(result) = chunk_insert {
+                        let chunk_id = result.last_insert_id() as i64;
+                        let _ = sqlx::query(
+                            "INSERT INTO content_fingerprints (content_hash, source_id, chunk_id) VALUES (?, ?, ?)"
+                        )
+                        .bind(&content_hash)
+                        .bind(id)
+                        .bind(chunk_id)
+                        .execute(&pool_clone)
+                        .await;
+                    }
+
+                    dedup_tracker.track_hash(&content_hash, id);
+                    dedup_tracker.record_unique();
                 }
+
+                if dedup_tracker.report.duplicate_chunks > 0 {
+                    info!("Dedup report for source {}: {} unique, {} duplicates skipped",
+                        id, dedup_tracker.report.unique_chunks, dedup_tracker.report.duplicate_chunks);
+                }
+                let total_chunks = dedup_tracker.report.unique_chunks as i32;
 
                 // ─── Link Discovery for web sources ─────────────────
                 if source_clone.source_type == "web" {
@@ -675,12 +721,34 @@ async fn upload_file(
 
                     info!("Auto-extraction completed for {} ({}): {} bytes, {} chunks", src_name, src_id, raw_text.len(), chunks);
 
-                    // Store chunks in DB
+                    // Store chunks in DB (with dedup)
+                    let mut dedup_tracker = dedup::DedupTracker::new();
                     for cr in &chunk_results {
+                        let content_hash = dedup::fingerprint(&cr.content);
+
+                        // Check DB for existing fingerprint
+                        let existing: Option<(i64,)> = sqlx::query_as(
+                            "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1"
+                        )
+                        .bind(&content_hash)
+                        .fetch_optional(&pool_bg)
+                        .await
+                        .unwrap_or(None);
+
+                        if let Some((existing_source_id,)) = existing {
+                            dedup_tracker.record_duplicate(cr.chunk_index, &content_hash, existing_source_id);
+                            continue;
+                        }
+
+                        if let Some(existing_src) = dedup_tracker.is_seen(&content_hash) {
+                            dedup_tracker.record_duplicate(cr.chunk_index, &content_hash, existing_src);
+                            continue;
+                        }
+
                         let meta_str = serde_json::to_string(&cr.metadata).unwrap_or_default();
                         let token_ct = cr.token_count as i32;
                         let idx = cr.chunk_index as i32;
-                        let _ = sqlx::query(
+                        let chunk_insert = sqlx::query(
                             "INSERT INTO chunks (source_id, chunk_index, content, token_count, metadata_json) VALUES (?, ?, ?, ?, ?)"
                         )
                         .bind(src_id)
@@ -689,9 +757,29 @@ async fn upload_file(
                         .bind(token_ct)
                         .bind(&meta_str)
                         .execute(&pool_bg)
-                        .await
-                        .map_err(|e| error!("Failed to insert chunk {} for source {}: {}", cr.chunk_index, src_id, e));
+                        .await;
+
+                        if let Ok(result) = chunk_insert {
+                            let chunk_id = result.last_insert_id() as i64;
+                            let _ = sqlx::query(
+                                "INSERT INTO content_fingerprints (content_hash, source_id, chunk_id) VALUES (?, ?, ?)"
+                            )
+                            .bind(&content_hash)
+                            .bind(src_id)
+                            .bind(chunk_id)
+                            .execute(&pool_bg)
+                            .await;
+                        }
+
+                        dedup_tracker.track_hash(&content_hash, src_id);
+                        dedup_tracker.record_unique();
                     }
+
+                    if dedup_tracker.report.duplicate_chunks > 0 {
+                        info!("Dedup report for source {}: {} unique, {} duplicates skipped",
+                            src_id, dedup_tracker.report.unique_chunks, dedup_tracker.report.duplicate_chunks);
+                    }
+                    let chunks = dedup_tracker.report.unique_chunks as i32;
 
                     let _ = sqlx::query(
                         "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?"
