@@ -512,4 +512,60 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("requires file data"));
     }
+
+    // ─── Issue #122: "file" source_type must work via process_source_with_data ──
+
+    #[test]
+    fn test_process_source_with_data_file_type_csv() {
+        let source = DataSource {
+            id: 122,
+            tenant_id: "test".to_string(),
+            name: "File Type CSV".to_string(),
+            source_type: "file".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: Some("markdown".to_string()),
+            s3_key: Some("test/122/data.csv".to_string()),
+            file_hash: None,
+        };
+
+        let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
+        let result = IngressManager::process_source_with_data(&source, csv_data);
+        assert!(result.is_ok(), "File type CSV should extract via process_source_with_data: {:?}", result.err());
+        let md = result.unwrap();
+        assert!(md.contains("| Name | Score |"), "Should contain markdown table");
+    }
+
+    #[tokio::test]
+    async fn test_process_source_file_type_requires_data() {
+        let source = DataSource {
+            id: 123,
+            tenant_id: "test".to_string(),
+            name: "File Without Data".to_string(),
+            source_type: "file".to_string(),
+            config_json: json!({}),
+            schedule: None,
+            last_sync_status: None,
+            last_sync_at: None,
+            created_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            mb_size: None,
+            raw_markdown: None,
+            total_chunks: None,
+            storage_mode: None,
+            s3_key: None,
+            file_hash: None,
+        };
+
+        let result = IngressManager::process_source(&source).await;
+        assert!(result.is_err(), "File type without data should error");
+        assert!(result.unwrap_err().to_string().contains("requires file data"));
+    }
 }

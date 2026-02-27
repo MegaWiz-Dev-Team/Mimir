@@ -219,6 +219,17 @@ pub fn extract(source_type: &str, s3_key: &str, data: &[u8]) -> Result<String> {
             "xlsx" | "xls" => extract_xlsx_to_markdown(data),
             _ => bail!("Unsupported tabular extension: .{}", ext),
         },
+        // "file" source_type: auto-detect format from extension (Issue #122)
+        "file" => match ext.as_str() {
+            "pdf" => extract_pdf(data),
+            "docx" => extract_docx(data),
+            "txt" | "md" => extract_text(data),
+            "csv" => extract_csv_to_markdown(data),
+            "xlsx" | "xls" => extract_xlsx_to_markdown(data),
+            "html" | "htm" => extract_html_to_markdown(data),
+            "json" => extract_mcp_json_to_markdown(data),
+            _ => bail!("Unsupported file extension: .{}", ext),
+        },
         "web" => extract_html_to_markdown(data),
         "mcp" => extract_mcp_json_to_markdown(data),
         _ => bail!("Unsupported source_type: {}", source_type),
