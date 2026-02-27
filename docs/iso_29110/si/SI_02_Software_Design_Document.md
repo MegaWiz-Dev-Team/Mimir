@@ -33,12 +33,12 @@ Overview · Sources · Knowledge · Quality · Playground · Coverage · ⚙️ 
 
 ## 2. Database Design (การออกแบบฐานข้อมูล)
 - **Tables (RDBMS MariaDB):** `users`, `tenants`, `tenant_users`, `qa_results`, `pipeline_runs`, `pipeline_steps`, `qa_clusters`, `evaluation_reports`, `data_sources` (ทุกตารางข้อมูลต้องมี `tenant_id` ยกเว้น config กลาง)
-- **Sprint 8+ Tables:** `crawled_pages` (web link discovery), `content_fingerprints` (cross-source dedup), `chunks` (chunked content), `embeddings_config` (pipeline lock), `agents` (Agent Studio config), `agent_conversations` (audit log)
+- **Sprint 8+ Tables:** `crawled_pages` (web link discovery), `content_fingerprints` (cross-source dedup), `chunks` (chunked content), `embeddings_config` (pipeline lock), `agents` (Agent Studio config), `agent_conversations` (audit log), `training_datasets` (dataset configs + export), `model_registry` (fine-tuned model versions)
 - **Vector DB (Qdrant):** ใช้ Per-Tenant Collection เป็น default, รองรับ per-source metadata filter ผ่าน Agent/Search config
 - **Graph DB (Neo4j):** Entities (Drug, Symptom, Person, etc.) + Relations (treats, causes, contains) แยก per tenant via property `tenant_id`
 - [ER Diagram Placeholder - รอสร้างและนำภาพมาแนบ]
 
-## 3. Subsystem Design (การออกแบบระบบย่อยจาก Sprint 1-14)
+## 3. Subsystem Design (การออกแบบระบบย่อยจาก Sprint 1-16)
 - **IAM Module:** จัดการ `tenant_auth_middleware` (Sprint 1)
 - **Vector & Pipeline Module:** จัดการ Data Ingestion และ Semantic Search (Sprint 2)
 - **Tenant Configuration Module:** จัดการ Settings และ Provisioning Workflow แบบ Centralized (Sprint 3)
@@ -53,3 +53,5 @@ Overview · Sources · Knowledge · Quality · Playground · Coverage · ⚙️ 
 - **Multi-Agent Module:** Tool Registry, Router Agent, Synthesis Agent, ACU Coverage per source, Blind-spot detection, Closed-loop pipeline actions (Sprint 12)
 - **Agent Studio Module:** Visual agent builder (no-code), Agent CRUD config, Test Chat, Agent Templates, API endpoint + widget deployment, Conversation logging (Sprint 13)
 - **Production Module:** Scheduled re-sync (Cron), OCR integration, External DB connectors (MySQL/PostgreSQL/SQLite), Performance optimization, ISO documentation finalization (Sprint 14)
+- **Dataset Studio Module:** Dataset CRUD (config-based), Data Source Selector (QA/KG/chunks/conversations), Filter & Transform (quality score, dedup, language), Format Converter (Alpaca/ShareGPT/DPO/Raw/Custom), Export (JSONL/Parquet + HuggingFace push), Data Augmentation (LLM paraphrase) (Sprint 15)
+- **Training Integration Module:** Training Config UI (base model, hyperparameters, LoRA rank), Axolotl/Unsloth Integration (Docker), MLflow Tracking (metrics, loss curves), Model Registry (version + A/B test in Playground) (Sprint 16)

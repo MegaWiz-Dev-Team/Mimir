@@ -41,6 +41,10 @@
   - Agent CRUD (config-based, no-code), Agent Studio UI (visual builder: model + tools + prompt), Test Chat (inline panel), Agent Templates (Q&A Bot, Data Analyst, Research Assistant), Agent Deploy (API endpoint + embeddable widget), Conversation Logging
 - **Sprint 14: Production Ready** [2 สัปดาห์]
   - Scheduled Re-sync (Cron), OCR Integration (scanned PDF), External DB Connection (MySQL + PostgreSQL + SQLite), Performance Optimization (embedding cache, query sandbox, batch processing), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes)
+- **Sprint 15: Dataset Studio** [2 สัปดาห์]
+  - Dataset CRUD (config-based), Data Source Selector (QA pairs, KG triples, chunks, conversations), Filter & Transform (quality score, dedup, language), Format Converter (Alpaca/ShareGPT/DPO/Raw/Custom), Export (JSONL/Parquet + HuggingFace push), Data Augmentation (LLM paraphrase), Dataset Preview
+- **Sprint 16: Training Integration** [2 สัปดาห์]
+  - Training Config UI (base model, hyperparameters, LoRA rank), Axolotl/Unsloth Integration (Docker), MLflow Tracking (metrics, loss curves), Model Registry (version + A/B test in Playground)
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                          | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |
@@ -52,4 +56,6 @@
 | **Neo4j Resource Usage:** Knowledge Graph ใหญ่ใช้ memory สูง                | Medium           | จำกัด entity ต่อ tenant, lazy loading, pagination ใน graph visualization                          |
 | **LLM Cost Overrun:** Entity extraction + embedding ใช้ token สูง          | Medium           | ทำ pipeline lock ป้องกันเปลี่ยนกลางทาง, batch processing, caching extracted entities                |
 | **Embedding Model Lock-in:** เปลี่ยน model กลางทางทำให้ vector ไม่ compatible | High             | Pipeline lock config — ต้อง re-embed ทั้งหมดหากเปลี่ยน model                                        |
+| **Training Data Quality:** Dataset มี noise จาก QA ที่ไม่ผ่าน QC              | High             | ใช้ quality score filter (min 0.8), human-reviewed only option, near-duplicate removal          |
+| **Model Version Conflict:** Fine-tuned model ใหม่ performance แย่กว่าเดิม    | Medium           | Model Registry + A/B test ใน Playground ก่อน deploy, rollback mechanism                         |
 
