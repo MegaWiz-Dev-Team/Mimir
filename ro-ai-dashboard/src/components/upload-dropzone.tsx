@@ -9,10 +9,14 @@ const ACCEPTED_EXTENSIONS: Record<string, string[]> = {
     "application/pdf": [".pdf"],
     "text/csv": [".csv"],
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    "application/vnd.ms-excel": [".xls"],
     "text/plain": [".txt"],
     "application/json": [".json"],
     "text/markdown": [".md"],
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    "application/msword": [".doc"],
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+    "application/vnd.ms-powerpoint": [".ppt"],
 };
 
 interface UploadDropzoneProps {
@@ -75,7 +79,7 @@ export function UploadDropzone({ onFilesAdded }: UploadDropzoneProps) {
                     <>
                         <p className="font-medium text-sm">Drag & drop files here</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            or click to browse • Max 50MB • PDF, CSV, XLSX, TXT, JSON, MD, DOCX
+                            or click to browse • Max 50MB • PDF, DOCX, DOC, XLSX, XLS, PPTX, PPT, CSV, TXT, JSON, MD
                         </p>
                     </>
                 )}
