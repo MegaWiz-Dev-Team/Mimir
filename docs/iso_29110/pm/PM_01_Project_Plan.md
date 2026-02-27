@@ -27,10 +27,29 @@
   - Evaluation Background Job, Real-time Progress Bar, QA Results by Tenant
 - **Sprint 7: UX/UI Pipeline Refinement & Traceability** [ระบุช่วงเวลา]
   - Ingress Markdown Preview, ACU Coverage Dashboard, Conflict Resolution UI, Vector End-to-End Traceability
+- **Sprint 8: Unified Data Ingress & File Upload** [✅ Completed]
+  - File/Folder Upload API (S3), Extraction Worker (stub), SQL Import (dual-mode), Domain Connector, Frontend Upload Wizard, Smart Upload (auto-detect source_type)
+- **Sprint 9: Real Pipeline & Navigation** [2 สัปดาห์]
+  - Real Extraction (PDF/CSV/HTML), Chunking Service (configurable: fixed/recursive/semantic), Web Link Discovery & Preview, Cross-source Content Deduplication (SHA-256), Navigation Restructure (7 items), DB Migration (source_type enum, crawled_pages, content_fingerprints)
+- **Sprint 10: Embedding & Vector Store** [2 สัปดาห์]
+  - Embedding Service (multi-model: Ollama/Gemini/Qwen with pipeline lock), Qdrant Integration (per-tenant collection), SQL Schema Registry, Pipeline Status Bar (7-step), Knowledge Base Page
+- **Sprint 11: Knowledge Graph & GraphRAG** [2 สัปดาห์]
+  - Neo4j Setup (Docker), LLM Entity Extraction (multi-provider), LLM Provider Abstraction Layer, Graph Storage (entities + relations), Graph Visualization (Sigma.js + graphology), Knowledge Search, Hybrid Search (Vector + Graph + SQL → merged context)
+- **Sprint 12: Multi-Agent & Coverage Intelligence** [2 สัปดาห์]
+  - Tool Registry (vector_search, sql_query, graph_search), Router Agent (LLM query analysis), Synthesis Agent, ACU per Source, Blind-spot Detection, Closed-loop Actions (Add Source / Re-chunk / Manual Fact / AI Expand)
+- **Sprint 13: AI Agent Studio** [2 สัปดาห์]
+  - Agent CRUD (config-based, no-code), Agent Studio UI (visual builder: model + tools + prompt), Test Chat (inline panel), Agent Templates (Q&A Bot, Data Analyst, Research Assistant), Agent Deploy (API endpoint + embeddable widget), Conversation Logging
+- **Sprint 14: Production Ready** [2 สัปดาห์]
+  - Scheduled Re-sync (Cron), OCR Integration (scanned PDF), External DB Connection (MySQL + PostgreSQL + SQLite), Performance Optimization (embedding cache, query sandbox, batch processing), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes)
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
-| Risk (ความเสี่ยง)                                                       | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                 |
-| --------------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
-| **Cross-Tenant Data Leakage:** ข้อมูลข้าม Tenant รั่วไหลหากเขียน API ผิดพลาด | High             | บังคับใช้ `tenant_auth_middleware` กับทุก API และใส่ `tenant_id` ลง Filter ของ Qdrant เสมอ          |
-| **Noisy Neighbor:** Tenant หนึ่งดึง Traffic LLM จนโควต้าหมด กระทบระบบอื่น   | High             | ทำ Rate Limiting แบบ Token Bucket แยกตาม Tenant ผ่าน Redis                                      |
-| **Prompt Injection:** ผู้เล่น/ผู้ใช้หลอกหลอกถาม AI ให้ทำคำสั่งนอกกรอบ            | Medium           | ใช้ LLM "System Prompt" Armor ครอบป้องกัน และให้ Domain Connector เป็นตัวตรวจสอบ Authority ก่อนรันคำสั่ง |
+| Risk (ความเสี่ยง)                                                          | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |
+| ------------------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------- |
+| **Cross-Tenant Data Leakage:** ข้อมูลข้าม Tenant รั่วไหลหากเขียน API ผิดพลาด    | High             | บังคับใช้ `tenant_auth_middleware` กับทุก API และใส่ `tenant_id` ลง Filter ของ Qdrant เสมอ           |
+| **Noisy Neighbor:** Tenant หนึ่งดึง Traffic LLM จนโควต้าหมด กระทบระบบอื่น      | High             | ทำ Rate Limiting แบบ Token Bucket แยกตาม Tenant ผ่าน Redis                                       |
+| **Prompt Injection:** ผู้เล่น/ผู้ใช้หลอกหลอกถาม AI ให้ทำคำสั่งนอกกรอบ               | Medium           | ใช้ LLM "System Prompt" Armor ครอบป้องกัน และให้ Domain Connector เป็นตัวตรวจสอบ Authority ก่อนรันคำสั่ง  |
+| **SQL Injection via Text-to-SQL:** LLM สร้าง SQL อันตราย                   | High             | ใช้ read-only connection, query sandbox, table whitelist, row limit (LIMIT 1000), query logging |
+| **Neo4j Resource Usage:** Knowledge Graph ใหญ่ใช้ memory สูง                | Medium           | จำกัด entity ต่อ tenant, lazy loading, pagination ใน graph visualization                          |
+| **LLM Cost Overrun:** Entity extraction + embedding ใช้ token สูง          | Medium           | ทำ pipeline lock ป้องกันเปลี่ยนกลางทาง, batch processing, caching extracted entities                |
+| **Embedding Model Lock-in:** เปลี่ยน model กลางทางทำให้ vector ไม่ compatible | High             | Pipeline lock config — ต้อง re-embed ทั้งหมดหากเปลี่ยน model                                        |
+
