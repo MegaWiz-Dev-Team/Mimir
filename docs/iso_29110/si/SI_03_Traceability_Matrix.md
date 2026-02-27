@@ -3,36 +3,41 @@
 
 ตารางนี้ใช้เพื่อสอบทวนว่า Requirement ทุกข้อได้ถูกออกแบบ พัฒนา และทดสอบครบถ้วน
 
-| Req ID  | Requirement Description              | Design/Module        | Code/Component                    | Test Case ID | Status |
-| ------- | ------------------------------------ | -------------------- | --------------------------------- | ------------ | ------ |
-| REQ-001 | User & Tenant Management (Sprint 1)  | IAM Module           | `IamService`, `UsersPage`         | TC-001       | Done   |
-| REQ-002 | Vector Data Management (Sprint 2)    | Vector Module        | `Qdrant Client`, `Vector UI`      | TC-002       | Done   |
-| REQ-006 | Tenant Settings & Prov. (Sprint 3)   | Tenant Config Module | `Settings UI`, `Provision API`    | TC-003       | Done   |
-| REQ-004 | Quality Control (Sprint 4)           | QC Module            | `Clustering Worker`, `Kanban UI`  | TC-004       | Done   |
-| BUG-039 | Auto-scan QC UI Feedback (Issue #39) | QC Module            | `Kanban UI`, `Dashboard API`      | TC-004       | Done   |
-| BUG-040 | Auto-scan QC Loop & Progress (#40)   | QC Module            | `clustering.rs`, `qc.rs`, `UI`    | TC-004       | Done   |
-| BUG-041 | Vector Stats API 404 (Issue #41)     | Vector Module        | `vector.rs`, `lib/api.ts`         | TC-002       | Done   |
-| BUG-043 | Auth Redirect on Admin Pages         | IAM Module           | `login/page.tsx`, `api.ts`        | TC-001       | Done   |
-| BUG-046 | Admin Login Authentication Hash      | IAM Module           | `iam.rs`, `Docker MariaDB`        | TC-001       | Done   |
-| BUG-051 | "Configure" button on Sources page   | Ingress Module       | `sources/page.tsx`                | TC-005       | Done   |
-| SYS-053 | Background Data Sync Worker (#53)    | Ingress Module       | `ingress.rs`, `sources.rs`        | TC-005       | Done   |
-| REQ-005 | Data Ingress & Monitoring (Sprint 5) | Ingress Module       | `WebSocket Server`, `Log UI`      | TC-005       | Done   |
-| REQ-003 | Agent Evaluations (Sprint 6)         | Eval Module          | `Background Job`, `Wizard UI`     | TC-006       | Done   |
-| REQ-007 | Final UI Validation (Sprint 7)       | UX/UI Module         | `Client UI Verification`          | TC-007       | Done   |
-| BUG-055 | Sprint 7 UX/UI Refinement (#55)      | UX/UI Module         | `sources`, `vector`, `pipeline`   | TC-007       | Done   |
-| BUG-057 | TypeError in QC Clusters (#57)       | QC Module            | `qc.ts`, `PipelineStatusBar`      | TC-004       | Done   |
-| BUG-059 | TypeError across Dashboard (#59)     | Dashboard UI         | `page.tsx`, `api.ts`              | TC-007       | Done   |
-| BUG-061 | Sprint 7 TDD Unit Tests (#61)        | Testing              | `*.test.tsx`                      | TC-007       | Done   |
-| BUG-062 | Users page: Failed to load (#62)     | IAM Module           | `users/page.tsx`, `api.ts`        | TC-001       | Done   |
-| BUG-064 | StatusBar visible on login (#64)     | UX/UI Module         | `layout.tsx`, `PipelineStatusBar` | TC-007       | Done   |
-| BUG-066 | React Error in StatusBar (#66)       | UX/UI Module         | `PipelineStatusBar`               | TC-007       | Done   |
-| BUG-068 | Hydration Mismatch Navbar (#68)      | UX/UI Module         | `Navbar`, `PipelineStatusBar`     | TC-007       | Done   |
-| BUG-071 | Sprint 6 Evaluation System (#71)     | Eval Module          | `eval.rs`, `runner.rs`            | TC-006       | Done   |
-| BUG-073 | Sprint 7 Final Testing Bug (#73)     | UX/UI Module         | `eval-wizard.test.tsx`            | TC-007       | Done   |
-| REQ-008 | File/Folder Upload API (Sprint 8)    | Upload Module        | `upload.rs`, `sources.rs`         | TC-008       | Done   |
-| REQ-009 | Extraction Worker (Sprint 8)         | Extraction Module    | `extraction.rs`, `ingress.rs`     | TC-008       | Done   |
-| REQ-010 | Domain Connector Architecture (#76)  | Domain Module        | `domain.rs`, `iam.rs`             | TC-008       | Done   |
-| REQ-011 | SQL Import Module (#75)              | SQL Import Module    | `sql_import.rs`, `ingress.rs`     | TC-008       | Done   |
-| REQ-012 | Frontend Upload Components (#77)     | Upload UI Module     | `UploadDropzone`, `FolderUpload`  | TC-008       | Done   |
-| BUG-084 | Missing avatar_url in Game Crate     | Game Module          | `simple_npc.rs`                   | TC-008       | Done   |
-| ENH-086 | Connect IngressManager to Extraction | Ingress Module       | `ingress.rs`, `sources.rs`        | TC-008       | Open   |
+| Req ID   | Requirement Description              | Design/Module        | Code/Component                    | Test Case ID | Status |
+| -------- | ------------------------------------ | -------------------- | --------------------------------- | ------------ | ------ |
+| REQ-001  | User & Tenant Management (Sprint 1)  | IAM Module           | `IamService`, `UsersPage`         | TC-001       | Done   |
+| REQ-002  | Vector Data Management (Sprint 2)    | Vector Module        | `Qdrant Client`, `Vector UI`      | TC-002       | Done   |
+| REQ-003  | Tenant Settings & Prov. (Sprint 3)   | Tenant Config Module | `Settings UI`, `Provision API`    | TC-003       | Done   |
+| REQ-004  | Quality Control (Sprint 4)           | QC Module            | `Clustering Worker`, `Kanban UI`  | TC-004       | Done   |
+| REQ-005  | Data Ingress & Monitoring (Sprint 5) | Ingress Module       | `WebSocket Server`, `Log UI`      | TC-005       | Done   |
+| REQ-006  | Agent Evaluations (Sprint 6)         | Eval Module          | `Background Job`, `Wizard UI`     | TC-006       | Done   |
+| REQ-007  | Final UI Validation (Sprint 7)       | UX/UI Module         | `Client UI Verification`          | TC-007       | Done   |
+| REQ-008  | File/Folder Upload API (Sprint 8)    | Upload Module        | `upload.rs`, `sources.rs`         | TC-008       | Done   |
+| REQ-008a | Extraction Worker (#74)              | Extraction Module    | `extraction.rs`, `ingress.rs`     | TC-008       | Done   |
+| REQ-008b | Domain Connector Architecture (#76)  | Domain Module        | `domain.rs`, `iam.rs`             | TC-008       | Done   |
+| REQ-008c | SQL Import Module (#75)              | SQL Import Module    | `sql_import.rs`, `ingress.rs`     | TC-008       | Done   |
+| REQ-008d | Frontend Upload Components (#77)     | Upload UI Module     | `UploadDropzone`, `FolderUpload`  | TC-008       | Done   |
+| REQ-009  | Extraction & Chunking (Sprint 9)     | Pipeline Module      | `extraction.rs`, `chunking.rs`    | TC-009       | Done   |
+| REQ-010  | Embedding & Vector Store (Sprint 10) | Embedding Module     | `embedding.rs`, `qdrant.rs`       | TC-010       | Open   |
+| REQ-011a | KG Foundation (Sprint 11a)           | KG Module            | `entity_extraction.rs`, `neo4j`   | TC-011       | Open   |
+| REQ-011b | GraphRAG Features (Sprint 11b)       | KG Module            | `sigma.js`, `hybrid_search.rs`    | TC-011       | Open   |
+| BUG-039  | Auto-scan QC UI Feedback (Issue #39) | QC Module            | `Kanban UI`, `Dashboard API`      | TC-004       | Done   |
+| BUG-040  | Auto-scan QC Loop & Progress (#40)   | QC Module            | `clustering.rs`, `qc.rs`, `UI`    | TC-004       | Done   |
+| BUG-041  | Vector Stats API 404 (Issue #41)     | Vector Module        | `vector.rs`, `lib/api.ts`         | TC-002       | Done   |
+| BUG-043  | Auth Redirect on Admin Pages         | IAM Module           | `login/page.tsx`, `api.ts`        | TC-001       | Done   |
+| BUG-046  | Admin Login Authentication Hash      | IAM Module           | `iam.rs`, `Docker MariaDB`        | TC-001       | Done   |
+| BUG-051  | "Configure" button on Sources page   | Ingress Module       | `sources/page.tsx`                | TC-005       | Done   |
+| SYS-053  | Background Data Sync Worker (#53)    | Ingress Module       | `ingress.rs`, `sources.rs`        | TC-005       | Done   |
+| BUG-055  | Sprint 7 UX/UI Refinement (#55)      | UX/UI Module         | `sources`, `vector`, `pipeline`   | TC-007       | Done   |
+| BUG-057  | TypeError in QC Clusters (#57)       | QC Module            | `qc.ts`, `PipelineStatusBar`      | TC-004       | Done   |
+| BUG-059  | TypeError across Dashboard (#59)     | Dashboard UI         | `page.tsx`, `api.ts`              | TC-007       | Done   |
+| BUG-061  | Sprint 7 TDD Unit Tests (#61)        | Testing              | `*.test.tsx`                      | TC-007       | Done   |
+| BUG-062  | Users page: Failed to load (#62)     | IAM Module           | `users/page.tsx`, `api.ts`        | TC-001       | Done   |
+| BUG-064  | StatusBar visible on login (#64)     | UX/UI Module         | `layout.tsx`, `PipelineStatusBar` | TC-007       | Done   |
+| BUG-066  | React Error in StatusBar (#66)       | UX/UI Module         | `PipelineStatusBar`               | TC-007       | Done   |
+| BUG-068  | Hydration Mismatch Navbar (#68)      | UX/UI Module         | `Navbar`, `PipelineStatusBar`     | TC-007       | Done   |
+| BUG-071  | Sprint 6 Evaluation System (#71)     | Eval Module          | `eval.rs`, `runner.rs`            | TC-006       | Done   |
+| BUG-073  | Sprint 7 Final Testing Bug (#73)     | UX/UI Module         | `eval-wizard.test.tsx`            | TC-007       | Done   |
+| BUG-084  | Missing avatar_url in Game Crate     | Game Module          | `simple_npc.rs`                   | TC-008       | Done   |
+| ENH-086  | Connect IngressManager to Extraction | Ingress Module       | `ingress.rs`, `sources.rs`        | TC-008       | Open   |
+

@@ -15,12 +15,13 @@ use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::models::sources::{DataSource, CreateDataSourceRequest, UpdateDataSourceRequest};
 use mimir_core_ai::services::upload::{validate_extension, validate_file_size, build_s3_key, compute_file_hash, detect_source_type};
 use serde_json::{json, Value};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
 use mimir_core_ai::services::chunking;
 use mimir_core_ai::services::link_discovery;
 use mimir_core_ai::services::dedup;
+use mimir_core_ai::services::db;
 use s3::creds::Credentials;
 use s3::Bucket;
 use s3::Region;
@@ -32,6 +33,7 @@ pub fn sources_routes() -> Router<DbPool> {
         .route("/preview", get(preview_url))
         .route("/{id}", put(update_source).delete(delete_source))
         .route("/{id}/sync", post(sync_source))
+        .route("/{id}/extract-ai", post(extract_with_ai))
         .route("/{id}/logs", get(stream_logs))
 }
 
@@ -396,6 +398,233 @@ async fn stream_logs(
             .interval(Duration::from_secs(15))
             .text("keep-alive-text"),
     )
+}
+
+// ─── LLM Fallback Extraction ───────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct AiExtractRequest {
+    model: String,
+    output_format: String,  // "markdown" | "table"
+}
+
+#[derive(Debug, Serialize)]
+struct AiExtractResponse {
+    content: String,
+    tokens_used: u32,
+    model: String,
+}
+
+/// POST /api/v1/sources/:id/extract-ai
+///
+/// Use an LLM to extract content from a source file when native extraction fails.
+/// Downloads the file from S3, sends its text content to the selected LLM,
+/// and returns the extracted content.
+async fn extract_with_ai(
+    Extension(config): Extension<Arc<Config>>,
+    State(pool): State<DbPool>,
+    Path(id): Path<i64>,
+    Json(payload): Json<AiExtractRequest>,
+) -> Result<Json<AiExtractResponse>, (StatusCode, Json<Value>)> {
+    let tenant_id = "default_tenant";
+
+    // 1. Fetch source from DB
+    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    let source = source.ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"})))
+    })?;
+
+    // 2. Download file from S3
+    let s3_key = source.s3_key.as_deref().ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Source has no S3 file — nothing to extract"})))
+    })?;
+
+    let file_data = download_from_s3(&config, s3_key).await
+        .map_err(|e| {
+            error!("S3 download failed for AI extraction: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to download file: {}", e)})))
+        })?;
+
+    info!("Downloaded {} bytes from S3 for AI extraction (source_id={})", file_data.len(), id);
+
+    // 3. Look up model configuration from DB
+    let model_config = db::get_model_by_id(&pool, &payload.model).await
+        .map_err(|e| {
+            error!("Failed to look up model {}: {}", payload.model, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Model lookup failed: {}", e)})))
+        })?;
+
+    // 4. Determine API key and endpoint from model config or env
+    let (api_key, api_base) = resolve_llm_credentials(&config, &model_config, &payload.model)?;
+
+    // 5. Build the prompt
+    let file_text = String::from_utf8_lossy(&file_data);
+    let ext = s3_key.rsplit('.').next().unwrap_or("unknown");
+    let format_instruction = match payload.output_format.as_str() {
+        "table" => "Extract all tabular data from this content. Output as a Markdown table with headers and rows. If there are multiple tables, include all of them with section headers.",
+        _ => "Extract the full content from this document. Output as clean, well-structured Markdown with headings, paragraphs, and lists as appropriate. Preserve the original structure and meaning.",
+    };
+
+    let prompt = format!(
+        "{format_instruction}\n\n\
+         The file is a .{ext} file.\n\n\
+         --- FILE CONTENT ---\n{file_text}\n--- END ---"
+    );
+
+    // 6. Call the LLM API
+    let (content, tokens_used) = call_llm_api(&api_key, &api_base, &payload.model, &prompt).await
+        .map_err(|e| {
+            error!("LLM API call failed: {}", e);
+            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("LLM extraction failed: {}", e)})))
+        })?;
+
+    info!("AI extraction completed for source {}: {} chars, {} tokens used", id, content.len(), tokens_used);
+
+    Ok(Json(AiExtractResponse {
+        content,
+        tokens_used,
+        model: payload.model,
+    }))
+}
+
+/// Resolve API key and base URL for the given model.
+fn resolve_llm_credentials(
+    config: &Config,
+    model_config: &Option<mimir_core_ai::models::model_config::ModelConfig>,
+    model_id: &str,
+) -> Result<(String, String), (StatusCode, Json<Value>)> {
+    // Try to get API key from model metadata first
+    if let Some(mc) = model_config {
+        let api_key = mc.metadata.as_ref()
+            .and_then(|m| m.get("api_key"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let api_base = mc.metadata.as_ref()
+            .and_then(|m| m.get("api_base"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        if let Some(key) = api_key {
+            let base = api_base.unwrap_or_else(|| infer_api_base(&mc.provider));
+            return Ok((key, base));
+        }
+    }
+
+    // Fall back to env-based credentials
+    let provider = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("");
+    match provider {
+        "gemini" | "google" => {
+            let key = config.gemini_api_key.clone().ok_or_else(|| {
+                (StatusCode::BAD_REQUEST, Json(json!({
+                    "error": "No API key configured for Gemini. Set GEMINI_API_KEY or add api_key to model metadata."
+                })))
+            })?;
+            Ok((key, config.gemini_base_url.clone()))
+        }
+        "openai" => {
+            let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+                (StatusCode::BAD_REQUEST, Json(json!({
+                    "error": "No API key configured for OpenAI. Set OPENAI_API_KEY or add api_key to model metadata."
+                })))
+            })?;
+            Ok((key, "https://api.openai.com/v1/".to_string()))
+        }
+        "ollama" => {
+            // Ollama doesn't need an API key
+            Ok(("ollama".to_string(), format!("{}/v1/", config.ollama_url)))
+        }
+        _ => {
+            // Try model_id to infer provider
+            if model_id.starts_with("gpt-") || model_id.starts_with("o1-") || model_id.starts_with("o3-") {
+                let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for OpenAI model"})))
+                })?;
+                Ok((key, "https://api.openai.com/v1/".to_string()))
+            } else if model_id.starts_with("gemini-") {
+                let key = config.gemini_api_key.clone().ok_or_else(|| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for Gemini model"})))
+                })?;
+                Ok((key, config.gemini_base_url.clone()))
+            } else {
+                // Default to Ollama for unknown models
+                Ok(("ollama".to_string(), format!("{}/v1/", config.ollama_url)))
+            }
+        }
+    }
+}
+
+/// Infer API base URL from provider name.
+fn infer_api_base(provider: &str) -> String {
+    match provider {
+        "openai" => "https://api.openai.com/v1/".to_string(),
+        "gemini" | "google" => "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
+        "ollama" => "http://localhost:11434/v1/".to_string(),
+        _ => "http://localhost:11434/v1/".to_string(),
+    }
+}
+
+/// Call an OpenAI-compatible chat completions API.
+async fn call_llm_api(
+    api_key: &str,
+    api_base: &str,
+    model: &str,
+    prompt: &str,
+) -> anyhow::Result<(String, u32)> {
+    let client = reqwest::Client::new();
+    let url = format!("{}chat/completions", api_base);
+
+    let body = json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a document extraction assistant. Extract content accurately and completely. Do not add commentary or explanation — only output the extracted content."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 16000,
+        "temperature": 0.1
+    });
+
+    info!("Calling LLM API: {} with model {}", url, model);
+
+    let response = client.post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("HTTP request to LLM failed: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("LLM API returned {}: {}", status, error_body));
+    }
+
+    let resp_json: Value = response.json().await
+        .map_err(|e| anyhow::anyhow!("Failed to parse LLM response: {}", e))?;
+
+    let content = resp_json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    let tokens_used = resp_json["usage"]["total_tokens"]
+        .as_u64()
+        .unwrap_or(0) as u32;
+
+    Ok((content, tokens_used))
 }
 
 // ─── URL Preview ───────────────────────────────────────────────────────────────

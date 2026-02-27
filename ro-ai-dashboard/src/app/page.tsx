@@ -1,241 +1,117 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchRuns, triggerRun, fetchModels, modelsToProviders, PROVIDERS, LlmProvider } from "@/lib/api";
-import { PipelineRun } from "@/types/pipeline";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PlayCircle, RefreshCw } from "lucide-react";
-import Link from "next/link";
-
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
+import { useEffect, useState, useMemo } from "react";
+import { fetchStats, fetchSources, syncAllSources, StatsResponse, DataSource, SourceHealth as SourceHealthType } from "@/lib/api";
+import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { SourceHealth } from "@/components/dashboard/SourceHealth";
+import { PipelineStatusTable } from "@/components/dashboard/PipelineStatusTable";
+import { QuickActions } from "@/components/dashboard/QuickActions";
 
 export default function Dashboard() {
-  const [runs, setRuns] = useState<PipelineRun[]>([]);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [sources, setSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
-  const [triggering, setTriggering] = useState(false);
-  const [providers, setProviders] = useState<LlmProvider[]>(PROVIDERS);
-  const [provider, setProvider] = useState("ollama");
-  const [model, setModel] = useState("llama3.2");
+  const [syncing, setSyncing] = useState(false);
 
-  // Derived state
-  const selectedProvider = providers.find(p => p.id === provider) || providers[0];
-
-  const loadRuns = async () => {
-    setLoading(true);
+  const loadData = async () => {
     try {
-      const data = await fetchRuns();
-      setRuns(data);
+      const [statsData, sourcesData] = await Promise.all([
+        fetchStats().catch(() => null),
+        fetchSources().catch(() => []),
+      ]);
+      setStats(statsData);
+      setSources(sourcesData);
     } catch (error) {
-      console.warn("[Dashboard] Failed to load runs:", error);
+      console.warn("[Dashboard] Failed to load data:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch models from database on mount
   useEffect(() => {
-    async function loadModels() {
-      try {
-        const models = await fetchModels();
-        if (models.length > 0) {
-          const dynamicProviders = modelsToProviders(models);
-          setProviders(dynamicProviders);
-          if (dynamicProviders.length > 0) {
-            setProvider(dynamicProviders[0].id);
-            if (dynamicProviders[0].models.length > 0) {
-              setModel(dynamicProviders[0].models[0].id);
-            }
-          }
-        } else {
-          // Use fallback PROVIDERS
-          if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
-            setModel(PROVIDERS[0].models[0].id);
-          }
-        }
-      } catch (err) {
-        console.warn("[Dashboard] Failed to fetch models from DB, using fallback:", err);
-        if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
-          setModel(PROVIDERS[0].models[0].id);
-        }
-      }
-    }
-    loadModels();
-  }, []);
-
-  useEffect(() => {
-    loadRuns();
-    // Auto-refresh every 5 seconds
-    const interval = setInterval(loadRuns, 5000);
+    loadData();
+    const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Update default model when provider changes
-  useEffect(() => {
-    if (selectedProvider?.models.length > 0) {
-      setModel(selectedProvider.models[0].id);
-    }
-  }, [provider]);
-
-  const handleRun = async () => {
-    setTriggering(true);
+  const handleSyncAll = async () => {
+    setSyncing(true);
     try {
-      await triggerRun(provider, model, false);
-      // Wait a bit and refresh
-      setTimeout(loadRuns, 1000);
+      await syncAllSources();
+      setTimeout(loadData, 2000);
     } catch (error) {
-      alert("Failed to start run");
+      console.warn("[Dashboard] Sync all failed:", error);
     } finally {
-      setTriggering(false);
+      setSyncing(false);
     }
   };
 
+  // Compute fallback stats from sources when stats API is unavailable
+  const effectiveStats: StatsResponse | null = useMemo(() => {
+    if (stats) return stats;
+    if (sources.length === 0) return null;
+
+    const healthy = sources.filter((s) => s.last_sync_status === "COMPLETED").length;
+    const failed = sources.filter((s) => s.last_sync_status === "FAILED").length;
+    const running = sources.filter((s) => s.last_sync_status === "RUNNING").length;
+    const pending = sources.length - healthy - failed - running;
+    const totalChunks = sources.reduce((sum, s) => sum + (s.total_chunks ?? 0), 0);
+    const sourcesWithChunks = sources.filter((s) => (s.total_chunks ?? 0) > 0).length;
+
+    return {
+      total_sources: sources.length,
+      total_chunks: totalChunks,
+      qa_pairs: 0,
+      vector_coverage: 0, // Vectorization not implemented yet — will be computed from Qdrant stats
+      source_health: { healthy, failed, pending, running },
+    };
+  }, [stats, sources]);
+
+  // Compute source health from sources data as fallback
+  const effectiveHealth: SourceHealthType | null = useMemo(() => {
+    if (stats?.source_health) return stats.source_health;
+    if (sources.length === 0) return null;
+
+    return {
+      healthy: sources.filter((s) => s.last_sync_status === "COMPLETED").length,
+      failed: sources.filter((s) => s.last_sync_status === "FAILED").length,
+      running: sources.filter((s) => s.last_sync_status === "RUNNING").length,
+      pending: sources.filter(
+        (s) => !s.last_sync_status || s.last_sync_status === "PENDING"
+      ).length,
+    };
+  }, [stats, sources]);
+
   return (
-    <div className="container mx-auto p-8">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">RO-AI Pipeline Monitor</h1>
-          <p className="text-muted-foreground">Manage and track Q/A generation pipelines.</p>
+    <div className="container mx-auto px-6 py-8 space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <p className="text-muted-foreground">Your knowledge base at a glance</p>
+      </div>
+
+      {/* KPI Cards — uses fallback from sources if stats API fails */}
+      <DashboardStats stats={effectiveStats} loading={loading} />
+
+      {/* Recent Activity + Source Health */}
+      <div className="grid gap-6 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <RecentActivity sources={sources} loading={loading} />
         </div>
-
-        <div className="flex items-end gap-3">
-          <div className="grid w-[180px] gap-1.5">
-            <Label htmlFor="provider" className="text-xs">Provider</Label>
-            <Select value={provider} onValueChange={setProvider}>
-              <SelectTrigger id="provider" className="h-9">
-                <SelectValue placeholder="Provider" />
-              </SelectTrigger>
-              <SelectContent>
-                {providers.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.display_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid w-[200px] gap-1.5">
-            <Label htmlFor="model" className="text-xs">Model</Label>
-            <Select value={model} onValueChange={setModel}>
-              <SelectTrigger id="model" className="h-9">
-                <SelectValue placeholder="Model" />
-              </SelectTrigger>
-              <SelectContent>
-                {selectedProvider?.models.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.display_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="h-9" onClick={loadRuns} disabled={loading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button size="sm" className="h-9" onClick={handleRun} disabled={triggering}>
-              <PlayCircle className="mr-2 h-4 w-4" />
-              {triggering ? "Starting..." : "Run Pipeline"}
-            </Button>
-          </div>
+        <div className="lg:col-span-2">
+          <SourceHealth health={effectiveHealth} loading={loading} />
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{runs.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {runs.length > 0
-                ? Math.round(
-                  (runs.filter((r) => r.status === "COMPLETED").length / runs.length) * 100
-                )
-                : 0}
-              %
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Runs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {runs.filter((r) => r.status === "RUNNING").length}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Pipeline Status Table */}
+      <PipelineStatusTable sources={sources} loading={loading} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Runs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Run ID</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Provider</TableHead>
-                <TableHead>Model</TableHead>
-                <TableHead>Started At</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {runs.map((run) => (
-                <TableRow key={run.id}>
-                  <TableCell className="font-mono text-xs">{run.id.substring(0, 8)}...</TableCell>
-                  <TableCell>
-                    <StatusBadge status={run.status} />
-                  </TableCell>
-                  <TableCell>{run.provider}</TableCell>
-                  <TableCell>{run.model}</TableCell>
-                  <TableCell suppressHydrationWarning>{new Date(run.started_at).toLocaleString()}</TableCell>
-                  <TableCell>
-                    {run.finished_at
-                      ? `${(
-                        (new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) /
-                        1000
-                      ).toFixed(1)}s`
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button asChild variant="ghost" size="sm">
-                      <Link href={`/runs/${run.id}`}>Details</Link>
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {runs.length === 0 && !loading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">
-                    No runs found.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div >
+      {/* Quick Actions */}
+      <div className="rounded-xl border bg-card p-5 shadow-sm">
+        <h3 className="text-base font-semibold mb-3">Quick Actions</h3>
+        <QuickActions onSyncAll={handleSyncAll} syncing={syncing} />
+      </div>
+    </div>
   );
 }
