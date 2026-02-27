@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
-import { LogOut, LayoutDashboard, Database, Users, ShieldCheck, Link as LinkIcon, Bot, Activity, Settings, Building2 } from "lucide-react";
+import { LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon, Bot, Settings, BookOpen, BarChart3 } from "lucide-react";
 
 export function Navbar() {
     const pathname = usePathname();
@@ -37,15 +37,13 @@ export function Navbar() {
     };
 
     const navItems = [
-        { name: "Dashboard", href: "/", icon: LayoutDashboard },
+        { name: "Overview", href: "/", icon: LayoutDashboard },
         { name: "Sources", href: "/sources", icon: LinkIcon },
-        { name: "Quality Control", href: "/quality_control", icon: ShieldCheck },
-        { name: "Vector DB", href: "/vector", icon: Database },
+        { name: "Knowledge", href: "/knowledge", icon: BookOpen },
+        { name: "Quality", href: "/quality_control", icon: ShieldCheck },
         { name: "Playground", href: "/playground", icon: Bot },
-        { name: "Evaluations", href: "/evaluations", icon: Activity },
-        { name: "Users", href: "/users", icon: Users },
-        { name: "Tenants", href: "/tenants", icon: Building2 },
-        { name: "Settings", href: "/settings", icon: Settings },
+        { name: "Coverage", href: "/coverage", icon: BarChart3 },
+        { name: "Admin", href: "/settings", icon: Settings },
     ];
 
     return (
