@@ -71,6 +71,37 @@ pub fn compute_file_hash(data: &[u8]) -> String {
     format!("{:x}", result)
 }
 
+/// Auto-detect source_type from file extension.
+///
+/// Returns one of: "document", "tabular", "structured", "image".
+/// Unknown extensions default to "document".
+///
+/// This replaces the manual source_type selection by users, reducing
+/// cognitive load and preventing type mismatch errors.
+pub fn detect_source_type(filename: &str) -> &str {
+    let ext = filename
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "pdf" | "docx" | "doc" | "txt" | "md" | "html" | "htm" => "document",
+        "csv" | "xlsx" | "xls" => "tabular",
+        "json" | "yaml" | "yml" | "xml" => "structured",
+        "png" | "jpg" | "jpeg" | "dicom" | "dcm" => "image",
+        _ => "document"
+    }
+}
+
+/// Check if source_type needs a storage_mode prompt (CSV/XLSX only).
+///
+/// Returns `true` for tabular files that can be stored as either
+/// Markdown tables or SQL dynamic tables.
+pub fn needs_storage_mode_prompt(filename: &str) -> bool {
+    detect_source_type(filename) == "tabular"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +196,85 @@ mod tests {
         let hash1 = compute_file_hash(data1);
         let hash2 = compute_file_hash(data2);
         assert_ne!(hash1, hash2, "Different data should produce different hashes");
+    }
+
+    // ========================================
+    // UT-087a: detect_source_type("report.pdf") → "document"
+    // ========================================
+    #[test]
+    fn test_detect_pdf_as_document() {
+        assert_eq!(detect_source_type("report.pdf"), "document");
+        assert_eq!(detect_source_type("notes.docx"), "document");
+        assert_eq!(detect_source_type("readme.md"), "document");
+        assert_eq!(detect_source_type("page.html"), "document");
+        assert_eq!(detect_source_type("file.txt"), "document");
+    }
+
+    // ========================================
+    // UT-087b: detect_source_type("data.csv") → "tabular"
+    // ========================================
+    #[test]
+    fn test_detect_csv_xlsx_as_tabular() {
+        assert_eq!(detect_source_type("data.csv"), "tabular");
+        assert_eq!(detect_source_type("sheet.xlsx"), "tabular");
+        assert_eq!(detect_source_type("legacy.xls"), "tabular");
+    }
+
+    // ========================================
+    // UT-087c: detect_source_type("config.json") → "structured"
+    // ========================================
+    #[test]
+    fn test_detect_json_yaml_as_structured() {
+        assert_eq!(detect_source_type("config.json"), "structured");
+        assert_eq!(detect_source_type("settings.yaml"), "structured");
+        assert_eq!(detect_source_type("data.xml"), "structured");
+    }
+
+    // ========================================
+    // UT-087d: detect_source_type("photo.png") → "image"
+    // ========================================
+    #[test]
+    fn test_detect_image_types() {
+        assert_eq!(detect_source_type("photo.png"), "image");
+        assert_eq!(detect_source_type("scan.jpg"), "image");
+        assert_eq!(detect_source_type("xray.dicom"), "image");
+    }
+
+    // ========================================
+    // UT-087e: detect_source_type("mystery.exe") → "document" (default)
+    // ========================================
+    #[test]
+    fn test_detect_unknown_defaults_document() {
+        assert_eq!(detect_source_type("mystery.exe"), "document");
+        assert_eq!(detect_source_type("noext"), "document");
+    }
+
+    // ========================================
+    // UT-087f: detect_source_type is case-insensitive
+    // ========================================
+    #[test]
+    fn test_detect_case_insensitive() {
+        assert_eq!(detect_source_type("FILE.PDF"), "document");
+        assert_eq!(detect_source_type("DATA.CSV"), "tabular");
+        assert_eq!(detect_source_type("IMAGE.JPEG"), "image");
+    }
+
+    // ========================================
+    // UT-087g: needs_storage_mode_prompt → true for CSV/XLSX
+    // ========================================
+    #[test]
+    fn test_needs_storage_mode_prompt_tabular() {
+        assert!(needs_storage_mode_prompt("data.csv"));
+        assert!(needs_storage_mode_prompt("sheet.xlsx"));
+    }
+
+    // ========================================
+    // UT-087h: needs_storage_mode_prompt → false for PDF/JSON
+    // ========================================
+    #[test]
+    fn test_needs_storage_mode_prompt_non_tabular() {
+        assert!(!needs_storage_mode_prompt("report.pdf"));
+        assert!(!needs_storage_mode_prompt("config.json"));
+        assert!(!needs_storage_mode_prompt("photo.png"));
     }
 }

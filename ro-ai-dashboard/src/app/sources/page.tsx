@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fetchSources, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, DataSource, FeatureFlags } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -115,8 +115,8 @@ export default function SourcesPage() {
             const configJson: any = {};
             if (selectedType === "web") configJson.url = newUrl;
             if (selectedType === "mcp") configJson.connection_string = mcpConnectionString;
-            if (selectedType === "tabular") configJson.storage_mode = advancedSettings.storageMode;
-            if (selectedType === "document") configJson.ocr_enabled = advancedSettings.ocrEnabled;
+            if (selectedType === "file") configJson.storage_mode = advancedSettings.storageMode;
+            if (selectedType === "file") configJson.ocr_enabled = advancedSettings.ocrEnabled;
             configJson.use_header_row = advancedSettings.useHeaderRow;
 
             const source = await createSource({
@@ -247,6 +247,12 @@ export default function SourcesPage() {
                 return <FileSpreadsheet className="w-4 h-4 text-green-500" />;
             case "document":
                 return <FileText className="w-4 h-4 text-orange-500" />;
+            case "structured":
+                return <FileText className="w-4 h-4 text-cyan-500" />;
+            case "image":
+                return <Image className="w-4 h-4 text-pink-500" />;
+            case "file":
+                return <Upload className="w-4 h-4 text-blue-500" />;
             case "mcp":
                 return <Database className="w-4 h-4 text-purple-500" />;
             default:
@@ -259,7 +265,7 @@ export default function SourcesPage() {
         if (!newName.trim()) return false;
         if (selectedType === "web" && !newUrl.trim()) return false;
         if (selectedType === "mcp" && !mcpConnectionString.trim()) return false;
-        if ((selectedType === "document" || selectedType === "tabular") && selectedFiles.length === 0)
+        if (selectedType === "file" && selectedFiles.length === 0)
             return false;
         return true;
     };
@@ -305,7 +311,7 @@ export default function SourcesPage() {
                     </div>
                 )}
 
-                {(selectedType === "document" || selectedType === "tabular") && (
+                {selectedType === "file" && (
                     <div className="space-y-3">
                         <div className="flex gap-2">
                             <Button

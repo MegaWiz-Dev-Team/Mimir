@@ -4,24 +4,32 @@ import '@testing-library/jest-dom';
 import { IngressTypeSelector } from './ingress-type-selector';
 
 describe('IngressTypeSelector', () => {
-    // UT-F02a: Render → shows 4 cards
-    it('UT-F02a: renders 4 ingress type cards', () => {
+    // UT-F02a: Render → shows 3 cards (merged Document+Tabular into File Upload)
+    it('UT-F02a: renders 3 ingress type cards', () => {
         const onSelect = jest.fn();
         render(<IngressTypeSelector onSelect={onSelect} />);
 
+        expect(screen.getByText('File Upload')).toBeInTheDocument();
         expect(screen.getByText('Web Scraper')).toBeInTheDocument();
-        expect(screen.getByText('Document Upload')).toBeInTheDocument();
-        expect(screen.getByText('Tabular Data')).toBeInTheDocument();
         expect(screen.getByText('MCP Connection')).toBeInTheDocument();
     });
 
-    // UT-F02b: Click "Document Upload" → calls onSelect('document')
-    it('UT-F02b: calls onSelect with "document" when Document Upload is clicked', () => {
+    // UT-F02b: Click "File Upload" → calls onSelect('file')
+    it('UT-F02b: calls onSelect with "file" when File Upload is clicked', () => {
         const onSelect = jest.fn();
         render(<IngressTypeSelector onSelect={onSelect} />);
 
-        fireEvent.click(screen.getByText('Document Upload'));
+        fireEvent.click(screen.getByText('File Upload'));
 
-        expect(onSelect).toHaveBeenCalledWith('document');
+        expect(onSelect).toHaveBeenCalledWith('file');
+    });
+
+    // UT-087i: Document Upload and Tabular Data should NOT exist
+    it('UT-087i: does not render old Document Upload and Tabular Data cards', () => {
+        const onSelect = jest.fn();
+        render(<IngressTypeSelector onSelect={onSelect} />);
+
+        expect(screen.queryByText('Document Upload')).not.toBeInTheDocument();
+        expect(screen.queryByText('Tabular Data')).not.toBeInTheDocument();
     });
 });
