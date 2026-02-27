@@ -40,7 +40,7 @@
 - **Sprint 13: AI Agent Studio** [2 สัปดาห์]
   - Agent CRUD (config-based, no-code), Agent Studio UI (visual builder: model + tools + prompt), Test Chat (inline panel), Agent Templates (Q&A Bot, Data Analyst, Research Assistant), Agent Deploy (API endpoint + embeddable widget), Conversation Logging (Agent Studio + Playground), Chat History (per user per agent)
 - **Sprint 14: Production Ready** [2 สัปดาห์]
-  - Scheduled Re-sync (Cron), OCR Integration (scanned PDF), External DB Connection (MySQL + PostgreSQL + SQLite), MCP Real Implementation, Performance Optimization (embedding cache, query sandbox, batch processing), API Documentation (OpenAPI/Swagger), Backup & DR (MariaDB + Neo4j + Qdrant + S3), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes)
+  - Scheduled Re-sync (Cron), OCR Integration (scanned PDF), External DB Connection (MySQL + PostgreSQL + SQLite), MCP Real Implementation, Performance Optimization (embedding cache, query sandbox, batch processing), Setup & Deployment (Docker Compose prod config, .env templates, cloud guide AWS/GCP, one-command setup), API Documentation (OpenAPI/Swagger), Backup & DR (MariaDB + Neo4j + Qdrant + S3), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes)
 - **Sprint 15: Dataset Studio** [2 สัปดาห์]
   - Dataset CRUD (config-based), Data Source Selector (QA pairs, KG triples, chunks, conversations), Filter & Transform (quality score, dedup, language), Format Converter (Alpaca/ShareGPT/DPO/Raw/Custom), Export (JSONL/Parquet + HuggingFace push), Data Augmentation (LLM paraphrase), Dataset Preview
 - **Sprint 16: Training Integration** [2 สัปดาห์]
