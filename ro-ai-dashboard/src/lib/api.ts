@@ -659,6 +659,11 @@ export async function syncSource(id: number): Promise<void> {
     if (!res.ok) throw new Error("Failed to trigger sequence sync");
 }
 
+export async function fetchSource(id: number): Promise<DataSource | null> {
+    const sources = await fetchSources();
+    return sources.find(s => s.id === id) || null;
+}
+
 export async function updateSource(id: number, data: Partial<DataSource>): Promise<DataSource> {
     const res = await authFetch(`${API_BASE_URL}/sources/${id}`, {
         method: "PUT",
