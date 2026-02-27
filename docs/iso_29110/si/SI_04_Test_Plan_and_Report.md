@@ -15,6 +15,7 @@
 | TC-005       | (Sprint 5) Streaming Log output               | Crawler logs populate UI sequentially in real-time           | Dashboard live console stream                   | Pass   | 2026-02-25  | Agent     |
 | TC-006       | (Sprint 6) Background Evaluation Trigger      | Job is added to queue and progress bar updates via WebSocket | Dashboard live evaluation updates               | Pass   | 2026-02-26  | AI        |
 | TC-007       | (Sprint 7) UX/UI Pipeline Refinement & Trace  | Pipeline components render states securely and visually      | Dashboard UI passes hydration & UX tests        | Pass   | 2026-02-26  | AI        |
+| TC-008       | (Sprint 8) Unified Data Ingress & File Upload | Upload, Extraction, SQL Import, Domain Connector work E2E    | 15/16 tests pass (93.75%), 80 unit tests pass   | Pass   | 2026-02-27  | AI        |
 
 ## 3. Historical Test Execution Records (ประวัติการทดสอบระบบก่อนหน้า)
 

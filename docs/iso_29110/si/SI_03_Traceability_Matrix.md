@@ -29,3 +29,10 @@
 | BUG-068 | Hydration Mismatch Navbar (#68)      | UX/UI Module         | `Navbar`, `PipelineStatusBar`     | TC-007       | Done   |
 | BUG-071 | Sprint 6 Evaluation System (#71)     | Eval Module          | `eval.rs`, `runner.rs`            | TC-006       | Done   |
 | BUG-073 | Sprint 7 Final Testing Bug (#73)     | UX/UI Module         | `eval-wizard.test.tsx`            | TC-007       | Done   |
+| REQ-008 | File/Folder Upload API (Sprint 8)    | Upload Module        | `upload.rs`, `sources.rs`         | TC-008       | Done   |
+| REQ-009 | Extraction Worker (Sprint 8)         | Extraction Module    | `extraction.rs`, `ingress.rs`     | TC-008       | Done   |
+| REQ-010 | Domain Connector Architecture (#76)  | Domain Module        | `domain.rs`, `iam.rs`             | TC-008       | Done   |
+| REQ-011 | SQL Import Module (#75)              | SQL Import Module    | `sql_import.rs`, `ingress.rs`     | TC-008       | Done   |
+| REQ-012 | Frontend Upload Components (#77)     | Upload UI Module     | `UploadDropzone`, `FolderUpload`  | TC-008       | Done   |
+| BUG-084 | Missing avatar_url in Game Crate     | Game Module          | `simple_npc.rs`                   | TC-008       | Done   |
+| ENH-086 | Connect IngressManager to Extraction | Ingress Module       | `ingress.rs`, `sources.rs`        | TC-008       | Open   |
