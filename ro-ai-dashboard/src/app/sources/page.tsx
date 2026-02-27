@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fetchSources, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, DataSource, FeatureFlags } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -105,6 +105,14 @@ export default function SourcesPage() {
 
     const handleFolderSelected = (files: File[]) => {
         setSelectedFiles(files);
+    };
+
+    const handleRemoveFile = (index: number) => {
+        setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const handleClearFiles = () => {
+        setSelectedFiles([]);
     };
 
     const handleCreateSource = async () => {
@@ -337,8 +345,49 @@ export default function SourcesPage() {
                         )}
 
                         {selectedFiles.length > 0 && (
-                            <div className="text-sm text-muted-foreground">
-                                {selectedFiles.length} file(s) selected
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-muted-foreground">
+                                        {selectedFiles.length} file(s) selected
+                                    </span>
+                                    {selectedFiles.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleClearFiles}
+                                            className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                                        >
+                                            Clear all
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="space-y-1 max-h-40 overflow-y-auto">
+                                    {selectedFiles.map((file, i) => (
+                                        <div
+                                            key={`${file.name}-${i}`}
+                                            className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-md bg-muted/50 border border-border text-sm"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                                <span className="truncate">{file.name}</span>
+                                                <span className="text-xs text-muted-foreground shrink-0">
+                                                    {file.size < 1024
+                                                        ? `${file.size} B`
+                                                        : file.size < 1048576
+                                                            ? `${(file.size / 1024).toFixed(1)} KB`
+                                                            : `${(file.size / 1048576).toFixed(1)} MB`}
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveFile(i)}
+                                                className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-red-500 transition-colors"
+                                                title={`Remove ${file.name}`}
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
