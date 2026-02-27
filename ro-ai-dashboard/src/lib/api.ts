@@ -824,4 +824,120 @@ export async function getFeatureFlags(domain?: string): Promise<FeatureFlags> {
     return res.json();
 }
 
+// ─── Sprint 12: Web Hierarchy API ─────────────────────────────────────────────
 
+export interface HierarchyNode {
+    url: string;
+    title: string | null;
+    depth: number;
+    status: "new" | "updated" | "unchanged" | "duplicate" | "error";
+    children: HierarchyNode[];
+}
+
+export interface DiscoverHierarchyResponse {
+    source_id: number;
+    root_url: string;
+    total_pages: number;
+    pages: HierarchyNode[];
+}
+
+export async function discoverHierarchy(
+    sourceId: number,
+    options?: { max_depth?: number; max_pages?: number }
+): Promise<DiscoverHierarchyResponse> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/discover-hierarchy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options || {}),
+    });
+    if (!res.ok) throw new Error("Failed to discover hierarchy");
+    return res.json();
+}
+
+export async function importPages(
+    sourceId: number,
+    urls: { url: string; title?: string; depth?: number }[]
+): Promise<{ source_id: number; imported: number; skipped: number; total_requested: number }> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/import-pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+    });
+    if (!res.ok) throw new Error("Failed to import pages");
+    return res.json();
+}
+
+// ─── Sprint 12: LLM Usage API ────────────────────────────────────────────────
+
+export interface LlmUsageLog {
+    id: number;
+    tenant_id: number;
+    model_id: string;
+    provider: string;
+    endpoint: string | null;
+    caller: string | null;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    latency_ms: number;
+    status: "success" | "error" | "timeout";
+    error_message: string | null;
+    created_at: string;
+}
+
+export interface LlmUsageSummary {
+    total_calls: number;
+    total_input_tokens: number;
+    total_output_tokens: number;
+    total_tokens: number;
+    avg_latency_ms: number;
+    estimated_cost_usd: number;
+    models: {
+        model_id: string;
+        provider: string;
+        total_calls: number;
+        total_tokens: number;
+        avg_latency_ms: number;
+        estimated_cost_usd: number;
+    }[];
+}
+
+export interface PaginatedUsageLogs {
+    logs: LlmUsageLog[];
+    total: number;
+    page: number;
+    per_page: number;
+}
+
+export async function fetchLlmUsage(params?: {
+    page?: number;
+    per_page?: number;
+    model_id?: string;
+    provider?: string;
+    status?: string;
+    date_from?: string;
+    date_to?: string;
+}): Promise<PaginatedUsageLogs> {
+    const query = params ? "?" + new URLSearchParams(
+        Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+    ).toString() : "";
+    const res = await authFetch(`${API_BASE_URL}/llm-usage${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch LLM usage");
+    return res.json();
+}
+
+export async function fetchLlmUsageSummary(params?: {
+    date_from?: string;
+    date_to?: string;
+}): Promise<LlmUsageSummary> {
+    const query = params ? "?" + new URLSearchParams(
+        Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+    ).toString() : "";
+    const res = await authFetch(`${API_BASE_URL}/llm-usage/summary${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch LLM usage summary");
+    return res.json();
+}
