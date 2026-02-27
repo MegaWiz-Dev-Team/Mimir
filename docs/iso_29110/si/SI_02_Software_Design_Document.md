@@ -12,7 +12,7 @@
 - **AI/LLM Provider:** รองรับ Google Gemini, Ollama (Local), Qwen API — switchable per tenant
 - **Embedding Models:** Configurable (nomic-embed-text / text-embedding-004 / bge-m3) พร้อม pipeline lock
 
-### Pipeline Architecture (Sprint 9-14):
+### Pipeline Architecture (Sprint 9-16):
 ```
 Sources ─┬→ File  → Extract → Chunk ─┬→ Embed → Qdrant (Vector Search)
          │                            └→ Entity → Neo4j  (Graph Search)
@@ -47,11 +47,11 @@ Overview · Sources · Knowledge · Quality · Playground · Coverage · ⚙️ 
 - **Evaluation Module:** รันระบบให้คะแนนปัญญาประดิษฐ์อัตโนมัติ (LLM-as-a-judge) ผ่านการเทียบฐานข้อมูลและสร้างสรุป Heatmap (Sprint 6)
 - **Pipeline UI/UX Module:** ปรับปรุง Flow การทำงานหลักทั้งหมดให้รองรับ Multi-tenancy ทบสอบระบบโดยรวม และตรวจสอบความถูกต้อง (Traceability) ของผลลัพธ์ (Sprint 7)
 - **Upload & Smart Ingress Module:** File/Folder Upload ผ่าน S3, Smart Upload (auto-detect source_type), SQL Import dual-mode (Sprint 8)
-- **Extraction & Chunking Module:** Real extraction (PDF/CSV/HTML), Configurable chunking (fixed/recursive/semantic), Web link discovery, Cross-source deduplication (Sprint 9)
+- **Extraction & Chunking Module:** Real extraction (PDF/CSV/HTML), Configurable chunking (fixed/recursive/semantic), Web link discovery, Cross-source deduplication, Settings Tabs (General/AI Models/Pipeline/KG/Search/Security) (Sprint 9)
 - **Embedding & Vector Store Module:** Multi-model embedding service (Ollama/Gemini/Qwen) with pipeline lock, Qdrant per-tenant collection, SQL Schema Registry, Knowledge Base page (Sprint 10)
 - **Knowledge Graph Module:** Neo4j entity/relation storage, LLM-based entity extraction (multi-provider), Sigma.js graph visualization, GraphRAG hybrid search (Vector + Graph + SQL) (Sprint 11)
 - **Multi-Agent Module:** Tool Registry, Router Agent, Synthesis Agent, ACU Coverage per source, Blind-spot detection, Closed-loop pipeline actions (Sprint 12)
-- **Agent Studio Module:** Visual agent builder (no-code), Agent CRUD config, Test Chat, Agent Templates, API endpoint + widget deployment, Conversation logging (Sprint 13)
-- **Production Module:** Scheduled re-sync (Cron), OCR integration, External DB connectors (MySQL/PostgreSQL/SQLite), Performance optimization, ISO documentation finalization (Sprint 14)
+- **Agent Studio Module:** Visual agent builder (no-code), Agent CRUD config, Test Chat, Agent Templates, API endpoint + widget deployment, Conversation logging (Agent Studio + Playground), Chat history per user (Sprint 13)
+- **Production Module:** Scheduled re-sync (Cron), OCR integration, External DB connectors (MySQL/PostgreSQL/SQLite), MCP real implementation, Performance optimization, API documentation (OpenAPI/Swagger), Backup & DR, ISO documentation finalization (Sprint 14)
 - **Dataset Studio Module:** Dataset CRUD (config-based), Data Source Selector (QA/KG/chunks/conversations), Filter & Transform (quality score, dedup, language), Format Converter (Alpaca/ShareGPT/DPO/Raw/Custom), Export (JSONL/Parquet + HuggingFace push), Data Augmentation (LLM paraphrase) (Sprint 15)
 - **Training Integration Module:** Training Config UI (base model, hyperparameters, LoRA rank), Axolotl/Unsloth Integration (Docker), MLflow Tracking (metrics, loss curves), Model Registry (version + A/B test in Playground) (Sprint 16)
