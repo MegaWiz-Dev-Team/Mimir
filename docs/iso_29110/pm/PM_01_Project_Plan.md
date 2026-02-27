@@ -4,7 +4,7 @@
 
 ## 1. Project Scope & Objectives (ขอบเขตและวัตถุประสงค์)
 - **เป้าหมาย:** พัฒนาระบบปัญญาประดิษฐ์กลาง (AI Core Platform) แบบ Multi-Tenant Modular Architecture ที่สามารถนำไปประยุกต์ใช้กับธุรกิจได้หลากหลายรูปแบบ (เช่น Mega Care Platform, OumOum AI Agent) โดยเริ่มจากการแยกแพลตฟอร์มออกจากระบบตัวเกม
-- **ขอบเขต:** สร้างระบบดูดข้อมูล (Ingress), ระบบจัดการเวกเตอร์ข้อมูล (Vector DB), ระบบควบคุมคุณภาพ (QA/QC), เอเจนต์ (RAG), และระบบทดสอบประเมินผล (Evaluations) พร้อมหน้า Dashboard สำหรับผู้ดูแลระบบ
+- **ขอบเขต:** สร้างระบบดูดข้อมูล (Ingress), Real Extraction & Chunking Pipeline, ระบบจัดการเวกเตอร์ข้อมูล (Embedding + Qdrant), Knowledge Graph (Neo4j + GraphRAG), ระบบควบคุมคุณภาพ (QA/QC), Multi-Agent Architecture (Router + Tool Registry + Synthesis), AI Agent Studio (no-code visual builder), ระบบทดสอบประเมินผล (Evaluations), Dataset Studio สำหรับสร้าง Training Dataset, Training Integration สำหรับ Fine-tune LLM/SLM, พร้อมหน้า Dashboard, Setup & Deployment Guide, และเอกสาร ISO 29110
 
 ## 2. Project Organization & Resources (โครงสร้างทีมและทรัพยากร)
 - **Project Manager:** [ชื่อ PM / Mega Wiz]
