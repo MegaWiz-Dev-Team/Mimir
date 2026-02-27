@@ -35,6 +35,8 @@ pub fn sources_routes() -> Router<DbPool> {
         .route("/{id}/sync", post(sync_source))
         .route("/{id}/extract-ai", post(extract_with_ai))
         .route("/{id}/logs", get(stream_logs))
+        .route("/{id}/discover-hierarchy", post(discover_hierarchy))
+        .route("/{id}/import-pages", post(import_pages))
 }
 
 async fn list_sources(
@@ -400,6 +402,224 @@ async fn stream_logs(
     )
 }
 
+// ─── Web Hierarchy Discovery ────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct DiscoverHierarchyRequest {
+    max_depth: Option<u32>,
+    max_pages: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct HierarchyNode {
+    url: String,
+    title: Option<String>,
+    depth: u32,
+    status: String,
+    children: Vec<HierarchyNode>,
+}
+
+/// POST /api/v1/sources/:id/discover-hierarchy
+///
+/// Crawl root URL and discover linked pages via BFS.
+/// Returns a flat list of pages with status badges (new/updated/unchanged/duplicate).
+async fn discover_hierarchy(
+    State(pool): State<DbPool>,
+    Path(id): Path<i64>,
+    Json(payload): Json<DiscoverHierarchyRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = "default_tenant";
+    let max_depth = payload.max_depth.unwrap_or(3).min(5);
+    let max_pages = payload.max_pages.unwrap_or(100).min(500);
+
+    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    let source = source.ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"})))
+    })?;
+
+    let root_url = source.config_json.get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            (StatusCode::BAD_REQUEST, Json(json!({"error": "Source has no URL configured"})))
+        })?
+        .to_string();
+
+    info!("Starting hierarchy discovery for source {} from {}", id, root_url);
+
+    // BFS crawl
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, u32)> = std::collections::VecDeque::new();
+    let mut all_pages: Vec<(String, Option<String>, u32, String)> = Vec::new();
+
+    queue.push_back((root_url.clone(), 0));
+    visited.insert(root_url.clone());
+
+    while let Some((url, depth)) = queue.pop_front() {
+        if all_pages.len() >= max_pages as usize {
+            break;
+        }
+
+        let html = match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                resp.text().await.unwrap_or_default()
+            }
+            _ => {
+                all_pages.push((url.clone(), None, depth, String::new()));
+                continue;
+            }
+        };
+
+        let doc = scraper::Html::parse_document(&html);
+        let title_sel = scraper::Selector::parse("title").unwrap();
+        let title = doc.select(&title_sel).next()
+            .map(|el| el.text().collect::<String>().trim().to_string());
+
+        let content_hash = link_discovery::compute_content_hash(&html);
+        all_pages.push((url.clone(), title, depth, content_hash));
+
+        if depth < max_depth {
+            let links = link_discovery::discover_links(&html, &url, 200);
+            for link in links {
+                if !visited.contains(&link.url) && all_pages.len() + queue.len() < max_pages as usize {
+                    visited.insert(link.url.clone());
+                    queue.push_back((link.url, depth + 1));
+                }
+            }
+        }
+    }
+
+    // Determine status for each page
+    let mut nodes: Vec<HierarchyNode> = Vec::new();
+    for (url, title, depth, content_hash) in &all_pages {
+        let status = if content_hash.is_empty() {
+            "error".to_string()
+        } else {
+            let existing: Option<(String,)> = sqlx::query_as(
+                "SELECT content_hash FROM crawled_pages WHERE source_id = ? AND url = ?"
+            )
+            .bind(id)
+            .bind(url)
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None);
+
+            match existing {
+                Some((old_hash,)) if old_hash == *content_hash => "unchanged".to_string(),
+                Some(_) => "updated".to_string(),
+                None => {
+                    let dup: Option<(i64,)> = sqlx::query_as(
+                        "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1"
+                    )
+                    .bind(content_hash)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap_or(None);
+
+                    if dup.is_some() { "duplicate".to_string() } else { "new".to_string() }
+                }
+            }
+        };
+
+        nodes.push(HierarchyNode {
+            url: url.clone(),
+            title: title.clone(),
+            depth: *depth,
+            status,
+            children: vec![],
+        });
+    }
+
+    info!("Discovered {} pages for source {}", nodes.len(), id);
+
+    Ok(Json(json!({
+        "source_id": id,
+        "root_url": root_url,
+        "total_pages": nodes.len(),
+        "pages": nodes
+    })))
+}
+
+// ─── Import Selected Pages ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ImportPagesRequest {
+    urls: Vec<ImportPageEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ImportPageEntry {
+    url: String,
+    title: Option<String>,
+    depth: Option<u32>,
+}
+
+/// POST /api/v1/sources/:id/import-pages
+///
+/// Import selected discovered pages into crawled_pages table.
+async fn import_pages(
+    State(pool): State<DbPool>,
+    Path(id): Path<i64>,
+    Json(payload): Json<ImportPagesRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = "default_tenant";
+
+    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    if source.is_none() {
+        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"}))));
+    }
+
+    let mut imported = 0;
+    let mut skipped = 0;
+
+    for entry in &payload.urls {
+        let depth = entry.depth.unwrap_or(0) as i32;
+        let result = sqlx::query(
+            "INSERT INTO crawled_pages (source_id, url, title, depth, status) VALUES (?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE title = VALUES(title), depth = VALUES(depth)"
+        )
+        .bind(id)
+        .bind(&entry.url)
+        .bind(&entry.title)
+        .bind(depth)
+        .execute(&pool)
+        .await;
+
+        match result {
+            Ok(r) if r.rows_affected() > 0 => imported += 1,
+            Ok(_) => skipped += 1,
+            Err(e) => {
+                warn!("Failed to import page {}: {}", entry.url, e);
+                skipped += 1;
+            }
+        }
+    }
+
+    info!("Imported {} pages for source {} ({} skipped)", imported, id, skipped);
+
+    Ok(Json(json!({
+        "source_id": id,
+        "imported": imported,
+        "skipped": skipped,
+        "total_requested": payload.urls.len()
+    })))
+}
+
 // ─── LLM Fallback Extraction ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -477,8 +697,12 @@ async fn extract_with_ai(
          --- FILE CONTENT ---\n{file_text}\n--- END ---"
     );
 
-    // 6. Call the LLM API
-    let (content, tokens_used) = call_llm_api(&api_key, &api_base, &payload.model, &prompt).await
+    // 6. Call the LLM API (with usage logging)
+    let provider_str = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("unknown");
+    let (content, tokens_used) = call_llm_api_with_logging(
+        &api_key, &api_base, &payload.model, &prompt,
+        Some(&pool), Some(1), Some(provider_str), Some("extract_with_ai"),
+    ).await
         .map_err(|e| {
             error!("LLM API call failed: {}", e);
             (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("LLM extraction failed: {}", e)})))
@@ -571,12 +795,58 @@ fn infer_api_base(provider: &str) -> String {
 }
 
 /// Call an OpenAI-compatible chat completions API.
+/// If `pool` and `tenant_id` are provided, automatically logs usage to `llm_usage_logs`.
 async fn call_llm_api(
     api_key: &str,
     api_base: &str,
     model: &str,
     prompt: &str,
 ) -> anyhow::Result<(String, u32)> {
+    call_llm_api_with_logging(api_key, api_base, model, prompt, None, None, None, None).await
+}
+
+/// Internal LLM call with optional usage logging and daily token limit enforcement.
+async fn call_llm_api_with_logging(
+    api_key: &str,
+    api_base: &str,
+    model: &str,
+    prompt: &str,
+    pool: Option<&DbPool>,
+    tenant_id: Option<i64>,
+    provider: Option<&str>,
+    caller: Option<&str>,
+) -> anyhow::Result<(String, u32)> {
+    // ─── Daily Token Limit Check ────────────────────────────────────────
+    if let (Some(p), Some(tid)) = (pool, tenant_id) {
+        let limit: Option<(i64,)> = sqlx::query_as(
+            "SELECT max_daily_tokens FROM tenant_configs WHERE tenant_id = ?"
+        )
+        .bind(&tid.to_string())
+        .fetch_optional(p)
+        .await
+        .unwrap_or(None);
+
+        if let Some((max_tokens,)) = limit {
+            if max_tokens > 0 {
+                let today_usage: (i64,) = sqlx::query_as(
+                    "SELECT COALESCE(SUM(total_tokens), 0) FROM llm_usage_logs WHERE tenant_id = ? AND DATE(created_at) = CURDATE()"
+                )
+                .bind(tid)
+                .fetch_one(p)
+                .await
+                .unwrap_or((0,));
+
+                if today_usage.0 >= max_tokens {
+                    return Err(anyhow::anyhow!(
+                        "Daily token limit exceeded: used {}/{} tokens today",
+                        today_usage.0, max_tokens
+                    ));
+                }
+            }
+        }
+    }
+
+    let start = std::time::Instant::now();
     let client = reqwest::Client::new();
     let url = format!("{}chat/completions", api_base);
 
@@ -604,11 +874,35 @@ async fn call_llm_api(
         .json(&body)
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("HTTP request to LLM failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("HTTP request to LLM failed: {}", e));
+
+    let latency_ms = start.elapsed().as_millis() as i32;
+
+    // Handle HTTP error
+    let response = match response {
+        Ok(r) => r,
+        Err(e) => {
+            // Log error if pool is available
+            if let (Some(p), Some(tid)) = (pool, tenant_id) {
+                let _ = crate::routes::llm_usage::insert_llm_usage_log(
+                    p, tid, model, provider.unwrap_or("unknown"), Some(&url), caller,
+                    0, 0, 0, latency_ms, "error", Some(&e.to_string()),
+                ).await;
+            }
+            return Err(e);
+        }
+    };
 
     let status = response.status();
     if !status.is_success() {
         let error_body = response.text().await.unwrap_or_default();
+        // Log error
+        if let (Some(p), Some(tid)) = (pool, tenant_id) {
+            let _ = crate::routes::llm_usage::insert_llm_usage_log(
+                p, tid, model, provider.unwrap_or("unknown"), Some(&url), caller,
+                0, 0, 0, latency_ms, "error", Some(&error_body),
+            ).await;
+        }
         return Err(anyhow::anyhow!("LLM API returned {}: {}", status, error_body));
     }
 
@@ -620,12 +914,21 @@ async fn call_llm_api(
         .unwrap_or("")
         .to_string();
 
-    let tokens_used = resp_json["usage"]["total_tokens"]
-        .as_u64()
-        .unwrap_or(0) as u32;
+    let input_tokens = resp_json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as i32;
+    let output_tokens = resp_json["usage"]["completion_tokens"].as_u64().unwrap_or(0) as i32;
+    let total_tokens = resp_json["usage"]["total_tokens"].as_u64().unwrap_or(0) as i32;
 
-    Ok((content, tokens_used))
+    // Log success
+    if let (Some(p), Some(tid)) = (pool, tenant_id) {
+        let _ = crate::routes::llm_usage::insert_llm_usage_log(
+            p, tid, model, provider.unwrap_or("unknown"), Some(&url), caller,
+            input_tokens, output_tokens, total_tokens, latency_ms, "success", None,
+        ).await;
+    }
+
+    Ok((content, total_tokens as u32))
 }
+
 
 // ─── URL Preview ───────────────────────────────────────────────────────────────
 
