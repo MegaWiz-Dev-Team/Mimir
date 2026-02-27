@@ -205,7 +205,7 @@ async fn sync_source(
 
         let result: Result<String, anyhow::Error> = match source_clone.source_type.as_str() {
             // File-based sources: download from S3, then extract
-            "document" | "tabular" => {
+            "file" | "document" | "tabular" => {
                 match &source_clone.s3_key {
                     Some(s3_key) if !s3_key.is_empty() => {
                         info!("Downloading from S3: key={}", s3_key);
