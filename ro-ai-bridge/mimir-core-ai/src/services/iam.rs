@@ -224,7 +224,8 @@ impl IamService {
                 qa_rules AS "qa_rules: sqlx::types::Json<serde_json::Value>", 
                 system_prompt, 
                 max_daily_tokens AS "max_daily_tokens!", 
-                is_dedicated_vector_db AS "is_dedicated_vector_db: bool" , 
+                is_dedicated_vector_db AS "is_dedicated_vector_db: bool",
+                search_settings AS "search_settings: sqlx::types::Json<serde_json::Value>",
                 created_at, 
                 updated_at
             FROM tenant_configs 
@@ -246,11 +247,12 @@ impl IamService {
         let system_prompt = req.system_prompt.or(config.system_prompt);
         let max_daily_tokens = req.max_daily_tokens.unwrap_or(config.max_daily_tokens);
         let is_dedicated_vector_db = req.is_dedicated_vector_db.unwrap_or(config.is_dedicated_vector_db);
+        let search_settings = req.search_settings.or(config.search_settings);
 
         sqlx::query!(
             r#"
             UPDATE tenant_configs 
-            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?
+            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, search_settings = ?
             WHERE tenant_id = ?
             "#,
             default_provider,
@@ -260,6 +262,7 @@ impl IamService {
             system_prompt,
             max_daily_tokens,
             is_dedicated_vector_db,
+            search_settings,
             tenant_id
         )
         .execute(&self.db).await?;
@@ -339,6 +342,7 @@ impl IamService {
                 system_prompt: None,
                 max_daily_tokens: 100000,
                 is_dedicated_vector_db: false,
+                search_settings: None,
                 created_at: None,
                 updated_at: None,
             });
