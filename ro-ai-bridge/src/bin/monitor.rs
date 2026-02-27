@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
 
     let pool = init_db().await?;
     let qdrant = QdrantService::new();
-    let iam = IamService::new(pool.clone());
+    let iam = IamService::new_with_env(pool.clone());
     let state = Arc::new(AppState { 
         db: pool.clone(), // Clone pool for AppState
         qdrant,

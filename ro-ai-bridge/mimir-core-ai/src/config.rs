@@ -6,11 +6,31 @@ use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub ollama_url: String,
-    pub qdrant_url: String,
-    pub mariadb_url: String,
-    pub redis_url: String,
+    // Server
     pub port: u16,
+
+    // Database
+    pub mariadb_url: String,
+    pub qdrant_url: String,
+    pub redis_url: String,
+
+    // S3 / RustFS
+    pub s3_endpoint: String,
+    pub s3_bucket: String,
+    pub s3_access_key: String,
+    pub s3_secret_key: String,
+    pub s3_region: String,
+
+    // LLM
+    pub ollama_url: String,
+    pub local_model: String,
+    pub embed_model: String,
+    pub gemini_base_url: String,
+    pub gemini_api_key: Option<String>,
+    pub gemini_model: String,
+
+    // Auth
+    pub jwt_secret: String,
 }
 
 impl Config {
@@ -20,18 +40,48 @@ impl Config {
         info!("Loading configuration from environment...");
 
         let config = Self {
-            ollama_url: env::var("OLLAMA_URL")
-                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            qdrant_url: env::var("QDRANT_URL")
-                .unwrap_or_else(|_| "http://localhost:6333".to_string()),
-            mariadb_url: env::var("MARIADB_URL")
-                .unwrap_or_else(|_| "mysql://mimir:mimir_password@localhost:3306/ro_landverse".to_string()),
-            redis_url: env::var("REDIS_URL")
-                .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+            // Server
             port: env::var("PORT")
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()
                 .expect("PORT must be a number"),
+
+            // Database
+            mariadb_url: env::var("MARIADB_URL")
+                .unwrap_or_else(|_| "mysql://mimir:mimir_password@localhost:3306/mimir".to_string()),
+            qdrant_url: env::var("QDRANT_URL")
+                .unwrap_or_else(|_| "http://localhost:6333".to_string()),
+            redis_url: env::var("REDIS_URL")
+                .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+
+            // S3 / RustFS
+            s3_endpoint: env::var("S3_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:9000".to_string()),
+            s3_bucket: env::var("S3_BUCKET")
+                .unwrap_or_else(|_| "mimir-tenant-uploads".to_string()),
+            s3_access_key: env::var("S3_ACCESS_KEY")
+                .unwrap_or_else(|_| "minioadmin".to_string()),
+            s3_secret_key: env::var("S3_SECRET_KEY")
+                .unwrap_or_else(|_| "minioadmin".to_string()),
+            s3_region: env::var("S3_REGION")
+                .unwrap_or_else(|_| "us-east-1".to_string()),
+
+            // LLM
+            ollama_url: env::var("OLLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+            local_model: env::var("LOCAL_MODEL")
+                .unwrap_or_else(|_| "gemma:2b".to_string()),
+            embed_model: env::var("EMBED_MODEL")
+                .unwrap_or_else(|_| "nomic-embed-text".to_string()),
+            gemini_base_url: env::var("GEMINI_BASE_URL")
+                .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
+            gemini_api_key: env::var("GEMINI_API_KEY").ok(),
+            gemini_model: env::var("GEMINI_MODEL")
+                .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
+
+            // Auth
+            jwt_secret: env::var("JWT_SECRET")
+                .unwrap_or_else(|_| "dev_secret_key".to_string()),
         };
 
         info!("Configuration loaded successfully.");
