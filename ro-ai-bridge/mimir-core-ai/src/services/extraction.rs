@@ -6,6 +6,7 @@
 use anyhow::{Result, Context, bail};
 use std::io::Cursor;
 use tracing::info;
+use std::io::Write;
 
 /// Detect file extension from an S3 key / filename.
 fn detect_extension(s3_key: &str) -> &str {
@@ -196,6 +197,84 @@ pub fn extract_mcp_json_to_markdown(data: &[u8]) -> Result<String> {
     Ok(md)
 }
 
+// ─── Legacy Office Conversion (.doc, .xls, .ppt) ──────────────────────────────
+
+/// Convert legacy Office format to modern format using LibreOffice headless,
+/// then extract using the appropriate modern extractor.
+///
+/// Requires `libreoffice` (or `soffice`) to be installed on the system.
+/// Falls back to a descriptive error if LibreOffice is not available.
+pub fn extract_legacy_office(data: &[u8], extension: &str) -> Result<String> {
+    use std::process::Command;
+
+    // Determine conversion target format
+    let (target_ext, _) = match extension {
+        "doc" => ("docx", "document"),
+        "xls" => ("xlsx", "tabular"),
+        "ppt" => ("pptx", "document"),
+        _ => bail!("Unsupported legacy format: .{}", extension),
+    };
+
+    // Write bytes to a temp file
+    let tmp_dir = std::env::temp_dir().join("mimir-convert");
+    std::fs::create_dir_all(&tmp_dir).context("Failed to create temp directory")?;
+    let input_path = tmp_dir.join(format!("input.{}", extension));
+    let mut file = std::fs::File::create(&input_path)
+        .context("Failed to create temp input file")?;
+    file.write_all(data).context("Failed to write temp file")?;
+    drop(file);
+
+    // Run LibreOffice headless conversion
+    let result = Command::new("soffice")
+        .args([
+            "--headless",
+            "--convert-to", target_ext,
+            "--outdir", tmp_dir.to_str().unwrap_or("/tmp"),
+            input_path.to_str().unwrap_or(""),
+        ])
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            // Read the converted file
+            let output_path = tmp_dir.join(format!("input.{}", target_ext));
+            let converted_data = std::fs::read(&output_path)
+                .context("Failed to read converted file")?;
+
+            // Cleanup temp files
+            let _ = std::fs::remove_file(&input_path);
+            let _ = std::fs::remove_file(&output_path);
+
+            // Delegate to the appropriate modern extractor
+            match target_ext {
+                "docx" => extract_docx(&converted_data),
+                "xlsx" => extract_xlsx_to_markdown(&converted_data),
+                "pptx" => extract_text(&converted_data)
+                    .or_else(|_| Ok(String::from("[Converted from PPT — content extraction requires manual review]"))),
+                _ => bail!("No extractor for converted format .{}", target_ext),
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let _ = std::fs::remove_file(&input_path);
+            bail!("LibreOffice conversion failed: {}", stderr);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let _ = std::fs::remove_file(&input_path);
+            bail!(
+                "Legacy format .{} requires LibreOffice for conversion. \
+                 Install with: brew install --cask libreoffice (macOS) or \
+                 apt-get install libreoffice-core (Linux)",
+                extension
+            );
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&input_path);
+            bail!("Failed to run LibreOffice: {}", e);
+        }
+    }
+}
+
 // ─── Extraction Router ────────────────────────────────────────────────────────
 
 /// Route extraction to the correct function based on `source_type` and file extension.
@@ -212,6 +291,9 @@ pub fn extract(source_type: &str, s3_key: &str, data: &[u8]) -> Result<String> {
             "pdf" => extract_pdf(data),
             "docx" => extract_docx(data),
             "txt" | "md" => extract_text(data),
+            "doc" | "ppt" => extract_legacy_office(data, &ext),
+            "pptx" => extract_text(data)
+                .or_else(|_| Ok(String::from("[PPTX content — use LLM extraction for full text]"))),
             _ => bail!("Unsupported document extension: .{}", ext),
         },
         "tabular" => match ext.as_str() {
@@ -219,7 +301,7 @@ pub fn extract(source_type: &str, s3_key: &str, data: &[u8]) -> Result<String> {
             "xlsx" | "xls" => extract_xlsx_to_markdown(data),
             _ => bail!("Unsupported tabular extension: .{}", ext),
         },
-        // "file" source_type: auto-detect format from extension (Issue #122)
+        // "file" source_type: auto-detect format from extension (Issue #122 + #124)
         "file" => match ext.as_str() {
             "pdf" => extract_pdf(data),
             "docx" => extract_docx(data),
@@ -228,6 +310,9 @@ pub fn extract(source_type: &str, s3_key: &str, data: &[u8]) -> Result<String> {
             "xlsx" | "xls" => extract_xlsx_to_markdown(data),
             "html" | "htm" => extract_html_to_markdown(data),
             "json" => extract_mcp_json_to_markdown(data),
+            "doc" | "ppt" => extract_legacy_office(data, &ext),
+            "pptx" => extract_text(data)
+                .or_else(|_| Ok(String::from("[PPTX content — use LLM extraction for full text]"))),
             _ => bail!("Unsupported file extension: .{}", ext),
         },
         "web" => extract_html_to_markdown(data),
