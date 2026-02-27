@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
-import { LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon, Bot, Settings, BookOpen, BarChart3 } from "lucide-react";
+import { LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon, Bot, Settings, BookOpen, BarChart3, Activity } from "lucide-react";
 
 export function Navbar() {
     const pathname = usePathname();
@@ -43,6 +43,7 @@ export function Navbar() {
         { name: "Quality", href: "/quality_control", icon: ShieldCheck },
         { name: "Playground", href: "/playground", icon: Bot },
         { name: "Coverage", href: "/coverage", icon: BarChart3 },
+        { name: "Analytics", href: "/analytics/llm", icon: Activity },
         { name: "Admin", href: "/settings", icon: Settings },
     ];
 
