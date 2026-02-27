@@ -18,7 +18,7 @@
 | TC-008       | (Sprint 8) Unified Data Ingress & File Upload   | Upload, Extraction, SQL Import, Domain Connector work E2E            | 15/16 tests pass (93.75%), 80 unit tests pass   | Pass   | 2026-02-27  | AI        |
 | TC-009       | (Sprint 9) Content Pipeline & Navigation        | Chunking, Link Discovery, Dedup, Nav Restructure, Settings           | 24/24 tests pass (100%), 116+ unit tests pass   | Pass   | 2026-02-27  | AI        |
 | TC-010       | (Sprint 10) Dashboard Redesign & Knowledge Base | KPI Cards, Pipeline Bar, Knowledge Base, Search Settings, E2E Wizard | 30/30 tests pass (100%), 6/6 E2E pass           | Pass   | 2026-02-27  | AI        |
-| TC-011       | (Sprint 11) LLM Fallback & File Improvements    | LLM extraction, Console logs, File upload, CSV sync fix              | Pending                                         | Open   | —           | —         |
+| TC-011       | (Sprint 11) LLM Fallback & File Improvements    | LLM extraction, Console logs, File upload, CSV sync, Legacy Office   | 21/21 tests pass (100%), 16 unit tests          | Pass   | 2026-02-27  | AI        |
 
 ## 3. Historical Test Execution Records (ประวัติการทดสอบระบบก่อนหน้า)
 
