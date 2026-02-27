@@ -514,6 +514,12 @@ export interface TenantConfig {
     system_prompt?: string;
     max_daily_tokens: number;
     is_dedicated_vector_db: boolean;
+    search_settings?: {
+        embedding_model?: string;
+        top_k?: number;
+        similarity_threshold?: number;
+        search_mode?: string;
+    };
 }
 
 export interface CreateTenantRequest {
