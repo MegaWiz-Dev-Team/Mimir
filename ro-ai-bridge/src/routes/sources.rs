@@ -162,6 +162,7 @@ async fn delete_source(
 }
 
 async fn sync_source(
+    Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
@@ -191,15 +192,42 @@ async fn sync_source(
     })?;
 
     let pool_clone = pool.clone();
+    let config_clone = config.clone();
     let source_clone = source.unwrap();
     // Spawn a background task to process the source
     tokio::spawn(async move {
         info!("Started background sync task for source id {}", id);
-        match IngressManager::process_source(&source_clone).await {
+
+        let result: Result<String, anyhow::Error> = match source_clone.source_type.as_str() {
+            // File-based sources: download from S3, then extract
+            "document" | "tabular" => {
+                match &source_clone.s3_key {
+                    Some(s3_key) if !s3_key.is_empty() => {
+                        info!("Downloading from S3: key={}", s3_key);
+                        // Download file from RustFS
+                        match download_from_s3(&config_clone, s3_key).await {
+                            Ok(data) => {
+                                info!("Downloaded {} bytes from S3, running extraction", data.len());
+                                IngressManager::process_source_with_data(&source_clone, &data)
+                            },
+                            Err(e) => Err(anyhow::anyhow!("S3 download failed: {}", e)),
+                        }
+                    },
+                    _ => Err(anyhow::anyhow!(
+                        "No S3 key found for source '{}' — file may not have been uploaded",
+                        source_clone.name
+                    )),
+                }
+            },
+            // Network sources: fetch + extract
+            _ => IngressManager::process_source(&source_clone).await,
+        };
+
+        match result {
             Ok(raw_text) => {
                 let mb_size = raw_text.len() as f64 / 1_048_576.0;
                 let total_chunks = (raw_text.len() as f64 / 500.0).ceil() as i32;
-                
+
                 info!("Sync completed for {} ({}): {} bytes processed", source_clone.name, id, raw_text.len());
                 let _ = sqlx::query!(
                     "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -213,9 +241,11 @@ async fn sync_source(
                 .map_err(|e| error!("Failed to update source {} to COMPLETED: {}", id, e));
             },
             Err(e) => {
-                error!("Sync failed for {} ({}): {}", source_clone.name, id, e);
+                let error_msg = format!("{}", e);
+                error!("Sync failed for {} ({}): {}", source_clone.name, id, error_msg);
                 let _ = sqlx::query!(
-                    "UPDATE data_sources SET last_sync_status = 'FAILED' WHERE id = ?",
+                    "UPDATE data_sources SET last_sync_status = 'FAILED', raw_markdown = ? WHERE id = ?",
+                    error_msg,
                     id
                 )
                 .execute(&pool_clone)
@@ -262,8 +292,38 @@ async fn stream_logs(
     )
 }
 
-// TODO: Refactor test to use `sqlx::AnyPool` or inject a mock repository interface 
-// to support sqlite in-memory testing instead of the hardcoded `MySqlPool` required by app state.
+// ─── S3 Helpers ────────────────────────────────────────────────────────────────
+
+/// Download a file from RustFS/S3 by its key.
+///
+/// Used by sync_source to retrieve uploaded files for extraction.
+async fn download_from_s3(config: &Config, s3_key: &str) -> anyhow::Result<Vec<u8>> {
+    let region = Region::Custom {
+        region: config.s3_region.clone(),
+        endpoint: config.s3_endpoint.clone(),
+    };
+
+    let credentials = Credentials::new(
+        Some(&config.s3_access_key),
+        Some(&config.s3_secret_key),
+        None, None, None,
+    ).map_err(|e| anyhow::anyhow!("S3 credentials error: {}", e))?;
+
+    let bucket = Bucket::new(&config.s3_bucket, region, credentials)
+        .map_err(|e| anyhow::anyhow!("S3 bucket error: {}", e))?
+        .with_path_style();
+
+    let response = bucket.get_object(s3_key).await
+        .map_err(|e| anyhow::anyhow!("S3 get_object failed for '{}': {}", s3_key, e))?;
+
+    if response.status_code() != 200 {
+        return Err(anyhow::anyhow!(
+            "S3 returned status {} for key '{}'", response.status_code(), s3_key
+        ));
+    }
+
+    Ok(response.to_vec())
+}
 
 // ─── Upload Handler ────────────────────────────────────────────────────────────
 
@@ -474,6 +534,77 @@ async fn upload_file(
     }
 
     info!("Upload complete: source_id={}, file={}, hash={}", source_id, original_filename, file_hash);
+
+    // ─── Post-upload: trigger extraction in background ───────────────────────
+    {
+        let pool_bg = pool.clone();
+        let src_type = source_type.clone();
+        let src_name = name.clone();
+        let s3_key_bg = s3_key.clone();
+        let st_mode = storage_mode.clone();
+        let tenant = tenant_id.to_string();
+        let src_id = source_id as i64;
+
+        tokio::spawn(async move {
+            info!("Auto-extraction triggered for source_id={}", src_id);
+
+            // Build a lightweight DataSource for extraction
+            let ds = DataSource {
+                id: src_id,
+                tenant_id: tenant,
+                name: src_name.clone(),
+                source_type: src_type,
+                config_json: json!({}),
+                schedule: None,
+                last_sync_status: Some("RUNNING".to_string()),
+                last_sync_at: None,
+                created_at: None,
+                updated_at: None,
+                raw_markdown: None,
+                mb_size: None,
+                total_chunks: None,
+                storage_mode: Some(st_mode),
+                s3_key: Some(s3_key_bg),
+                file_hash: None,
+            };
+
+            // Update status to RUNNING
+            let _ = sqlx::query("UPDATE data_sources SET last_sync_status = 'RUNNING' WHERE id = ?")
+                .bind(src_id)
+                .execute(&pool_bg)
+                .await;
+
+            match IngressManager::process_source_with_data(&ds, &data) {
+                Ok(raw_text) => {
+                    let mb = raw_text.len() as f64 / 1_048_576.0;
+                    let chunks = (raw_text.len() as f64 / 500.0).ceil() as i32;
+                    info!("Auto-extraction completed for {} ({}): {} bytes", src_name, src_id, raw_text.len());
+                    let _ = sqlx::query(
+                        "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    )
+                    .bind(&raw_text)
+                    .bind(mb)
+                    .bind(chunks)
+                    .bind(src_id)
+                    .execute(&pool_bg)
+                    .await
+                    .map_err(|e| error!("Failed to update source {} to COMPLETED: {}", src_id, e));
+                },
+                Err(e) => {
+                    let err_msg = format!("{}", e);
+                    error!("Auto-extraction failed for {} ({}): {}", src_name, src_id, err_msg);
+                    let _ = sqlx::query(
+                        "UPDATE data_sources SET last_sync_status = 'FAILED', raw_markdown = ? WHERE id = ?"
+                    )
+                    .bind(&err_msg)
+                    .bind(src_id)
+                    .execute(&pool_bg)
+                    .await
+                    .map_err(|e| error!("Failed to update source {} to FAILED: {}", src_id, e));
+                }
+            }
+        });
+    }
 
     Ok((StatusCode::CREATED, Json(json!({
         "message": "File uploaded successfully",
