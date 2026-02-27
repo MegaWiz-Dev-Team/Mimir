@@ -15,6 +15,7 @@ const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 52,428,800 bytes
 /// with domain-specific whitelists via `get_domain_connector()`.
 const ALLOWED_EXTENSIONS: &[&str] = &[
     "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc",
+    "pptx", "ppt",
     "json", "md", "html", "htm", "xml", "yaml", "yml",
     "png", "jpg", "jpeg", "dicom", "dcm",
 ];
@@ -86,7 +87,7 @@ pub fn detect_source_type(filename: &str) -> &str {
         .to_lowercase();
 
     match ext.as_str() {
-        "pdf" | "docx" | "doc" | "txt" | "md" | "html" | "htm" => "document",
+        "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt" | "md" | "html" | "htm" => "document",
         "csv" | "xlsx" | "xls" => "tabular",
         "json" | "yaml" | "yml" | "xml" => "structured",
         "png" | "jpg" | "jpeg" | "dicom" | "dcm" => "image",
