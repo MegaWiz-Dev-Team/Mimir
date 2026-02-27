@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { Globe, FileText, FileSpreadsheet, Plug } from "lucide-react";
+import { Globe, Upload, Plug } from "lucide-react";
 
-export type IngressType = "web" | "document" | "tabular" | "mcp";
+export type IngressType = "web" | "file" | "mcp";
 
 interface IngressOption {
     type: IngressType;
@@ -14,22 +14,16 @@ interface IngressOption {
 
 const OPTIONS: IngressOption[] = [
     {
+        type: "file",
+        icon: <Upload className="w-8 h-8 text-blue-500" />,
+        title: "File Upload",
+        description: "Upload any file — type auto-detected (PDF, CSV, XLSX, JSON, images)",
+    },
+    {
         type: "web",
-        icon: <Globe className="w-8 h-8 text-blue-500" />,
+        icon: <Globe className="w-8 h-8 text-green-500" />,
         title: "Web Scraper",
         description: "Fetch and extract content from a URL",
-    },
-    {
-        type: "document",
-        icon: <FileText className="w-8 h-8 text-orange-500" />,
-        title: "Document Upload",
-        description: "Upload PDF, DOCX, or text files",
-    },
-    {
-        type: "tabular",
-        icon: <FileSpreadsheet className="w-8 h-8 text-green-500" />,
-        title: "Tabular Data",
-        description: "Upload CSV or Excel spreadsheets",
     },
     {
         type: "mcp",
@@ -46,12 +40,12 @@ interface IngressTypeSelectorProps {
 export function IngressTypeSelector({ onSelect }: IngressTypeSelectorProps) {
     return (
         <div className="grid grid-cols-2 gap-4">
-            {OPTIONS.map((option) => (
+            {OPTIONS.map((option, index) => (
                 <button
                     key={option.type}
                     type="button"
                     onClick={() => onSelect(option.type)}
-                    className="flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-border bg-card hover:border-primary hover:bg-accent/50 transition-all duration-200 cursor-pointer text-center group"
+                    className={`flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-border bg-card hover:border-primary hover:bg-accent/50 transition-all duration-200 cursor-pointer text-center group ${index === 0 ? 'col-span-2' : ''}`}
                 >
                     <div className="p-3 rounded-full bg-muted group-hover:bg-background transition-colors">
                         {option.icon}

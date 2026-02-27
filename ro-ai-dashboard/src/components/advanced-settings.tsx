@@ -20,8 +20,8 @@ interface AdvancedSettingsProps {
 
 export function AdvancedSettings({ ingressType, domain, settings, onSettingsChange }: AdvancedSettingsProps) {
     const showOcr = domain === "medical";
-    const showTabularSettings = ingressType === "tabular";
-    const showPdfSettings = ingressType === "document";
+    const showTabularSettings = ingressType === "file";
+    const showPdfSettings = ingressType === "file";
 
     return (
         <Accordion type="single" collapsible defaultValue="advanced">

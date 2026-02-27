@@ -5,7 +5,7 @@ import { AdvancedSettings } from './advanced-settings';
 
 describe('AdvancedSettings', () => {
     const defaultProps = {
-        ingressType: 'document' as const,
+        ingressType: 'file' as const,
         settings: {
             ocrEnabled: false,
             useHeaderRow: true,

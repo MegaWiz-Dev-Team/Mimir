@@ -617,7 +617,7 @@ export interface DataSource {
     id: number;
     tenant_id: string;
     name: string;
-    source_type: 'web' | 'tabular' | 'document' | 'mcp';
+    source_type: 'web' | 'tabular' | 'document' | 'mcp' | 'file';
     config_json: any;
     schedule: string | null;
     last_sync_status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | null;
