@@ -611,6 +611,80 @@ export async function updateTenant(id: string, name: string): Promise<void> {
     if (!res.ok) throw new Error("Failed to update tenant");
 }
 
+// ─── Dashboard Stats API ──────────────────────────────────────────────────
+
+export interface SourceHealth {
+    healthy: number;
+    failed: number;
+    pending: number;
+    running: number;
+}
+
+export interface StatsResponse {
+    total_sources: number;
+    total_chunks: number;
+    qa_pairs: number;
+    vector_coverage: number;
+    source_health: SourceHealth;
+}
+
+export async function fetchStats(): Promise<StatsResponse> {
+    const res = await authFetch(`${API_BASE_URL}/stats`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch stats");
+    return res.json();
+}
+
+export async function syncAllSources(): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/sources/sync-all`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to sync all sources");
+    return res.json();
+}
+
+// ─── Chunks API ───────────────────────────────────────────────────────────
+
+export interface ChunkItem {
+    id: number;
+    source_id: number;
+    source_name: string;
+    chunk_index: number;
+    content: string;
+    token_count: number | null;
+    metadata_json: any;
+    created_at: string | null;
+}
+
+export interface ChunkListResponse {
+    chunks: ChunkItem[];
+    total: number;
+    page: number;
+    per_page: number;
+}
+
+export async function fetchChunks(params?: {
+    source_id?: number;
+    search?: string;
+    page?: number;
+    per_page?: number;
+}): Promise<ChunkListResponse> {
+    const query = new URLSearchParams();
+    if (params?.source_id) query.set("source_id", String(params.source_id));
+    if (params?.search) query.set("search", params.search);
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.per_page) query.set("per_page", String(params.per_page));
+    const qs = query.toString();
+    const res = await authFetch(`${API_BASE_URL}/chunks${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch chunks");
+    return res.json();
+}
+
+export async function fetchChunk(id: number): Promise<ChunkItem> {
+    const res = await authFetch(`${API_BASE_URL}/chunks/${id}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch chunk");
+    return res.json();
+}
+
 // ─── Data Sources Ingress API ─────────────────────────────────────────────
 
 export interface DataSource {
@@ -657,6 +731,29 @@ export async function syncSource(id: number): Promise<void> {
         method: "POST",
     });
     if (!res.ok) throw new Error("Failed to trigger sequence sync");
+}
+
+export interface AiExtractResponse {
+    content: string;
+    tokens_used: number;
+    model: string;
+}
+
+export async function extractWithAi(
+    sourceId: number,
+    model: string,
+    outputFormat: string
+): Promise<AiExtractResponse> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/extract-ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, output_format: outputFormat }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || "AI extraction failed");
+    }
+    return res.json();
 }
 
 export async function fetchSource(id: number): Promise<DataSource | null> {
@@ -726,3 +823,5 @@ export async function getFeatureFlags(domain?: string): Promise<FeatureFlags> {
     }
     return res.json();
 }
+
+

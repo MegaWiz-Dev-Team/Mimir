@@ -6,10 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
     Building2, Save, Settings2, Bot, Workflow, Share2,
-    Search, Shield, Lock
+    Search, Shield, Lock, Users, Layers, Plus, Trash2, RefreshCw
 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
-import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, Tenant, TenantConfig } from "@/lib/api";
+import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, Tenant, TenantConfig, User, CreateTenantRequest } from "@/lib/api";
 
 // ─── Tab Definitions ────────────────────────────────────────────────────────────
 
@@ -20,6 +23,8 @@ const TABS = [
     { id: "knowledge-graph", label: "Knowledge Graph", icon: Share2 },
     { id: "search", label: "Search", icon: Search },
     { id: "security", label: "Security", icon: Shield },
+    { id: "tenants", label: "Tenants", icon: Layers },
+    { id: "users", label: "Users", icon: Users },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -41,15 +46,30 @@ export default function SettingsPage() {
     const [chunkOverlap, setChunkOverlap] = useState(50);
     const [dedupThreshold, setDedupThreshold] = useState(0);
 
+    // Search settings (local state)
+    const [embeddingModel, setEmbeddingModel] = useState("nomic-embed-text");
+    const [topK, setTopK] = useState(5);
+    const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
+    const [searchMode, setSearchMode] = useState("hybrid");
+
     useEffect(() => {
         loadData();
     }, []);
+
+    // Tenants & Users state
+    const [allTenants, setAllTenants] = useState<Tenant[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [showCreateTenantDialog, setShowCreateTenantDialog] = useState(false);
+    const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
+    const [newTenant, setNewTenant] = useState({ name: "", admin_email: "", admin_password: "", is_dedicated_vector_db: false });
+    const [newUser, setNewUser] = useState({ username: "", password: "", tenant_id: "", role: "viewer" });
 
     const loadData = async () => {
         setIsLoading(true);
         try {
             const tenantsData = await fetchTenants();
             setTenants(tenantsData);
+            setAllTenants(tenantsData);
 
             if (tenantsData.length > 0) {
                 const firstTenant = tenantsData[0];
@@ -62,6 +82,14 @@ export default function SettingsPage() {
                 } catch (err) {
                     console.warn("[Settings] Failed to load tenant config:", err);
                 }
+            }
+
+            // Load users
+            try {
+                const usersData = await fetchUsers();
+                setAllUsers(usersData);
+            } catch (err) {
+                console.warn("[Settings] Failed to load users:", err);
             }
         } catch (error) {
             console.warn("[Settings] Failed to load tenants:", error);
@@ -303,6 +331,91 @@ export default function SettingsPage() {
         </Card>
     );
 
+    const renderSearchTab = () => (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Search className="w-5 h-5" /> Search & Retrieval Settings</CardTitle>
+                <CardDescription>Configure embedding model, retrieval parameters, and search modes</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                <div className="grid gap-2">
+                    <label className="text-sm font-medium">Embedding Model</label>
+                    <select
+                        value={embeddingModel}
+                        onChange={(e) => setEmbeddingModel(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                        <option value="nomic-embed-text">nomic-embed-text (Ollama — local)</option>
+                        <option value="text-embedding-3-small">text-embedding-3-small (OpenAI)</option>
+                        <option value="text-embedding-3-large">text-embedding-3-large (OpenAI)</option>
+                        <option value="text-embedding-004">text-embedding-004 (Google)</option>
+                        <option value="bge-m3">bge-m3 (Ollama — multilingual)</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">Changing the model requires re-embedding all existing chunks</p>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                    <div className="grid gap-2">
+                        <label className="text-sm font-medium">Top-K Results</label>
+                        <Input
+                            type="number"
+                            min={1}
+                            max={50}
+                            value={topK}
+                            onChange={(e) => setTopK(parseInt(e.target.value) || 5)}
+                        />
+                        <p className="text-xs text-muted-foreground">Number of similar chunks to retrieve (1-50)</p>
+                    </div>
+                    <div className="grid gap-2">
+                        <label className="text-sm font-medium">Similarity Threshold</label>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={similarityThreshold * 100}
+                                onChange={(e) => setSimilarityThreshold(parseInt(e.target.value) / 100)}
+                                className="flex-1 h-2 bg-gray-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+                            />
+                            <span className="text-sm font-mono w-12 text-right">{similarityThreshold.toFixed(2)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Minimum similarity score for results (0.0-1.0)</p>
+                    </div>
+                </div>
+                <div className="grid gap-2">
+                    <label className="text-sm font-medium">Search Mode</label>
+                    <div className="grid grid-cols-3 gap-3">
+                        {["semantic", "hybrid", "keyword"].map((mode) => (
+                            <button
+                                key={mode}
+                                onClick={() => setSearchMode(mode)}
+                                className={`p-3 rounded-lg border text-sm font-medium capitalize transition-colors ${searchMode === mode
+                                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
+                                        : "border-border hover:bg-muted"
+                                    }`}
+                            >
+                                {mode === "semantic" && "🧠 "}
+                                {mode === "hybrid" && "🔀 "}
+                                {mode === "keyword" && "🔤 "}
+                                {mode}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        {searchMode === "semantic" && "Pure vector similarity search using embeddings"}
+                        {searchMode === "hybrid" && "Combines vector search, graph search, and SQL — best coverage"}
+                        {searchMode === "keyword" && "Full-text keyword matching — fastest but least flexible"}
+                    </p>
+                </div>
+                <div className="pt-4 border-t">
+                    <Button disabled className="opacity-50">
+                        <Save className="w-4 h-4 mr-2" /> Save Settings
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">⏳ Backend persistence coming in Sprint 12</p>
+                </div>
+            </CardContent>
+        </Card>
+    );
+
     const renderComingSoonTab = (icon: React.ElementType, title: string, sprint: string) => {
         const Icon = icon;
         return (
@@ -322,6 +435,130 @@ export default function SettingsPage() {
         );
     };
 
+    const renderTenantsTab = () => (
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <Layers className="w-5 h-5 text-primary" />
+                        Tenant Management
+                    </CardTitle>
+                    <CardDescription>Create and manage organization tenants.</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => setShowCreateTenantDialog(true)}>
+                    <Plus className="w-4 h-4 mr-1" /> Create Tenant
+                </Button>
+            </CardHeader>
+            <CardContent>
+                {isLoading ? (
+                    <div className="py-4 text-center text-muted-foreground">Loading...</div>
+                ) : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Name</TableHead>
+                                <TableHead>ID</TableHead>
+                                <TableHead>Created</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {allTenants.map((t) => (
+                                <TableRow key={t.id}>
+                                    <TableCell className="font-medium">{t.name}</TableCell>
+                                    <TableCell className="font-mono text-xs text-muted-foreground">{t.id.substring(0, 12)}...</TableCell>
+                                    <TableCell className="text-sm" suppressHydrationWarning>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}</TableCell>
+                                    <TableCell className="text-right">
+                                        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700"
+                                            onClick={async () => {
+                                                if (!confirm(`Delete tenant "${t.name}"? This cannot be undone.`)) return;
+                                                try {
+                                                    await deleteTenant(t.id);
+                                                    loadData();
+                                                } catch (err) { alert("Failed to delete tenant"); }
+                                            }}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                            {allTenants.length === 0 && (
+                                <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No tenants found.</TableCell></TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                )}
+            </CardContent>
+        </Card>
+    );
+
+    const renderUsersTab = () => (
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <Users className="w-5 h-5 text-primary" />
+                        User Management
+                    </CardTitle>
+                    <CardDescription>Create and manage platform users.</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => {
+                    if (allTenants.length > 0) setNewUser(prev => ({ ...prev, tenant_id: allTenants[0].id }));
+                    setShowCreateUserDialog(true);
+                }}>
+                    <Plus className="w-4 h-4 mr-1" /> Create User
+                </Button>
+            </CardHeader>
+            <CardContent>
+                {isLoading ? (
+                    <div className="py-4 text-center text-muted-foreground">Loading...</div>
+                ) : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Username</TableHead>
+                                <TableHead>ID</TableHead>
+                                <TableHead>Tenant</TableHead>
+                                <TableHead>Role</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {allUsers.map((u) => (
+                                <TableRow key={u.id}>
+                                    <TableCell className="font-medium">{u.username}</TableCell>
+                                    <TableCell className="font-mono text-xs text-muted-foreground">{u.id.substring(0, 12)}...</TableCell>
+                                    <TableCell className="text-sm">{allTenants.find(t => t.id === u.tenant_id)?.name || u.tenant_id?.substring(0, 8) || "—"}</TableCell>
+                                    <TableCell>
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${u.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 dark:bg-zinc-800 dark:text-zinc-400"
+                                            }`}>{u.role || "viewer"}</span>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700"
+                                            onClick={async () => {
+                                                if (!confirm(`Delete user "${u.username}"?`)) return;
+                                                try {
+                                                    await deleteUser(u.id);
+                                                    loadData();
+                                                } catch (err) { alert("Failed to delete user"); }
+                                            }}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                            {allUsers.length === 0 && (
+                                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No users found.</TableCell></TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                )}
+            </CardContent>
+        </Card>
+    );
+
     const renderTabContent = () => {
         switch (activeTab) {
             case "general":
@@ -333,9 +570,13 @@ export default function SettingsPage() {
             case "knowledge-graph":
                 return renderComingSoonTab(Share2, "Knowledge Graph Settings", "Sprint 11");
             case "search":
-                return renderComingSoonTab(Search, "Search & Vector DB Settings", "Sprint 10");
+                return renderSearchTab();
             case "security":
                 return renderComingSoonTab(Shield, "Security & Access Settings", "Sprint 14");
+            case "tenants":
+                return renderTenantsTab();
+            case "users":
+                return renderUsersTab();
             default:
                 return null;
         }
@@ -362,8 +603,8 @@ export default function SettingsPage() {
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
                                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive
-                                            ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm"
-                                            : "text-gray-600 hover:bg-gray-50 dark:text-zinc-400 dark:hover:bg-zinc-800/50"
+                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm"
+                                        : "text-gray-600 hover:bg-gray-50 dark:text-zinc-400 dark:hover:bg-zinc-800/50"
                                         }`}
                                 >
                                     <Icon className={`w-4 h-4 ${isActive ? "text-blue-600 dark:text-blue-400" : ""}`} />
@@ -379,6 +620,98 @@ export default function SettingsPage() {
                     {renderTabContent()}
                 </div>
             </div>
+
+            {/* ═══ Create Tenant Dialog ═══ */}
+            <Dialog open={showCreateTenantDialog} onOpenChange={setShowCreateTenantDialog}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Create New Tenant</DialogTitle>
+                        <DialogDescription>Create a new organization tenant with an admin user.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Tenant Name</Label>
+                            <Input placeholder="e.g. MegaCare" value={newTenant.name} onChange={e => setNewTenant({ ...newTenant, name: e.target.value })} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Admin Username</Label>
+                            <Input placeholder="e.g. admin@megacare.com" value={newTenant.admin_email} onChange={e => setNewTenant({ ...newTenant, admin_email: e.target.value })} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Admin Password</Label>
+                            <Input type="password" placeholder="Min 6 characters" value={newTenant.admin_password} onChange={e => setNewTenant({ ...newTenant, admin_password: e.target.value })} />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input type="checkbox" id="dedicatedVdb" checked={newTenant.is_dedicated_vector_db} onChange={e => setNewTenant({ ...newTenant, is_dedicated_vector_db: e.target.checked })} className="w-4 h-4" />
+                            <Label htmlFor="dedicatedVdb" className="text-sm">Dedicated Vector DB</Label>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowCreateTenantDialog(false)}>Cancel</Button>
+                        <Button disabled={!newTenant.name || !newTenant.admin_email} onClick={async () => {
+                            try {
+                                await createTenant(newTenant as CreateTenantRequest);
+                                setShowCreateTenantDialog(false);
+                                setNewTenant({ name: "", admin_email: "", admin_password: "", is_dedicated_vector_db: false });
+                                loadData();
+                            } catch (err) { alert("Failed to create tenant"); }
+                        }}>Create</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ═══ Create User Dialog ═══ */}
+            <Dialog open={showCreateUserDialog} onOpenChange={setShowCreateUserDialog}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Create New User</DialogTitle>
+                        <DialogDescription>Add a user to an existing tenant.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Username</Label>
+                            <Input placeholder="e.g. john_doe" value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Password</Label>
+                            <Input type="password" placeholder="Min 6 characters" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Tenant</Label>
+                            <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={newUser.tenant_id}
+                                onChange={e => setNewUser({ ...newUser, tenant_id: e.target.value })}
+                            >
+                                {allTenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Role</Label>
+                            <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={newUser.role}
+                                onChange={e => setNewUser({ ...newUser, role: e.target.value })}
+                            >
+                                <option value="admin">Admin</option>
+                                <option value="editor">Editor</option>
+                                <option value="viewer">Viewer</option>
+                            </select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowCreateUserDialog(false)}>Cancel</Button>
+                        <Button disabled={!newUser.username || !newUser.tenant_id} onClick={async () => {
+                            try {
+                                await createUser({ username: newUser.username, password: newUser.password || undefined, tenant_id: newUser.tenant_id, role: newUser.role });
+                                setShowCreateUserDialog(false);
+                                setNewUser({ username: "", password: "", tenant_id: allTenants[0]?.id || "", role: "viewer" });
+                                loadData();
+                            } catch (err) { alert("Failed to create user"); }
+                        }}>Create</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
