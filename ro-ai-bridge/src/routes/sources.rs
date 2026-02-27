@@ -1,6 +1,6 @@
 use axum::{
     routing::{get, post, put, delete},
-    Router, Json, Extension, extract::{Path, State},
+    Router, Json, Extension, extract::{Path, State, Query},
     http::StatusCode,
     response::sse::{Event, Sse},
 };
@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
 use mimir_core_ai::services::chunking;
+use mimir_core_ai::services::link_discovery;
 use s3::creds::Credentials;
 use s3::Bucket;
 use s3::Region;
@@ -26,6 +27,7 @@ pub fn sources_routes() -> Router<DbPool> {
     Router::new()
         .route("/", get(list_sources).post(create_source))
         .route("/upload", post(upload_file))
+        .route("/preview", get(preview_url))
         .route("/{id}", put(update_source).delete(delete_source))
         .route("/{id}/sync", post(sync_source))
         .route("/{id}/logs", get(stream_logs))
@@ -253,6 +255,39 @@ async fn sync_source(
                     .map_err(|e| error!("Failed to insert chunk {} for source {}: {}", cr.chunk_index, id, e));
                 }
 
+                // ─── Link Discovery for web sources ─────────────────
+                if source_clone.source_type == "web" {
+                    let content_hash = link_discovery::compute_content_hash(&raw_text);
+                    let source_url = source_clone.config_json.get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    // Record the main page
+                    let _ = sqlx::query(
+                        "INSERT INTO crawled_pages (source_id, url, status, content_hash, last_crawled_at) VALUES (?, ?, 'crawled', ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE status = 'crawled', content_hash = VALUES(content_hash), last_crawled_at = CURRENT_TIMESTAMP"
+                    )
+                    .bind(id)
+                    .bind(source_url)
+                    .bind(&content_hash)
+                    .execute(&pool_clone)
+                    .await
+                    .map_err(|e| error!("Failed to insert crawled_page for source {}: {}", id, e));
+
+                    // Discover linked pages (same domain, max 50)
+                    let discovered = link_discovery::discover_links(&raw_text, source_url, 50);
+                    info!("Discovered {} links for source {}", discovered.len(), id);
+
+                    for link in &discovered {
+                        let _ = sqlx::query(
+                            "INSERT IGNORE INTO crawled_pages (source_id, url, status) VALUES (?, ?, 'pending')"
+                        )
+                        .bind(id)
+                        .bind(&link.url)
+                        .execute(&pool_clone)
+                        .await
+                        .map_err(|e| error!("Failed to insert discovered link for source {}: {}", id, e));
+                    }
+                }
                 let _ = sqlx::query!(
                     "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
                     raw_text,
@@ -314,6 +349,37 @@ async fn stream_logs(
             .interval(Duration::from_secs(15))
             .text("keep-alive-text"),
     )
+}
+
+// ─── URL Preview ───────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PreviewQuery {
+    url: String,
+}
+
+/// GET /api/v1/sources/preview?url=https://example.com
+///
+/// Returns OG metadata preview (title, description, image, favicon).
+async fn preview_url(
+    Query(params): Query<PreviewQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    info!("Preview requested for: {}", params.url);
+
+    let preview = link_discovery::fetch_url_preview(&params.url).await
+        .map_err(|e| {
+            error!("Preview failed for {}: {}", params.url, e);
+            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Failed to preview URL: {}", e)})))
+        })?;
+
+    Ok(Json(json!({
+        "url": preview.url,
+        "domain": preview.domain,
+        "title": preview.title,
+        "description": preview.description,
+        "image": preview.image,
+        "favicon": preview.favicon
+    })))
 }
 
 // ─── S3 Helpers ────────────────────────────────────────────────────────────────
