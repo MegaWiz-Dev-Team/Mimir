@@ -15,6 +15,7 @@ use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::models::sources::{DataSource, CreateDataSourceRequest, UpdateDataSourceRequest};
 use mimir_core_ai::services::upload::{validate_extension, validate_file_size, build_s3_key, compute_file_hash, detect_source_type};
 use serde_json::{json, Value};
+use serde::Deserialize;
 use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
 use mimir_core_ai::services::chunking;

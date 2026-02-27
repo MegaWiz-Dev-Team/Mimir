@@ -8,7 +8,7 @@ use axum::{
 };
 use sqlx::MySqlPool;
 use std::sync::Arc;
-use ro_ai_bridge::config::Config;
+use crate::config::Config;
 
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::models::iam::{
