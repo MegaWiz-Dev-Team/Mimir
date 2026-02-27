@@ -2,7 +2,7 @@
 
 **Project Name:** Project Mimir
 **Sprint:** Sprint 10
-**Status:** In Progress
+**Status:** ✅ Completed
 **Date:** 2026-02-27
 
 ---
@@ -63,20 +63,21 @@
 
 ## 3. GitHub Synchronization & Traceability
 ### Issues
-| Issue # | Title                                                                        | Status  |
-| ------- | ---------------------------------------------------------------------------- | ------- |
-| #115    | Feat: Redesign Overview page — Knowledge Hub Dashboard                       | 🔧 Fixed |
-| #116    | Feat: Knowledge Base Page — chunk browser with search & filter               | 🔧 Fixed |
-| #117    | Feat: Search Settings Tab — embedding model, top-k, similarity threshold     | 🔧 Fixed |
-| #118    | Fix: Dashboard UX — KPI fallback, redundant pills, mixed language            | 🔧 Fixed |
-| #119    | Fix: Pipeline Status Table — alignment, empty states, clickable source names | 🔧 Fixed |
-| #120    | Fix: Global Pipeline Status bar — data mismatch, inconsistent stage names    | 🔧 Fixed |
-| #114    | Test: E2E browser testing for Add Source wizard                              | 🔓 Open  |
+| Issue # | Title                                                                        | Status   |
+| ------- | ---------------------------------------------------------------------------- | -------- |
+| #115    | Feat: Redesign Overview page — Knowledge Hub Dashboard                       | 🔧 Fixed  |
+| #116    | Feat: Knowledge Base Page — chunk browser with search & filter               | 🔧 Fixed  |
+| #117    | Feat: Search Settings Tab — embedding model, top-k, similarity threshold     | 🔧 Fixed  |
+| #118    | Fix: Dashboard UX — KPI fallback, redundant pills, mixed language            | 🔧 Fixed  |
+| #119    | Fix: Pipeline Status Table — alignment, empty states, clickable source names | 🔧 Fixed  |
+| #120    | Fix: Global Pipeline Status bar — data mismatch, inconsistent stage names    | 🔧 Fixed  |
+| #114    | Test: E2E browser testing for Add Source wizard                              | ✅ Closed |
 
 ### Pull Requests
-| PR # | Title                          | Status  |
-| ---- | ------------------------------ | ------- |
-| —    | Sprint 10 changes (pending PR) | Pending |
+| PR # | Title                                                                 | Status   |
+| ---- | --------------------------------------------------------------------- | -------- |
+| #130 | feat: Sprint 10/11 — Dashboard, Knowledge Base, Search, Pipeline, ISO | ✅ Merged |
+| #131 | test: Sprint 10 E2E browser testing — 6/6 PASS                        | ✅ Merged |
 
 ## 4. รายละเอียดการเปลี่ยนแปลง (Changes Detail)
 
@@ -93,7 +94,7 @@
 4. **`src/components/dashboard/SourceHealth.tsx`** — Donut chart with recharts
 5. **`src/components/dashboard/PipelineStatusTable.tsx`** — Rewritten: center-aligned icons, gray ○ for pending, 🔒 for locked, clickable names, type badges, summary
 6. **`src/components/dashboard/QuickActions.tsx`** — Add Source, Sync All, Open Playground
-7. **`src/components/pipeline-status-bar.tsx`** — Rewritten: consistent stage names (Sources→Ingested→Chunked→QA Ready→Vectorized), real data from sources API
+7. **`src/components/pipeline-status-bar.tsx`** — Rewritten: consistent stage names (Sources→Chunks→Dedup→QA→Vector), real data from sources API
 8. **`src/components/navbar.tsx`** — Tenant dropdown now uses `fetchTenants()` API instead of hardcoded values
 9. **`src/app/knowledge/page.tsx`** — New: Knowledge Base page with chunk browser
 10. **`src/app/settings/page.tsx`** — Search tab with Embedding Model, Top-K, Similarity Threshold, Search Mode
@@ -117,12 +118,13 @@
    - *แก้ปัญหา:* ตั้งเป็น 0% เพราะ vectorization ยังไม่ implement
 
 ## 6. Sprint 11 Planning
-| Issue # | Title                                                   | Priority |
-| ------- | ------------------------------------------------------- | -------- |
-| #114    | E2E browser testing for Add Source wizard (all options) | High     |
-| —       | Knowledge Graph settings implementation                 | Medium   |
-| —       | Coverage Analytics page                                 | Medium   |
-| —       | Search settings persistence (backend)                   | Low      |
+| Issue # | Title                                                 | Priority |
+| ------- | ----------------------------------------------------- | -------- |
+| #121    | File upload wizard — remove selected files            | ✅ Done   |
+| #122    | CSV sync fix — "Unsupported source type: file"        | ✅ Done   |
+| #123    | Ingress Console — source-type-aware polling logs      | ✅ Done   |
+| #124    | Legacy Office formats (.doc, .xls, .ppt)              | 🔓 Open   |
+| #125    | LLM fallback extraction — AI-powered document reading | ✅ Done   |
 
 ---
 *บันทึกโดย: AI Assistant (ตามมาตรฐาน ISO/IEC 29110 หมวด PM-02)*
