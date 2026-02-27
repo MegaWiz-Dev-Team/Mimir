@@ -1,9 +1,11 @@
 use axum::{
     routing::{get, post, put, delete},
-    Router, Json, extract::{Path, State},
+    Router, Json, Extension, extract::{Path, State},
     http::StatusCode,
     response::sse::{Event, Sse},
 };
+use std::sync::Arc;
+use crate::config::Config;
 use axum_extra::extract::Multipart;
 use tokio::time::sleep;
 use std::time::Duration;
@@ -265,29 +267,23 @@ async fn stream_logs(
 
 // ─── Upload Handler ────────────────────────────────────────────────────────────
 
-/// Helper to create an S3 bucket client from environment variables.
-fn create_s3_bucket() -> Result<Box<Bucket>, (StatusCode, Json<Value>)> {
-    let endpoint = std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string());
-    let bucket_name = std::env::var("S3_BUCKET").unwrap_or_else(|_| "mimir-tenant-uploads".to_string());
-    let access_key = std::env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string());
-    let secret_key = std::env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string());
-    let region_name = std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-
+/// Helper to create an S3 bucket client from centralized Config.
+fn create_s3_bucket(config: &Config) -> Result<Box<Bucket>, (StatusCode, Json<Value>)> {
     let region = Region::Custom {
-        region: region_name,
-        endpoint,
+        region: config.s3_region.clone(),
+        endpoint: config.s3_endpoint.clone(),
     };
 
     let credentials = Credentials::new(
-        Some(&access_key),
-        Some(&secret_key),
+        Some(&config.s3_access_key),
+        Some(&config.s3_secret_key),
         None, None, None,
     ).map_err(|e| {
         error!("Failed to create S3 credentials: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "S3 configuration error"})))
     })?;
 
-    let bucket = Bucket::new(&bucket_name, region, credentials)
+    let bucket = Bucket::new(&config.s3_bucket, region, credentials)
         .map_err(|e| {
             error!("Failed to create S3 bucket client: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "S3 bucket configuration error"})))
@@ -306,6 +302,7 @@ fn create_s3_bucket() -> Result<Box<Bucket>, (StatusCode, Json<Value>)> {
 /// - `storage_mode`: "markdown" | "sql" (optional, defaults to "markdown")
 /// - `folder_path`: String (optional, for folder upload)
 async fn upload_file(
+    Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
@@ -443,7 +440,7 @@ async fn upload_file(
     let s3_key = build_s3_key(tenant_id, &source_id.to_string(), &folder_path, &original_filename);
 
     // Attempt S3 upload
-    match create_s3_bucket() {
+    match create_s3_bucket(&config) {
         Ok(bucket) => {
             match bucket.put_object(&s3_key, &data).await {
                 Ok(response) => {

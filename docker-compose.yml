@@ -20,7 +20,7 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: ro_landverse
+      MYSQL_DATABASE: mimir
       MYSQL_USER: mimir
       MYSQL_PASSWORD: REDACTED-PW
     volumes:
@@ -48,6 +48,19 @@ services:
     #   resources:
     #     limits:
     #       memory: 2G
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: mimir_rustfs
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs_data:/data
+    environment:
+      RUSTFS_ROOT_USER: minioadmin
+      RUSTFS_ROOT_PASSWORD: minioadmin
+    restart: always
 
   rathena-login:
     build:
@@ -102,6 +115,7 @@ services:
 
 volumes:
   qdrant_storage:
+  rustfs_data:
 
 
 networks:
