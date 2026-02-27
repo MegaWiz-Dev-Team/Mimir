@@ -1,88 +1,151 @@
-# 🏺 Project-Mimir
-## Ragnarok Online: AI-Native Evolution
+# 🏺 Project Mimir
 
-> **Project-Mimir (มิเมียร์):** ในตำนานนอร์ส Mimir คือเทพแห่งความรู้และสติปัญญา และเป็นผู้รักษาบ่อน้ำศักดิ์สิทธิ์ (Mímisbrunnr) โครงการนี้จึงมีเป้าหมายเพื่อสร้าง "บ่อน้ำแห่งความรู้" ให้กับโลกของ Ragnarok Online ผ่านระบบ AI Agentic Architecture
+> **Mimir (มิเมียร์):** ในตำนานนอร์ส Mimir คือเทพแห่งความรู้และสติปัญญา ผู้รักษาบ่อน้ำศักดิ์สิทธิ์ (Mímisbrunnr)
+> โครงการนี้จึงมีเป้าหมายเพื่อสร้าง **"บ่อน้ำแห่งความรู้"** — AI Core Platform ที่ใช้ได้กับทุกธุรกิจ
 
-Project-Mimir คือระบบ AI Middleware ที่ออกแบบมาเพื่อยกระดับประสบการณ์ผู้เล่นใน Ragnarok Online โดยการเปลี่ยน NPC แบบดั้งเดิมให้มีความฉลาด ตอบโต้ได้คล่องแคล่ว และช่วยดูแลเซิร์ฟเวอร์แบบอัตโนมัติ
+**Project Mimir** คือแพลตฟอร์ม AI แบบ Multi-Tenant ที่ครอบคลุมตั้งแต่ Data Ingestion → RAG Pipeline → Knowledge Graph → Multi-Agent → Model Training โดยเริ่มพัฒนาจากระบบ NPC อัจฉริยะสำหรับ Ragnarok Online แล้วขยายเป็น Domain-Agnostic AI Platform
 
 ---
 
-## 🚀 Key Modules
+## ✨ Features
 
-- **🏰 rAthena Integration:** ระบบ RO Server Emulator ที่ถูกปรับแต่งให้ทำงานร่วมกับ AI Agent แบบ End-to-End
-- **🎭 Generative NPC:** การเปลี่ยน NPC ให้มีชีวิตด้วยบุคลิก (Persona) เฉพาะตัว ตอบคำถามและทำ Action ในเกมได้จริง
-- **🔮 Oracle RAG Bot:** ระบบถาม-ตอบข้อมูลเกมอัจฉริยะ (Retrieval-Augmented Generation) ที่ดึงข้อมูลจาก Wiki และ Game Database
-- **🤖 AI Game Master:** ผู้ดูแลเซิร์ฟเวอร์ 24/7 ทำหน้าที่ตรวจจับพฤติกรรมผิดปกติ และสร้าง Event อัตโนมัติ
+### ✅ Implemented (Sprint 1-8)
+- 🔐 **Multi-Tenant IAM** — JWT auth, Argon2id password, role-based access
+- 📊 **Admin Dashboard** — Tenant switcher, user management, settings
+- 📥 **Unified Data Ingress** — File upload (PDF/CSV/XLSX/HTML), web scraper, MCP connector
+- 📁 **Smart Upload** — Auto-detect source type from file extension
+- 🗄️ **Dual-mode Tabular Import** — Markdown preview or SQL table creation
+- 🧪 **Quality Control** — LLM data clustering, conflict resolution Kanban
+- 🎯 **Agent Evaluations** — LLM-as-a-judge, heatmap scoring, human override
+- 🧭 **Pipeline Traceability** — Source → Vector → Answer end-to-end tracking
+- 🎮 **NPC Playground** — Tier 1 (simple chat) & Tier 2 (RAG) with streaming
+- 📡 **Real-time Monitoring** — WebSocket/SSE streaming logs
 
-## 📊 Presentation & Pitch
+### 🚧 Roadmap (Sprint 9-16)
+- 🔧 **Real Extraction Pipeline** — PDF/CSV/HTML extraction, configurable chunking
+- 🧠 **Embedding Service** — Multi-model (Ollama/Gemini/Qwen), pipeline lock
+- 🕸️ **Knowledge Graph** — Neo4j, LLM entity extraction, Sigma.js visualization
+- 🔍 **Hybrid Search** — Vector + Graph + SQL → merged context
+- 🤖 **Multi-Agent System** — Router Agent, Tool Registry, Synthesis Agent
+- 📈 **Coverage Intelligence** — ACU per source, blind-spot detection, closed-loop
+- 🏭 **AI Agent Studio** — No-code visual builder, templates, deploy API/widget
+- 📦 **Dataset Studio** — Export curated data as Alpaca/ShareGPT/DPO for fine-tuning
+- 🎓 **Training Integration** — Axolotl/Unsloth, MLflow tracking, Model Registry
 
-- **[Sales Deck: Project Mimir - AI-Native Evolution](https://docs.google.com/presentation/d/18Y9XRoT494pGA0wvd6oSRKrkrX8f9205RjT4a7R4nn8/edit?slide=id.SLIDES_API1144777460_45#slide=id.SLIDES_API1144777460_45)**
+---
 
-## 🛠 Technology Stack
+## 🛠 Tech Stack
 
-- **Server Emulator:** [rAthena](https://github.com/rathena/rathena) (C++)
-- **AI Backend:** Rust 🦀 (Axum + [Rig.rs](https://rig.rs))
-- **Frontend Admin:** Next.js (Tailwind CSS + Shadcn/UI)
-- **Local LLM Server:** Ollama (Llama 3.2 / Nomic Embed)
-- **Vector Database:** Qdrant
-- **Primary Database:** MariaDB
-- **Hardware Target:** Mac Air M3 / Mac mini M4 Pro
+| Layer                | Technology                                          |
+| -------------------- | --------------------------------------------------- |
+| **Backend**          | Rust 🦀 (Axum + [Rig.rs](https://rig.rs))            |
+| **Frontend**         | Next.js 14 + TailwindCSS + shadcn/ui                |
+| **Database**         | MariaDB (relational)                                |
+| **Vector DB**        | Qdrant (semantic search)                            |
+| **Graph DB**         | Neo4j Community (knowledge graph) — *Sprint 11*     |
+| **Graph Viz**        | Sigma.js + graphology (WebGL) — *Sprint 11*         |
+| **LLM Providers**    | Ollama (local), Google Gemini, Qwen API             |
+| **Embedding Models** | nomic-embed-text, text-embedding-004, bge-m3        |
+| **Game Server**      | [rAthena](https://github.com/rathena/rathena) (C++) |
+| **Infrastructure**   | Docker Compose                                      |
+| **Hardware Target**  | Mac Air M3 / Mac mini M4 Pro                        |
 
-## 🏗 System Architecture
+---
 
-โครงการนี้ใช้ **Hybrid Agent Architecture** แบ่งการทำงานเป็น 3 ระดับ (Tiers):
+## 🏗 Architecture
 
-1.  **Tier 1: Simple Agent (≤2s):** สำหรับ NPC Chat ทั่วไป เน้นความเร็ว
-2.  **Tier 2: RAG Agent (≤5s):** สำหรับ Oracle ที่ต้องค้นหาข้อมูลจาก Qdrant
-3.  **Tier 3: Background Agent:** สำหรับ AI GM วิเคราะห์พยาธิสภาพของเซิร์ฟเวอร์แบบ Real-time
+```
+┌─────────────────────┐     ┌──────────────────────────────────────────────┐
+│  ro-ai-dashboard    │     │  ro-ai-bridge (Rust)                         │
+│  (Next.js)          │────▶│                                              │
+│                     │ API │  ┌─────────┐  ┌──────────┐  ┌────────────┐  │
+│  • Overview         │     │  │ Ingress │→│ Extract  │→│ Chunk      │  │
+│  • Sources          │     │  │ Service │  │ Worker   │  │ Service    │  │
+│  • Knowledge        │     │  └─────────┘  └──────────┘  └─────┬──────┘  │
+│  • Quality Control  │     │                                    │         │
+│  • Playground       │     │              ┌─────────────────────┼───┐     │
+│  • Coverage         │     │              ▼                     ▼   │     │
+│  • Agent Studio     │     │  ┌──────────────┐  ┌──────────────┐   │     │
+│  • Admin Settings   │     │  │ Embed → Qdrant│  │ Entity→Neo4j │   │     │
+└─────────────────────┘     │  └──────────────┘  └──────────────┘   │     │
+                            │              │                     │   │     │
+┌─────────────────────┐     │              ▼                     ▼   │     │
+│  rathena            │     │  ┌─────────────────────────────────┐   │     │
+│  (C++ Game Server)  │────▶│  │ Router Agent → Tool Registry   │   │     │
+│  Login/Char/Map     │ NPC │  │ ├─ Vector Agent (Qdrant)       │   │     │
+└─────────────────────┘     │  │ ├─ SQL Agent    (MariaDB)      │   │     │
+                            │  │ └─ Graph Agent  (Neo4j)        │   │     │
+                            │  │ → Synthesis Agent → Answer     │   │     │
+                            │  └─────────────────────────────────┘   │     │
+                            └──────────────────────────────────────────────┘
+```
+
+### Agent Tiers
+| Tier       | Use Case              | Latency | Data Source          |
+| ---------- | --------------------- | ------- | -------------------- |
+| **Tier 1** | NPC Chat (simple)     | ≤2s     | LLM only             |
+| **Tier 2** | RAG Agent (knowledge) | ≤5s     | Qdrant + Neo4j + SQL |
+| **Tier 3** | Background Agent      | Async   | Server analytics     |
+
+---
 
 ## 📂 Project Structure
 
 ```
 Project-Mimir/
-├── rathena/                   # rAthena Server Emulator
-├── ro-ai-bridge/             # Rust AI Middleware & Data Pipeline
-├── ro-ai-dashboard/          # Next.js Management Web Interface
-├── docs/                      # Technical Documents (BRD, TRD, Plans)
-└── docker-compose.yml         # Full Stack Infrastructure
+├── ro-ai-bridge/              # 🦀 Rust AI Backend (Axum)
+│   ├── src/
+│   │   ├── routes/            # API endpoints (auth, sources, eval, chat...)
+│   │   └── services/          # Business logic (ingress, extraction, sql_import...)
+│   ├── Cargo.toml
+│   └── .env
+├── ro-ai-dashboard/           # ⚛️ Next.js Admin Dashboard
+│   ├── src/app/               # Pages (sources, playground, settings...)
+│   ├── src/components/        # UI components (shadcn/ui based)
+│   └── src/lib/               # API client, utils
+├── rathena/                   # 🎮 rAthena Game Server (C++)
+├── docs/
+│   ├── iso_29110/             # 📋 ISO 29110 Documents
+│   │   ├── pm/                # PM-01 Project Plan, PM-02 Sprint Reports
+│   │   └── si/                # SI-01 SRS, SI-02 SDD, SI-03 Traceability, SI-04 Tests
+│   └── ...
+├── tests/                     # 🧪 Integration tests
+├── docker-compose.yml         # 🐳 Full stack (MariaDB + Qdrant + rAthena)
+└── README.md
 ```
-
-## 🧑‍💻 Get Started
-
-### Infrastructure Control
-- **Start All**: `docker compose up -d`
-- **Stop All**: `docker compose stop`
-- **Shutdown (Remove)**: `docker compose down`
-- **Restart AI Backend**: `cd ro-ai-bridge && cargo run --bin monitor`
-
-### 📊 สถานะ Infrastructure ปัจจุบัน
-- **MariaDB** (Port 3306): รันอยู่, มีตาราง Monitor และ rAthena Schema แล้ว
-- **Qdrant** (Port 6333): รันอยู่, มี collection `wiki_qa` แล้ว
-- **rAthena**: รันอยู่ครบ 3 Server (Login, Char, Map) และเชื่อมต่อ Database สำเร็จ
-- **Ollama** (Port 11434): รันอยู่บน Host (Native macOS)
-
-### Start AI Ecosystem
-1.  **Start AI Backend**:
-    ```bash
-    cd ro-ai-bridge
-    cargo run --bin monitor
-    ```
-
-2.  **Start Dashboard**:
-    ```bash
-    cd ro-ai-dashboard
-    npm run dev
-    ```
 
 ---
 
-## 🎮 Connecting to Game Server
+## 🚀 Quick Start
 
-Server Status: **Online** (Login: 6900, Char: 6121, Map: 5121)
+### Prerequisites
+- Docker & Docker Compose
+- Rust (1.75+)
+- Node.js (18+)
+- Ollama (for local LLM)
 
-### 1. Client Configuration (`data/clientinfo.xml`)
-แก้ไขไฟล์ `clientinfo.xml` ในโฟลเดอร์ `data/` หรือ GRF ของตัวเข้าเกม:
+### 1. Start Infrastructure
+```bash
+docker compose up -d
+# MariaDB (3306) + Qdrant (6333) + rAthena (6900/6121/5121)
+```
 
+### 2. Start AI Backend
+```bash
+cd ro-ai-bridge
+cp .env.example .env        # Configure DB, Qdrant, LLM settings
+cargo run --bin monitor
+```
+
+### 3. Start Dashboard
+```bash
+cd ro-ai-dashboard
+npm install
+npm run dev                  # http://localhost:3000
+```
+
+### 4. Connect Game Client (Optional)
+Edit `data/clientinfo.xml`:
 ```xml
 <connection>
     <display>Project Mimir Local</display>
@@ -92,10 +155,51 @@ Server Status: **Online** (Login: 6900, Char: 6121, Map: 5121)
     <langtype>0</langtype>
 </connection>
 ```
-
-### 2. Test Accounts
-- **ID:** `test` / **Pass:** `test`
-- **Register:** เติม `_M` หรือ `_F` ท้าย ID เพื่อสมัครใหม่ (เช่น `user01_M`)
+Test account: `test` / `test`
 
 ---
-*Created with ❤️ for the Ragnarok Online community.*
+
+## 📋 Sprint Progress
+
+| Sprint | Theme                                      | Status    |
+| ------ | ------------------------------------------ | --------- |
+| 1      | Security Foundation & IAM                  | ✅ Done    |
+| 2      | Data Isolation & Vector Management         | ✅ Done    |
+| 3      | Tenant Configuration & Provisioning        | ✅ Done    |
+| 4      | Quality Control & Hallucination Prevention | ✅ Done    |
+| 5      | Data Ingress Monitoring                    | ✅ Done    |
+| 6      | Agent Evaluations System                   | ✅ Done    |
+| 7      | UX/UI Pipeline & Traceability              | ✅ Done    |
+| 8      | Unified Data Ingress & File Upload         | ✅ Done    |
+| 9      | Real Pipeline & Navigation                 | 📋 Planned |
+| 10     | Embedding & Vector Store                   | 📋 Planned |
+| 11     | Knowledge Graph & GraphRAG                 | 📋 Planned |
+| 12     | Multi-Agent & Coverage Intelligence        | 📋 Planned |
+| 13     | AI Agent Studio                            | 📋 Planned |
+| 14     | Production Ready                           | 📋 Planned |
+| 15     | Dataset Studio                             | 📋 Planned |
+| 16     | Training Integration                       | 📋 Planned |
+
+---
+
+## 📊 Presentation
+
+- **[Sales Deck: Project Mimir - AI-Native Evolution](https://docs.google.com/presentation/d/18Y9XRoT494pGA0wvd6oSRKrkrX8f9205RjT4a7R4nn8/edit?slide=id.SLIDES_API1144777460_45#slide=id.SLIDES_API1144777460_45)**
+
+## 📝 ISO 29110 Compliance
+
+โครงการนี้ปฏิบัติตามมาตรฐาน **ISO/IEC 29110** (Software Engineering for Very Small Entities):
+
+| Document | Description                                          |
+| -------- | ---------------------------------------------------- |
+| PM-01    | Project Plan (Sprint 1-16 roadmap)                   |
+| PM-02.x  | Sprint Reports (per sprint)                          |
+| SI-01    | Software Requirements Specification (REQ-001~016)    |
+| SI-02    | Software Design Document (architecture + subsystems) |
+| SI-03    | Traceability Matrix (requirements ↔ issues ↔ tests)  |
+| SI-04.x  | Test Scripts (per sprint)                            |
+| SI-05    | User Manual                                          |
+
+---
+
+*Created with ❤️ by Mega Wiz for the Ragnarok Online community and beyond.*
