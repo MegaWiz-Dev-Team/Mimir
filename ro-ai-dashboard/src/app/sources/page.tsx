@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2, Search, CheckSquare, Square, ChevronRight, ChevronDown } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, DataSource, FeatureFlags, ModelConfig } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, discoverHierarchy, importPages, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -59,6 +59,13 @@ export default function SourcesPage() {
     const [aiTokensUsed, setAiTokensUsed] = useState<number | null>(null);
     const [aiError, setAiError] = useState<string | null>(null);
 
+    // Hierarchy Discovery State
+    const [hierarchyPages, setHierarchyPages] = useState<HierarchyNode[]>([]);
+    const [hierarchyLoading, setHierarchyLoading] = useState(false);
+    const [selectedPageUrls, setSelectedPageUrls] = useState<Set<string>>(new Set());
+    const [hierarchyDiscovered, setHierarchyDiscovered] = useState(false);
+    const [importingPages, setImportingPages] = useState(false);
+
     useEffect(() => {
         loadSources();
         loadFeatureFlags();
@@ -95,6 +102,10 @@ export default function SourcesPage() {
         setUploadFiles([]);
         setActiveTab("file");
         setAdvancedSettings({ ocrEnabled: false, useHeaderRow: true, storageMode: "markdown" });
+        setHierarchyPages([]);
+        setSelectedPageUrls(new Set());
+        setHierarchyDiscovered(false);
+        setImportingPages(false);
     };
 
     const openWizard = () => {
@@ -364,6 +375,153 @@ export default function SourcesPage() {
                             onChange={(e) => setNewUrl(e.target.value)}
                             placeholder="https://..."
                         />
+                    </div>
+                )}
+
+                {selectedType === "web" && newUrl.trim() && (
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                            <Button
+                                id="discover-pages-btn"
+                                variant="outline"
+                                size="sm"
+                                disabled={hierarchyLoading}
+                                onClick={async () => {
+                                    setHierarchyLoading(true);
+                                    setHierarchyDiscovered(false);
+                                    try {
+                                        // We need a source ID — create temp source first or use existing
+                                        // For now, create the source first, then discover
+                                        let sourceId: number;
+                                        const existingSource = sources.find(s => {
+                                            const url = s.config_json?.url;
+                                            return url === newUrl;
+                                        });
+                                        if (existingSource) {
+                                            sourceId = existingSource.id;
+                                        } else {
+                                            const created = await createSource({
+                                                name: newName || "Hierarchy Discovery",
+                                                source_type: "web",
+                                                config_json: { url: newUrl },
+                                            });
+                                            sourceId = created.id;
+                                            await loadSources();
+                                        }
+                                        const result = await discoverHierarchy(sourceId, { max_depth: 3, max_pages: 100 });
+                                        setHierarchyPages(result.pages);
+                                        const allUrls = new Set(result.pages.filter(p => p.status !== "error").map(p => p.url));
+                                        setSelectedPageUrls(allUrls);
+                                        setHierarchyDiscovered(true);
+                                    } catch (error) {
+                                        console.warn("[Hierarchy] Discovery failed:", error);
+                                    } finally {
+                                        setHierarchyLoading(false);
+                                    }
+                                }}
+                            >
+                                {hierarchyLoading ? (
+                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Discovering...</>
+                                ) : (
+                                    <><Search className="w-4 h-4 mr-2" /> Discover Pages</>
+                                )}
+                            </Button>
+                            {hierarchyDiscovered && (
+                                <span className="text-xs text-muted-foreground">
+                                    {selectedPageUrls.size} of {hierarchyPages.length} pages selected
+                                </span>
+                            )}
+                        </div>
+
+                        {hierarchyDiscovered && hierarchyPages.length > 0 && (
+                            <div className="border rounded-md p-3 space-y-2 max-h-64 overflow-y-auto bg-muted/30">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium">Discovered Pages</span>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            className="text-xs text-blue-500 hover:underline"
+                                            onClick={() => setSelectedPageUrls(new Set(hierarchyPages.filter(p => p.status !== "error").map(p => p.url)))}
+                                        >
+                                            Select All
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="text-xs text-muted-foreground hover:underline"
+                                            onClick={() => setSelectedPageUrls(new Set())}
+                                        >
+                                            Deselect All
+                                        </button>
+                                    </div>
+                                </div>
+                                {hierarchyPages.map((page, idx) => {
+                                    const isSelected = selectedPageUrls.has(page.url);
+                                    const statusEmoji = page.status === "new" ? "🆕" : page.status === "updated" ? "🔄" : page.status === "unchanged" ? "✅" : page.status === "duplicate" ? "🔁" : "❌";
+                                    return (
+                                        <div
+                                            key={page.url}
+                                            className={`flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-muted/50 transition-colors ${isSelected ? "bg-blue-50 dark:bg-blue-950/30" : ""
+                                                }`}
+                                            style={{ paddingLeft: `${page.depth * 20 + 8}px` }}
+                                            onClick={() => {
+                                                const next = new Set(selectedPageUrls);
+                                                if (isSelected) next.delete(page.url); else next.add(page.url);
+                                                setSelectedPageUrls(next);
+                                            }}
+                                        >
+                                            {isSelected ? (
+                                                <CheckSquare className="w-4 h-4 text-blue-500 shrink-0" />
+                                            ) : (
+                                                <Square className="w-4 h-4 text-muted-foreground shrink-0" />
+                                            )}
+                                            <span className="text-sm">{statusEmoji}</span>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="text-sm truncate">
+                                                    {page.title || page.url}
+                                                </div>
+                                                {page.title && (
+                                                    <div className="text-xs text-muted-foreground truncate">
+                                                        {page.url}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {hierarchyDiscovered && selectedPageUrls.size > 0 && (
+                            <Button
+                                id="import-selected-btn"
+                                size="sm"
+                                disabled={importingPages}
+                                onClick={async () => {
+                                    setImportingPages(true);
+                                    try {
+                                        const sourceMatch = sources.find(s => s.config_json?.url === newUrl);
+                                        if (sourceMatch) {
+                                            const urlEntries = Array.from(selectedPageUrls).map(url => {
+                                                const page = hierarchyPages.find(p => p.url === url);
+                                                return { url, title: page?.title || undefined, depth: page?.depth };
+                                            });
+                                            await importPages(sourceMatch.id, urlEntries);
+                                            await loadSources();
+                                        }
+                                    } catch (error) {
+                                        console.warn("[Hierarchy] Import failed:", error);
+                                    } finally {
+                                        setImportingPages(false);
+                                    }
+                                }}
+                            >
+                                {importingPages ? (
+                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importing...</>
+                                ) : (
+                                    <>Import {selectedPageUrls.size} Selected Pages</>
+                                )}
+                            </Button>
+                        )}
                     </div>
                 )}
 
