@@ -17,6 +17,7 @@ use mimir_core_ai::services::upload::{validate_extension, validate_file_size, bu
 use serde_json::{json, Value};
 use tracing::{info, error, warn};
 use mimir_core_ai::services::ingress::IngressManager;
+use mimir_core_ai::services::chunking;
 use s3::creds::Credentials;
 use s3::Bucket;
 use s3::Region;
@@ -226,9 +227,32 @@ async fn sync_source(
         match result {
             Ok(raw_text) => {
                 let mb_size = raw_text.len() as f64 / 1_048_576.0;
-                let total_chunks = (raw_text.len() as f64 / 500.0).ceil() as i32;
 
-                info!("Sync completed for {} ({}): {} bytes processed", source_clone.name, id, raw_text.len());
+                // ─── Chunk the extracted text ────────────────────────
+                let strategy = chunking::auto_recommend(&raw_text);
+                let chunk_results = chunking::chunk(&raw_text, &strategy).unwrap_or_default();
+                let total_chunks = chunk_results.len() as i32;
+
+                info!("Sync completed for {} ({}): {} bytes, {} chunks", source_clone.name, id, raw_text.len(), total_chunks);
+
+                // Store chunks in DB
+                for cr in &chunk_results {
+                    let meta_str = serde_json::to_string(&cr.metadata).unwrap_or_default();
+                    let token_ct = cr.token_count as i32;
+                    let idx = cr.chunk_index as i32;
+                    let _ = sqlx::query(
+                        "INSERT INTO chunks (source_id, chunk_index, content, token_count, metadata_json) VALUES (?, ?, ?, ?, ?)"
+                    )
+                    .bind(id)
+                    .bind(idx)
+                    .bind(&cr.content)
+                    .bind(token_ct)
+                    .bind(&meta_str)
+                    .execute(&pool_clone)
+                    .await
+                    .map_err(|e| error!("Failed to insert chunk {} for source {}: {}", cr.chunk_index, id, e));
+                }
+
                 let _ = sqlx::query!(
                     "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
                     raw_text,
@@ -577,8 +601,32 @@ async fn upload_file(
             match IngressManager::process_source_with_data(&ds, &data) {
                 Ok(raw_text) => {
                     let mb = raw_text.len() as f64 / 1_048_576.0;
-                    let chunks = (raw_text.len() as f64 / 500.0).ceil() as i32;
-                    info!("Auto-extraction completed for {} ({}): {} bytes", src_name, src_id, raw_text.len());
+
+                    // ─── Chunk the extracted text ────────────────────
+                    let strategy = chunking::auto_recommend(&raw_text);
+                    let chunk_results = chunking::chunk(&raw_text, &strategy).unwrap_or_default();
+                    let chunks = chunk_results.len() as i32;
+
+                    info!("Auto-extraction completed for {} ({}): {} bytes, {} chunks", src_name, src_id, raw_text.len(), chunks);
+
+                    // Store chunks in DB
+                    for cr in &chunk_results {
+                        let meta_str = serde_json::to_string(&cr.metadata).unwrap_or_default();
+                        let token_ct = cr.token_count as i32;
+                        let idx = cr.chunk_index as i32;
+                        let _ = sqlx::query(
+                            "INSERT INTO chunks (source_id, chunk_index, content, token_count, metadata_json) VALUES (?, ?, ?, ?, ?)"
+                        )
+                        .bind(src_id)
+                        .bind(idx)
+                        .bind(&cr.content)
+                        .bind(token_ct)
+                        .bind(&meta_str)
+                        .execute(&pool_bg)
+                        .await
+                        .map_err(|e| error!("Failed to insert chunk {} for source {}: {}", cr.chunk_index, src_id, e));
+                    }
+
                     let _ = sqlx::query(
                         "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?"
                     )
