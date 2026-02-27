@@ -170,7 +170,7 @@ impl IngressManager {
                 let data = Self::fetch_mcp(source).await?;
                 extraction::extract_mcp_json_to_markdown(&data)
             },
-            "document" | "tabular" => {
+            "file" | "document" | "tabular" => {
                 // For file-based sources, data must be provided via process_source_with_data()
                 Err(anyhow::anyhow!(
                     "Source type '{}' requires file data — use process_source_with_data() or sync_source with S3 download",
