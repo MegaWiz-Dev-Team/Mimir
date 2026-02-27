@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, DataSource, FeatureFlags } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, DataSource, FeatureFlags } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -221,21 +221,73 @@ export default function SourcesPage() {
 
     const handleSync = async (id: number) => {
         try {
+            // Find the source to get its type for contextual messages
+            const source = sources.find(s => s.id === id);
+            const sourceType = source?.source_type || "unknown";
+
             await syncSource(id);
             setSyncingSourceId(id);
             setShowConsole(true);
-            setLogs([`> Starting sync job for source #${id}...`, "> Initializing background worker..."]);
+            setLogs([`> Starting sync job for source #${id} (${sourceType})...`]);
 
-            setTimeout(() => setLogs((l) => [...l, "> Fetching URL..."]), 1000);
-            setTimeout(() => setLogs((l) => [...l, "> Parsing DOM..."]), 2000);
+            // Source-type-aware log messages
+            const typeMessages: Record<string, string[]> = {
+                web: ["> Fetching HTML from URL...", "> Parsing web content...", "> Extracting to Markdown..."],
+                file: ["> Downloading file from storage...", "> Extracting content...", "> Converting to Markdown..."],
+                document: ["> Downloading document from storage...", "> Extracting text content...", "> Converting to Markdown..."],
+                tabular: ["> Downloading file from storage...", "> Parsing tabular data...", "> Building Markdown table..."],
+                mcp: ["> Connecting to MCP server...", "> Fetching resources...", "> Converting to Markdown..."],
+            };
+            const msgs = typeMessages[sourceType] || ["> Processing source..."];
+
+            // Show type-specific messages with delay
+            msgs.forEach((msg, i) => {
+                setTimeout(() => setLogs(l => [...l, msg]), (i + 1) * 1000);
+            });
+
+            // Poll for completion every 2 seconds
+            const pollInterval = setInterval(async () => {
+                try {
+                    const updated = await fetchSource(id);
+                    if (!updated) return;
+
+                    if (updated.last_sync_status === "COMPLETED") {
+                        clearInterval(pollInterval);
+                        const chunks = updated.total_chunks ?? 0;
+                        const sizeMb = updated.mb_size?.toFixed(2) ?? "0.00";
+                        setLogs(l => [
+                            ...l,
+                            "> ─── Sync Complete ───",
+                            `> ✓ Extracted ${sizeMb} MB of content`,
+                            `> ✓ ${chunks} chunk(s) stored`,
+                            "> ✓ Deduplication applied",
+                            "> Completed!",
+                        ]);
+                        loadSources();
+                        setTimeout(() => setShowConsole(false), 3000);
+                    } else if (updated.last_sync_status === "FAILED") {
+                        clearInterval(pollInterval);
+                        const errorMsg = updated.raw_markdown || "Unknown error";
+                        setLogs(l => [
+                            ...l,
+                            "> ─── Sync Failed ───",
+                            `> ✗ Error: ${errorMsg}`,
+                        ]);
+                        loadSources();
+                    }
+                } catch {
+                    // Polling error — ignore and retry on next tick
+                }
+            }, 2000);
+
+            // Safety timeout: stop polling after 2 minutes
             setTimeout(() => {
-                setLogs((l) => [...l, "> Completed ingestion! Check Vector space."]);
-                loadSources();
-                setTimeout(() => setShowConsole(false), 2000);
-            }, 4000);
+                clearInterval(pollInterval);
+            }, 120000);
         } catch (error) {
             console.warn("[Sources] Failed to sync source:", error);
-            alert("Failed to sync source");
+            setShowConsole(true);
+            setLogs(l => [...l, `> ✗ Failed to trigger sync: ${error}`]);
         }
     };
 
