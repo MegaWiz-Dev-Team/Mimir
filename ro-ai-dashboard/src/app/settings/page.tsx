@@ -79,6 +79,13 @@ export default function SettingsPage() {
                 try {
                     const configData = await fetchTenantConfig(firstTenant.id);
                     setConfig(configData);
+                    // Initialize search settings from config
+                    if (configData.search_settings) {
+                        setEmbeddingModel(configData.search_settings.embedding_model || "nomic-embed-text");
+                        setTopK(configData.search_settings.top_k || 5);
+                        setSimilarityThreshold(configData.search_settings.similarity_threshold || 0.7);
+                        setSearchMode(configData.search_settings.search_mode || "hybrid");
+                    }
                 } catch (err) {
                     console.warn("[Settings] Failed to load tenant config:", err);
                 }
@@ -389,8 +396,8 @@ export default function SettingsPage() {
                                 key={mode}
                                 onClick={() => setSearchMode(mode)}
                                 className={`p-3 rounded-lg border text-sm font-medium capitalize transition-colors ${searchMode === mode
-                                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
-                                        : "border-border hover:bg-muted"
+                                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
+                                    : "border-border hover:bg-muted"
                                     }`}
                             >
                                 {mode === "semantic" && "🧠 "}
@@ -407,10 +414,32 @@ export default function SettingsPage() {
                     </p>
                 </div>
                 <div className="pt-4 border-t">
-                    <Button disabled className="opacity-50">
-                        <Save className="w-4 h-4 mr-2" /> Save Settings
+                    <Button
+                        onClick={async () => {
+                            if (!currentTenantId) return;
+                            setIsSaving(true);
+                            try {
+                                await updateTenantConfig(currentTenantId, {
+                                    search_settings: {
+                                        embedding_model: embeddingModel,
+                                        top_k: topK,
+                                        similarity_threshold: similarityThreshold,
+                                        search_mode: searchMode,
+                                    },
+                                } as any);
+                                alert("Search settings saved successfully.");
+                            } catch (error) {
+                                console.warn("[Settings] Failed to save search settings:", error);
+                                alert("Failed to save search settings.");
+                            } finally {
+                                setIsSaving(false);
+                            }
+                        }}
+                        disabled={isSaving || !currentTenantId}
+                    >
+                        <Save className="w-4 h-4 mr-2" />
+                        {isSaving ? "Saving..." : "Save Settings"}
                     </Button>
-                    <p className="text-xs text-muted-foreground mt-2">⏳ Backend persistence coming in Sprint 12</p>
                 </div>
             </CardContent>
         </Card>
