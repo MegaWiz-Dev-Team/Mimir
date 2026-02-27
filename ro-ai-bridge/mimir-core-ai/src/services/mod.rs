@@ -10,3 +10,4 @@ pub mod extraction;
 pub mod sql_import;
 pub mod domain;
 pub mod chunking;
+pub mod link_discovery;
