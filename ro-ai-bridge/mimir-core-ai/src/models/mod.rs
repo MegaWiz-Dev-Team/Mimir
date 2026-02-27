@@ -5,3 +5,4 @@ pub mod iam;
 pub mod sources;
 pub mod chunks;
 pub mod crawled_pages;
+pub mod content_fingerprints;
