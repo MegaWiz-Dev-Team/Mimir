@@ -17,10 +17,17 @@
 | 2026-02-27 | Sprint 11                                   | Completed | [ดูรายละเอียด PM_02_11_Sprint11_Report](PM_02_11_Sprint11_Report.md)     |
 | 2026-02-28 | Sprint 12                                   | Completed | [ดูรายละเอียด PM_02_12_Sprint12_Report](PM_02_12_Sprint12_Report.md)     |
 | 2026-02-28 | Sprint 13                                   | Completed | [ดูรายละเอียด PM_02_13_Sprint13_Report](PM_02_13_Sprint13_Report.md)     |
+| 2026-03-01 | Sprint 14                                   | Completed | [ดูรายละเอียด PM_02_14_Sprint14_Report](PM_02_14_Sprint14_Report.md)     |
 | 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution         |
 | ---------- | ------------------------------------------------------------------------ | --------- | ------ | ------------------ |
+| 2026-03-01 | Issue #157: Feat: Vault Secrets Management (HashiCorp Vault KV v2)       | User      | Open   | feat/sprint-14     |
+| 2026-03-01 | Issue #154: Feat: E2E Test Suite (Full pipeline integration tests)       | User      | Open   | feat/sprint-14     |
+| 2026-03-01 | Issue #153: Feat: Feedback & Bug Report (GitHub Issue integration)       | User      | Open   | feat/sprint-14     |
+| 2026-03-01 | Issue #152: Feat: External DB Connectors (MySQL/PostgreSQL/SQLite)       | User      | Open   | feat/sprint-14     |
+| 2026-03-01 | Issue #151: Feat: OCR Integration (Gemini 2.5 Flash Vision)              | User      | Open   | feat/sprint-14     |
+| 2026-03-01 | Issue #150: Feat: Scheduled Re-sync (Cron Worker)                        | User      | Open   | feat/sprint-14     |
 | 2026-02-28 | Issue #148: Feat: Advanced Analytics — Budget, Alerts & Benchmark        | User      | Open   | PR #149            |
 | 2026-02-28 | Issue #147: Feat: LLM Performance Evaluation Dashboard                   | User      | Open   | PR #149            |
 | 2026-02-28 | Issue #146: Feat: Conversation Logging — Playground & Agent Studio       | User      | Open   | PR #149            |
