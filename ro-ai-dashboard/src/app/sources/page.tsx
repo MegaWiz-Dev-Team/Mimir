@@ -16,6 +16,8 @@ import { UploadDropzone } from "@/components/upload-dropzone";
 import { FolderUpload } from "@/components/folder-upload";
 import { UploadProgress, UploadFileStatus } from "@/components/upload-progress";
 import { AdvancedSettings, AdvancedSettingsData } from "@/components/advanced-settings";
+import { DbConnectorWizard } from "@/components/db-connector-wizard";
+import { CronScheduleSelector, ScheduleOption } from "@/components/cron-schedule-selector";
 
 export default function SourcesPage() {
     const [sources, setSources] = useState<DataSource[]>([]);
@@ -65,6 +67,9 @@ export default function SourcesPage() {
     const [selectedPageUrls, setSelectedPageUrls] = useState<Set<string>>(new Set());
     const [hierarchyDiscovered, setHierarchyDiscovered] = useState(false);
     const [importingPages, setImportingPages] = useState(false);
+
+    // DB Connector Wizard State
+    const [showDbWizard, setShowDbWizard] = useState(false);
 
     useEffect(() => {
         loadSources();
@@ -650,10 +655,16 @@ export default function SourcesPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Data Ingress Sources</h1>
                     <p className="text-muted-foreground">Manage and configure how data enters your tenant&apos;s vector space.</p>
                 </div>
-                <Button onClick={openWizard}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Source
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setShowDbWizard(true)}>
+                        <Database className="w-4 h-4 mr-2" />
+                        External DB
+                    </Button>
+                    <Button onClick={openWizard}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Source
+                    </Button>
+                </div>
             </div>
 
             <div className="grid gap-6">
@@ -997,6 +1008,16 @@ export default function SourcesPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* ═══ External DB Connector Wizard ═══ */}
+            <DbConnectorWizard
+                open={showDbWizard}
+                onOpenChange={setShowDbWizard}
+                onImportComplete={(markdown, rowCount) => {
+                    console.log(`[DB Import] ${rowCount} rows imported`);
+                    loadSources();
+                }}
+            />
         </div>
     );
 }
