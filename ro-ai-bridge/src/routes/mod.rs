@@ -13,3 +13,4 @@ pub mod budget;
 pub mod cron;
 pub mod feedback;
 pub mod ocr;
+pub mod db_connector;
