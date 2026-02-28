@@ -963,6 +963,11 @@ async fn preview_url(
 
 // ─── S3 Helpers ────────────────────────────────────────────────────────────────
 
+/// Download a file from RustFS/S3 by its key (public variant for cross-route use).
+pub async fn download_from_s3_public(config: &Config, s3_key: &str) -> anyhow::Result<Vec<u8>> {
+    download_from_s3(config, s3_key).await
+}
+
 /// Download a file from RustFS/S3 by its key.
 ///
 /// Used by sync_source to retrieve uploaded files for extraction.

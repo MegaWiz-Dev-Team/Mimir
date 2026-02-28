@@ -30,6 +30,7 @@ use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
 use ro_ai_bridge::routes::budget::{budget_settings_routes, budget_usage_routes};
 use ro_ai_bridge::routes::cron::{cron_routes, cron_status_routes};
 use ro_ai_bridge::routes::feedback::feedback_routes;
+use ro_ai_bridge::routes::ocr::ocr_routes;
 
 #[tokio::main]
 async fn main() {
@@ -86,10 +87,11 @@ async fn main() {
         .nest("/api/v1/evaluations", evaluations_ext_routes())
         .nest("/api/v1/settings", budget_settings_routes())
         .merge(budget_usage_routes())
-        // Sprint 14: Cron schedule & feedback routes
+        // Sprint 14: Cron schedule, feedback & OCR routes
         .nest("/api/v1", cron_routes())
         .nest("/api/v1", cron_status_routes())
         .nest("/api/v1/feedback", feedback_routes())
+        .nest("/api/v1", ocr_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
