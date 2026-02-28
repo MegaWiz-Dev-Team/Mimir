@@ -14,3 +14,4 @@ pub mod link_discovery;
 pub mod dedup;
 pub mod cron;
 pub mod feedback;
+pub mod ocr;

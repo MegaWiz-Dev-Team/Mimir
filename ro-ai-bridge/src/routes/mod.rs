@@ -12,3 +12,4 @@ pub mod evaluations_ext;
 pub mod budget;
 pub mod cron;
 pub mod feedback;
+pub mod ocr;
