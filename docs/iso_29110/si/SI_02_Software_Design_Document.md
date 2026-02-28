@@ -9,6 +9,7 @@
 - **Database:** MariaDB สำหรับ Relational Data และ Qdrant สำหรับ Vector Database
 - **Graph Database:** Neo4j Community Edition (Docker) สำหรับ Knowledge Graph
 - **Graph Visualization:** Sigma.js + graphology (WebGL, ForceAtlas2 layout)
+- **Secrets Management:** HashiCorp Vault (KV v2) สำหรับ API key rotation + env fallback + secret masking
 - **AI/LLM Provider:** รองรับ Ollama (dev), MLX (Mac prod), vLLM (GPU/cloud), Google Gemini, OpenAI, Qwen — all OpenAI-compatible API
 - **Model Serving:** Ollama (dev) + MLX (Apple Silicon prod) + vLLM (NVIDIA GPU/cloud) — phased: Phase 1 Sprint 11a, Phase 2 Sprint 14b
 - **Embedding Models:** Configurable (nomic-embed-text / text-embedding-004 / bge-m3) พร้อม pipeline lock
@@ -114,6 +115,7 @@ Overview · Sources · Knowledge · Quality · Playground · Agents · Logs · C
 - **Sprint 8+ Tables:** `crawled_pages` (web link discovery), `content_fingerprints` (cross-source dedup), `chunks` (chunked content), `embeddings_config` (pipeline lock), `agents` (Agent Studio config), `agent_conversations` (audit log), `training_datasets` (dataset configs + export), `model_registry` (fine-tuned model versions)
 - **Sprint 12+ Tables:** `llm_usage_logs` (model_id, provider, input_tokens, output_tokens, total_tokens, latency_ms, status, endpoint, tenant_id, created_at) — LLM Observability per-call logging
 - **Sprint 13+ Tables:** `agent_configs` (agent builder CRUD config), `agent_conversations` (conversation audit log with feedback), `evaluation_reports` (batch eval results), `llm_budget_configs` (per-model daily token budget + alert threshold)
+- **Sprint 14+ Tables:** `external_db_connections` (DB connector configs — type, connection_string, last_used), `feedback_reports` (bug/feature reports with GitHub issue link, system_logs, client_logs, priority)
 - **Vector DB (Qdrant):** ใช้ Per-Tenant Collection เป็น default, รองรับ per-source metadata filter ผ่าน Agent/Search config
 - **Graph DB (Neo4j):** Entities (Drug, Symptom, Person, etc.) + Relations (treats, causes, contains) แยก per tenant via property `tenant_id`
 - [ER Diagram Placeholder - รอสร้างและนำภาพมาแนบ]
