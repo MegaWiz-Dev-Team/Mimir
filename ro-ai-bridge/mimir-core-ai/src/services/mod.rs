@@ -16,3 +16,4 @@ pub mod cron;
 pub mod feedback;
 pub mod ocr;
 pub mod db_connector;
+pub mod vault;
