@@ -17,3 +17,6 @@ pub mod feedback;
 pub mod ocr;
 pub mod db_connector;
 pub mod vault;
+
+#[cfg(test)]
+mod e2e_tests;
