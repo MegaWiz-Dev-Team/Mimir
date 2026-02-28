@@ -701,7 +701,7 @@ async fn extract_with_ai(
     let provider_str = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("unknown");
     let (content, tokens_used) = call_llm_api_with_logging(
         &api_key, &api_base, &payload.model, &prompt,
-        Some(&pool), Some(1), Some(provider_str), Some("extract_with_ai"),
+        Some(&pool), Some("default_tenant"), Some(provider_str), Some("extract_with_ai"),
     ).await
         .map_err(|e| {
             error!("LLM API call failed: {}", e);
@@ -718,7 +718,7 @@ async fn extract_with_ai(
 }
 
 /// Resolve API key and base URL for the given model.
-fn resolve_llm_credentials(
+pub fn resolve_llm_credentials(
     config: &Config,
     model_config: &Option<mimir_core_ai::models::model_config::ModelConfig>,
     model_id: &str,
@@ -785,7 +785,7 @@ fn resolve_llm_credentials(
 }
 
 /// Infer API base URL from provider name.
-fn infer_api_base(provider: &str) -> String {
+pub fn infer_api_base(provider: &str) -> String {
     match provider {
         "openai" => "https://api.openai.com/v1/".to_string(),
         "gemini" | "google" => "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
@@ -796,7 +796,7 @@ fn infer_api_base(provider: &str) -> String {
 
 /// Call an OpenAI-compatible chat completions API.
 /// If `pool` and `tenant_id` are provided, automatically logs usage to `llm_usage_logs`.
-async fn call_llm_api(
+pub async fn call_llm_api(
     api_key: &str,
     api_base: &str,
     model: &str,
@@ -806,13 +806,13 @@ async fn call_llm_api(
 }
 
 /// Internal LLM call with optional usage logging and daily token limit enforcement.
-async fn call_llm_api_with_logging(
+pub async fn call_llm_api_with_logging(
     api_key: &str,
     api_base: &str,
     model: &str,
     prompt: &str,
     pool: Option<&DbPool>,
-    tenant_id: Option<i64>,
+    tenant_id: Option<&str>,
     provider: Option<&str>,
     caller: Option<&str>,
 ) -> anyhow::Result<(String, u32)> {
@@ -821,7 +821,7 @@ async fn call_llm_api_with_logging(
         let limit: Option<(i64,)> = sqlx::query_as(
             "SELECT max_daily_tokens FROM tenant_configs WHERE tenant_id = ?"
         )
-        .bind(&tid.to_string())
+        .bind(tid)
         .fetch_optional(p)
         .await
         .unwrap_or(None);

@@ -104,15 +104,16 @@ graph LR
     style CLUSTER fill:#1a1a2e,stroke:#16213e,color:#e0e0e0
 ```
 
-### Navigation Structure (Sprint 9+):
+### Navigation Structure (Sprint 13+):
 ```
-Overview · Sources · Knowledge · Quality · Playground · Coverage · ⚙️ Admin
+Overview · Sources · Knowledge · Quality · Playground · Agents · Logs · Coverage · Analytics · ⚙️ Admin
 ```
 
 ## 2. Database Design (การออกแบบฐานข้อมูล)
 - **Tables (RDBMS MariaDB):** `users`, `tenants`, `tenant_users`, `qa_results`, `pipeline_runs`, `pipeline_steps`, `qa_clusters`, `evaluation_reports`, `data_sources` (ทุกตารางข้อมูลต้องมี `tenant_id` ยกเว้น config กลาง)
 - **Sprint 8+ Tables:** `crawled_pages` (web link discovery), `content_fingerprints` (cross-source dedup), `chunks` (chunked content), `embeddings_config` (pipeline lock), `agents` (Agent Studio config), `agent_conversations` (audit log), `training_datasets` (dataset configs + export), `model_registry` (fine-tuned model versions)
 - **Sprint 12+ Tables:** `llm_usage_logs` (model_id, provider, input_tokens, output_tokens, total_tokens, latency_ms, status, endpoint, tenant_id, created_at) — LLM Observability per-call logging
+- **Sprint 13+ Tables:** `agent_configs` (agent builder CRUD config), `agent_conversations` (conversation audit log with feedback), `evaluation_reports` (batch eval results), `llm_budget_configs` (per-model daily token budget + alert threshold)
 - **Vector DB (Qdrant):** ใช้ Per-Tenant Collection เป็น default, รองรับ per-source metadata filter ผ่าน Agent/Search config
 - **Graph DB (Neo4j):** Entities (Drug, Symptom, Person, etc.) + Relations (treats, causes, contains) แยก per tenant via property `tenant_id`
 - [ER Diagram Placeholder - รอสร้างและนำภาพมาแนบ]

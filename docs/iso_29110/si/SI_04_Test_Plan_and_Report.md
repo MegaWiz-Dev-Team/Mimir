@@ -19,6 +19,8 @@
 | TC-009       | (Sprint 9) Content Pipeline & Navigation        | Chunking, Link Discovery, Dedup, Nav Restructure, Settings           | 24/24 tests pass (100%), 116+ unit tests pass   | Pass   | 2026-02-27  | AI        |
 | TC-010       | (Sprint 10) Dashboard Redesign & Knowledge Base | KPI Cards, Pipeline Bar, Knowledge Base, Search Settings, E2E Wizard | 30/30 tests pass (100%), 6/6 E2E pass           | Pass   | 2026-02-27  | AI        |
 | TC-011       | (Sprint 11) LLM Fallback & File Improvements    | LLM extraction, Console logs, File upload, CSV sync, Legacy Office   | 21/21 tests pass (100%), 16 unit tests          | Pass   | 2026-02-27  | AI        |
+| TC-012       | (Sprint 12) Web Hierarchy & LLM Observability   | Web BFS crawl, checkbox tree import, LLM usage logging, Analytics    | 25/25 tests pass (100%), 118 backend + 48 FE    | Pass   | 2026-02-28  | AI        |
+| TC-013       | (Sprint 13) Agent Studio & LLM Performance      | Agent CRUD/Chat, Conversations, A/B Eval, Budget/Alerts/Benchmark    | 31/31 tests pass (100%), 118 backend + 46/48 FE | Pass   | 2026-02-28  | AI        |
 
 ## 3. Historical Test Execution Records (ประวัติการทดสอบระบบก่อนหน้า)
 
