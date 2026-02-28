@@ -13,10 +13,24 @@
 | 2026-02-26 | Sprint 7                                    | Completed | [ดูรายละเอียด SI_04_7_Sprint7_TestScript](SI_04_7_Sprint7_TestScript.md) |
 | 2026-02-27 | Sprint 8                                    | Completed | [ดูรายละเอียด PM_02_8_Sprint8_Report](PM_02_8_Sprint8_Report.md)         |
 | 2026-02-27 | Sprint 9                                    | Completed | [ดูรายละเอียด PM_02_9_Sprint9_Report](PM_02_9_Sprint9_Report.md)         |
+| 2026-02-27 | Sprint 10                                   | Completed | [ดูรายละเอียด PM_02_10_Sprint10_Report](PM_02_10_Sprint10_Report.md)     |
+| 2026-02-27 | Sprint 11                                   | Completed | [ดูรายละเอียด PM_02_11_Sprint11_Report](PM_02_11_Sprint11_Report.md)     |
+| 2026-02-28 | Sprint 12                                   | Completed | [ดูรายละเอียด PM_02_12_Sprint12_Report](PM_02_12_Sprint12_Report.md)     |
+| 2026-02-28 | Sprint 13                                   | Completed | [ดูรายละเอียด PM_02_13_Sprint13_Report](PM_02_13_Sprint13_Report.md)     |
 | 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution         |
 | ---------- | ------------------------------------------------------------------------ | --------- | ------ | ------------------ |
+| 2026-02-28 | Issue #148: Feat: Advanced Analytics — Budget, Alerts & Benchmark        | User      | Open   | PR #149            |
+| 2026-02-28 | Issue #147: Feat: LLM Performance Evaluation Dashboard                   | User      | Open   | PR #149            |
+| 2026-02-28 | Issue #146: Feat: Conversation Logging — Playground & Agent Studio       | User      | Open   | PR #149            |
+| 2026-02-28 | Issue #145: Feat: Agent Studio — Frontend UI                             | User      | Open   | PR #149            |
+| 2026-02-28 | Issue #144: Feat: Agent Studio — Backend CRUD API                        | User      | Open   | PR #149            |
+| 2026-02-28 | Issue #138: Feat: Search Settings Backend Persistence                    | User      | Open   | PR #143 Merged     |
+| 2026-02-28 | Issue #137: Feat: LLM Analytics Dashboard                                | User      | Open   | PR #142 Merged     |
+| 2026-02-28 | Issue #136: Feat: LLM Usage Logging — Backend                            | User      | Open   | PR #140 Merged     |
+| 2026-02-28 | Issue #135: Feat: Web Hierarchy Loader — Frontend UI                     | User      | Open   | PR #141 Merged     |
+| 2026-02-28 | Issue #134: Feat: Web Hierarchy Loader — Backend API                     | User      | Open   | PR #140 Merged     |
 | 2026-02-27 | Issue #112: Bug: Unsupported source type 'file'                          | User      | Closed | PR #113 Merged     |
 | 2026-02-27 | Issue #110: Bug: Test environment login fails                            | System    | Closed | Migration fix      |
 | 2026-02-27 | Issue #109: Bug: Compile errors (Deserialize + crate path)               | System    | Closed | Direct commit      |
@@ -50,3 +64,4 @@
 | 2026-02-23 | Issue #25: Bug: Users table fail to load                                 | System    | Closed | PR #26 Merged      |
 | 2026-02-23 | Issue #19: Tenant Settings Page Feature                                  | User      | Closed | PR #20 Merged      |
 | 2026-02-22 | Issue #17: Users page redirects to login due to undefined token          | User      | Closed | PR #18 Merged      |
+

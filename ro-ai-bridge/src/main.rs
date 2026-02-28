@@ -20,6 +20,10 @@ use ro_ai_bridge::routes::pipeline::pipeline_routes;
 use ro_ai_bridge::routes::qc::qc_routes;
 use ro_ai_bridge::routes::vector::vector_routes;
 use ro_ai_bridge::routes::llm_usage::llm_usage_routes;
+use ro_ai_bridge::routes::agents::agents_routes;
+use ro_ai_bridge::routes::conversations::conversations_routes;
+use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
+use ro_ai_bridge::routes::budget::{budget_settings_routes, budget_usage_routes};
 
 #[tokio::main]
 async fn main() {
@@ -51,6 +55,11 @@ async fn main() {
         .nest("/api/v1/vector", vector_routes())
         .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes())
         .nest("/api/v1/llm-usage", llm_usage_routes())
+        .nest("/api/v1/agents", agents_routes())
+        .nest("/api/v1/conversations", conversations_routes())
+        .nest("/api/v1/evaluations", evaluations_ext_routes())
+        .nest("/api/v1/settings", budget_settings_routes())
+        .merge(budget_usage_routes())
         .with_state(pool)
         .layer(Extension(config.clone()))
         .layer(cors);

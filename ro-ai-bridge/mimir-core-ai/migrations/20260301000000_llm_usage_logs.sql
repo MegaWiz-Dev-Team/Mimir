@@ -7,7 +7,7 @@
 
 CREATE TABLE IF NOT EXISTS llm_usage_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    tenant_id BIGINT NOT NULL,
+    tenant_id VARCHAR(50) NOT NULL,
     model_id VARCHAR(100) NOT NULL,
     provider VARCHAR(50) NOT NULL,
     endpoint VARCHAR(255),

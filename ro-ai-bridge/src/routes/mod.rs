@@ -6,3 +6,7 @@ pub mod qc;
 pub mod vector;
 pub mod sources;
 pub mod llm_usage;
+pub mod agents;
+pub mod conversations;
+pub mod evaluations_ext;
+pub mod budget;
