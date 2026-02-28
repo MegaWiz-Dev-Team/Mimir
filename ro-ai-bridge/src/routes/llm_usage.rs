@@ -13,7 +13,7 @@ use mimir_core_ai::services::db::DbPool;
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct LlmUsageLog {
     pub id: i64,
-    pub tenant_id: i64,
+    pub tenant_id: String,
     pub model_id: String,
     pub provider: String,
     pub endpoint: Option<String>,
@@ -266,7 +266,7 @@ fn estimate_cost(model_id: &str, _provider: &str, total_tokens: i64) -> f64 {
 /// Public helper to insert a usage log entry from anywhere in the application.
 pub async fn insert_llm_usage_log(
     pool: &DbPool,
-    tenant_id: i64,
+    tenant_id: &str,
     model_id: &str,
     provider: &str,
     endpoint: Option<&str>,

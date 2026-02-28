@@ -947,3 +947,310 @@ export async function fetchLlmUsageSummary(params?: {
     if (!res.ok) throw new Error("Failed to fetch LLM usage summary");
     return res.json();
 }
+
+// ─── Sprint 13: Agent Studio API ─────────────────────────────────────────────
+
+export interface AgentConfig {
+    id: number;
+    tenant_id: string;
+    name: string;
+    display_name?: string;
+    description?: string;
+    system_prompt: string;
+    model_id: string;
+    provider: string;
+    temperature?: number;
+    max_tokens?: number;
+    top_k?: number;
+    use_rag?: boolean;
+    use_knowledge_graph?: boolean;
+    tools?: string[];
+    personality_traits?: string[];
+    greeting?: string;
+    avatar_url?: string;
+    template_id?: string;
+    is_published?: boolean;
+    api_key?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface CreateAgentRequest {
+    name: string;
+    display_name?: string;
+    description?: string;
+    system_prompt: string;
+    model_id: string;
+    provider?: string;
+    temperature?: number;
+    max_tokens?: number;
+    top_k?: number;
+    use_rag?: boolean;
+    use_knowledge_graph?: boolean;
+    tools?: string[];
+    personality_traits?: string[];
+    greeting?: string;
+    avatar_url?: string;
+    template_id?: string;
+}
+
+export interface AgentTemplate {
+    id: string;
+    name: string;
+    display_name: string;
+    description: string;
+    system_prompt: string;
+    model_id: string;
+    provider: string;
+    temperature: number;
+    max_tokens: number;
+    use_rag: boolean;
+    use_knowledge_graph: boolean;
+    tools: string[];
+    personality_traits: string[];
+    greeting: string;
+}
+
+export interface AgentChatResponse {
+    content: string;
+    session_id: string;
+    model_id: string;
+    provider: string;
+    latency_ms: number;
+    input_tokens: number;
+    output_tokens: number;
+    confidence_score?: number;
+}
+
+export interface ConversationSession {
+    session_id: string;
+    agent_config_id?: number;
+    agent_name?: string;
+    message_count: number;
+    first_message_at?: string;
+    last_message_at?: string;
+}
+
+export interface ConversationMessage {
+    id: number;
+    session_id: string;
+    role: string;
+    content: string;
+    model_id?: string;
+    latency_ms?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    feedback?: string;
+    created_at?: string;
+}
+
+export interface UsageAlert {
+    alert_type: string;
+    model_id: string;
+    message: string;
+    severity: string;
+    current_value: number;
+    threshold: number;
+}
+
+export interface BudgetConfig {
+    id: number;
+    model_id: string;
+    daily_token_limit: number;
+    alert_threshold_pct: number;
+}
+
+export interface BenchmarkEntry {
+    model_id: string;
+    provider: string;
+    total_calls: number;
+    success_rate: number;
+    avg_latency_ms: number;
+    p50_latency_ms: number;
+    p95_latency_ms: number;
+    avg_tokens_per_call: number;
+    total_tokens: number;
+    estimated_cost: number;
+}
+
+// Agent CRUD
+
+export async function fetchAgents(page = 1, perPage = 20) {
+    const res = await authFetch(`${API_BASE_URL}/agents?page=${page}&per_page=${perPage}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch agents");
+    return res.json();
+}
+
+export async function createAgent(data: CreateAgentRequest): Promise<AgentConfig> {
+    const res = await authFetch(`${API_BASE_URL}/agents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to create agent");
+    }
+    return res.json();
+}
+
+export async function getAgent(id: number): Promise<AgentConfig> {
+    const res = await authFetch(`${API_BASE_URL}/agents/${id}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch agent");
+    return res.json();
+}
+
+export async function updateAgent(id: number, data: Partial<CreateAgentRequest>): Promise<AgentConfig> {
+    const res = await authFetch(`${API_BASE_URL}/agents/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update agent");
+    return res.json();
+}
+
+export async function deleteAgent(id: number) {
+    const res = await authFetch(`${API_BASE_URL}/agents/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete agent");
+}
+
+export async function publishAgent(id: number) {
+    const res = await authFetch(`${API_BASE_URL}/agents/${id}/publish`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to publish agent");
+    return res.json();
+}
+
+export async function agentChat(id: number, message: string, sessionId?: string): Promise<AgentChatResponse> {
+    const res = await authFetch(`${API_BASE_URL}/agents/${id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, session_id: sessionId }),
+    });
+    if (!res.ok) throw new Error("Failed to send message");
+    return res.json();
+}
+
+export async function fetchAgentConversations(id: number, page = 1) {
+    const res = await authFetch(`${API_BASE_URL}/agents/${id}/conversations?page=${page}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch conversations");
+    return res.json();
+}
+
+export async function fetchTemplates(): Promise<AgentTemplate[]> {
+    const res = await authFetch(`${API_BASE_URL}/agents/templates`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch templates");
+    return res.json();
+}
+
+// Conversations
+
+export async function fetchConversations(params?: {
+    agent_config_id?: number;
+    page?: number;
+    per_page?: number;
+}) {
+    const query = params ? "?" + new URLSearchParams(
+        Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+    ).toString() : "";
+    const res = await authFetch(`${API_BASE_URL}/conversations${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch conversations");
+    return res.json();
+}
+
+export async function getConversation(sessionId: string) {
+    const res = await authFetch(`${API_BASE_URL}/conversations/${sessionId}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch conversation");
+    return res.json();
+}
+
+export async function submitFeedback(messageId: number, feedback: "thumbs_up" | "thumbs_down") {
+    const res = await authFetch(`${API_BASE_URL}/conversations/${messageId}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback }),
+    });
+    if (!res.ok) throw new Error("Failed to submit feedback");
+    return res.json();
+}
+
+export async function fetchConversationStats() {
+    const res = await authFetch(`${API_BASE_URL}/conversations/stats`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch stats");
+    return res.json();
+}
+
+// Evaluations
+
+export async function runEvaluation(data: {
+    models: string[];
+    questions: { question: string; expected_answer?: string }[];
+    agent_name?: string;
+    agent_config_id?: number;
+    judge_model?: string;
+}) {
+    const res = await authFetch(`${API_BASE_URL}/evaluations/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to run evaluation");
+    return res.json();
+}
+
+export async function getEvalResults(params?: { batch_id?: string; model_id?: string; page?: number }) {
+    const query = params ? "?" + new URLSearchParams(
+        Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+    ).toString() : "";
+    const res = await authFetch(`${API_BASE_URL}/evaluations/results${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch results");
+    return res.json();
+}
+
+export async function compareModels(modelA: string, modelB: string, batchId?: string) {
+    const params = new URLSearchParams({ model_a: modelA, model_b: modelB });
+    if (batchId) params.set("batch_id", batchId);
+    const res = await authFetch(`${API_BASE_URL}/evaluations/compare?${params}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to compare models");
+    return res.json();
+}
+
+export async function getFeedbackSummary() {
+    const res = await authFetch(`${API_BASE_URL}/evaluations/feedback-summary`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch feedback summary");
+    return res.json();
+}
+
+// Budget & Alerts
+
+export async function getBudgetConfig(): Promise<BudgetConfig[]> {
+    const res = await authFetch(`${API_BASE_URL}/settings/llm-budget`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch budget config");
+    return res.json();
+}
+
+export async function saveBudgetConfig(budgets: { model_id: string; daily_token_limit: number; alert_threshold_pct?: number }[]) {
+    const res = await authFetch(`${API_BASE_URL}/settings/llm-budget`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budgets }),
+    });
+    if (!res.ok) throw new Error("Failed to save budget config");
+    return res.json();
+}
+
+export async function getAlerts(): Promise<UsageAlert[]> {
+    const res = await authFetch(`${API_BASE_URL}/llm-usage/alerts`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch alerts");
+    return res.json();
+}
+
+export async function getBenchmark(): Promise<BenchmarkEntry[]> {
+    const res = await authFetch(`${API_BASE_URL}/llm-usage/benchmark`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch benchmark");
+    return res.json();
+}
