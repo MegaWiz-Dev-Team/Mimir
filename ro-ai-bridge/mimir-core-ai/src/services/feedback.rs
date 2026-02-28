@@ -1,11 +1,12 @@
 //! Feedback & Bug Report Service (Issue #153)
 //!
 //! CRUD operations for feedback_reports table.
+//! Auto-creates GitHub issues when feedback is submitted.
 
 use sqlx::MySqlPool;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
-use tracing::info;
+use tracing::{info, error, warn};
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct FeedbackReport {
@@ -21,6 +22,10 @@ pub struct FeedbackReport {
     pub priority: Option<String>,
     pub status: Option<String>,
     pub resolution: Option<String>,
+    pub github_issue_url: Option<String>,
+    pub github_issue_number: Option<i32>,
+    pub system_logs: Option<String>,
+    pub client_logs: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -33,6 +38,8 @@ pub struct CreateFeedbackRequest {
     pub page_url: Option<String>,
     pub browser_info: Option<serde_json::Value>,
     pub priority: Option<String>,
+    /// Client-side logs (console errors, network failures, etc.)
+    pub client_logs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,17 +57,21 @@ pub struct FeedbackFilter {
     pub per_page: Option<u32>,
 }
 
-/// Create a new feedback report
+/// Create a new feedback report (stores in DB, returns feedback_id)
 pub async fn create_feedback(
     pool: &MySqlPool,
     tenant_id: &str,
     user_id: Option<&str>,
     req: &CreateFeedbackRequest,
+    system_logs: Option<&str>,
 ) -> Result<i64> {
+    let client_logs_str = req.client_logs.as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_default());
+
     let result = sqlx::query(
         r#"INSERT INTO feedback_reports 
-           (tenant_id, user_id, report_type, title, description, page_url, browser_info, priority) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#
+           (tenant_id, user_id, report_type, title, description, page_url, browser_info, priority, client_logs, system_logs) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
     )
     .bind(tenant_id)
     .bind(user_id)
@@ -70,6 +81,8 @@ pub async fn create_feedback(
     .bind(&req.page_url)
     .bind(&req.browser_info)
     .bind(req.priority.as_deref().unwrap_or("medium"))
+    .bind(&client_logs_str)
+    .bind(system_logs)
     .execute(pool)
     .await?;
 
@@ -81,6 +94,157 @@ pub async fn create_feedback(
     );
 
     Ok(result.last_insert_id() as i64)
+}
+
+/// Update the GitHub issue link on a feedback report
+pub async fn update_github_issue(
+    pool: &MySqlPool,
+    feedback_id: i64,
+    issue_url: &str,
+    issue_number: i32,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE feedback_reports SET github_issue_url = ?, github_issue_number = ? WHERE id = ?"
+    )
+    .bind(issue_url)
+    .bind(issue_number)
+    .bind(feedback_id)
+    .execute(pool)
+    .await?;
+
+    info!(feedback_id, issue_number, "🔗 Linked feedback to GitHub issue");
+    Ok(())
+}
+
+/// Collect recent system logs for a tenant (last 10 LLM usage entries + errors)
+pub async fn collect_system_logs(pool: &MySqlPool, tenant_id: &str) -> String {
+    let mut logs = serde_json::Map::new();
+
+    // Recent LLM usage (last 5 entries)
+    match sqlx::query_as::<_, (String, String, i32, String, Option<String>)>(
+        "SELECT model, endpoint, total_tokens, status, error_message FROM llm_usage_logs WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5"
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(entries) => {
+            let usage: Vec<serde_json::Value> = entries.iter().map(|e| {
+                serde_json::json!({
+                    "model": e.0,
+                    "endpoint": e.1,
+                    "tokens": e.2,
+                    "status": e.3,
+                    "error": e.4
+                })
+            }).collect();
+            logs.insert("recent_llm_usage".to_string(), serde_json::Value::Array(usage));
+        }
+        Err(e) => {
+            warn!("Failed to collect LLM usage logs: {}", e);
+        }
+    }
+
+    // Recent errors from data sources
+    match sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, name, last_sync_status FROM data_sources WHERE tenant_id = ? AND last_sync_status IN ('FAILED', 'OCR_FAILED', 'ERROR') ORDER BY updated_at DESC LIMIT 5"
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(entries) => {
+            let errors: Vec<serde_json::Value> = entries.iter().map(|e| {
+                serde_json::json!({
+                    "source_id": e.0,
+                    "name": e.1,
+                    "status": e.2
+                })
+            }).collect();
+            logs.insert("failed_sources".to_string(), serde_json::Value::Array(errors));
+        }
+        Err(e) => {
+            warn!("Failed to collect source error logs: {}", e);
+        }
+    }
+
+    // System info
+    logs.insert("backend_version".to_string(), serde_json::json!(env!("CARGO_PKG_VERSION")));
+    logs.insert("timestamp".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339()));
+
+    serde_json::to_string_pretty(&logs).unwrap_or_default()
+}
+
+/// Build a GitHub Issue body from a feedback report
+pub fn build_github_issue_body(
+    req: &CreateFeedbackRequest,
+    system_logs: Option<&str>,
+    feedback_id: i64,
+) -> String {
+    let mut body = String::new();
+
+    // Type badge
+    let type_emoji = match req.report_type.as_str() {
+        "bug" => "🐛",
+        "feedback" => "💡",
+        "feature" => "✨",
+        _ => "📝",
+    };
+
+    body.push_str(&format!("## {} {} Report (ID: #{})\n\n", type_emoji, req.report_type, feedback_id));
+
+    // Priority
+    if let Some(ref p) = req.priority {
+        let priority_badge = match p.as_str() {
+            "critical" => "🔴 Critical",
+            "high" => "🟠 High",
+            "medium" => "🟡 Medium",
+            "low" => "🟢 Low",
+            _ => p.as_str(),
+        };
+        body.push_str(&format!("**Priority:** {}\n\n", priority_badge));
+    }
+
+    // Description
+    if let Some(ref desc) = req.description {
+        body.push_str("### Description\n\n");
+        body.push_str(desc);
+        body.push_str("\n\n");
+    }
+
+    // Page URL
+    if let Some(ref url) = req.page_url {
+        body.push_str(&format!("**Page:** `{}`\n\n", url));
+    }
+
+    // Browser info
+    if let Some(ref info) = req.browser_info {
+        body.push_str("### Browser Info\n\n");
+        body.push_str("```json\n");
+        body.push_str(&serde_json::to_string_pretty(info).unwrap_or_default());
+        body.push_str("\n```\n\n");
+    }
+
+    // Client logs
+    if let Some(ref logs) = req.client_logs {
+        body.push_str("<details>\n<summary>📋 Client Logs</summary>\n\n");
+        body.push_str("```json\n");
+        body.push_str(&serde_json::to_string_pretty(logs).unwrap_or_default());
+        body.push_str("\n```\n\n");
+        body.push_str("</details>\n\n");
+    }
+
+    // System logs
+    if let Some(logs) = system_logs {
+        body.push_str("<details>\n<summary>🖥️ System Logs</summary>\n\n");
+        body.push_str("```json\n");
+        body.push_str(logs);
+        body.push_str("\n```\n\n");
+        body.push_str("</details>\n\n");
+    }
+
+    body.push_str("---\n*Auto-generated by Project Mimir feedback system*\n");
+    body
 }
 
 /// List feedback reports with filtering and pagination
@@ -172,9 +336,7 @@ pub async fn update_feedback(
 mod tests {
     use super::*;
 
-    // ========================================
     // UT-014r: submit_feedback — validates request fields
-    // ========================================
     #[test]
     fn test_create_feedback_request_deserialization() {
         let json = r#"{
@@ -193,9 +355,7 @@ mod tests {
         assert!(req.browser_info.is_some());
     }
 
-    // ========================================
     // UT-014u: auto_capture — includes page_url and browser_info
-    // ========================================
     #[test]
     fn test_auto_capture_fields() {
         let json = r#"{
@@ -210,5 +370,71 @@ mod tests {
         let info = req.browser_info.unwrap();
         assert_eq!(info["userAgent"], "Chrome/120");
         assert_eq!(info["viewport"], "1920x1080");
+    }
+
+    // UT-014s: client_logs field deserialization
+    #[test]
+    fn test_client_logs_deserialization() {
+        let json = r#"{
+            "report_type": "bug",
+            "title": "Page crash",
+            "client_logs": {
+                "console_errors": ["TypeError: undefined is not a function"],
+                "network_errors": [{"url": "/api/v1/sources", "status": 500}],
+                "recent_actions": ["clicked Sources tab", "scrolled down"]
+            }
+        }"#;
+
+        let req: CreateFeedbackRequest = serde_json::from_str(json).unwrap();
+        assert!(req.client_logs.is_some());
+        let logs = req.client_logs.unwrap();
+        assert_eq!(logs["console_errors"].as_array().unwrap().len(), 1);
+        assert_eq!(logs["network_errors"].as_array().unwrap().len(), 1);
+    }
+
+    // UT-014t: GitHub issue body builder
+    #[test]
+    fn test_build_github_issue_body() {
+        let req = CreateFeedbackRequest {
+            report_type: "bug".to_string(),
+            title: "Upload fails".to_string(),
+            description: Some("File upload returns 500".to_string()),
+            page_url: Some("/sources".to_string()),
+            browser_info: Some(serde_json::json!({"userAgent": "Chrome/120"})),
+            priority: Some("high".to_string()),
+            client_logs: Some(serde_json::json!({"errors": ["500 error"]})),
+        };
+
+        let body = build_github_issue_body(&req, Some("{\"version\": \"0.1.0\"}"), 42);
+
+        assert!(body.contains("🐛"));
+        assert!(body.contains("bug Report"));
+        assert!(body.contains("ID: #42"));
+        assert!(body.contains("🟠 High"));
+        assert!(body.contains("File upload returns 500"));
+        assert!(body.contains("Page:** `/sources`"));
+        assert!(body.contains("Client Logs"));
+        assert!(body.contains("System Logs"));
+        assert!(body.contains("Auto-generated by Project Mimir"));
+    }
+
+    // UT-014: issue body with minimal fields
+    #[test]
+    fn test_build_github_issue_body_minimal() {
+        let req = CreateFeedbackRequest {
+            report_type: "feedback".to_string(),
+            title: "Nice feature".to_string(),
+            description: None,
+            page_url: None,
+            browser_info: None,
+            priority: None,
+            client_logs: None,
+        };
+
+        let body = build_github_issue_body(&req, None, 1);
+        assert!(body.contains("💡"));
+        assert!(body.contains("feedback Report"));
+        assert!(!body.contains("Client Logs"));
+        assert!(!body.contains("System Logs"));
     }
 }

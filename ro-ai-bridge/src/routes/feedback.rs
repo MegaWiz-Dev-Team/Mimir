@@ -1,18 +1,21 @@
 //! Feedback & Bug Report Routes (Issue #153)
 //!
-//! - POST /api/v1/feedback           — submit feedback
+//! - POST /api/v1/feedback           — submit feedback + auto-create GitHub issue
 //! - GET  /api/v1/feedback           — list reports (paginated)
 //! - PUT  /api/v1/feedback/:id       — update status (admin)
 
 use axum::{
     Router,
     routing::{get, post, put},
-    extract::{Path, State, Query, Json},
+    extract::{Path, State, Query, Json, Extension},
     http::StatusCode,
     response::IntoResponse,
 };
+use std::sync::Arc;
 use sqlx::MySqlPool;
 use serde_json::json;
+use tracing::{info, error, warn};
+use crate::config::Config;
 use mimir_core_ai::services::feedback::{
     self, CreateFeedbackRequest, UpdateFeedbackRequest, FeedbackFilter,
 };
@@ -23,8 +26,9 @@ pub fn feedback_routes() -> Router<MySqlPool> {
         .route("/{id}", put(update_feedback))
 }
 
-/// POST /feedback — submit a new feedback/bug report
+/// POST /feedback — submit a new feedback/bug report + auto-create GitHub issue
 async fn submit_feedback(
+    Extension(config): Extension<Arc<Config>>,
     State(pool): State<MySqlPool>,
     Json(req): Json<CreateFeedbackRequest>,
 ) -> impl IntoResponse {
@@ -32,15 +36,125 @@ async fn submit_feedback(
     let tenant_id = "default_tenant";
     let user_id: Option<&str> = None;
 
-    match feedback::create_feedback(&pool, tenant_id, user_id, &req).await {
-        Ok(id) => (StatusCode::CREATED, Json(json!({
-            "success": true,
-            "id": id
-        }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-            "error": format!("Failed to create feedback: {}", e)
-        }))).into_response(),
+    // 1. Collect system logs
+    let system_logs = feedback::collect_system_logs(&pool, tenant_id).await;
+
+    // 2. Save to DB
+    let feedback_id = match feedback::create_feedback(&pool, tenant_id, user_id, &req, Some(&system_logs)).await {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to create feedback: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                "error": format!("Failed to create feedback: {}", e)
+            }))).into_response();
+        }
+    };
+
+    // 3. Auto-create GitHub issue (async, non-blocking)
+    let github_result = create_github_issue_for_feedback(
+        &config, &pool, feedback_id, &req, Some(&system_logs)
+    ).await;
+
+    let mut response = json!({
+        "success": true,
+        "id": feedback_id
+    });
+
+    match github_result {
+        Ok((issue_url, issue_number)) => {
+            response["github_issue_url"] = json!(issue_url);
+            response["github_issue_number"] = json!(issue_number);
+            info!(feedback_id, issue_number, "✅ Feedback submitted with GitHub issue");
+        }
+        Err(e) => {
+            warn!("GitHub issue creation skipped: {}", e);
+            response["github_issue_url"] = json!(null);
+            response["github_issue_note"] = json!(format!("GitHub issue not created: {}", e));
+        }
     }
+
+    (StatusCode::CREATED, Json(response)).into_response()
+}
+
+/// Create a GitHub issue for a feedback report
+async fn create_github_issue_for_feedback(
+    config: &Config,
+    pool: &MySqlPool,
+    feedback_id: i64,
+    req: &CreateFeedbackRequest,
+    system_logs: Option<&str>,
+) -> anyhow::Result<(String, i32)> {
+    // Check GitHub config
+    let github_token = std::env::var("GITHUB_TOKEN")
+        .map_err(|_| anyhow::anyhow!("GITHUB_TOKEN not configured"))?;
+
+    let github_repo_owner = std::env::var("GITHUB_REPO_OWNER")
+        .unwrap_or_else(|_| "megacare-dev".to_string());
+    let github_repo_name = std::env::var("GITHUB_REPO_NAME")
+        .unwrap_or_else(|_| "Project-Mimir".to_string());
+
+    // Build issue body
+    let body = feedback::build_github_issue_body(req, system_logs, feedback_id);
+
+    // Determine labels
+    let mut labels = vec!["user-reported".to_string()];
+    match req.report_type.as_str() {
+        "bug" => labels.push("bug".to_string()),
+        "feedback" => labels.push("feedback".to_string()),
+        "feature" => labels.push("enhancement".to_string()),
+        _ => {}
+    }
+    if let Some(ref p) = req.priority {
+        if p == "critical" || p == "high" {
+            labels.push(format!("priority:{}", p));
+        }
+    }
+
+    // Create issue via GitHub API
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/issues",
+        github_repo_owner, github_repo_name
+    );
+
+    let issue_title = format!("[{}] {}", req.report_type.to_uppercase(), req.title);
+
+    let issue_body = json!({
+        "title": issue_title,
+        "body": body,
+        "labels": labels
+    });
+
+    info!("Creating GitHub issue: {}", issue_title);
+
+    let response = client.post(&url)
+        .header("Authorization", format!("Bearer {}", github_token))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "Project-Mimir-Feedback")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .json(&issue_body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("GitHub API request failed: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("GitHub API returned {}: {}", status, error_body));
+    }
+
+    let resp_json: serde_json::Value = response.json().await
+        .map_err(|e| anyhow::anyhow!("Failed to parse GitHub response: {}", e))?;
+
+    let issue_url = resp_json["html_url"].as_str().unwrap_or("").to_string();
+    let issue_number = resp_json["number"].as_i64().unwrap_or(0) as i32;
+
+    // Save GitHub link to DB
+    if let Err(e) = feedback::update_github_issue(pool, feedback_id, &issue_url, issue_number).await {
+        error!("Failed to save GitHub issue link: {}", e);
+    }
+
+    Ok((issue_url, issue_number))
 }
 
 /// GET /feedback — list feedback reports with filters
