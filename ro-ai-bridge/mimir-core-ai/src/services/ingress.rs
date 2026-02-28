@@ -228,7 +228,10 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
@@ -252,7 +255,10 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
         let result2 = IngressManager::process_source(&bad_config_source).await;
         assert!(result2.is_err());
         assert_eq!(result2.unwrap_err().to_string(), "Missing or invalid 'url' in config_json for web source");
@@ -277,7 +283,10 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
@@ -303,7 +312,10 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/10/data.csv".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let csv_data = b"Name,Score\nAlice,95\n";
         let result = IngressManager::process_extraction(&source, csv_data);
@@ -332,7 +344,10 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let result = IngressManager::process_fetch(&source).await;
         assert!(result.is_err());
@@ -358,7 +373,10 @@ mod tests {
             storage_mode: Some("sql".to_string()),
             s3_key: Some("test/20/data.csv".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
         let result = IngressManager::process_extraction(&source, csv_data);
@@ -388,7 +406,10 @@ mod tests {
             storage_mode: Some("sql".to_string()),
             s3_key: Some("test/30/data.csv".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = IngressManager::process_extraction_sql(&source, csv_data);
@@ -423,7 +444,10 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/40/readme.txt".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let txt_data = b"Hello, this is a test document for pipeline wiring.";
         let result = IngressManager::process_source_with_data(&source, txt_data);
@@ -451,7 +475,10 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/41/data.csv".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = IngressManager::process_source_with_data(&source, csv_data);
@@ -480,7 +507,10 @@ mod tests {
             storage_mode: None,
             s3_key: Some("test/42/empty.txt".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let result = IngressManager::process_source_with_data(&source, b"");
         assert!(result.is_err(), "Empty file should return error");
@@ -506,7 +536,10 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
@@ -534,7 +567,10 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/122/data.csv".to_string()),
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
         let result = IngressManager::process_source_with_data(&source, csv_data);
@@ -562,7 +598,10 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-        };
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err(), "File type without data should error");
