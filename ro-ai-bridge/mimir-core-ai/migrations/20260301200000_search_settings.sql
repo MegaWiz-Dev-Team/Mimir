@@ -7,7 +7,7 @@
 -- ============================================================================
 
 ALTER TABLE tenant_configs
-ADD COLUMN search_settings JSON DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS search_settings JSON DEFAULT NULL;
 
 -- Set default search settings for existing tenants
 UPDATE tenant_configs
