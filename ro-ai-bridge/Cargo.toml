@@ -36,6 +36,7 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
 tower-http = { workspace = true }
+tower = { workspace = true }
 async-trait = "0.1.89"
 mimir-core-ai = { version = "0.1.0", path = "mimir-core-ai" }
 ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
@@ -68,7 +69,8 @@ tokio = { version = "1.49.0", features = ["full"] }
 tokio-stream = "0.1"
 tracing = "0.1.44"
 jsonwebtoken = "9.2.0"
-tracing-subscriber = "0.3.22"
+tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter", "time"] }
+tower = { version = "0.5", features = ["util"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.10.0"
 tower-http = { version = "0.6.8", features = ["cors"] }

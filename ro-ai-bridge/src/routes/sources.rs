@@ -1235,6 +1235,10 @@ async fn upload_file(
                 storage_mode: Some(st_mode),
                 s3_key: Some(s3_key_bg),
                 file_hash: None,
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,
             };
 
             // Update status to RUNNING

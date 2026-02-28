@@ -12,3 +12,5 @@ pub mod domain;
 pub mod chunking;
 pub mod link_discovery;
 pub mod dedup;
+pub mod cron;
+pub mod feedback;
