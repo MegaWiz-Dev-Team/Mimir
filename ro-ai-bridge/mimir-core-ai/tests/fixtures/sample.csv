@@ -1,0 +1,6 @@
+id,name,email,age,department
+1,Alice Johnson,alice@example.com,30,Engineering
+2,Bob Smith,bob@example.com,25,Marketing
+3,Carol White,carol@example.com,35,Engineering
+4,Dave Brown,dave@example.com,28,Sales
+5,Eve Davis,eve@example.com,32,Marketing
