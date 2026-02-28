@@ -52,7 +52,7 @@ async fn submit_feedback(
 
     // 3. Auto-create GitHub issue (async, non-blocking)
     let github_result = create_github_issue_for_feedback(
-        &config, &pool, feedback_id, &req, Some(&system_logs)
+        &config, &pool, feedback_id, &req, Some(&system_logs), tenant_id, user_id,
     ).await;
 
     let mut response = json!({
@@ -83,6 +83,8 @@ async fn create_github_issue_for_feedback(
     feedback_id: i64,
     req: &CreateFeedbackRequest,
     system_logs: Option<&str>,
+    tenant_id: &str,
+    user_id: Option<&str>,
 ) -> anyhow::Result<(String, i32)> {
     // Check GitHub config
     let github_token = std::env::var("GITHUB_TOKEN")
@@ -94,7 +96,7 @@ async fn create_github_issue_for_feedback(
         .unwrap_or_else(|_| "Project-Mimir".to_string());
 
     // Build issue body
-    let body = feedback::build_github_issue_body(req, system_logs, feedback_id);
+    let body = feedback::build_github_issue_body(req, system_logs, feedback_id, tenant_id, user_id);
 
     // Determine labels
     let mut labels = vec!["user-reported".to_string()];
