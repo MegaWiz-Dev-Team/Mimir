@@ -17,6 +17,8 @@ pub mod feedback;
 pub mod ocr;
 pub mod db_connector;
 pub mod vault;
+pub mod mcp_server;
+pub mod performance;
 
 #[cfg(test)]
 mod e2e_tests;

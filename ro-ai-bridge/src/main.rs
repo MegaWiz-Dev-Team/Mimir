@@ -33,6 +33,7 @@ use ro_ai_bridge::routes::feedback::feedback_routes;
 use ro_ai_bridge::routes::ocr::ocr_routes;
 use ro_ai_bridge::routes::db_connector::db_connector_routes;
 use ro_ai_bridge::routes::vault::vault_routes;
+use ro_ai_bridge::routes::mcp::mcp_routes;
 
 #[tokio::main]
 async fn main() {
@@ -96,6 +97,7 @@ async fn main() {
         .nest("/api/v1", ocr_routes())
         .nest("/api/v1/db-connector", db_connector_routes())
         .nest("/api/v1/vault", vault_routes())
+        .nest("/api/v1/mcp", mcp_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
