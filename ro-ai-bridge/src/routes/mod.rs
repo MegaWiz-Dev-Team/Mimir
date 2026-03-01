@@ -20,3 +20,4 @@ pub mod backup;
 pub mod docs;
 pub mod stats;
 pub mod chunks;
+pub mod tenant;

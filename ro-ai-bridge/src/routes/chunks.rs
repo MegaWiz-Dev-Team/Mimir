@@ -2,13 +2,14 @@ use axum::{
     routing::get,
     Router, Json,
     extract::{Path, State, Query},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::models::chunks::Chunk;
+use crate::routes::tenant::extract_tenant_id;
 
 #[derive(Debug, Deserialize)]
 pub struct ChunkListQuery {
@@ -45,6 +46,7 @@ pub fn chunks_routes() -> Router<DbPool> {
 }
 
 async fn list_chunks(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<ChunkListQuery>,
 ) -> Result<Json<ChunkListResponse>, (StatusCode, Json<Value>)> {
@@ -52,7 +54,7 @@ async fn list_chunks(
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    let tenant_id = "default_tenant"; // Future: extract from JWT
+    let tenant_id = extract_tenant_id(&headers);
 
     // Build dynamic query based on filters — all queries filter by tenant_id via data_sources JOIN
     let (count_query, data_query) = if let Some(ref search) = params.search {
