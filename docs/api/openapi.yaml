@@ -1,0 +1,644 @@
+openapi: 3.0.3
+info:
+  title: Project Mimir API
+  description: |
+    Project Mimir — AI-Powered Knowledge Management Platform API.
+
+    ## Authentication
+    Most endpoints require Bearer token authentication. Obtain a token via `POST /api/v1/auth/login`.
+
+    ## Base URL
+    - Development: `http://localhost:3000`
+    - Production: Configured via environment
+  version: 1.0.0
+  contact:
+    name: Project Mimir Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: Service health check
+  - name: Auth
+    description: Authentication & authorization
+  - name: IAM
+    description: Identity & Access Management
+  - name: Sources
+    description: Data source management
+  - name: Pipeline
+    description: Data pipeline operations
+  - name: Agents
+    description: AI Agent management
+  - name: Conversations
+    description: Chat conversations
+  - name: Evaluations
+    description: Agent evaluation & benchmarking
+  - name: LLM Usage
+    description: LLM usage tracking & analytics
+  - name: Feedback
+    description: User feedback & bug reports
+  - name: MCP
+    description: Model Context Protocol
+  - name: Vault
+    description: Secrets management (HashiCorp Vault)
+  - name: Backup
+    description: Backup & disaster recovery
+  - name: Vector
+    description: Vector database operations
+  - name: Budget
+    description: Budget settings & usage
+  - name: Cron
+    description: Scheduled tasks
+  - name: OCR
+    description: Optical character recognition
+  - name: DB Connector
+    description: External database connectors
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: ro-ai-bridge
+                  version:
+                    type: string
+                    example: 0.1.0
+
+  /api/v1/auth/login:
+    post:
+      summary: Login with credentials
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  example: admin123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+
+  /api/v1/auth/me:
+    get:
+      summary: Get current user
+      tags: [Auth]
+      responses:
+        '200':
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /api/v1/iam/users:
+    get:
+      summary: List users
+      tags: [IAM]
+      parameters:
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      summary: Create user
+      tags: [IAM]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+
+  /api/v1/sources:
+    get:
+      summary: List data sources
+      tags: [Sources]
+      parameters:
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Source list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DataSource'
+    post:
+      summary: Create data source
+      tags: [Sources]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSourceRequest'
+      responses:
+        '201':
+          description: Source created
+
+  /api/v1/sources/{id}:
+    get:
+      summary: Get source by ID
+      tags: [Sources]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Source details
+    delete:
+      summary: Delete source
+      tags: [Sources]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Source deleted
+
+  /api/v1/pipeline/ingest:
+    post:
+      summary: Trigger data ingestion
+      tags: [Pipeline]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_id]
+              properties:
+                source_id:
+                  type: integer
+      responses:
+        '200':
+          description: Ingestion triggered
+
+  /api/v1/agents:
+    get:
+      summary: List agents
+      tags: [Agents]
+      parameters:
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+    post:
+      summary: Create agent
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Agent created
+
+  /api/v1/conversations:
+    get:
+      summary: List conversations
+      tags: [Conversations]
+      responses:
+        '200':
+          description: Conversation list
+    post:
+      summary: Create conversation
+      tags: [Conversations]
+      responses:
+        '201':
+          description: Conversation created
+
+  /api/v1/conversations/{id}/messages:
+    post:
+      summary: Send message in conversation
+      tags: [Conversations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+      responses:
+        '200':
+          description: Message response
+
+  /api/v1/llm-usage:
+    get:
+      summary: Get LLM usage statistics
+      tags: [LLM Usage]
+      parameters:
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage statistics
+
+  /api/v1/evaluations:
+    get:
+      summary: List evaluations
+      tags: [Evaluations]
+      responses:
+        '200':
+          description: Evaluation list
+    post:
+      summary: Create evaluation run
+      tags: [Evaluations]
+      responses:
+        '201':
+          description: Evaluation created
+
+  /api/v1/feedback:
+    get:
+      summary: List feedback reports
+      tags: [Feedback]
+      responses:
+        '200':
+          description: Feedback list
+    post:
+      summary: Submit feedback
+      tags: [Feedback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '201':
+          description: Feedback submitted
+
+  /api/v1/mcp/tools:
+    get:
+      summary: List MCP tools
+      tags: [MCP]
+      responses:
+        '200':
+          description: Tool list
+
+  /api/v1/mcp/call:
+    post:
+      summary: Call MCP tool
+      tags: [MCP]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tool_name, arguments]
+              properties:
+                tool_name:
+                  type: string
+                arguments:
+                  type: object
+      responses:
+        '200':
+          description: Tool result
+
+  /api/v1/vault/status:
+    get:
+      summary: Vault connection status
+      tags: [Vault]
+      responses:
+        '200':
+          description: Vault status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultStatus'
+
+  /api/v1/vault/rotate:
+    post:
+      summary: Rotate a secret
+      tags: [Vault]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, new_value]
+              properties:
+                key:
+                  type: string
+                new_value:
+                  type: string
+      responses:
+        '200':
+          description: Secret rotated
+
+  /api/v1/backup/status:
+    get:
+      summary: Backup status
+      tags: [Backup]
+      responses:
+        '200':
+          description: Backup status info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStatus'
+
+  /api/v1/backup/trigger:
+    post:
+      summary: Trigger backup
+      tags: [Backup]
+      responses:
+        '200':
+          description: Backup triggered
+
+  /api/v1/vector/stats:
+    get:
+      summary: Vector database statistics
+      tags: [Vector]
+      responses:
+        '200':
+          description: Vector stats
+
+  /api/v1/settings/budget:
+    get:
+      summary: Get budget settings
+      tags: [Budget]
+      responses:
+        '200':
+          description: Budget settings
+    put:
+      summary: Update budget settings
+      tags: [Budget]
+      responses:
+        '200':
+          description: Settings updated
+
+  /api/v1/cron/schedules:
+    get:
+      summary: List cron schedules
+      tags: [Cron]
+      responses:
+        '200':
+          description: Schedule list
+
+  /api/v1/ocr/analyze:
+    post:
+      summary: OCR analyze image
+      tags: [OCR]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OCR result
+
+  /api/v1/db-connector/test:
+    post:
+      summary: Test database connection
+      tags: [DB Connector]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [connection_string]
+              properties:
+                connection_string:
+                  type: string
+      responses:
+        '200':
+          description: Connection test result
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, user, viewer]
+        tenant_id:
+          type: string
+
+    CreateUserRequest:
+      type: object
+      required: [username, password, tenant_id]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          default: user
+        tenant_id:
+          type: string
+
+    DataSource:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        source_type:
+          type: string
+          enum: [url, file, folder, sitemap, sql]
+        status:
+          type: string
+          enum: [pending, syncing, ready, error]
+        tenant_id:
+          type: string
+
+    CreateSourceRequest:
+      type: object
+      required: [name, source_type, tenant_id]
+      properties:
+        name:
+          type: string
+        source_type:
+          type: string
+        source_config:
+          type: object
+        tenant_id:
+          type: string
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+        tenant_id:
+          type: string
+
+    CreateAgentRequest:
+      type: object
+      required: [name, tenant_id]
+      properties:
+        name:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+          default: gemini-2.0-flash
+        tenant_id:
+          type: string
+
+    FeedbackRequest:
+      type: object
+      required: [report_type, title, tenant_id]
+      properties:
+        report_type:
+          type: string
+          enum: [bug, feedback, feature_request]
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, critical]
+          default: medium
+        tenant_id:
+          type: string
+
+    VaultStatus:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        addr:
+          type: string
+        connected:
+          type: boolean
+        version:
+          type: string
+
+    BackupStatus:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        backup_dir:
+          type: string
+        total_backups:
+          type: integer
+        daily_count:
+          type: integer
+        weekly_count:
+          type: integer

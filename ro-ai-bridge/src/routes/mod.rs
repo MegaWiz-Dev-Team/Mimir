@@ -16,3 +16,7 @@ pub mod ocr;
 pub mod db_connector;
 pub mod vault;
 pub mod mcp;
+pub mod backup;
+pub mod docs;
+pub mod stats;
+pub mod chunks;

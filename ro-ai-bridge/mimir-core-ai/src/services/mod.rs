@@ -19,6 +19,8 @@ pub mod db_connector;
 pub mod vault;
 pub mod mcp_server;
 pub mod performance;
+pub mod backup;
+pub mod llm_provider;
 
 #[cfg(test)]
 mod e2e_tests;
