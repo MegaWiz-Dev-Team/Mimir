@@ -16,10 +16,13 @@ export function Navbar() {
 
     useEffect(() => {
         setMounted(true);
-        fetchTenants()
-            .then(setTenants)
-            .catch(() => setTenants([]));
-    }, []);
+        const token = Cookies.get("access_token");
+        if (pathname !== "/login" && token) {
+            fetchTenants()
+                .then(setTenants)
+                .catch(() => setTenants([]));
+        }
+    }, [pathname]);
 
     if (!mounted || pathname === "/login") return null;
 
