@@ -430,7 +430,16 @@ async fn discover_hierarchy(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = "default_tenant";
     let max_depth = payload.max_depth.unwrap_or(3).min(5);
-    let max_pages = payload.max_pages.unwrap_or(100).min(500);
+    // Read configurable max from tenant config (Issue #164)
+    let tenant_max: i32 = sqlx::query_scalar(
+        "SELECT max_crawl_pages FROM tenant_configs WHERE tenant_id = ?"
+    )
+    .bind(tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or(100);
+    let max_pages = payload.max_pages.unwrap_or(tenant_max as u32).min(500);
 
     let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
         .bind(id)
