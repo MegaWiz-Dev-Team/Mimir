@@ -6,11 +6,11 @@
 //! - GET    /api/v1/conversations/:session_id   — get full conversation by session
 //! - POST   /api/v1/conversations/:id/feedback  — submit thumbs up/down
 
-use axum::{
+use crate::routes::tenant::extract_tenant_id;use axum::{
     routing::{get, post},
     Router, Json,
     extract::{Path, State, Query},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -80,10 +80,11 @@ pub fn conversations_routes() -> Router<DbPool> {
 
 /// GET /api/v1/conversations — List conversation sessions
 async fn list_conversations(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<ConversationListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
@@ -151,10 +152,11 @@ async fn list_conversations(
 
 /// GET /api/v1/conversations/:session_id — Get full conversation transcript
 async fn get_conversation(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let messages = sqlx::query_as::<_, ConversationMessage>(
         "SELECT * FROM agent_conversations WHERE tenant_id = ? AND session_id = ? ORDER BY created_at ASC"
@@ -206,9 +208,10 @@ async fn submit_feedback(
 
 /// GET /api/v1/conversations/stats — Conversation statistics
 async fn conversation_stats(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let total: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ?"

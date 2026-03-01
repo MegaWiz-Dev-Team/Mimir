@@ -6,11 +6,11 @@
 //! - GET    /api/v1/llm-usage/alerts       — get usage alerts
 //! - GET    /api/v1/llm-usage/benchmark    — benchmark report
 
-use axum::{
+use crate::routes::tenant::extract_tenant_id;use axum::{
     routing::{get, put},
     Router, Json,
     extract::{State, Query},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -85,9 +85,10 @@ pub fn budget_usage_routes() -> Router<DbPool> {
 
 /// GET /api/v1/settings/llm-budget — Get all budget configs
 async fn get_budget(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<Vec<BudgetConfig>>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let budgets = sqlx::query_as::<_, BudgetConfig>(
         "SELECT * FROM llm_budget_configs WHERE tenant_id = ? ORDER BY model_id"
@@ -102,10 +103,11 @@ async fn get_budget(
 
 /// PUT /api/v1/settings/llm-budget — Save budget configs (upsert)
 async fn save_budget(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<SaveBudgetRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let mut saved = 0;
 
     for entry in &payload.budgets {
@@ -133,9 +135,10 @@ async fn save_budget(
 
 /// GET /api/v1/llm-usage/alerts — Get current usage alerts
 async fn get_alerts(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<Vec<UsageAlert>>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let mut alerts: Vec<UsageAlert> = vec![];
 
     // Check budget limits
@@ -242,9 +245,10 @@ async fn get_alerts(
 
 /// GET /api/v1/llm-usage/benchmark — Model benchmark report
 async fn get_benchmark(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<Vec<BenchmarkEntry>>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     // Get benchmark data per model
     let stats: Vec<(String, String, i64, i64, f64, i64, i64)> = sqlx::query_as(

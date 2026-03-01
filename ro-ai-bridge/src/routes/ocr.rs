@@ -1,7 +1,7 @@
 use axum::{
     routing::post,
     Router, Json, Extension, extract::State,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
 };
 use std::sync::Arc;
 use axum_extra::extract::Multipart;
@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::routes::sources::{resolve_llm_credentials, call_llm_api_with_logging};
 use serde_json::{json, Value};
 use tracing::{info, error, warn};
+use crate::routes::tenant::extract_tenant_id;
 
 pub fn ocr_routes() -> Router<DbPool> {
     Router::new()
@@ -26,6 +27,7 @@ pub fn ocr_routes() -> Router<DbPool> {
 /// - `file`: Binary image data (jpg, png, gif, webp, bmp, tiff, pdf)
 /// - `model`: Optional model override (default: gemini-2.5-flash)
 async fn ocr_extract(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     mut multipart: Multipart,
@@ -91,8 +93,9 @@ async fn ocr_extract(
     })?;
 
     // Log usage
+    let tenant_id = extract_tenant_id(&headers);
     let _ = crate::routes::llm_usage::insert_llm_usage_log(
-        &pool, "default_tenant", &model, "gemini", Some(&format!("{}chat/completions", api_base)),
+        &pool, tenant_id, &model, "gemini", Some(&format!("{}chat/completions", api_base)),
         Some("ocr_extract"), 0, 0, tokens_used as i32, 0, "success", None,
     ).await;
 
@@ -110,11 +113,12 @@ async fn ocr_extract(
 /// Run OCR on an existing data source's file (downloaded from S3).
 /// Updates the source's raw_markdown and adds OCR metadata.
 async fn ocr_extract_source(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     // Fetch source
     let source = sqlx::query_as::<_, DataSource>(

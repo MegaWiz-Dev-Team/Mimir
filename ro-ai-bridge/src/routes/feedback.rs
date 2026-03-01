@@ -8,7 +8,7 @@ use axum::{
     Router,
     routing::{get, post, put},
     extract::{Path, State, Query, Json, Extension},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     response::IntoResponse,
 };
 use std::sync::Arc;
@@ -16,6 +16,7 @@ use sqlx::MySqlPool;
 use serde_json::json;
 use tracing::{info, error, warn};
 use crate::config::Config;
+use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::services::feedback::{
     self, CreateFeedbackRequest, UpdateFeedbackRequest, FeedbackFilter,
 };
@@ -28,12 +29,13 @@ pub fn feedback_routes() -> Router<MySqlPool> {
 
 /// POST /feedback — submit a new feedback/bug report + auto-create GitHub issue
 async fn submit_feedback(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<MySqlPool>,
     Json(req): Json<CreateFeedbackRequest>,
 ) -> impl IntoResponse {
     // TODO: extract tenant_id/user_id from JWT when auth middleware is applied
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let user_id: Option<&str> = None;
 
     // 1. Collect system logs
@@ -161,10 +163,11 @@ async fn create_github_issue_for_feedback(
 
 /// GET /feedback — list feedback reports with filters
 async fn list_feedback(
+    headers: HeaderMap,
     State(pool): State<MySqlPool>,
     Query(filter): Query<FeedbackFilter>,
 ) -> impl IntoResponse {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     match feedback::list_feedback(&pool, tenant_id, &filter).await {
         Ok(reports) => (StatusCode::OK, Json(json!({
@@ -179,11 +182,12 @@ async fn list_feedback(
 
 /// PUT /feedback/:id — update feedback status/resolution
 async fn update_feedback(
+    headers: HeaderMap,
     State(pool): State<MySqlPool>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateFeedbackRequest>,
 ) -> impl IntoResponse {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     match feedback::update_feedback(&pool, id, tenant_id, &req).await {
         Ok(true) => (StatusCode::OK, Json(json!({"success": true}))).into_response(),
