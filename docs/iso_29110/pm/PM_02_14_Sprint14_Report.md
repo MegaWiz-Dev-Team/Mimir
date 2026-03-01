@@ -28,10 +28,10 @@
 | TC_SP14_U2 | Full backend test suite (195 tests) | ✅ Pass |
 
 ### Frontend Unit Tests (2/2 Pass)
-| ID         | Description                       | Result    |
-| ---------- | --------------------------------- | --------- |
-| TC_SP14_U3 | Frontend production build         | ⏳ Pending |
-| TC_SP14_U4 | Frontend test suite (64/66 tests) | ✅ Pass    |
+| ID         | Description                          | Result |
+| ---------- | ------------------------------------ | ------ |
+| TC_SP14_U3 | Frontend production build (18 pages) | ✅ Pass |
+| TC_SP14_U4 | Frontend test suite (64/66 tests)    | ✅ Pass |
 
 ### Backend Service Tests (21/21 Pass)
 | ID         | Description                   | Result |
