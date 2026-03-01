@@ -64,5 +64,27 @@
 | Config Files  | 2     | `docker-compose.prod.yml`, `.env.example`                                           |
 | Documentation | 2     | `openapi.yaml`, this report                                                         |
 
-## Risks & Issues
-- None — all features delivered and tests passing
+## Issues Found During Sprint Review
+
+ระหว่าง Sprint 14b review & testing พบ issues ที่ต้องแก้ไขใน Sprint 15:
+
+| #   | Issue                                       | Type          | Severity |
+| --- | ------------------------------------------- | ------------- | -------- |
+| 165 | JWT Expiry — Admin Settings error           | 🐛 Bug         | 🔴 High   |
+| 166 | QA UX — Auto Pipeline + One-Click           | ✨ Enhancement | 🟡 Medium |
+| 167 | Sources Group by Type (File/Web/MCP/DB)     | ✨ Enhancement | 🟡 Medium |
+| 168 | PDF Upload — No S3 key found                | 🐛 Bug         | 🔴 High   |
+| 169 | MCP Source — missing URL input              | 🐛 Bug         | 🔴 High   |
+| 170 | Folder upload + .DS_Store not filtered      | 🐛 Bug         | 🔴 High   |
+| 171 | External DB — Test Connection fails         | 🐛 Bug         | 🔴 High   |
+| 172 | Knowledge Base shows 0 chunks               | 🐛 Bug         | 🔴 High   |
+| 173 | QA Generation at Knowledge page (manual)    | ✨ Enhancement | 🟡 Medium |
+| 174 | Pipeline Status Bar navigation              | 🐛 Bug         | 🟡 Medium |
+| 175 | Provider/Model dropdown + dynamic discovery | ✨ Enhancement | 🟡 Medium |
+
+**สรุป:** 6 bugs (🔴 High) + 4 enhancements (🟡 Medium) + 1 new feature → ทั้งหมดจะแก้ไขใน Sprint 15
+
+## Next Sprint
+- **Sprint 15** — Bug Fixes & Data Ingress Hardening + UX Improvements
+- **Prompt:** `docs/prompts/sprint_15_prompt.md`
+- **Issues:** #165–#175 (11 issues)

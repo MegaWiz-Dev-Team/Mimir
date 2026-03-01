@@ -142,3 +142,4 @@
 **อ้างอิง (GitHub References):**
 - **Issues:** #158, #159, #160, #161, #162, #163, #164
 - **Pull Requests:** (pending PR creation from `feat/sprint-14b-deploy` branch)
+- **Issues Found During Review:** #165, #166, #167, #168, #169, #170, #171, #172, #173, #174, #175 → จะแก้ไขใน Sprint 15
