@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -71,10 +71,42 @@ export default function SourcesPage() {
     // DB Connector Wizard State
     const [showDbWizard, setShowDbWizard] = useState(false);
 
+    // B2: Source grouping — collapse state from localStorage
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+        if (typeof window !== "undefined") {
+            try {
+                const stored = localStorage.getItem("mimir_source_groups_collapsed");
+                return stored ? new Set(JSON.parse(stored)) : new Set();
+            } catch { return new Set(); }
+        }
+        return new Set();
+    });
+
     useEffect(() => {
         loadSources();
         loadFeatureFlags();
     }, []);
+
+    // B2: Group sources by type
+    const TYPE_LABELS: Record<string, string> = { file: "📁 File", web: "🌐 Web", mcp: "🔌 MCP", db: "🗃️ Database", folder: "📂 Folder" };
+    const groupedSources = useMemo(() => {
+        const groups: Record<string, typeof sources> = {};
+        for (const s of sources) {
+            const t = s.source_type || "file";
+            if (!groups[t]) groups[t] = [];
+            groups[t].push(s);
+        }
+        return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    }, [sources]);
+
+    const toggleGroup = (type: string) => {
+        setCollapsedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(type)) next.delete(type); else next.add(type);
+            localStorage.setItem("mimir_source_groups_collapsed", JSON.stringify([...next]));
+            return next;
+        });
+    };;
 
     const loadSources = async () => {
         try {
@@ -123,12 +155,21 @@ export default function SourcesPage() {
         setWizardStep(2);
     };
 
+    // A3: Filter hidden/system files (.DS_Store, __MACOSX, Thumbs.db, dotfiles)
+    const HIDDEN_PATTERNS = ['.DS_Store', '.gitkeep', 'Thumbs.db', 'desktop.ini'];
+    const filterHiddenFiles = (files: File[]) =>
+        files.filter(f =>
+            !f.name.startsWith('.') &&
+            !HIDDEN_PATTERNS.includes(f.name) &&
+            !f.webkitRelativePath?.includes('__MACOSX')
+        );
+
     const handleFilesAdded = (files: File[]) => {
-        setSelectedFiles((prev) => [...prev, ...files]);
+        setSelectedFiles((prev) => [...prev, ...filterHiddenFiles(files)]);
     };
 
     const handleFolderSelected = (files: File[]) => {
-        setSelectedFiles(files);
+        setSelectedFiles(filterHiddenFiles(files));
     };
 
     const handleRemoveFile = (index: number) => {
@@ -144,22 +185,9 @@ export default function SourcesPage() {
         setIsSaving(true);
 
         try {
-            const configJson: any = {};
-            if (selectedType === "web") configJson.url = newUrl;
-            if (selectedType === "mcp") configJson.connection_string = mcpConnectionString;
-            if (selectedType === "file") configJson.storage_mode = advancedSettings.storageMode;
-            if (selectedType === "file") configJson.ocr_enabled = advancedSettings.ocrEnabled;
-            configJson.use_header_row = advancedSettings.useHeaderRow;
-
-            const source = await createSource({
-                name: newName,
-                source_type: selectedType,
-                config_json: configJson,
-                schedule: "Manual",
-            });
-
-            // Upload files if any
-            if (selectedFiles.length > 0 && source.id) {
+            // A2 Fix: For file sources, use /sources/upload directly
+            // (creates source record + uploads to S3 + triggers extraction)
+            if (selectedType === "file" && selectedFiles.length > 0) {
                 const fileStatuses: UploadFileStatus[] = selectedFiles.map((f) => ({
                     name: f.name,
                     progress: 0,
@@ -172,10 +200,14 @@ export default function SourcesPage() {
                         prev.map((f, idx) => (idx === i ? { ...f, status: "uploading" as const } : f))
                     );
                     try {
-                        await uploadFile(source.id!, selectedFiles[i], (pct) => {
+                        await uploadFile(null, selectedFiles[i], (pct) => {
                             setUploadFiles((prev) =>
                                 prev.map((f, idx) => (idx === i ? { ...f, progress: pct } : f))
                             );
+                        }, {
+                            name: selectedFiles.length === 1 ? newName : `${newName} — ${selectedFiles[i].name}`,
+                            source_type: "file",
+                            folder_path: (selectedFiles[i] as any).webkitRelativePath || "",
                         });
                         setUploadFiles((prev) =>
                             prev.map((f, idx) =>
@@ -190,6 +222,22 @@ export default function SourcesPage() {
                         );
                     }
                 }
+            } else {
+                // Non-file sources: create via JSON API
+                const configJson: any = {};
+                if (selectedType === "web") configJson.url = newUrl;
+                if (selectedType === "mcp") {
+                    configJson.mcp_url = mcpConnectionString;
+                    configJson.transport_type = "sse";
+                }
+                configJson.use_header_row = advancedSettings.useHeaderRow;
+
+                await createSource({
+                    name: newName,
+                    source_type: selectedType,
+                    config_json: configJson,
+                    schedule: "Manual",
+                });
             }
 
             setShowWizard(false);
@@ -197,7 +245,6 @@ export default function SourcesPage() {
             loadSources();
         } catch (error) {
             console.warn("[Sources] Failed to create source:", error);
-            alert("Failed to create source");
         } finally {
             setIsSaving(false);
         }
@@ -531,14 +578,27 @@ export default function SourcesPage() {
                 )}
 
                 {selectedType === "mcp" && (
-                    <div className="grid gap-2">
-                        <Label htmlFor="wizard-mcp">Connection String</Label>
-                        <Input
-                            id="wizard-mcp"
-                            value={mcpConnectionString}
-                            onChange={(e) => setMcpConnectionString(e.target.value)}
-                            placeholder="mcp://host:port/path"
-                        />
+                    <div className="grid gap-3">
+                        <div className="grid gap-2">
+                            <Label htmlFor="wizard-mcp-url">MCP Server URL</Label>
+                            <Input
+                                id="wizard-mcp-url"
+                                value={mcpConnectionString}
+                                onChange={(e) => setMcpConnectionString(e.target.value)}
+                                placeholder="http://localhost:3000/sse"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="wizard-mcp-transport">Transport Type</Label>
+                            <select
+                                id="wizard-mcp-transport"
+                                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                defaultValue="sse"
+                            >
+                                <option value="sse">SSE (Server-Sent Events)</option>
+                                <option value="stdio">Stdio</option>
+                            </select>
+                        </div>
                     </div>
                 )}
 
@@ -694,45 +754,58 @@ export default function SourcesPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    sources.map((s) => (
-                                        <TableRow key={s.id}>
-                                            <TableCell className="font-medium">
-                                                {s.name}
-                                                {(s.mb_size != null || s.total_chunks != null) && (
-                                                    <div className="text-xs text-muted-foreground mt-1 font-normal flex items-center gap-2">
-                                                        <span>{s.mb_size?.toFixed(2) || "0.00"} MB</span>
-                                                        <span>•</span>
-                                                        <span>{s.total_chunks || 0} chunks</span>
-                                                    </div>
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-2">
-                                                    {getTypeIcon(s.source_type)}
-                                                    <span className="capitalize">{s.source_type}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-sm text-gray-500">
-                                                {s.schedule || "Manual"}
-                                            </TableCell>
-                                            <TableCell>
-                                                <StatusBadge status={s.last_sync_status || "PENDING"} />
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
-                                                    <RefreshCw className="w-4 h-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="sm" title="Preview Markdown" onClick={() => setPreviewingSource(s)}>
-                                                    <Eye className="w-4 h-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="sm" title="Configure" onClick={() => setConfiguringSource(s)}>
-                                                    <Settings className="w-4 h-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
+                                    groupedSources.map(([type, groupSources]) => (
+                                        <React.Fragment key={type}>
+                                            <TableRow
+                                                className="cursor-pointer hover:bg-muted/50 bg-muted/30"
+                                                onClick={() => toggleGroup(type)}
+                                            >
+                                                <TableCell colSpan={5} className="py-2 px-4 font-semibold text-sm">
+                                                    <span className="mr-2">{collapsedGroups.has(type) ? "▶" : "▼"}</span>
+                                                    {TYPE_LABELS[type] || type} ({groupSources.length})
+                                                </TableCell>
+                                            </TableRow>
+                                            {!collapsedGroups.has(type) && groupSources.map((s) => (
+                                                <TableRow key={s.id}>
+                                                    <TableCell className="font-medium">
+                                                        {s.name}
+                                                        {(s.mb_size != null || s.total_chunks != null) && (
+                                                            <div className="text-xs text-muted-foreground mt-1 font-normal flex items-center gap-2">
+                                                                <span>{s.mb_size?.toFixed(2) || "0.00"} MB</span>
+                                                                <span>•</span>
+                                                                <span>{s.total_chunks || 0} chunks</span>
+                                                            </div>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            {getTypeIcon(s.source_type)}
+                                                            <span className="capitalize">{s.source_type}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-gray-500">
+                                                        {s.schedule || "Manual"}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <StatusBadge status={s.last_sync_status || "PENDING"} />
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" title="Sync Source" onClick={() => handleSync(s.id!)}>
+                                                            <RefreshCw className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" title="Preview Markdown" onClick={() => setPreviewingSource(s)}>
+                                                            <Eye className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" title="Configure" onClick={() => setConfiguringSource(s)}>
+                                                            <Settings className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" title="Delete Source" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={() => setDeletingId(s.id!)}>
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </React.Fragment>
                                     ))
                                 )}
                             </TableBody>

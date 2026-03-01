@@ -83,7 +83,7 @@ impl IamService {
     fn generate_jwt(&self, user_id: &str, tenant_id: &str, role: &str) -> Result<String> {
         let expiration = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
-            .as_secs() as usize + (15 * 60); // 15 minutes exp
+            .as_secs() as usize + (24 * 60 * 60); // 24 hours exp
 
         // In a full implementation, `role` would be added to the claims.
         // For now, we reuse `TenantClaims` from the existing middleware.

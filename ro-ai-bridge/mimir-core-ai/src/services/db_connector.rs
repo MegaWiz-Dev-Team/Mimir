@@ -168,6 +168,7 @@ pub fn validate_query(query: &str) -> Result<()> {
 ///
 /// Supports formats:
 /// - `mysql://user:pass@host:3306/dbname`
+/// - `mariadb://user:pass@host:3306/dbname`  (alias for mysql)
 /// - `postgres://user:pass@host:5432/dbname`  
 /// - `sqlite:///path/to/file.db` or `sqlite://path/to/file.db`
 pub fn parse_connection_string(conn_str: &str) -> Result<ConnectionInfo> {
@@ -178,8 +179,9 @@ pub fn parse_connection_string(conn_str: &str) -> Result<ConnectionInfo> {
     }
 
     // Detect DB type from scheme
-    let (db_type, rest) = if trimmed.starts_with("mysql://") {
-        (DbType::Mysql, &trimmed[8..])
+    let (db_type, rest) = if trimmed.starts_with("mysql://") || trimmed.starts_with("mariadb://") {
+        let skip = if trimmed.starts_with("mariadb://") { 10 } else { 8 };
+        (DbType::Mysql, &trimmed[skip..])
     } else if trimmed.starts_with("postgres://") || trimmed.starts_with("postgresql://") {
         let skip = if trimmed.starts_with("postgresql://") { 13 } else { 11 };
         (DbType::Postgres, &trimmed[skip..])
@@ -192,7 +194,7 @@ pub fn parse_connection_string(conn_str: &str) -> Result<ConnectionInfo> {
             user: None,
         });
     } else {
-        bail!("Unsupported connection scheme. Use mysql://, postgres://, or sqlite://");
+        bail!("Unsupported connection scheme. Use mysql://, mariadb://, postgres://, or sqlite://");
     };
 
     // Parse user:pass@host:port/database
@@ -774,5 +776,28 @@ mod tests {
             connection_string: "mysql://u:p@h/db".to_string(),
         };
         assert!(validate_connection_config(&req).is_err());
+    }
+
+    // ========================================
+    // UT-015a: parse mariadb:// as mysql alias
+    // ========================================
+    #[test]
+    fn test_parse_mariadb_connection() {
+        let info = parse_connection_string("mariadb://admin:pass@db.example.com:3306/mydb").unwrap();
+        assert_eq!(info.db_type, DbType::Mysql);
+        assert_eq!(info.host, "db.example.com");
+        assert_eq!(info.port, Some(3306));
+        assert_eq!(info.database, "mydb");
+        assert_eq!(info.user, Some("admin".to_string()));
+    }
+
+    #[test]
+    fn test_validate_config_mariadb_matches_mysql() {
+        let req = TestConnectionRequest {
+            name: "My MariaDB".to_string(),
+            db_type: DbType::Mysql,
+            connection_string: "mariadb://user:pass@localhost/db".to_string(),
+        };
+        assert!(validate_connection_config(&req).is_ok());
     }
 }

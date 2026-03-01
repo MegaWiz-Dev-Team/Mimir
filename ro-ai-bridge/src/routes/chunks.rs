@@ -52,50 +52,53 @@ async fn list_chunks(
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    // Build dynamic query based on filters
+    let tenant_id = "default_tenant"; // Future: extract from JWT
+
+    // Build dynamic query based on filters — all queries filter by tenant_id via data_sources JOIN
     let (count_query, data_query) = if let Some(ref search) = params.search {
         if let Some(source_id) = params.source_id {
             (
-                format!("SELECT COUNT(*) FROM chunks WHERE source_id = {} AND content LIKE '%{}%'", source_id, search.replace('\'', "''")),
+                format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.source_id = {} AND c.content LIKE '%{}%'", tenant_id, source_id, search.replace('\'', "''")),
                 format!(
                     "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
-                     FROM chunks c LEFT JOIN data_sources d ON c.source_id = d.id \
-                     WHERE c.source_id = {} AND c.content LIKE '%{}%' \
+                     FROM chunks c JOIN data_sources d ON c.source_id = d.id \
+                     WHERE d.tenant_id = '{}' AND c.source_id = {} AND c.content LIKE '%{}%' \
                      ORDER BY c.id DESC LIMIT {} OFFSET {}",
-                    source_id, search.replace('\'', "''"), per_page, offset
+                    tenant_id, source_id, search.replace('\'', "''"), per_page, offset
                 ),
             )
         } else {
             (
-                format!("SELECT COUNT(*) FROM chunks WHERE content LIKE '%{}%'", search.replace('\'', "''")),
+                format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.content LIKE '%{}%'", tenant_id, search.replace('\'', "''")),
                 format!(
                     "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
-                     FROM chunks c LEFT JOIN data_sources d ON c.source_id = d.id \
-                     WHERE c.content LIKE '%{}%' \
+                     FROM chunks c JOIN data_sources d ON c.source_id = d.id \
+                     WHERE d.tenant_id = '{}' AND c.content LIKE '%{}%' \
                      ORDER BY c.id DESC LIMIT {} OFFSET {}",
-                    search.replace('\'', "''"), per_page, offset
+                    tenant_id, search.replace('\'', "''"), per_page, offset
                 ),
             )
         }
     } else if let Some(source_id) = params.source_id {
         (
-            format!("SELECT COUNT(*) FROM chunks WHERE source_id = {}", source_id),
+            format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.source_id = {}", tenant_id, source_id),
             format!(
                 "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
-                 FROM chunks c LEFT JOIN data_sources d ON c.source_id = d.id \
-                 WHERE c.source_id = {} \
+                 FROM chunks c JOIN data_sources d ON c.source_id = d.id \
+                 WHERE d.tenant_id = '{}' AND c.source_id = {} \
                  ORDER BY c.id DESC LIMIT {} OFFSET {}",
-                source_id, per_page, offset
+                tenant_id, source_id, per_page, offset
             ),
         )
     } else {
         (
-            "SELECT COUNT(*) FROM chunks".to_string(),
+            format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}'", tenant_id),
             format!(
                 "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
-                 FROM chunks c LEFT JOIN data_sources d ON c.source_id = d.id \
+                 FROM chunks c JOIN data_sources d ON c.source_id = d.id \
+                 WHERE d.tenant_id = '{}' \
                  ORDER BY c.id DESC LIMIT {} OFFSET {}",
-                per_page, offset
+                tenant_id, per_page, offset
             ),
         )
     };

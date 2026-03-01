@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink } from "lucide-react";
-import { fetchChunks, fetchSources, ChunkItem, DataSource } from "@/lib/api";
+import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw } from "lucide-react";
+import { fetchChunks, fetchSources, syncAllSources, ChunkItem, DataSource } from "@/lib/api";
 import Link from "next/link";
 
 export default function KnowledgePage() {
@@ -21,6 +21,7 @@ export default function KnowledgePage() {
     const [sourceFilter, setSourceFilter] = useState<number | undefined>();
     const [isLoading, setIsLoading] = useState(true);
     const [selectedChunk, setSelectedChunk] = useState<ChunkItem | null>(null);
+    const [qaRunning, setQaRunning] = useState(false);
 
     // Debounce search input
     useEffect(() => {
@@ -82,6 +83,22 @@ export default function KnowledgePage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={qaRunning || total === 0}
+                        onClick={async () => {
+                            setQaRunning(true);
+                            try {
+                                await syncAllSources();
+                                setTimeout(loadChunks, 3000);
+                            } catch { /* ignore */ }
+                            finally { setQaRunning(false); }
+                        }}
+                    >
+                        {qaRunning ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                        {qaRunning ? "Running..." : "Generate QA"}
+                    </Button>
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted">
                         <Layers className="w-4 h-4" />
                         <span className="font-semibold">{totalChunks}</span> chunks
