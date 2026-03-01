@@ -58,3 +58,7 @@
 | ENH-153  | Feedback & Bug Report (#153)                | Feedback Module      | `feedback.rs`, `FeedbackButton`        | TC-014       | Done   |
 | ENH-154  | E2E Test Suite (#154)                       | Testing Module       | `e2e_tests.rs`, 8 integration tests    | TC-014       | Done   |
 | ENH-157  | Vault Secrets Management (#157)             | Vault Module         | `vault.rs`, KV v2 + rotation           | TC-014       | Done   |
+| ENH-155  | MCP Real Implementation                     | MCP Server Module    | `mcp_server.rs`, tool registry         | TC-014       | Done   |
+| ENH-156  | Performance Optimization                    | Performance Module   | `performance.rs`, cache + pool         | TC-014       | Done   |
+| ENH-158  | Structured Logging & Request Tracing        | Logging Module       | `request_id.rs`, JSON tracing          | TC-014       | Done   |
+| ENH-159  | Reversible DB Migrations (.down.sql)        | Migration Module     | `migrations/down/*.down.sql`           | TC-014       | Done   |
