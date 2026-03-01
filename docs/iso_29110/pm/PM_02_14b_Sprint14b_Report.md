@@ -1,4 +1,4 @@
-# PM-02-14b: Sprint 14b Status Report — Deploy & Docs
+# PM-02-14b: Sprint 14b Status Report — Deploy & Docs & Config
 | Field      | Value       |
 | ---------- | ----------- |
 | **Sprint** | 14b         |
@@ -40,11 +40,16 @@
 - **Service**: `mimir-core-ai/src/services/llm_provider.rs` — 23 TDD tests
 - **Features**: Provider config, OpenAI-compatible request/response, benchmarking, GPU detection
 
+### 7. Configurable Max Crawl Pages (#164) ✅
+- **Migration**: `20260302300000_add_max_crawl_pages.sql` — `max_crawl_pages INT NOT NULL DEFAULT 100`
+- **Backend**: `models/iam.rs` + `services/iam.rs` + `sources.rs` — reads from tenant config
+- **Frontend**: `settings/page.tsx` Pipeline tab — input (10–500) + save button
+
 ## Test Results
 
 | Metric                     | Value   |
 | -------------------------- | ------- |
-| New TDD tests (Sprint 14b) | 38      |
+| New TDD tests (Sprint 14b) | 38+4    |
 | Total backend tests        | 255     |
 | Pass rate                  | 100%    |
 | Compilation                | ✅ Clean |
@@ -53,8 +58,8 @@
 
 | Category      | Count | Key Files                                                                           |
 | ------------- | ----- | ----------------------------------------------------------------------------------- |
-| Rust Services | 2     | `backup.rs`, `llm_provider.rs`                                                      |
-| Rust Routes   | 2     | `backup.rs`, `docs.rs`                                                              |
+| Rust Services | 3     | `backup.rs`, `llm_provider.rs`, `iam.rs`                                            |
+| Rust Routes   | 3     | `backup.rs`, `docs.rs`, `sources.rs`                                                |
 | Shell Scripts | 6     | `backup.sh`, `restore.sh`, `update.sh`, `rollback.sh`, `setup.sh`, `deploy-test.sh` |
 | Config Files  | 2     | `docker-compose.prod.yml`, `.env.example`                                           |
 | Documentation | 2     | `openapi.yaml`, this report                                                         |
