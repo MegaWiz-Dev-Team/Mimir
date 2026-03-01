@@ -31,7 +31,7 @@
 
 | ID             | Test Scenario             | Action / Steps (ขั้นตอนการทดสอบ)               | Expected Result (ผลที่คาดหวัง)              | ผลการประเมิน | Issue # / PR # | หมายเหตุ                                                    |
 | :------------- | :------------------------ | :------------------------------------------- | :--------------------------------------- | :---------- | :------------- | :--------------------------------------------------------- |
-| **TC_SP14_U3** | Frontend production build | 1. รัน `npx next build` ใน `ro-ai-dashboard/` | Build สำเร็จ, all pages generated          | ⏳ Pending   | All Sprint 14  | รอดำเนินการ                                                  |
+| **TC_SP14_U3** | Frontend production build | 1. รัน `npx next build` ใน `ro-ai-dashboard/` | Build สำเร็จ, 18/18 pages generated        | ✅ Pass      | All Sprint 14  | 18/18 pages (15 static + 2 dynamic + _not-found)           |
 | **TC_SP14_U4** | Frontend unit test suite  | 1. รัน `npx jest --no-coverage`               | Tests pass (ยกเว้น pre-existing failures) | ✅ Pass      | All Sprint 14  | 64/66 pass — 2 pre-existing failures (pipeline-status-bar) |
 
 ---
@@ -134,7 +134,7 @@
 
 **หมายเหตุ:**
 - TC_SP14_05, TC_SP14_06, TC_SP14_13 ยืนยันผ่าน **code review** เนื่องจากต้องมี Vault server / GitHub API จริงเพื่อทดสอบ end-to-end
-- TC_SP14_U3 (Frontend production build) pending — รอดำเนินการ
+- TC_SP14_U3 (Frontend production build) ผ่าน — 18/18 pages generated
 
 **อ้างอิง (GitHub References):**
 - **Issues:** #150, #151, #152, #153, #154, #157
