@@ -265,11 +265,28 @@ export default function SettingsPage() {
                     Pipeline Settings
                 </CardTitle>
                 <CardDescription>
-                    Configure chunking strategy, extraction settings, and deduplication threshold.
+                    Configure chunking strategy, extraction settings, crawl limits, and deduplication threshold.
                 </CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="space-y-6">
+                    {/* Max Crawl Pages — Issue #164 */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Max Crawl Pages</label>
+                        <Input
+                            type="number"
+                            value={config?.max_crawl_pages ?? 100}
+                            onChange={e => {
+                                if (config) setConfig({ ...config, max_crawl_pages: Math.max(10, Math.min(500, parseInt(e.target.value) || 100)) });
+                            }}
+                            min={10}
+                            max={500}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            จำนวนหน้าสูงสุดที่ Web Hierarchy Loader จะ crawl (10–500, default: 100)
+                        </p>
+                    </div>
+
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Chunking Strategy</label>
                         <select
@@ -325,13 +342,30 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="pt-4 flex justify-end">
-                        <Button disabled>
+                        <Button
+                            disabled={isSaving || !currentTenantId}
+                            onClick={async () => {
+                                if (!currentTenantId || !config) return;
+                                setIsSaving(true);
+                                try {
+                                    await updateTenantConfig(currentTenantId, {
+                                        max_crawl_pages: config.max_crawl_pages,
+                                    });
+                                    alert("Pipeline settings saved successfully.");
+                                } catch (error) {
+                                    console.warn("[Settings] Failed to save pipeline settings:", error);
+                                    alert("Failed to save pipeline settings.");
+                                } finally {
+                                    setIsSaving(false);
+                                }
+                            }}
+                        >
                             <Save className="w-4 h-4 mr-2" />
-                            Save Pipeline Settings
+                            {isSaving ? "Saving..." : "Save Pipeline Settings"}
                         </Button>
                     </div>
                     <p className="text-xs text-muted-foreground text-right">
-                        Pipeline settings persistence will be wired in a future sprint.
+                        Chunking and dedup settings persistence will be wired in a future sprint.
                     </p>
                 </div>
             </CardContent>
