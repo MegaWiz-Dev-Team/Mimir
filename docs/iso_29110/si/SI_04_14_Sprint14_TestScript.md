@@ -22,10 +22,10 @@
 
 #### 1.1 Backend Unit Tests (`cargo check` + `cargo test`)
 
-| ID             | Test Scenario           | Action / Steps (ขั้นตอนการทดสอบ)         | Expected Result (ผลที่คาดหวัง)    | ผลการประเมิน | Issue # / PR #  | หมายเหตุ                                 |
-| :------------- | :---------------------- | :------------------------------------- | :----------------------------- | :---------- | :-------------- | :-------------------------------------- |
-| **TC_SP14_U1** | Backend compilation     | 1. รัน `cargo check` ใน `ro-ai-bridge/` | Compilation สำเร็จ 0 errors      | ✅ Pass      | All Sprint 14   | warnings only — ไม่กระทบ                 |
-| **TC_SP14_U2** | Backend unit test suite | 1. รัน `cargo test -p mimir-core-ai`    | All 195 tests pass, 0 failures | ✅ Pass      | #150-#154, #157 | 195 passed, 0 failed, finished in 5.17s |
+| ID             | Test Scenario           | Action / Steps (ขั้นตอนการทดสอบ)         | Expected Result (ผลที่คาดหวัง)    | ผลการประเมิน | Issue # / PR # | หมายเหตุ                                |
+| :------------- | :---------------------- | :------------------------------------- | :----------------------------- | :---------- | :------------- | :------------------------------------- |
+| **TC_SP14_U1** | Backend compilation     | 1. รัน `cargo check` ใน `ro-ai-bridge/` | Compilation สำเร็จ 0 errors      | ✅ Pass      | All Sprint 14  | warnings only — ไม่กระทบ                |
+| **TC_SP14_U2** | Backend unit test suite | 1. รัน `cargo test -p mimir-core-ai`    | All 217 tests pass, 0 failures | ✅ Pass      | #150-#157      | 217 passed (195+22 MCP/Perf), 0 failed |
 
 #### 1.2 Frontend Build & Tests (`npx next build` + `npx jest`)
 
@@ -112,7 +112,11 @@
 
 **สรุปผลการทดสอบ Sprint 14 (Sign-off):**
 - [x] Backend Compilation ผ่าน (cargo check: 0 errors, warnings only)
-- [x] Backend Unit Tests ผ่าน (195/195: cargo test -p mimir-core-ai)
+- [x] Backend Unit Tests ผ่าน (217/217: cargo test -p mimir-core-ai)
+- [x] MCP Server Tests ผ่าน (12/12: tool registry, validation, dispatch)
+- [x] Performance Tests ผ่าน (10/10: cache, pool config, indexes)
+- [x] Reversible Migrations ครบ (25/25 .down.sql files)
+- [x] Structured Logging ผ่าน (2/2: request_id middleware tests)
 - [x] Frontend Unit Tests ผ่าน (64/66: npx jest — 2 pre-existing failures)
 - [x] Vault Secrets ผ่าน (6/6: TC_SP14_01~06)
 - [x] External DB Connectors ผ่าน (5/5: TC_SP14_07~11)
@@ -121,10 +125,12 @@
 - [x] Frontend Components ผ่าน (10/10: TC_SP14_22~31)
 
 **ผลการทดสอบ 2026-03-01:**
-- **Unit Tests (Backend)**: 195/195 ✅
+- **Unit Tests (Backend)**: 217/217 ✅ (+22 MCP/Performance tests)
 - **Unit Tests (Frontend)**: 64/66 ✅ (2 pre-existing failures ใน pipeline-status-bar)
 - **Backend Service Tests**: 21/21 ✅ Pass
 - **Frontend Component Tests**: 10/10 ✅ Pass
+- **MCP Server**: 12/12 ✅ (tool registry, validation, dispatch)
+- **Performance**: 10/10 ✅ (cache, pool config, indexes)
 - **Total**: 4/4 unit suites + 31/31 feature tests = **35/35 all pass**
 
 **Bugs Fixed During Testing:**
@@ -137,5 +143,5 @@
 - TC_SP14_U3 (Frontend production build) ผ่าน — 18/18 pages generated
 
 **อ้างอิง (GitHub References):**
-- **Issues:** #150, #151, #152, #153, #154, #157
+- **Issues:** #150, #151, #152, #153, #154, #155, #156, #157, #158, #159
 - **Pull Requests:** (pending PR creation from `feat/sprint-14-phase-1` branch)

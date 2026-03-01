@@ -14,10 +14,14 @@
 - **Backend:** Feedback & Bug Report — GitHub issue auto-creation, system/client log capture (#153)
 - **Backend:** E2E Test Suite — 8 service-level integration tests, fixtures (#154)
 - **Backend:** Vault Secrets Management — HashiCorp Vault KV v2, env fallback, rotation, masking (#157)
+- **Backend:** MCP Real Implementation — Tool registry (5 tools), validation, dispatch, routes (#155)
+- **Backend:** Performance Optimization — InMemoryCache (TTL), PoolConfig (env-based), index recommendations (#156)
+- **Backend:** Structured Logging & Request Tracing — JSON tracing, request_id middleware, X-Request-Id (#158)
+- **Backend:** Reversible DB Migrations — 25/25 `.down.sql` files (#159)
 - **Frontend:** Cron Schedule Selector — Manual/15m/Hourly/Daily/Weekly dropdown (#150)
 - **Frontend:** DB Connector Wizard — 3-step dialog (type → test → import) (#152)
 - **Frontend:** Feedback Button — Floating FAB + Sheet form, auto-capture browser info (#153)
-- **API Layer:** 7 new functions + 5 interfaces (Cron, DB, Feedback, Vault)
+- **API Layer:** 10 new functions + 5 interfaces (Cron, DB, Feedback, Vault, MCP)
 
 ## 2. สรุปผลการทดสอบ (Testing Verification Summary)
 
@@ -25,7 +29,7 @@
 | ID         | Description                         | Result |
 | ---------- | ----------------------------------- | ------ |
 | TC_SP14_U1 | Backend compilation (cargo check)   | ✅ Pass |
-| TC_SP14_U2 | Full backend test suite (195 tests) | ✅ Pass |
+| TC_SP14_U2 | Full backend test suite (217 tests) | ✅ Pass |
 
 ### Frontend Unit Tests (2/2 Pass)
 | ID         | Description                          | Result |
@@ -76,14 +80,18 @@
 
 ## 3. GitHub Synchronization & Traceability
 ### Issues
-| Issue # | Title                                                  | Status |
-| ------- | ------------------------------------------------------ | ------ |
-| #150    | Feat: Scheduled Re-sync (Cron Worker)                  | ✅ Open |
-| #151    | Feat: OCR Integration (Gemini 2.5 Flash Vision API)    | ✅ Open |
-| #152    | Feat: External DB Connectors (MySQL/PostgreSQL/SQLite) | ✅ Open |
-| #153    | Feat: Feedback & Bug Report (GitHub Issue integration) | ✅ Open |
-| #154    | Feat: E2E Test Suite (Full pipeline integration tests) | ✅ Open |
-| #157    | Feat: Vault Secrets Management (HashiCorp Vault KV v2) | ✅ Open |
+| Issue # | Title                                                   | Status |
+| ------- | ------------------------------------------------------- | ------ |
+| #150    | Feat: Scheduled Re-sync (Cron Worker)                   | ✅ Open |
+| #151    | Feat: OCR Integration (Gemini 2.5 Flash Vision API)     | ✅ Open |
+| #152    | Feat: External DB Connectors (MySQL/PostgreSQL/SQLite)  | ✅ Open |
+| #153    | Feat: Feedback & Bug Report (GitHub Issue integration)  | ✅ Open |
+| #154    | Feat: E2E Test Suite (Full pipeline integration tests)  | ✅ Open |
+| #157    | Feat: Vault Secrets Management (HashiCorp Vault KV v2)  | ✅ Open |
+| #155    | Feat: MCP Real Implementation (Tool Registry + Routes)  | ✅ Open |
+| #156    | Feat: Performance Optimization (Cache + Pool + Indexes) | ✅ Open |
+| #158    | Feat: Structured Logging & Request Tracing (JSON + ID)  | ✅ Open |
+| #159    | Feat: Reversible DB Migrations (25/25 .down.sql)        | ✅ Open |
 
 ### Pull Requests
 | PR # | Title                                                  | Status    |
@@ -95,14 +103,18 @@
 ### Database Migration
 1. **`migrations/20260302200000_external_db_connectors.sql`** — `external_db_connections` table
 
-### Backend (Rust) — 4 new service files + 3 new route files + fixtures
+### Backend (Rust) — 6 new service files + 4 new route files + fixtures
 1. **`mimir-core-ai/src/services/vault.rs`** — NEW: Vault KV v2, env fallback, rotation, masking (17 tests)
 2. **`mimir-core-ai/src/services/db_connector.rs`** — NEW: DB connection, query sandboxing, schema, import (36 tests)
 3. **`mimir-core-ai/src/services/e2e_tests.rs`** — NEW: 8 E2E integration tests
-4. **`src/routes/vault.rs`** — NEW: GET /status, POST /rotate
-5. **`src/routes/db_connector.rs`** — NEW: test-connection, discover-schema, import
-6. **`tests/fixtures/sample.csv`** — NEW: CSV test fixture
-7. **`tests/fixtures/sample.html`** — NEW: HTML test fixture
+4. **`mimir-core-ai/src/services/mcp_server.rs`** — NEW: MCP tool registry (5 tools), validation, dispatch (12 tests)
+5. **`mimir-core-ai/src/services/performance.rs`** — NEW: InMemoryCache, PoolConfig, index recommendations (10 tests)
+6. **`mimir-core-ai/src/middleware/request_id.rs`** — NEW: UUID request tracing + X-Request-Id (2 tests)
+7. **`src/routes/vault.rs`** — NEW: GET /status, POST /rotate
+8. **`src/routes/db_connector.rs`** — NEW: test-connection, discover-schema, import
+9. **`src/routes/mcp.rs`** — NEW: GET /tools, GET /info, POST /tools/call
+10. **`tests/fixtures/sample.csv`** — NEW: CSV test fixture
+11. **`tests/fixtures/sample.html`** — NEW: HTML test fixture
 
 ### Frontend (Next.js) — 3 new components + 3 test files + API layer
 1. **`src/components/cron-schedule-selector.tsx`** — NEW: Schedule dropdown (6 tests)
