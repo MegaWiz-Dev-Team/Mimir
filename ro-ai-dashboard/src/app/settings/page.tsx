@@ -100,7 +100,6 @@ export default function SettingsPage() {
             }
         } catch (error) {
             console.warn("[Settings] Failed to load tenants:", error);
-            alert("Failed to load tenant data. Are you logged in as Admin?");
         } finally {
             setIsLoading(false);
         }
@@ -197,19 +196,96 @@ export default function SettingsPage() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Default Provider</label>
-                                <Input
-                                    placeholder="ollama, gemini"
+                                <select
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                     value={config.default_provider || ""}
-                                    onChange={e => setConfig({ ...config, default_provider: e.target.value })}
-                                />
+                                    onChange={e => {
+                                        const provider = e.target.value;
+                                        setConfig({ ...config, default_provider: provider });
+                                        // Auto-select first model for this provider
+                                        const models: Record<string, string> = {
+                                            ollama: "llama3.2",
+                                            gemini: "gemini-2.5-flash",
+                                            openai: "gpt-4o-mini",
+                                            mlx: "mlx-community/Mistral-7B",
+                                            vllm: "meta-llama/Llama-3.2-3B",
+                                            groq: "llama-3.3-70b-versatile",
+                                            deepseek: "deepseek-chat",
+                                        };
+                                        if (models[provider]) {
+                                            setConfig(prev => prev ? { ...prev, default_provider: provider, default_model: models[provider] } : prev);
+                                        }
+                                    }}
+                                >
+                                    <option value="">Select provider...</option>
+                                    <option value="ollama">Ollama (Local)</option>
+                                    <option value="gemini">Google Gemini</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="mlx">MLX (Apple Silicon)</option>
+                                    <option value="vllm">vLLM</option>
+                                    <option value="groq">Groq</option>
+                                    <option value="deepseek">DeepSeek</option>
+                                    <option value="custom">Custom</option>
+                                </select>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Default Model</label>
-                                <Input
-                                    placeholder="llama3.2, gemini-2.5-flash"
-                                    value={config.default_model || ""}
-                                    onChange={e => setConfig({ ...config, default_model: e.target.value })}
-                                />
+                                {config.default_provider === "custom" ? (
+                                    <Input
+                                        placeholder="model-name"
+                                        value={config.default_model || ""}
+                                        onChange={e => setConfig({ ...config, default_model: e.target.value })}
+                                    />
+                                ) : (
+                                    <select
+                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        value={config.default_model || ""}
+                                        onChange={e => setConfig({ ...config, default_model: e.target.value })}
+                                    >
+                                        <option value="">Select model...</option>
+                                        {config.default_provider === "ollama" && (
+                                            <>
+                                                <option value="llama3.2">llama3.2</option>
+                                                <option value="llama3.1">llama3.1</option>
+                                                <option value="qwen2.5">qwen2.5</option>
+                                                <option value="nomic-embed-text">nomic-embed-text</option>
+                                                <option value="gemma2">gemma2</option>
+                                            </>
+                                        )}
+                                        {config.default_provider === "gemini" && (
+                                            <>
+                                                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                                                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                                                <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                                            </>
+                                        )}
+                                        {config.default_provider === "openai" && (
+                                            <>
+                                                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                                                <option value="gpt-4o">gpt-4o</option>
+                                                <option value="gpt-4-turbo">gpt-4-turbo</option>
+                                            </>
+                                        )}
+                                        {config.default_provider === "mlx" && (
+                                            <option value="mlx-community/Mistral-7B">mlx-community/Mistral-7B</option>
+                                        )}
+                                        {config.default_provider === "vllm" && (
+                                            <option value="meta-llama/Llama-3.2-3B">meta-llama/Llama-3.2-3B</option>
+                                        )}
+                                        {config.default_provider === "groq" && (
+                                            <>
+                                                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                                                <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                                            </>
+                                        )}
+                                        {config.default_provider === "deepseek" && (
+                                            <>
+                                                <option value="deepseek-chat">deepseek-chat</option>
+                                                <option value="deepseek-coder">deepseek-coder</option>
+                                            </>
+                                        )}
+                                    </select>
+                                )}
                             </div>
                         </div>
 

@@ -779,14 +779,18 @@ export async function updateSource(id: number, data: Partial<DataSource>): Promi
 }
 
 export function uploadFile(
-    sourceId: number,
+    sourceId: number | null,
     file: File,
-    onProgress?: (percent: number) => void
+    onProgress?: (percent: number) => void,
+    metadata?: { name?: string; source_type?: string; folder_path?: string }
 ): Promise<any> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const formData = new FormData();
         formData.append("file", file);
+        if (metadata?.name) formData.append("name", metadata.name);
+        if (metadata?.source_type) formData.append("source_type", metadata.source_type);
+        if (metadata?.folder_path) formData.append("folder_path", metadata.folder_path);
 
         xhr.upload.addEventListener("progress", (event) => {
             if (event.lengthComputable && onProgress) {
@@ -809,7 +813,8 @@ export function uploadFile(
         xhr.addEventListener("error", () => reject(new Error("Upload failed")));
 
         const headers = getAuthHeaders() as Record<string, string>;
-        xhr.open("POST", `${API_BASE_URL}/sources/${sourceId}/upload`);
+        // Use the correct /sources/upload endpoint (not per-source ID)
+        xhr.open("POST", `${API_BASE_URL}/sources/upload`);
         Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
         xhr.send(formData);
     });
