@@ -5,25 +5,26 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
 import { LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon, Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare } from "lucide-react";
+import { fetchTenants, Tenant } from "@/lib/api";
 
 export function Navbar() {
     const pathname = usePathname();
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
 
+    const [tenants, setTenants] = useState<Tenant[]>([]);
+
     useEffect(() => {
         setMounted(true);
+        fetchTenants()
+            .then(setTenants)
+            .catch(() => setTenants([]));
     }, []);
 
     if (!mounted || pathname === "/login") return null;
 
     const tenantId = Cookies.get("tenant_id") || "default_tenant";
-    // Ideally, valid tenants would come from the JWT claims, but for UI sake we'll mock or just show the current one.
-    const tenants = [
-        { id: "default_tenant", name: "Default Tenant" },
-        { id: "ragnarok_th", name: "Ragnarok TH" },
-        { id: "med_clinic_a", name: "Medical Clinic A" },
-    ];
+    const currentTenantName = tenants.find(t => t.id === tenantId)?.name;
 
     const handleLogout = () => {
         Cookies.remove("access_token");
@@ -87,7 +88,7 @@ export function Navbar() {
                             className="text-sm bg-gray-50 border border-gray-300 text-gray-900 rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-1.5 dark:bg-zinc-900 dark:border-zinc-700 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 outline-none"
                         >
                             {!tenants.some(t => t.id === tenantId) && (
-                                <option value={tenantId}>{tenantId}</option>
+                                <option value={tenantId}>{currentTenantName || tenantId}</option>
                             )}
                             {tenants.map(t => (
                                 <option key={t.id} value={t.id}>{t.name}</option>
