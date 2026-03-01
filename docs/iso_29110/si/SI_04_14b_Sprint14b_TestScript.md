@@ -1,7 +1,7 @@
 # SI-04-14b: Sprint 14b Test Script (Deploy & Docs — Backup, Update, Setup, API Docs, MLX/vLLM)
 **Project Name:** Project Mimir
 **Sprint:** 14b
-**Feature:** Backup & DR (#158), Update & Rollback (#159), Setup & Deployment (#160), Deployment Test (#161), API Documentation (#162), MLX + vLLM Phase 2 (#163)
+**Feature:** Backup & DR (#158), Update & Rollback (#159), Setup & Deployment (#160), Deployment Test (#161), API Documentation (#162), MLX + vLLM Phase 2 (#163), Configurable Max Crawl Pages (#164)
 **ทดสอบเมื่อ:** 2026-03-01
 
 ## แนวทางการทดสอบตามมาตรฐาน ISO 29110 (Test Instructions & TDD Approach)
@@ -107,6 +107,17 @@
 
 ---
 
+### ส่วนที่ 5: การตรวจสอบ Configurable Max Crawl Pages (#164)
+
+| ID              | Test Scenario                         | Action / Steps (ขั้นตอนการทดสอบ)                                                   | Expected Result (ผลที่คาดหวัง)                                                      | ผลการประเมิน | Issue # / PR # | หมายเหตุ                                |
+| :-------------- | :------------------------------------ | :------------------------------------------------------------------------------- | :------------------------------------------------------------------------------- | :---------- | :------------- | :------------------------------------- |
+| **TC_SP14b_39** | DB migration — max_crawl_pages column | 1. ตรวจสอบ migration `20260302300000_add_max_crawl_pages.sql`                    | `ALTER TABLE tenant_configs ADD COLUMN max_crawl_pages INT NOT NULL DEFAULT 100` | ✅ Pass      | #164           | Idempotent migration (IF NOT EXISTS)   |
+| **TC_SP14b_40** | Backend — TenantConfig model          | 1. Code review: `models/iam.rs` — `TenantConfig` + `UpdateTenantConfigRequest`   | `max_crawl_pages: i32` ใน struct, `Option<i32>` ใน update request                | ✅ Pass      | #164           | Field wired through service layer      |
+| **TC_SP14b_41** | Backend — discover_hierarchy reads DB | 1. Code review: `sources.rs` line 433 — `discover_hierarchy` reads tenant config | `let tenant_max = sqlx::query_scalar(...)` แทน hardcode 100                      | ✅ Pass      | #164           | Fallback to 100 if not found           |
+| **TC_SP14b_42** | Frontend — Pipeline tab UI            | 1. เปิด Admin Settings → Pipeline tab<br>2. ตรวจสอบ Max Crawl Pages input         | Input แสดงค่า 100, range 10–500, ปุ่ม Save Pipeline Settings enabled                | ✅ Pass      | #164           | Save wired to `updateTenantConfig` API |
+
+---
+
 **สรุปผลการทดสอบ Sprint 14b (Sign-off):**
 - [x] Backend Compilation ผ่าน (cargo check: 0 errors, warnings only)
 - [x] Backend Unit Tests ผ่าน (255/255: cargo test -p mimir-core-ai)
@@ -114,18 +125,20 @@
 - [x] MLX + vLLM Tests ผ่าน (23/23: request builder, parser, validation, benchmark)
 - [x] Shell Scripts ผ่าน (6/6 scripts: syntax valid, functions reviewed)
 - [x] Config & Docs ผ่าน (docker-compose, .env.example, openapi.yaml, Swagger UI)
+- [x] Configurable Max Crawl Pages ผ่าน (4/4: migration, model, backend, frontend UI)
 
 **ผลการทดสอบ 2026-03-01:**
 - **Unit Tests (Backend)**: 255/255 ✅ (+38 Backup/LLM Provider tests)
 - **Backend Service Tests**: 21/21 ✅ Pass (TC_SP14b_01~21)
 - **Shell Script Tests**: 13/13 ✅ Pass (TC_SP14b_22~34)
 - **Config & Docs Tests**: 4/4 ✅ Pass (TC_SP14b_35~38)
-- **Total**: 2/2 unit suites + 38/38 feature tests = **40/40 all pass**
+- **Max Crawl Pages Tests**: 4/4 ✅ Pass (TC_SP14b_39~42)
+- **Total**: 2/2 unit suites + 42/42 feature tests = **44/44 all pass**
 
 **หมายเหตุ:**
 - TC_SP14b_09, TC_SP14b_10 ยืนยันผ่าน **code review** เนื่องจากต้องมี filesystem + running services เพื่อทดสอบ end-to-end
 - TC_SP14b_22~34 (Shell Scripts) ทดสอบ syntax + code review เนื่องจากต้องมี Docker + databases จริงเพื่อรัน
 
 **อ้างอิง (GitHub References):**
-- **Issues:** #158, #159, #160, #161, #162, #163
+- **Issues:** #158, #159, #160, #161, #162, #163, #164
 - **Pull Requests:** (pending PR creation from `feat/sprint-14b-deploy` branch)
