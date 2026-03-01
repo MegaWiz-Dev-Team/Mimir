@@ -22,6 +22,10 @@
 
 | Date       | Issue / Change Request                                                   | Raised By | Status | Resolution         |
 | ---------- | ------------------------------------------------------------------------ | --------- | ------ | ------------------ |
+| 2026-03-01 | Issue #159: Feat: Reversible DB Migrations (25/25 .down.sql)             | Auto      | Done   | feat/sprint-14     |
+| 2026-03-01 | Issue #158: Feat: Structured Logging & Request Tracing (JSON + ID)       | Auto      | Done   | feat/sprint-14     |
+| 2026-03-01 | Issue #156: Feat: Performance Optimization (Cache + Pool + Indexes)      | Auto      | Done   | feat/sprint-14     |
+| 2026-03-01 | Issue #155: Feat: MCP Real Implementation (Tool Registry + Routes)       | Auto      | Done   | feat/sprint-14     |
 | 2026-03-01 | Issue #157: Feat: Vault Secrets Management (HashiCorp Vault KV v2)       | User      | Open   | feat/sprint-14     |
 | 2026-03-01 | Issue #154: Feat: E2E Test Suite (Full pipeline integration tests)       | User      | Open   | feat/sprint-14     |
 | 2026-03-01 | Issue #153: Feat: Feedback & Bug Report (GitHub Issue integration)       | User      | Open   | feat/sprint-14     |
