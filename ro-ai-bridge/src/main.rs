@@ -36,6 +36,7 @@ use ro_ai_bridge::routes::vault::vault_routes;
 use ro_ai_bridge::routes::mcp::mcp_routes;
 use ro_ai_bridge::routes::backup::backup_routes;
 use ro_ai_bridge::routes::docs::docs_routes;
+use ro_ai_bridge::routes::chunks::chunks_routes;
 
 #[tokio::main]
 async fn main() {
@@ -86,6 +87,7 @@ async fn main() {
         .nest("/api/v1/qc", qc_routes())
         .nest("/api/v1/vector", vector_routes())
         .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes())
+        .nest("/api/v1/chunks", chunks_routes())
         .nest("/api/v1/llm-usage", llm_usage_routes())
         .nest("/api/v1/agents", agents_routes())
         .nest("/api/v1/conversations", conversations_routes())
