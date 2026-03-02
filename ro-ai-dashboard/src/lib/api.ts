@@ -665,6 +665,7 @@ export interface ChunkItem {
 export interface ChunkListResponse {
     chunks: ChunkItem[];
     total: number;
+    total_tokens: number;
     page: number;
     per_page: number;
 }

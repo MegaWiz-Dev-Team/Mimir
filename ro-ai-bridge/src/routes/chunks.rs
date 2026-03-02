@@ -23,6 +23,7 @@ pub struct ChunkListQuery {
 pub struct ChunkListResponse {
     pub chunks: Vec<ChunkWithSource>,
     pub total: i64,
+    pub total_tokens: i64,
     pub page: u32,
     pub per_page: u32,
 }
@@ -60,7 +61,7 @@ async fn list_chunks(
     let (count_query, data_query) = if let Some(ref search) = params.search {
         if let Some(source_id) = params.source_id {
             (
-                format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.source_id = {} AND c.content LIKE '%{}%'", tenant_id, source_id, search.replace('\'', "''")),
+                format!("SELECT COUNT(*), CAST(COALESCE(SUM(c.token_count), 0) AS SIGNED) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.source_id = {} AND c.content LIKE '%{}%'", tenant_id, source_id, search.replace('\'', "''")),
                 format!(
                     "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
                      FROM chunks c JOIN data_sources d ON c.source_id = d.id \
@@ -71,7 +72,7 @@ async fn list_chunks(
             )
         } else {
             (
-                format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.content LIKE '%{}%'", tenant_id, search.replace('\'', "''")),
+                format!("SELECT COUNT(*), CAST(COALESCE(SUM(c.token_count), 0) AS SIGNED) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.content LIKE '%{}%'", tenant_id, search.replace('\'', "''")),
                 format!(
                     "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
                      FROM chunks c JOIN data_sources d ON c.source_id = d.id \
@@ -83,7 +84,7 @@ async fn list_chunks(
         }
     } else if let Some(source_id) = params.source_id {
         (
-            format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.source_id = {}", tenant_id, source_id),
+            format!("SELECT COUNT(*), CAST(COALESCE(SUM(c.token_count), 0) AS SIGNED) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}' AND c.source_id = {}", tenant_id, source_id),
             format!(
                 "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
                  FROM chunks c JOIN data_sources d ON c.source_id = d.id \
@@ -94,7 +95,7 @@ async fn list_chunks(
         )
     } else {
         (
-            format!("SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}'", tenant_id),
+            format!("SELECT COUNT(*), CAST(COALESCE(SUM(c.token_count), 0) AS SIGNED) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = '{}'", tenant_id),
             format!(
                 "SELECT c.id, c.source_id, COALESCE(d.name, 'Unknown') as source_name, c.chunk_index, c.content, c.token_count, c.metadata_json, c.created_at \
                  FROM chunks c JOIN data_sources d ON c.source_id = d.id \
@@ -105,10 +106,10 @@ async fn list_chunks(
         )
     };
 
-    let total: (i64,) = sqlx::query_as(&count_query)
+    let count_row: (i64, i64) = sqlx::query_as(&count_query)
         .fetch_one(&pool)
         .await
-        .unwrap_or((0,));
+        .unwrap_or((0, 0));
 
     let chunks: Vec<ChunkWithSource> = sqlx::query_as::<_, (i64, i64, String, i32, String, Option<i32>, Option<serde_json::Value>, Option<chrono::DateTime<chrono::Utc>>)>(
         &data_query
@@ -124,7 +125,8 @@ async fn list_chunks(
 
     Ok(Json(ChunkListResponse {
         chunks,
-        total: total.0,
+        total: count_row.0,
+        total_tokens: count_row.1,
         page,
         per_page,
     }))
