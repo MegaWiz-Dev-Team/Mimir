@@ -50,9 +50,9 @@ async fn list_clusters(
 ) -> Json<Vec<ClusterDTO>> {
     let tenant_id = extract_tenant_id(&headers).to_string();
 
-    let status_filter = q.status.as_deref();
+    let status_filter = q.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("PENDING");
     
-    match ClusteringService::get_clusters(&pool, &tenant_id, status_filter).await {
+    match ClusteringService::get_clusters(&pool, &tenant_id, Some(status_filter)).await {
         Ok(clusters) => Json(clusters),
         Err(e) => {
             tracing::error!("Failed to fetch clusters: {}", e);
