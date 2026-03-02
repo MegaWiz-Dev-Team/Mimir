@@ -1,19 +1,83 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw } from "lucide-react";
+import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
 import { fetchChunks, fetchSources, syncAllSources, ChunkItem, DataSource } from "@/lib/api";
 import Link from "next/link";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Unescape common escaped content (\\n → newline, \\t → tab, \\\" → ", etc.) */
+function unescapeContent(raw: string): string {
+    return raw
+        .replace(/\\\\n/g, "\n")   // double-escaped \\n
+        .replace(/\\n/g, "\n")     // single-escaped \n
+        .replace(/\\\\t/g, "\t")
+        .replace(/\\t/g, "\t")
+        .replace(/\\\\"/g, '"')
+        .replace(/\\"/g, '"')
+        .replace(/\\u0026/g, "&")
+        .replace(/\\u003c/g, "<")
+        .replace(/\\u003e/g, ">");
+}
+
+/** Check if a chunk contains mostly non-text garbage (raw JS, JSON paths, etc.) */
+function isGarbageChunk(content: string): boolean {
+    const trimmed = content.trim();
+    // Starts with raw JS/JSON-like patterns
+    if (/^[\[{]/.test(trimmed) && /["\\{}[\]]{10,}/.test(trimmed.slice(0, 200))) return true;
+    // Contains overwhelming escaped JSON
+    if ((trimmed.match(/\\"/g) || []).length > 10) return true;
+    // Next.js static chunk paths
+    if (/\/_next\/static\/chunks\//.test(trimmed)) return true;
+    // Mostly non-word characters
+    const nonWord = (trimmed.match(/[^a-zA-Z0-9\s.,!?;:\-()]/g) || []).length;
+    if (nonWord / trimmed.length > 0.5 && trimmed.length > 50) return true;
+    return false;
+}
+
+/** Highlight search terms in text by wrapping matches in <mark> */
+function highlightText(text: string, searchTerm: string): React.ReactNode {
+    if (!searchTerm || searchTerm.length < 2) return text;
+    const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+    if (parts.length <= 1) return text;
+    return parts.map((part, i) =>
+        part.toLowerCase() === searchTerm.toLowerCase()
+            ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/50 px-0.5 rounded">{part}</mark>
+            : <Fragment key={i}>{part}</Fragment>
+    );
+}
+
+/** Generate a deterministic color for a source name */
+function sourceColor(name: string): string {
+    const colors = [
+        "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+        "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+        "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+        "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
+        "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
+        "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+        "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function KnowledgePage() {
     const [chunks, setChunks] = useState<ChunkItem[]>([]);
     const [sources, setSources] = useState<DataSource[]>([]);
     const [total, setTotal] = useState(0);
+    const [totalTokens, setTotalTokens] = useState(0);
     const [page, setPage] = useState(1);
     const [perPage] = useState(20);
     const [search, setSearch] = useState("");
@@ -22,6 +86,8 @@ export default function KnowledgePage() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedChunk, setSelectedChunk] = useState<ChunkItem | null>(null);
     const [qaRunning, setQaRunning] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+    const [showGarbage, setShowGarbage] = useState(false);
 
     // Debounce search input
     useEffect(() => {
@@ -40,9 +106,11 @@ export default function KnowledgePage() {
             });
             setChunks(data.chunks);
             setTotal(data.total);
+            setTotalTokens(data.total_tokens ?? 0);
         } catch {
             setChunks([]);
             setTotal(0);
+            setTotalTokens(0);
         } finally {
             setIsLoading(false);
         }
@@ -61,16 +129,40 @@ export default function KnowledgePage() {
         setPage(1);
     }, [searchDebounce, sourceFilter]);
 
+    // Auto-dismiss toast
+    useEffect(() => {
+        if (toast) {
+            const t = setTimeout(() => setToast(null), 4000);
+            return () => clearTimeout(t);
+        }
+    }, [toast]);
+
     const totalPages = Math.max(1, Math.ceil(total / perPage));
 
-    const truncateContent = (content: string, maxLen = 120) =>
-        content.length > maxLen ? content.slice(0, maxLen) + "…" : content;
+    const truncateContent = (content: string, maxLen = 100) => {
+        const clean = unescapeContent(content);
+        // Take first line only for preview
+        const firstLine = clean.split("\n").find(l => l.trim().length > 10) || clean.split("\n")[0] || clean;
+        return firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine;
+    };
 
-    const totalChunks = total;
-    const totalTokens = chunks.reduce((sum, c) => sum + (c.token_count || 0), 0);
+    // Filter garbage chunks unless toggled
+    const displayChunks = showGarbage ? chunks : chunks.filter(c => !isGarbageChunk(c.content));
+    const garbageCount = chunks.length - chunks.filter(c => !isGarbageChunk(c.content)).length;
 
     return (
         <div className="container mx-auto p-8 space-y-6">
+            {/* Toast */}
+            {toast && (
+                <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg transition-all animate-in slide-in-from-top-2 ${toast.type === "success"
+                        ? "bg-green-600 text-white"
+                        : "bg-red-600 text-white"
+                    }`}>
+                    {toast.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                    <span className="text-sm font-medium">{toast.message}</span>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -91,9 +183,13 @@ export default function KnowledgePage() {
                             setQaRunning(true);
                             try {
                                 await syncAllSources();
+                                setToast({ message: "QA generation started successfully!", type: "success" });
                                 setTimeout(loadChunks, 3000);
-                            } catch { /* ignore */ }
-                            finally { setQaRunning(false); }
+                            } catch (err: any) {
+                                setToast({ message: err?.message || "Failed to start QA generation", type: "error" });
+                            } finally {
+                                setQaRunning(false);
+                            }
                         }}
                     >
                         {qaRunning ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
@@ -101,7 +197,7 @@ export default function KnowledgePage() {
                     </Button>
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted">
                         <Layers className="w-4 h-4" />
-                        <span className="font-semibold">{totalChunks}</span> chunks
+                        <span className="font-semibold">{total.toLocaleString()}</span> chunks
                     </div>
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted">
                         <Hash className="w-4 h-4" />
@@ -137,6 +233,20 @@ export default function KnowledgePage() {
                             </select>
                         </div>
                     </div>
+                    {/* Garbage chunk toggle */}
+                    {garbageCount > 0 && (
+                        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                            <button
+                                onClick={() => setShowGarbage(!showGarbage)}
+                                className="hover:text-foreground transition-colors underline decoration-dotted"
+                            >
+                                {showGarbage ? "Hide" : "Show"} {garbageCount} non-text chunks
+                            </button>
+                            <span className="text-muted-foreground/50">
+                                (raw JSON, JS bundles, web artifacts)
+                            </span>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -148,7 +258,7 @@ export default function KnowledgePage() {
                             <div className="animate-spin w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full mr-3" />
                             Loading chunks...
                         </div>
-                    ) : chunks.length === 0 ? (
+                    ) : displayChunks.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 text-center">
                             <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-4">
                                 <BookOpen className="w-8 h-8 text-blue-600 dark:text-blue-400" />
@@ -172,47 +282,53 @@ export default function KnowledgePage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-16 text-center">#</TableHead>
-                                    <TableHead className="w-40">Source</TableHead>
+                                    <TableHead className="w-44">Source</TableHead>
                                     <TableHead>Content Preview</TableHead>
                                     <TableHead className="w-24 text-center">Tokens</TableHead>
                                     <TableHead className="w-36 text-center">Created</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {chunks.map((chunk) => (
-                                    <TableRow
-                                        key={chunk.id}
-                                        className="cursor-pointer hover:bg-muted/50 transition-colors"
-                                        onClick={() => setSelectedChunk(chunk)}
-                                    >
-                                        <TableCell className="text-center font-mono text-sm text-muted-foreground">
-                                            {chunk.chunk_index}
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                                                <span className="text-sm font-medium truncate max-w-[120px]">
-                                                    {chunk.source_name || `Source #${chunk.source_id}`}
+                                {displayChunks.map((chunk) => {
+                                    const isGarbage = isGarbageChunk(chunk.content);
+                                    return (
+                                        <TableRow
+                                            key={chunk.id}
+                                            className={`cursor-pointer hover:bg-muted/50 transition-colors ${isGarbage ? "opacity-50" : ""}`}
+                                            onClick={() => setSelectedChunk(chunk)}
+                                        >
+                                            <TableCell className="text-center font-mono text-sm text-muted-foreground">
+                                                {chunk.chunk_index}
+                                            </TableCell>
+                                            <TableCell>
+                                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${sourceColor(chunk.source_name)}`}>
+                                                    <FileText className="w-3 h-3 shrink-0" />
+                                                    <span className="truncate max-w-[100px]">
+                                                        {chunk.source_name || `Source #${chunk.source_id}`}
+                                                    </span>
                                                 </span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <p className="text-sm text-muted-foreground line-clamp-2">
-                                                {truncateContent(chunk.content)}
-                                            </p>
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            <span className="text-sm font-mono">
-                                                {chunk.token_count ?? "—"}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell className="text-center text-sm text-muted-foreground">
-                                            {chunk.created_at
-                                                ? new Date(chunk.created_at).toLocaleDateString()
-                                                : "—"}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                            </TableCell>
+                                            <TableCell>
+                                                <p className="text-sm text-muted-foreground line-clamp-2">
+                                                    {isGarbage
+                                                        ? <span className="italic text-muted-foreground/60">[non-text content]</span>
+                                                        : highlightText(truncateContent(chunk.content), searchDebounce)
+                                                    }
+                                                </p>
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                <span className="text-sm font-mono">
+                                                    {chunk.token_count ?? "—"}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="text-center text-sm text-muted-foreground">
+                                                {chunk.created_at
+                                                    ? new Date(chunk.created_at).toLocaleDateString()
+                                                    : "—"}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     )}
@@ -260,6 +376,9 @@ export default function KnowledgePage() {
                     </DialogHeader>
                     <div className="space-y-4">
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${sourceColor(selectedChunk?.source_name || "")}`}>
+                                {selectedChunk?.source_name}
+                            </span>
                             <span className="flex items-center gap-1">
                                 <Hash className="w-3.5 h-3.5" />
                                 {selectedChunk?.token_count ?? "?"} tokens
@@ -271,10 +390,11 @@ export default function KnowledgePage() {
                                     : "Unknown"}
                             </span>
                         </div>
+                        {/* Rendered content — properly unescaped */}
                         <div className="p-4 rounded-lg bg-muted/50 border">
-                            <pre className="whitespace-pre-wrap text-sm font-mono leading-relaxed">
-                                {selectedChunk?.content}
-                            </pre>
+                            <div className="whitespace-pre-wrap text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+                                {selectedChunk?.content && unescapeContent(selectedChunk.content)}
+                            </div>
                         </div>
                         {selectedChunk?.metadata_json && (
                             <div>
