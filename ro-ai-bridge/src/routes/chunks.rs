@@ -1,5 +1,5 @@
 use axum::{
-    routing::get,
+    routing::{get, post},
     Router, Json,
     extract::{Path, State, Query},
     http::{StatusCode, HeaderMap},
@@ -17,6 +17,11 @@ pub struct ChunkListQuery {
     pub search: Option<String>,
     pub page: Option<u32>,
     pub per_page: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateQaRequest {
+    pub chunk_ids: Vec<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +48,7 @@ pub struct ChunkWithSource {
 pub fn chunks_routes() -> Router<DbPool> {
     Router::new()
         .route("/", get(list_chunks))
+        .route("/generate-qa", post(generate_qa_for_chunks))
         .route("/{id}", get(get_chunk))
 }
 
@@ -152,4 +158,89 @@ async fn get_chunk(
         }
         None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Chunk not found"})))),
     }
+}
+
+/// POST /api/v1/chunks/generate-qa — Generate QA for selected chunks
+async fn generate_qa_for_chunks(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(req): Json<GenerateQaRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if req.chunk_ids.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "No chunks selected"}))));
+    }
+
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let chunk_count = req.chunk_ids.len();
+
+    // Verify chunks exist and belong to this tenant
+    let placeholders: Vec<String> = req.chunk_ids.iter().map(|_| "?".to_string()).collect();
+    let verify_query = format!(
+        "SELECT COUNT(*) FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE d.tenant_id = ? AND c.id IN ({})",
+        placeholders.join(",")
+    );
+    let mut query = sqlx::query_scalar::<_, i64>(&verify_query).bind(&tenant_id);
+    for id in &req.chunk_ids {
+        query = query.bind(id);
+    }
+    let verified_count = query.fetch_one(&pool).await.unwrap_or(0);
+
+    if verified_count == 0 {
+        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "No matching chunks found for this tenant"}))));
+    }
+
+    // Spawn background QA generation
+    let pool_clone = pool.clone();
+    let chunk_ids = req.chunk_ids.clone();
+    let tenant_clone = tenant_id.clone();
+
+    tokio::spawn(async move {
+        tracing::info!("Starting QA generation for {} chunks (tenant: {})", chunk_ids.len(), tenant_clone);
+        for chunk_id in &chunk_ids {
+            // Fetch chunk content
+            let chunk_result: Option<(String,)> = sqlx::query_as(
+                "SELECT c.content FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE c.id = ? AND d.tenant_id = ?"
+            )
+            .bind(chunk_id)
+            .bind(&tenant_clone)
+            .fetch_optional(&pool_clone)
+            .await
+            .unwrap_or(None);
+
+            if let Some((content,)) = chunk_result {
+                // Mark chunk as QA in-progress via metadata
+                let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'processing') WHERE id = ?")
+                    .bind(chunk_id)
+                    .execute(&pool_clone)
+                    .await;
+
+                // Use clustering service to generate QA for this chunk content
+                match mimir_core_ai::qa_qc::clustering::ClusteringService::generate_qa_for_content(
+                    &pool_clone, &tenant_clone, *chunk_id, &content
+                ).await {
+                    Ok(_) => {
+                        let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'completed') WHERE id = ?")
+                            .bind(chunk_id)
+                            .execute(&pool_clone)
+                            .await;
+                        tracing::info!("QA generated for chunk {}", chunk_id);
+                    }
+                    Err(e) => {
+                        let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'failed') WHERE id = ?")
+                            .bind(chunk_id)
+                            .execute(&pool_clone)
+                            .await;
+                        tracing::error!("QA generation failed for chunk {}: {}", chunk_id, e);
+                    }
+                }
+            }
+        }
+        tracing::info!("QA generation completed for {} chunks", chunk_ids.len());
+    });
+
+    Ok(Json(json!({
+        "success": true,
+        "message": format!("QA generation started for {} chunks", chunk_count),
+        "chunk_count": chunk_count
+    })))
 }

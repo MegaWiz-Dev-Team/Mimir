@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
-import { fetchChunks, fetchSources, syncAllSources, ChunkItem, DataSource } from "@/lib/api";
+import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw, CheckCircle2, AlertCircle, X } from "lucide-react";
+import { fetchChunks, fetchSources, generateQaForChunks, ChunkItem, DataSource } from "@/lib/api";
 import Link from "next/link";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -15,8 +15,8 @@ import Link from "next/link";
 /** Unescape common escaped content (\\n → newline, \\t → tab, \\\" → ", etc.) */
 function unescapeContent(raw: string): string {
     return raw
-        .replace(/\\\\n/g, "\n")   // double-escaped \\n
-        .replace(/\\n/g, "\n")     // single-escaped \n
+        .replace(/\\\\n/g, "\n")
+        .replace(/\\n/g, "\n")
         .replace(/\\\\t/g, "\t")
         .replace(/\\t/g, "\t")
         .replace(/\\\\"/g, '"')
@@ -26,22 +26,18 @@ function unescapeContent(raw: string): string {
         .replace(/\\u003e/g, ">");
 }
 
-/** Check if a chunk contains mostly non-text garbage (raw JS, JSON paths, etc.) */
+/** Check if a chunk contains mostly non-text garbage */
 function isGarbageChunk(content: string): boolean {
     const trimmed = content.trim();
-    // Starts with raw JS/JSON-like patterns
     if (/^[\[{]/.test(trimmed) && /["\\{}[\]]{10,}/.test(trimmed.slice(0, 200))) return true;
-    // Contains overwhelming escaped JSON
     if ((trimmed.match(/\\"/g) || []).length > 10) return true;
-    // Next.js static chunk paths
     if (/\/_next\/static\/chunks\//.test(trimmed)) return true;
-    // Mostly non-word characters
     const nonWord = (trimmed.match(/[^a-zA-Z0-9\s.,!?;:\-()]/g) || []).length;
     if (nonWord / trimmed.length > 0.5 && trimmed.length > 50) return true;
     return false;
 }
 
-/** Highlight search terms in text by wrapping matches in <mark> */
+/** Highlight search terms in text */
 function highlightText(text: string, searchTerm: string): React.ReactNode {
     if (!searchTerm || searchTerm.length < 2) return text;
     const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -54,7 +50,7 @@ function highlightText(text: string, searchTerm: string): React.ReactNode {
     );
 }
 
-/** Generate a deterministic color for a source name */
+/** Deterministic color for a source name */
 function sourceColor(name: string): string {
     const colors = [
         "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
@@ -85,11 +81,12 @@ export default function KnowledgePage() {
     const [sourceFilter, setSourceFilter] = useState<number | undefined>();
     const [isLoading, setIsLoading] = useState(true);
     const [selectedChunk, setSelectedChunk] = useState<ChunkItem | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
     const [qaRunning, setQaRunning] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
     const [showGarbage, setShowGarbage] = useState(false);
 
-    // Debounce search input
+    // Debounce search
     useEffect(() => {
         const t = setTimeout(() => setSearchDebounce(search), 300);
         return () => clearTimeout(t);
@@ -116,47 +113,62 @@ export default function KnowledgePage() {
         }
     }, [sourceFilter, searchDebounce, page, perPage]);
 
-    useEffect(() => {
-        fetchSources().then(setSources).catch(() => setSources([]));
-    }, []);
-
-    useEffect(() => {
-        loadChunks();
-    }, [loadChunks]);
-
-    // Reset to page 1 when filters change
-    useEffect(() => {
-        setPage(1);
-    }, [searchDebounce, sourceFilter]);
-
-    // Auto-dismiss toast
-    useEffect(() => {
-        if (toast) {
-            const t = setTimeout(() => setToast(null), 4000);
-            return () => clearTimeout(t);
-        }
-    }, [toast]);
+    useEffect(() => { fetchSources().then(setSources).catch(() => setSources([])); }, []);
+    useEffect(() => { loadChunks(); }, [loadChunks]);
+    useEffect(() => { setPage(1); }, [searchDebounce, sourceFilter]);
+    useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); } }, [toast]);
 
     const totalPages = Math.max(1, Math.ceil(total / perPage));
+    const displayChunks = showGarbage ? chunks : chunks.filter(c => !isGarbageChunk(c.content));
+    const garbageCount = chunks.length - chunks.filter(c => !isGarbageChunk(c.content)).length;
 
     const truncateContent = (content: string, maxLen = 100) => {
         const clean = unescapeContent(content);
-        // Take first line only for preview
         const firstLine = clean.split("\n").find(l => l.trim().length > 10) || clean.split("\n")[0] || clean;
         return firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine;
     };
 
-    // Filter garbage chunks unless toggled
-    const displayChunks = showGarbage ? chunks : chunks.filter(c => !isGarbageChunk(c.content));
-    const garbageCount = chunks.length - chunks.filter(c => !isGarbageChunk(c.content)).length;
+    // ─── Selection Logic ──────────────────────────────────────────────────────
+    const toggleSelect = (id: number) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === displayChunks.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(displayChunks.map(c => c.id)));
+        }
+    };
+
+    const handleGenerateQa = async () => {
+        if (selectedIds.size === 0) return;
+        setQaRunning(true);
+        try {
+            const result = await generateQaForChunks(Array.from(selectedIds));
+            setToast({ message: result.message || `QA generation started for ${selectedIds.size} chunks`, type: "success" });
+            setSelectedIds(new Set());
+            setTimeout(loadChunks, 3000);
+        } catch (err: any) {
+            setToast({ message: err?.message || "Failed to start QA generation", type: "error" });
+        } finally {
+            setQaRunning(false);
+        }
+    };
+
+    // Clear selection when page/filter changes
+    useEffect(() => { setSelectedIds(new Set()); }, [page, searchDebounce, sourceFilter]);
 
     return (
         <div className="container mx-auto p-8 space-y-6">
             {/* Toast */}
             {toast && (
-                <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg transition-all animate-in slide-in-from-top-2 ${toast.type === "success"
-                        ? "bg-green-600 text-white"
-                        : "bg-red-600 text-white"
+                <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg transition-all animate-in slide-in-from-top-2 ${toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
                     }`}>
                     {toast.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
                     <span className="text-sm font-medium">{toast.message}</span>
@@ -175,26 +187,6 @@ export default function KnowledgePage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={qaRunning || total === 0}
-                        onClick={async () => {
-                            setQaRunning(true);
-                            try {
-                                await syncAllSources();
-                                setToast({ message: "QA generation started successfully!", type: "success" });
-                                setTimeout(loadChunks, 3000);
-                            } catch (err: any) {
-                                setToast({ message: err?.message || "Failed to start QA generation", type: "error" });
-                            } finally {
-                                setQaRunning(false);
-                            }
-                        }}
-                    >
-                        {qaRunning ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
-                        {qaRunning ? "Running..." : "Generate QA"}
-                    </Button>
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted">
                         <Layers className="w-4 h-4" />
                         <span className="font-semibold">{total.toLocaleString()}</span> chunks
@@ -212,12 +204,7 @@ export default function KnowledgePage() {
                     <div className="flex items-center gap-4">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Search chunks by content..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="pl-10"
-                            />
+                            <Input placeholder="Search chunks by content..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
                         </div>
                         <div className="flex items-center gap-2">
                             <Filter className="w-4 h-4 text-muted-foreground" />
@@ -227,24 +214,16 @@ export default function KnowledgePage() {
                                 className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[180px]"
                             >
                                 <option value="">All Sources</option>
-                                {sources.map((s) => (
-                                    <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
+                                {sources.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                             </select>
                         </div>
                     </div>
-                    {/* Garbage chunk toggle */}
                     {garbageCount > 0 && (
                         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                            <button
-                                onClick={() => setShowGarbage(!showGarbage)}
-                                className="hover:text-foreground transition-colors underline decoration-dotted"
-                            >
+                            <button onClick={() => setShowGarbage(!showGarbage)} className="hover:text-foreground transition-colors underline decoration-dotted">
                                 {showGarbage ? "Hide" : "Show"} {garbageCount} non-text chunks
                             </button>
-                            <span className="text-muted-foreground/50">
-                                (raw JSON, JS bundles, web artifacts)
-                            </span>
+                            <span className="text-muted-foreground/50">(raw JSON, JS bundles, web artifacts)</span>
                         </div>
                     )}
                 </CardContent>
@@ -265,22 +244,25 @@ export default function KnowledgePage() {
                             </div>
                             <h3 className="text-lg font-semibold mb-2">No chunks found</h3>
                             <p className="text-muted-foreground text-sm max-w-sm">
-                                {search || sourceFilter
-                                    ? "Try adjusting your search or filter criteria"
-                                    : "Add sources and sync them to start building your knowledge base"}
+                                {search || sourceFilter ? "Try adjusting your search or filter criteria" : "Add sources and sync them to start building your knowledge base"}
                             </p>
                             {!search && !sourceFilter && (
-                                <Link href="/sources">
-                                    <Button className="mt-4" variant="outline">
-                                        <ExternalLink className="w-4 h-4 mr-2" /> Go to Sources
-                                    </Button>
-                                </Link>
+                                <Link href="/sources"><Button className="mt-4" variant="outline"><ExternalLink className="w-4 h-4 mr-2" /> Go to Sources</Button></Link>
                             )}
                         </div>
                     ) : (
                         <Table>
                             <TableHeader>
                                 <TableRow>
+                                    <TableHead className="w-12 text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.size === displayChunks.length && displayChunks.length > 0}
+                                            onChange={toggleSelectAll}
+                                            className="w-4 h-4 rounded border-gray-300"
+                                            aria-label="Select all chunks"
+                                        />
+                                    </TableHead>
                                     <TableHead className="w-16 text-center">#</TableHead>
                                     <TableHead className="w-44">Source</TableHead>
                                     <TableHead>Content Preview</TableHead>
@@ -291,40 +273,39 @@ export default function KnowledgePage() {
                             <TableBody>
                                 {displayChunks.map((chunk) => {
                                     const isGarbage = isGarbageChunk(chunk.content);
+                                    const isSelected = selectedIds.has(chunk.id);
                                     return (
-                                        <TableRow
-                                            key={chunk.id}
-                                            className={`cursor-pointer hover:bg-muted/50 transition-colors ${isGarbage ? "opacity-50" : ""}`}
-                                            onClick={() => setSelectedChunk(chunk)}
-                                        >
-                                            <TableCell className="text-center font-mono text-sm text-muted-foreground">
+                                        <TableRow key={chunk.id} className={`hover:bg-muted/50 transition-colors ${isGarbage ? "opacity-50" : ""} ${isSelected ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}>
+                                            <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => toggleSelect(chunk.id)}
+                                                    className="w-4 h-4 rounded border-gray-300"
+                                                    aria-label={`Select chunk ${chunk.chunk_index}`}
+                                                />
+                                            </TableCell>
+                                            <TableCell className="text-center font-mono text-sm text-muted-foreground cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
                                                 {chunk.chunk_index}
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
                                                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${sourceColor(chunk.source_name)}`}>
                                                     <FileText className="w-3 h-3 shrink-0" />
-                                                    <span className="truncate max-w-[100px]">
-                                                        {chunk.source_name || `Source #${chunk.source_id}`}
-                                                    </span>
+                                                    <span className="truncate max-w-[100px]">{chunk.source_name || `Source #${chunk.source_id}`}</span>
                                                 </span>
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
                                                 <p className="text-sm text-muted-foreground line-clamp-2">
                                                     {isGarbage
                                                         ? <span className="italic text-muted-foreground/60">[non-text content]</span>
-                                                        : highlightText(truncateContent(chunk.content), searchDebounce)
-                                                    }
+                                                        : highlightText(truncateContent(chunk.content), searchDebounce)}
                                                 </p>
                                             </TableCell>
-                                            <TableCell className="text-center">
-                                                <span className="text-sm font-mono">
-                                                    {chunk.token_count ?? "—"}
-                                                </span>
+                                            <TableCell className="text-center cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
+                                                <span className="text-sm font-mono">{chunk.token_count ?? "—"}</span>
                                             </TableCell>
-                                            <TableCell className="text-center text-sm text-muted-foreground">
-                                                {chunk.created_at
-                                                    ? new Date(chunk.created_at).toLocaleDateString()
-                                                    : "—"}
+                                            <TableCell className="text-center text-sm text-muted-foreground cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
+                                                {chunk.created_at ? new Date(chunk.created_at).toLocaleDateString() : "—"}
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -341,29 +322,38 @@ export default function KnowledgePage() {
                             Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total} chunks
                         </p>
                         <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={page <= 1}
-                                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            >
+                            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                                 <ChevronLeft className="w-4 h-4" />
                             </Button>
-                            <span className="text-sm font-medium px-2">
-                                {page} / {totalPages}
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={page >= totalPages}
-                                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            >
+                            <span className="text-sm font-medium px-2">{page} / {totalPages}</span>
+                            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
                                 <ChevronRight className="w-4 h-4" />
                             </Button>
                         </div>
                     </div>
                 )}
             </Card>
+
+            {/* Floating Action Bar */}
+            {selectedIds.size > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-6 py-3 bg-card border shadow-xl rounded-full">
+                    <span className="text-sm font-medium">
+                        {selectedIds.size} chunk{selectedIds.size > 1 ? "s" : ""} selected
+                    </span>
+                    <Button
+                        size="sm"
+                        disabled={qaRunning}
+                        onClick={handleGenerateQa}
+                        aria-label="Generate QA"
+                    >
+                        {qaRunning ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                        {qaRunning ? "Running..." : "Generate QA"}
+                    </Button>
+                    <button onClick={() => setSelectedIds(new Set())} className="text-muted-foreground hover:text-foreground">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
 
             {/* Chunk Detail Dialog */}
             <Dialog open={!!selectedChunk} onOpenChange={() => setSelectedChunk(null)}>
@@ -379,18 +369,9 @@ export default function KnowledgePage() {
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${sourceColor(selectedChunk?.source_name || "")}`}>
                                 {selectedChunk?.source_name}
                             </span>
-                            <span className="flex items-center gap-1">
-                                <Hash className="w-3.5 h-3.5" />
-                                {selectedChunk?.token_count ?? "?"} tokens
-                            </span>
-                            <span className="flex items-center gap-1">
-                                <Clock className="w-3.5 h-3.5" />
-                                {selectedChunk?.created_at
-                                    ? new Date(selectedChunk.created_at).toLocaleString()
-                                    : "Unknown"}
-                            </span>
+                            <span className="flex items-center gap-1"><Hash className="w-3.5 h-3.5" />{selectedChunk?.token_count ?? "?"} tokens</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{selectedChunk?.created_at ? new Date(selectedChunk.created_at).toLocaleString() : "Unknown"}</span>
                         </div>
-                        {/* Rendered content — properly unescaped */}
                         <div className="p-4 rounded-lg bg-muted/50 border">
                             <div className="whitespace-pre-wrap text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
                                 {selectedChunk?.content && unescapeContent(selectedChunk.content)}

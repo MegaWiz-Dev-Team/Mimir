@@ -353,3 +353,59 @@ describe('Sprint 12: LLM Usage API', () => {
         expect(result.models).toHaveLength(1);
     });
 });
+
+// ─── Sprint 15: Selective Chunk QA API Tests ────────────────────────────────
+
+import { generateQaForChunks } from './api';
+
+describe('Sprint 15: Selective Chunk QA API', () => {
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+        global.fetch = jest.fn();
+        (Cookies.get as jest.Mock).mockReturnValue('mock-tenant-id');
+        process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8080';
+    });
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+        jest.resetAllMocks();
+    });
+
+    it('generateQaForChunks should POST chunk_ids to generate-qa endpoint', async () => {
+        const mockResponse = { success: true, message: 'QA generation started for 3 chunks', chunk_count: 3 };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => mockResponse
+        });
+
+        const result = await generateQaForChunks([1, 5, 10]);
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8080/api/v1/chunks/generate-qa',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    'Content-Type': 'application/json',
+                    'X-Tenant-Id': 'mock-tenant-id',
+                }),
+                body: JSON.stringify({ chunk_ids: [1, 5, 10] }),
+            })
+        );
+        expect(result.success).toBe(true);
+        expect(result.chunk_count).toBe(3);
+    });
+
+    it('generateQaForChunks should throw on empty chunk_ids', async () => {
+        await expect(generateQaForChunks([])).rejects.toThrow('No chunks selected');
+    });
+
+    it('generateQaForChunks should throw on API error', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: false,
+            statusText: 'Internal Server Error'
+        });
+
+        await expect(generateQaForChunks([1, 2])).rejects.toThrow();
+    });
+});

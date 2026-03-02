@@ -246,6 +246,67 @@ Return a STRICT JSON list:
         Ok(())
     }
 
+    /// Generate QA pairs for a specific chunk's content using Gemini
+    pub async fn generate_qa_for_content(pool: &MySqlPool, tenant_id: &str, chunk_id: i64, content: &str) -> Result<()> {
+        if content.trim().len() < 50 {
+            info!("Chunk {} content too short for QA generation, skipping", chunk_id);
+            return Ok(());
+        }
+
+        let client = gemini::Client::new(&env::var("GEMINI_API_KEY").unwrap_or_default());
+        let agent = client.agent("gemini-2.5-flash")
+            .preamble("You are a QA Generator. Given the following text content, generate 2-3 high-quality question-answer pairs that test understanding of the material. Return STRICT JSON list:
+[
+  {\"question\": \"...\", \"answer\": \"...\"}
+]
+Keep answers concise and factual. Only generate questions that can be directly answered from the given text.")
+            .build();
+
+        let prompt = format!("Generate QA pairs from this content:\n\n{}", content);
+
+        match agent.prompt(prompt).await {
+            Ok(json_str) => {
+                let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();
+                if let Ok(qa_pairs) = serde_json::from_str::<Vec<serde_json::Value>>(cleaned) {
+                    // Create a mock pipeline run/step for these QA results
+                    let run_id = Uuid::new_v4().to_string();
+                    let _ = sqlx::query("INSERT INTO pipeline_runs (id, status, provider, model) VALUES (?, 'COMPLETED', 'gemini', 'gemini-2.5-flash')")
+                        .bind(&run_id).execute(pool).await;
+                    let _ = sqlx::query("INSERT INTO pipeline_steps (run_id, file_name, status, step_type) VALUES (?, ?, 'COMPLETED', 'GENERATE')")
+                        .bind(&run_id).bind(format!("chunk_{}", chunk_id)).execute(pool).await;
+
+                    let step_record = sqlx::query!("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1", run_id)
+                        .fetch_one(pool).await?;
+
+                    for qa in &qa_pairs {
+                        let question = qa["question"].as_str().unwrap_or("");
+                        let answer = qa["answer"].as_str().unwrap_or("");
+                        if !question.is_empty() && !answer.is_empty() {
+                            let _ = sqlx::query(
+                                "INSERT INTO qa_results (step_id, question, answer, context, tenant_id) VALUES (?, ?, ?, ?, ?)"
+                            )
+                            .bind(step_record.id)
+                            .bind(question)
+                            .bind(answer)
+                            .bind(&content[..content.len().min(500)])
+                            .bind(tenant_id)
+                            .execute(pool).await;
+                        }
+                    }
+                    info!("Generated {} QA pairs for chunk {}", qa_pairs.len(), chunk_id);
+                } else {
+                    warn!("Failed to parse Gemini QA output for chunk {}: {}", chunk_id, json_str);
+                }
+            }
+            Err(e) => {
+                error!("Gemini QA generation failed for chunk {}: {}", chunk_id, e);
+                return Err(e.into());
+            }
+        }
+
+        Ok(())
+    }
+
     /// Extracted helper to parse Gemini JSON output
     pub fn parse_gemini_clustering_output(json_str: &str) -> std::result::Result<Vec<serde_json::Value>, serde_json::Error> {
         let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();

@@ -693,6 +693,25 @@ export async function fetchChunk(id: number): Promise<ChunkItem> {
     return res.json();
 }
 
+export interface GenerateQaResponse {
+    success: boolean;
+    message: string;
+    chunk_count: number;
+}
+
+export async function generateQaForChunks(chunkIds: number[]): Promise<GenerateQaResponse> {
+    if (!chunkIds || chunkIds.length === 0) {
+        throw new Error("No chunks selected");
+    }
+    const res = await authFetch(`${API_BASE_URL}/chunks/generate-qa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chunk_ids: chunkIds }),
+    });
+    if (!res.ok) throw new Error(`Failed to generate QA: ${res.statusText}`);
+    return res.json();
+}
+
 // ─── Data Sources Ingress API ─────────────────────────────────────────────
 
 export interface DataSource {
