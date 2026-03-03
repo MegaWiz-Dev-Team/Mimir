@@ -633,6 +633,7 @@ async fn chat_handler(
             match provider {
                 LlmProvider::Ollama => "llama3.2".to_string(),
                 LlmProvider::Gemini => "gemini-2.5-flash".to_string(),
+                LlmProvider::Heimdall => "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
             }
         });
 
@@ -765,6 +766,7 @@ async fn chat_stream_handler(
             match provider {
                 LlmProvider::Ollama => "llama3.2".to_string(),
                 LlmProvider::Gemini => "gemini-2.5-flash".to_string(),
+                LlmProvider::Heimdall => "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
             }
         });
     

@@ -56,6 +56,9 @@ async fn main() {
         )
         .init();
     
+    // Inject Vault secrets into env vars (before Config reads them)
+    mimir_core_ai::config::inject_vault_secrets().await;
+
     // Load configuration
     let config = Config::from_env();
     let config = Arc::new(config);
