@@ -14,6 +14,12 @@ pub struct QAPairList {
 pub enum GeneratorClient {
     Ollama(ollama::Client),
     Gemini(gemini::Client),
+    /// Heimdall self-hosted LLM gateway (OpenAI-compatible)
+    Heimdall {
+        client: reqwest::Client,
+        endpoint: String,
+        api_key: String,
+    },
 }
 
 pub struct QAGeneratorAgent;
@@ -50,6 +56,35 @@ pub async fn generate_qa(
         GeneratorClient::Gemini(c) => {
             let agent = c.agent(model).preamble(preamble).build();
             agent.prompt(prompt_text.as_str()).await?
+        },
+        GeneratorClient::Heimdall { client, endpoint, api_key } => {
+            let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+            let body = serde_json::json!({
+                "model": model,
+                "messages": [
+                    { "role": "system", "content": preamble },
+                    { "role": "user", "content": prompt_text }
+                ],
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "stream": false
+            });
+            let resp = client.post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Heimdall request failed: {}", e))?;
+            let json: serde_json::Value = resp.json().await
+                .map_err(|e| anyhow::anyhow!("Heimdall parse error: {}", e))?;
+            json.get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("Heimdall: no content in response"))?
         }
     };
     
@@ -100,6 +135,35 @@ pub async fn generate_missing_qa(
         GeneratorClient::Gemini(c) => {
             let agent = c.agent(model).preamble(preamble).build();
             agent.prompt(prompt_text.as_str()).await?
+        },
+        GeneratorClient::Heimdall { client, endpoint, api_key } => {
+            let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+            let body = serde_json::json!({
+                "model": model,
+                "messages": [
+                    { "role": "system", "content": preamble },
+                    { "role": "user", "content": prompt_text }
+                ],
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "stream": false
+            });
+            let resp = client.post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Heimdall request failed: {}", e))?;
+            let json: serde_json::Value = resp.json().await
+                .map_err(|e| anyhow::anyhow!("Heimdall parse error: {}", e))?;
+            json.get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("Heimdall: no content in response"))?
         }
     };
     
