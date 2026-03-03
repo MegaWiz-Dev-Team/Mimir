@@ -28,6 +28,9 @@ pub struct Config {
     pub gemini_base_url: String,
     pub gemini_api_key: Option<String>,
     pub gemini_model: String,
+    pub heimdall_api_url: String,
+    pub heimdall_api_key: Option<String>,
+    pub heimdall_model: String,
 
     // Auth
     pub jwt_secret: String,
@@ -78,6 +81,13 @@ impl Config {
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
             gemini_model: env::var("GEMINI_MODEL")
                 .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
+
+            // Heimdall (Self-hosted LLM Gateway)
+            heimdall_api_url: env::var("HEIMDALL_API_URL")
+                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string()),
+            heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),
+            heimdall_model: env::var("HEIMDALL_MODEL")
+                .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
 
             // Auth
             jwt_secret: env::var("JWT_SECRET")

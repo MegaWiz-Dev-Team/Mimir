@@ -782,6 +782,15 @@ pub fn resolve_llm_credentials(
             // Ollama doesn't need an API key
             Ok(("ollama".to_string(), format!("{}/v1/", config.ollama_url)))
         }
+        "heimdall" => {
+            let key = config.heimdall_api_key.clone().ok_or_else(|| {
+                (StatusCode::BAD_REQUEST, Json(json!({
+                    "error": "No API key configured for Heimdall. Set HEIMDALL_API_KEY or add api_key to model metadata."
+                })))
+            })?;
+            let base = format!("{}/", config.heimdall_api_url.trim_end_matches('/'));
+            Ok((key, base))
+        }
         _ => {
             // Try model_id to infer provider
             if model_id.starts_with("gpt-") || model_id.starts_with("o1-") || model_id.starts_with("o3-") {
@@ -794,6 +803,13 @@ pub fn resolve_llm_credentials(
                     (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for Gemini model"})))
                 })?;
                 Ok((key, config.gemini_base_url.clone()))
+            } else if model_id.starts_with("mlx-community/") || model_id.starts_with("lmstudio-community/") {
+                // MLX/lmstudio models → Heimdall gateway
+                let key = config.heimdall_api_key.clone().ok_or_else(|| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for Heimdall (inferred from mlx model)"})))
+                })?;
+                let base = format!("{}/", config.heimdall_api_url.trim_end_matches('/'));
+                Ok((key, base))
             } else {
                 // Default to Ollama for unknown models
                 Ok(("ollama".to_string(), format!("{}/v1/", config.ollama_url)))
@@ -808,6 +824,11 @@ pub fn infer_api_base(provider: &str) -> String {
         "openai" => "https://api.openai.com/v1/".to_string(),
         "gemini" | "google" => "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
         "ollama" => "http://localhost:11434/v1/".to_string(),
+        "heimdall" => {
+            std::env::var("HEIMDALL_API_URL")
+                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string())
+                + "/"
+        }
         _ => "http://localhost:11434/v1/".to_string(),
     }
 }
@@ -1379,4 +1400,165 @@ async fn upload_file(
         "file_hash": file_hash,
         "mb_size": mb_size
     }))))
+}
+
+// ─── TDD Tests for LLM Credential Resolution (#182) ───────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use mimir_core_ai::models::model_config::ModelConfig;
+
+    /// Helper: create a minimal Config with Heimdall credentials set.
+    fn test_config_with_heimdall() -> Config {
+        Config {
+            port: 3000,
+            mariadb_url: String::new(),
+            qdrant_url: String::new(),
+            redis_url: String::new(),
+            s3_endpoint: String::new(),
+            s3_bucket: String::new(),
+            s3_access_key: String::new(),
+            s3_secret_key: String::new(),
+            s3_region: String::new(),
+            ollama_url: "http://localhost:11434".to_string(),
+            local_model: String::new(),
+            embed_model: String::new(),
+            gemini_base_url: "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
+            gemini_api_key: Some("test-gemini-key".to_string()),
+            gemini_model: String::new(),
+            heimdall_api_url: "http://192.168.1.133:3000/v1".to_string(),
+            heimdall_api_key: Some("test-heimdall-key".to_string()),
+            heimdall_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
+            jwt_secret: String::new(),
+        }
+    }
+
+    /// Helper: create a minimal Config without Heimdall API key.
+    fn test_config_no_heimdall_key() -> Config {
+        let mut cfg = test_config_with_heimdall();
+        cfg.heimdall_api_key = None;
+        cfg
+    }
+
+    fn make_model_config(provider: &str) -> Option<ModelConfig> {
+        Some(ModelConfig {
+            model_id: "test-model".to_string(),
+            provider: provider.to_string(),
+            model_type: "chat".to_string(),
+            is_active: true,
+            capabilities: None,
+            metadata: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        })
+    }
+
+    // ─── infer_api_base tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_infer_api_base_heimdall() {
+        // Set env for test
+        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://192.168.1.133:3000/v1"); }
+        let base = infer_api_base("heimdall");
+        assert!(base.contains("192.168.1.133:3000"), "Heimdall base should contain gateway host, got: {}", base);
+        assert!(base.ends_with('/'), "Base URL should end with /");
+    }
+
+    #[test]
+    fn test_infer_api_base_openai() {
+        let base = infer_api_base("openai");
+        assert_eq!(base, "https://api.openai.com/v1/");
+    }
+
+    #[test]
+    fn test_infer_api_base_gemini() {
+        let base = infer_api_base("gemini");
+        assert!(base.contains("generativelanguage.googleapis.com"));
+    }
+
+    #[test]
+    fn test_infer_api_base_ollama() {
+        let base = infer_api_base("ollama");
+        assert_eq!(base, "http://localhost:11434/v1/");
+    }
+
+    #[test]
+    fn test_infer_api_base_unknown_defaults_to_ollama() {
+        let base = infer_api_base("some_unknown_provider");
+        assert_eq!(base, "http://localhost:11434/v1/");
+    }
+
+    // ─── resolve_llm_credentials tests ─────────────────────────────────
+
+    #[test]
+    fn test_resolve_heimdall_provider_explicit() {
+        let config = test_config_with_heimdall();
+        let mc = make_model_config("heimdall");
+        let result = resolve_llm_credentials(&config, &mc, "mlx-community/Qwen3.5-9B-MLX-4bit");
+        assert!(result.is_ok(), "Should resolve Heimdall credentials");
+        let (key, base) = result.unwrap();
+        assert_eq!(key, "test-heimdall-key");
+        assert!(base.contains("192.168.1.133:3000"), "Base should be Heimdall URL, got: {}", base);
+    }
+
+    #[test]
+    fn test_resolve_heimdall_via_mlx_prefix() {
+        let config = test_config_with_heimdall();
+        // No model_config (None) — should infer from model_id prefix
+        let result = resolve_llm_credentials(&config, &None, "mlx-community/Qwen3.5-35B-A3B-4bit");
+        assert!(result.is_ok(), "Should infer Heimdall from mlx-community/ prefix");
+        let (key, base) = result.unwrap();
+        assert_eq!(key, "test-heimdall-key");
+        assert!(base.contains("192.168.1.133:3000"));
+    }
+
+    #[test]
+    fn test_resolve_heimdall_via_lmstudio_prefix() {
+        let config = test_config_with_heimdall();
+        let result = resolve_llm_credentials(&config, &None, "lmstudio-community/medgemma-4b-it-MLX-4bit");
+        assert!(result.is_ok(), "Should infer Heimdall from lmstudio-community/ prefix");
+        let (key, _) = result.unwrap();
+        assert_eq!(key, "test-heimdall-key");
+    }
+
+    #[test]
+    fn test_resolve_heimdall_missing_key_returns_error() {
+        let config = test_config_no_heimdall_key();
+        let mc = make_model_config("heimdall");
+        let result = resolve_llm_credentials(&config, &mc, "some-model");
+        assert!(result.is_err(), "Should return error when Heimdall API key is missing");
+    }
+
+    #[test]
+    fn test_resolve_ollama_still_works() {
+        let config = test_config_with_heimdall();
+        let mc = make_model_config("ollama");
+        let result = resolve_llm_credentials(&config, &mc, "llama3.2");
+        assert!(result.is_ok());
+        let (key, base) = result.unwrap();
+        assert_eq!(key, "ollama");
+        assert!(base.contains("11434"));
+    }
+
+    #[test]
+    fn test_resolve_gemini_still_works() {
+        let config = test_config_with_heimdall();
+        let mc = make_model_config("gemini");
+        let result = resolve_llm_credentials(&config, &mc, "gemini-2.5-flash");
+        assert!(result.is_ok());
+        let (key, _) = result.unwrap();
+        assert_eq!(key, "test-gemini-key");
+    }
+
+    #[test]
+    fn test_resolve_unknown_model_defaults_to_ollama() {
+        let config = test_config_with_heimdall();
+        let result = resolve_llm_credentials(&config, &None, "some-random-model");
+        assert!(result.is_ok());
+        let (key, base) = result.unwrap();
+        assert_eq!(key, "ollama");
+        assert!(base.contains("11434"));
+    }
 }
