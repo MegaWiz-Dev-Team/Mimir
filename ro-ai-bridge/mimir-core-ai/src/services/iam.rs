@@ -83,7 +83,7 @@ impl IamService {
     fn generate_jwt(&self, user_id: &str, tenant_id: &str, role: &str) -> Result<String> {
         let expiration = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
-            .as_secs() as usize + (15 * 60); // 15 minutes exp
+            .as_secs() as usize + (24 * 60 * 60); // 24 hours exp
 
         // In a full implementation, `role` would be added to the claims.
         // For now, we reuse `TenantClaims` from the existing middleware.
@@ -225,6 +225,7 @@ impl IamService {
                 system_prompt, 
                 max_daily_tokens AS "max_daily_tokens!", 
                 is_dedicated_vector_db AS "is_dedicated_vector_db: bool",
+                max_crawl_pages AS "max_crawl_pages!",
                 search_settings AS "search_settings: sqlx::types::Json<serde_json::Value>",
                 created_at, 
                 updated_at
@@ -247,12 +248,13 @@ impl IamService {
         let system_prompt = req.system_prompt.or(config.system_prompt);
         let max_daily_tokens = req.max_daily_tokens.unwrap_or(config.max_daily_tokens);
         let is_dedicated_vector_db = req.is_dedicated_vector_db.unwrap_or(config.is_dedicated_vector_db);
+        let max_crawl_pages = req.max_crawl_pages.unwrap_or(config.max_crawl_pages);
         let search_settings = req.search_settings.or(config.search_settings);
 
         sqlx::query!(
             r#"
             UPDATE tenant_configs 
-            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, search_settings = ?
+            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, max_crawl_pages = ?, search_settings = ?
             WHERE tenant_id = ?
             "#,
             default_provider,
@@ -262,6 +264,7 @@ impl IamService {
             system_prompt,
             max_daily_tokens,
             is_dedicated_vector_db,
+            max_crawl_pages,
             search_settings,
             tenant_id
         )
@@ -342,6 +345,7 @@ impl IamService {
                 system_prompt: None,
                 max_daily_tokens: 100000,
                 is_dedicated_vector_db: false,
+                max_crawl_pages: 100,
                 search_settings: None,
                 created_at: None,
                 updated_at: None,

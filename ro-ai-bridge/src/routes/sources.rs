@@ -430,7 +430,16 @@ async fn discover_hierarchy(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = "default_tenant";
     let max_depth = payload.max_depth.unwrap_or(3).min(5);
-    let max_pages = payload.max_pages.unwrap_or(100).min(500);
+    // Read configurable max from tenant config (Issue #164)
+    let tenant_max: i32 = sqlx::query_scalar(
+        "SELECT max_crawl_pages FROM tenant_configs WHERE tenant_id = ?"
+    )
+    .bind(tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or(100);
+    let max_pages = payload.max_pages.unwrap_or(tenant_max as u32).min(500);
 
     let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
         .bind(id)
@@ -963,6 +972,11 @@ async fn preview_url(
 
 // ─── S3 Helpers ────────────────────────────────────────────────────────────────
 
+/// Download a file from RustFS/S3 by its key (public variant for cross-route use).
+pub async fn download_from_s3_public(config: &Config, s3_key: &str) -> anyhow::Result<Vec<u8>> {
+    download_from_s3(config, s3_key).await
+}
+
 /// Download a file from RustFS/S3 by its key.
 ///
 /// Used by sync_source to retrieve uploaded files for extraction.
@@ -1235,6 +1249,10 @@ async fn upload_file(
                 storage_mode: Some(st_mode),
                 s3_key: Some(s3_key_bg),
                 file_hash: None,
+                refresh_interval_hours: None,
+                last_refreshed_at: None,
+                next_refresh_at: None,
+                refresh_status: None,
             };
 
             // Update status to RUNNING

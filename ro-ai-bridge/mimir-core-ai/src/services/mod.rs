@@ -12,3 +12,15 @@ pub mod domain;
 pub mod chunking;
 pub mod link_discovery;
 pub mod dedup;
+pub mod cron;
+pub mod feedback;
+pub mod ocr;
+pub mod db_connector;
+pub mod vault;
+pub mod mcp_server;
+pub mod performance;
+pub mod backup;
+pub mod llm_provider;
+
+#[cfg(test)]
+mod e2e_tests;
