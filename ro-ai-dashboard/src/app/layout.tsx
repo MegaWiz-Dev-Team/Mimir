@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 
 import { Navbar } from "@/components/navbar";
 import { PipelineStatusBar } from "@/components/pipeline-status-bar";
+import { FeedbackButton } from "@/components/feedback-button";
 
 export default function RootLayout({
   children,
@@ -35,6 +36,7 @@ export default function RootLayout({
         <main className="flex-1">
           {children}
         </main>
+        <FeedbackButton />
       </body>
     </html>
   );

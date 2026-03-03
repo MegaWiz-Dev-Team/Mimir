@@ -83,6 +83,7 @@ pub struct TenantConfig {
     pub system_prompt: Option<String>,
     pub max_daily_tokens: i64,
     pub is_dedicated_vector_db: bool,
+    pub max_crawl_pages: i32,
     pub search_settings: Option<sqlx::types::Json<serde_json::Value>>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -97,5 +98,6 @@ pub struct UpdateTenantConfigRequest {
     pub system_prompt: Option<String>,
     pub max_daily_tokens: Option<i64>,
     pub is_dedicated_vector_db: Option<bool>,
+    pub max_crawl_pages: Option<i32>,
     pub search_settings: Option<sqlx::types::Json<serde_json::Value>>,
 }

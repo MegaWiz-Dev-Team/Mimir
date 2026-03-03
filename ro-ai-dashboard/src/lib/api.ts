@@ -514,6 +514,7 @@ export interface TenantConfig {
     system_prompt?: string;
     max_daily_tokens: number;
     is_dedicated_vector_db: boolean;
+    max_crawl_pages?: number;
     search_settings?: {
         embedding_model?: string;
         top_k?: number;
@@ -778,14 +779,18 @@ export async function updateSource(id: number, data: Partial<DataSource>): Promi
 }
 
 export function uploadFile(
-    sourceId: number,
+    sourceId: number | null,
     file: File,
-    onProgress?: (percent: number) => void
+    onProgress?: (percent: number) => void,
+    metadata?: { name?: string; source_type?: string; folder_path?: string }
 ): Promise<any> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const formData = new FormData();
         formData.append("file", file);
+        if (metadata?.name) formData.append("name", metadata.name);
+        if (metadata?.source_type) formData.append("source_type", metadata.source_type);
+        if (metadata?.folder_path) formData.append("folder_path", metadata.folder_path);
 
         xhr.upload.addEventListener("progress", (event) => {
             if (event.lengthComputable && onProgress) {
@@ -808,7 +813,8 @@ export function uploadFile(
         xhr.addEventListener("error", () => reject(new Error("Upload failed")));
 
         const headers = getAuthHeaders() as Record<string, string>;
-        xhr.open("POST", `${API_BASE_URL}/sources/${sourceId}/upload`);
+        // Use the correct /sources/upload endpoint (not per-source ID)
+        xhr.open("POST", `${API_BASE_URL}/sources/upload`);
         Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
         xhr.send(formData);
     });
@@ -1252,5 +1258,127 @@ export async function getAlerts(): Promise<UsageAlert[]> {
 export async function getBenchmark(): Promise<BenchmarkEntry[]> {
     const res = await authFetch(`${API_BASE_URL}/llm-usage/benchmark`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch benchmark");
+    return res.json();
+}
+
+// ─── Cron Worker API (Sprint 14 — #150) ─────────────────────────────────────
+
+export interface CronStatus {
+    running: boolean;
+    tick_count: number;
+    sources_refreshed: number;
+    last_tick_at: string | null;
+}
+
+export async function fetchCronStatus(): Promise<CronStatus> {
+    const res = await authFetch(`${API_BASE_URL}/cron/status`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch cron status");
+    return res.json();
+}
+
+// ─── DB Connector API (Sprint 14 — #152) ────────────────────────────────────
+
+export interface DbConnectionConfig {
+    name: string;
+    db_type: "mysql" | "postgres" | "sqlite";
+    connection_string: string;
+}
+
+export interface DbTestResult {
+    success: boolean;
+    version?: string;
+    error?: string;
+}
+
+export interface DbTableSchema {
+    table_name: string;
+    columns: { name: string; data_type: string }[];
+}
+
+export async function testDbConnection(config: DbConnectionConfig): Promise<DbTestResult> {
+    const res = await authFetch(`${API_BASE_URL}/db-connector/test-connection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+    });
+    return res.json();
+}
+
+export async function discoverDbSchema(config: DbConnectionConfig): Promise<{ tables: DbTableSchema[] }> {
+    const res = await authFetch(`${API_BASE_URL}/db-connector/discover-schema`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+    });
+    if (!res.ok) throw new Error("Failed to discover schema");
+    return res.json();
+}
+
+export async function importDbData(config: DbConnectionConfig & { query: string }): Promise<{ markdown: string; row_count: number }> {
+    const res = await authFetch(`${API_BASE_URL}/db-connector/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+    });
+    if (!res.ok) throw new Error("Failed to import data");
+    return res.json();
+}
+
+// ─── Feedback API (Sprint 14 — #153) ────────────────────────────────────────
+
+export interface FeedbackRequest {
+    report_type: "bug" | "feedback" | "feature";
+    title: string;
+    description?: string;
+    priority?: "critical" | "high" | "medium" | "low";
+    page_url?: string;
+    browser_info?: Record<string, unknown>;
+    client_logs?: unknown;
+}
+
+export interface FeedbackReport {
+    id: number;
+    report_type: string;
+    title: string;
+    description?: string;
+    status: string;
+    priority?: string;
+    github_issue_url?: string;
+    created_at: string;
+}
+
+export async function submitFeedbackReport(data: FeedbackRequest): Promise<{ feedback_id: number; github_issue_url?: string }> {
+    const res = await authFetch(`${API_BASE_URL}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to submit feedback");
+    return res.json();
+}
+
+export async function fetchFeedbackList(params?: { status?: string; page?: number }): Promise<FeedbackReport[]> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.page) query.set("page", String(params.page));
+    const qs = query.toString();
+    const res = await authFetch(`${API_BASE_URL}/feedback${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch feedback");
+    return res.json();
+}
+
+// ─── Vault API (Sprint 14 — #157) ───────────────────────────────────────────
+
+export interface VaultStatus {
+    enabled: boolean;
+    addr?: string;
+    connected: boolean;
+    version?: string;
+    sealed?: boolean;
+}
+
+export async function fetchVaultStatus(): Promise<VaultStatus> {
+    const res = await authFetch(`${API_BASE_URL}/vault/status`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch vault status");
     return res.json();
 }

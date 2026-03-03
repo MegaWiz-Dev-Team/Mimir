@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS agent_conversations (
     tenant_id VARCHAR(50) NOT NULL,
     agent_config_id BIGINT,
     session_id VARCHAR(100) NOT NULL,
-    user_id BIGINT,
+    user_id BIGINT COMMENT 'Nullable — users table TBD in future sprint',
     role ENUM('user', 'assistant', 'system') NOT NULL,
     content TEXT NOT NULL,
     model_id VARCHAR(100),
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS agent_conversations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     FOREIGN KEY (agent_config_id) REFERENCES agent_configs(id) ON DELETE SET NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_user (user_id),
     INDEX idx_session (session_id),
     INDEX idx_agent_conv (agent_config_id, created_at)
 );
