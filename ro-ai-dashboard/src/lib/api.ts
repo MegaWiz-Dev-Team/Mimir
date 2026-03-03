@@ -267,6 +267,7 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
 
     // Define provider metadata
     const providerMeta: Record<string, { display_name: string; description: string; requires_api_key: boolean }> = {
+        heimdall: { display_name: "Heimdall (Self-Hosted)", description: "Self-hosted LLM gateway with multiple models", requires_api_key: true },
         ollama: { display_name: "Ollama (Local)", description: "Run models locally with Ollama", requires_api_key: false },
         google: { display_name: "Google Gemini (Cloud)", description: "Google's Gemini models via API", requires_api_key: true },
         openai: { display_name: "OpenAI (Cloud)", description: "OpenAI GPT models via API", requires_api_key: true },
@@ -345,6 +346,19 @@ export const PERSONAS: Persona[] = [
 
 /// Fallback providers when database is not available
 export const PROVIDERS: LlmProvider[] = [
+    {
+        id: "heimdall",
+        display_name: "Heimdall (Self-Hosted)",
+        description: "Self-hosted LLM gateway with multiple models",
+        requires_api_key: true,
+        models: [
+            { id: "mlx-community/Qwen3.5-35B-A3B-4bit", display_name: "Qwen 3.5 35B MoE", description: "Primary — RAG, Chat, QA generation" },
+            { id: "mlx-community/Qwen3.5-27B-4bit", display_name: "Qwen 3.5 27B", description: "Complex reasoning tasks" },
+            { id: "mlx-community/Qwen3.5-9B-MLX-4bit", display_name: "Qwen 3.5 9B", description: "Fast / low latency" },
+            { id: "mlx-community/Qwen3-0.6B-4bit", display_name: "Qwen 3 0.6B", description: "Smoke test, ultra-fast" },
+            { id: "lmstudio-community/medgemma-4b-it-MLX-4bit", display_name: "MedGemma 4B", description: "Medical domain specialized" },
+        ],
+    },
     {
         id: "ollama",
         display_name: "Ollama (Local)",
