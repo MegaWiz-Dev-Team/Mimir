@@ -665,6 +665,7 @@ export interface ChunkItem {
 export interface ChunkListResponse {
     chunks: ChunkItem[];
     total: number;
+    total_tokens: number;
     page: number;
     per_page: number;
 }
@@ -689,6 +690,25 @@ export async function fetchChunks(params?: {
 export async function fetchChunk(id: number): Promise<ChunkItem> {
     const res = await authFetch(`${API_BASE_URL}/chunks/${id}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch chunk");
+    return res.json();
+}
+
+export interface GenerateQaResponse {
+    success: boolean;
+    message: string;
+    chunk_count: number;
+}
+
+export async function generateQaForChunks(chunkIds: number[]): Promise<GenerateQaResponse> {
+    if (!chunkIds || chunkIds.length === 0) {
+        throw new Error("No chunks selected");
+    }
+    const res = await authFetch(`${API_BASE_URL}/chunks/generate-qa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chunk_ids: chunkIds }),
+    });
+    if (!res.ok) throw new Error(`Failed to generate QA: ${res.statusText}`);
     return res.json();
 }
 

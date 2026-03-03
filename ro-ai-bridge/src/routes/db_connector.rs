@@ -8,12 +8,13 @@ use axum::{
     Router,
     routing::post,
     extract::{State, Json},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     response::IntoResponse,
 };
 use sqlx::MySqlPool;
 use serde_json::json;
 use tracing::{info, error};
+use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::services::db_connector::{
     self, TestConnectionRequest, DiscoverSchemaRequest, ImportRequest,
 };
@@ -27,6 +28,7 @@ pub fn db_connector_routes() -> Router<MySqlPool> {
 
 /// POST /db-connector/test-connection — test an external DB connection
 async fn test_connection(
+    headers: HeaderMap,
     State(pool): State<MySqlPool>,
     Json(req): Json<TestConnectionRequest>,
 ) -> impl IntoResponse {
@@ -40,7 +42,7 @@ async fn test_connection(
     // Test connection
     match db_connector::test_connection(&req.connection_string, &req.db_type).await {
         Ok(version) => {
-            let tenant_id = "default_tenant";
+            let tenant_id = extract_tenant_id(&headers);
             // Save connection with success status
             let conn_id = db_connector::save_connection(&pool, tenant_id, &req, "connected").await;
 
@@ -52,7 +54,7 @@ async fn test_connection(
             }))).into_response()
         }
         Err(e) => {
-            let tenant_id = "default_tenant";
+            let tenant_id = extract_tenant_id(&headers);
             let _ = db_connector::save_connection(&pool, tenant_id, &req, "failed").await;
 
             error!(error = %e, "DB connection test failed");

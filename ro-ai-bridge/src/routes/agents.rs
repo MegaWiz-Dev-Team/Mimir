@@ -11,11 +11,11 @@
 //! - POST   /api/v1/agents/:id/chat      — chat with an agent
 //! - GET    /api/v1/agents/:id/conversations — list conversations for agent
 
-use axum::{
+use crate::routes::tenant::extract_tenant_id;use axum::{
     routing::{get, post, put, delete},
     Router, Json,
     extract::{Path, State, Query},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     Extension,
 };
 use serde::{Deserialize, Serialize};
@@ -240,10 +240,11 @@ fn get_templates() -> Vec<AgentTemplate> {
 
 /// GET /api/v1/agents — List all agent configs
 async fn list_agents(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<ListAgentsQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
@@ -279,10 +280,11 @@ async fn list_agents(
 
 /// POST /api/v1/agents — Create agent config
 async fn create_agent(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<CreateAgentRequest>,
 ) -> Result<(StatusCode, Json<AgentConfig>), (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let provider = payload.provider.unwrap_or_else(|| "ollama".into());
     let temperature = payload.temperature.unwrap_or(0.7);
     let max_tokens = payload.max_tokens.unwrap_or(2048);
@@ -346,10 +348,11 @@ async fn list_templates() -> Json<Vec<AgentTemplate>> {
 
 /// GET /api/v1/agents/:id — Get agent config by ID
 async fn get_agent(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
 ) -> Result<Json<AgentConfig>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let agent = sqlx::query_as::<_, AgentConfig>(
         "SELECT * FROM agent_configs WHERE id = ? AND tenant_id = ?"
@@ -367,11 +370,12 @@ async fn get_agent(
 
 /// PUT /api/v1/agents/:id — Update agent config
 async fn update_agent(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateAgentRequest>,
 ) -> Result<Json<AgentConfig>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     // Verify agent exists
     let existing = sqlx::query_as::<_, AgentConfig>(
@@ -442,10 +446,11 @@ async fn update_agent(
 
 /// DELETE /api/v1/agents/:id — Delete agent config
 async fn delete_agent(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let result = sqlx::query("DELETE FROM agent_configs WHERE id = ? AND tenant_id = ?")
         .bind(id)
@@ -464,10 +469,11 @@ async fn delete_agent(
 
 /// POST /api/v1/agents/:id/publish — Generate API key, set published
 async fn publish_agent(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let api_key = format!("ak_{}", Uuid::new_v4().to_string().replace("-", ""));
 
     let result = sqlx::query(
@@ -494,12 +500,13 @@ async fn publish_agent(
 
 /// POST /api/v1/agents/:id/chat — Chat with agent using its config
 async fn agent_chat(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<AgentChatRequest>,
 ) -> Result<Json<AgentChatResponse>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     // 1. Load agent config
     let agent = sqlx::query_as::<_, AgentConfig>(
@@ -659,11 +666,12 @@ async fn agent_chat(
 
 /// GET /api/v1/agents/:id/conversations — List conversation sessions
 async fn list_agent_conversations(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Query(params): Query<ConversationListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;

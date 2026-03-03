@@ -43,7 +43,7 @@ export default function QualityControlPage() {
         try {
             // Fetch all instead of just pending to show both columns
             const data = await fetchQcClusters("");
-            setClusters(data.clusters || []);
+            setClusters(Array.isArray(data) ? data : data.clusters || []);
         } catch (e) {
             console.warn("[QC]", e);
         } finally {

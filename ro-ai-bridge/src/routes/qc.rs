@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::qa_qc::clustering::{ClusteringService, ClusterDTO, ResolveClusterRequest};
 use axum::http::HeaderMap;
+use crate::routes::tenant::extract_tenant_id;
 
 #[derive(Debug, Deserialize)]
 pub struct SeedData {
@@ -47,14 +48,11 @@ async fn list_clusters(
     headers: HeaderMap,
     Query(q): Query<QcQuery>,
 ) -> Json<Vec<ClusterDTO>> {
-    let tenant_id = headers.get("X-Tenant-Id")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("default_tenant")
-        .to_string();
+    let tenant_id = extract_tenant_id(&headers).to_string();
 
-    let status_filter = q.status.as_deref();
+    let status_filter = q.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("PENDING");
     
-    match ClusteringService::get_clusters(&pool, &tenant_id, status_filter).await {
+    match ClusteringService::get_clusters(&pool, &tenant_id, Some(status_filter)).await {
         Ok(clusters) => Json(clusters),
         Err(e) => {
             tracing::error!("Failed to fetch clusters: {}", e);
@@ -89,10 +87,7 @@ async fn trigger_generate(
     State(pool): State<DbPool>,
     headers: HeaderMap,
 ) -> Json<serde_json::Value> {
-    let tenant_id = headers.get("X-Tenant-Id")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("default_tenant")
-        .to_string();
+    let tenant_id = extract_tenant_id(&headers).to_string();
 
     // Note: In a real system, you might want to fire and forget this or use a background worker queue.
     // For now, we await it or spawn it. Spawning is safer to not block the HTTP response if Gemini takes long.
@@ -113,9 +108,11 @@ async fn trigger_generate(
 
 /// POST /api/v1/qc/seed — Temporary DB seeding for testing
 async fn seed_qa_data(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     axum::Json(payload): axum::Json<Vec<SeedData>>,
 ) -> Json<serde_json::Value> {
+    let tenant_id = extract_tenant_id(&headers);
     let mut success_count = 0;
     
     // Create mock run
@@ -134,12 +131,13 @@ async fn seed_qa_data(
             let res = sqlx::query(
                 r#"
                 INSERT INTO qa_results (step_id, question, answer, context, tenant_id)
-                VALUES (?, ?, ?, ?, 'default_tenant')
+                VALUES (?, ?, ?, ?, ?)
                 "#)
                 .bind(step_record.id)
                 .bind(item.question)
                 .bind(item.answer)
                 .bind(item.context)
+                .bind(tenant_id)
                 .execute(&pool).await;
             
             if res.is_ok() {
