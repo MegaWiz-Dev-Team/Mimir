@@ -71,6 +71,15 @@ pub async fn run_pipeline_with_config(
 
     let gen_client = match provider {
         "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
+        "heimdall" => {
+            let hd_api_key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
+            let hd_endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+            GeneratorClient::Heimdall {
+                client: reqwest::Client::new(),
+                endpoint: hd_endpoint,
+                api_key: hd_api_key,
+            }
+        }
         _ => GeneratorClient::Ollama(local_client.clone()),
     };
 
@@ -282,6 +291,15 @@ pub async fn retry_step_with_config(
 
     let gen_client = match provider.as_str() {
         "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
+        "heimdall" => {
+            let hd_api_key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
+            let hd_endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+            GeneratorClient::Heimdall {
+                client: reqwest::Client::new(),
+                endpoint: hd_endpoint,
+                api_key: hd_api_key,
+            }
+        }
         _ => GeneratorClient::Ollama(local_client.clone()),
     };
 
@@ -519,7 +537,6 @@ pub async fn generate_missing_qa_for_step(
     let gemini_client = gemini::Client::new(&gemini_api_key);
     let db_model = "gemini-2.5-flash";
 
-    // Use builder block for generator client logic
     let (gen_client, gen_model) = match provider.as_str() {
         "ollama" => {
             let ollama_client = ollama::Client::new();
@@ -527,6 +544,15 @@ pub async fn generate_missing_qa_for_step(
         },
         "google" => {
             (GeneratorClient::Gemini(gemini_client.clone()), model)
+        },
+        "heimdall" => {
+            let hd_api_key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
+            let hd_endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+            (GeneratorClient::Heimdall {
+                client: reqwest::Client::new(),
+                endpoint: hd_endpoint,
+                api_key: hd_api_key,
+            }, model)
         },
         _ => return Err(anyhow::anyhow!("Unsupported provider: {}", provider)),
     };

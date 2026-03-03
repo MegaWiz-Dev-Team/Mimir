@@ -4,6 +4,69 @@ use std::fs;
 use dotenvy::dotenv;
 use tracing::{info, warn};
 
+use crate::services::vault;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Vault Secret Injection (Issue #157)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Secret env var names that should be resolved from Vault when available.
+pub const VAULT_MANAGED_SECRETS: &[&str] = &[
+    "GEMINI_API_KEY",
+    "GITHUB_TOKEN",
+    "HEIMDALL_API_KEY",
+    "JWT_SECRET",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+];
+
+/// Inject Vault secrets into process environment variables.
+///
+/// Call this **once** at startup, **before** `Config::from_env()`.
+/// For each key in `VAULT_MANAGED_SECRETS`, tries Vault first;
+/// if found, sets it via `std::env::set_var` so all subsequent
+/// `env::var()` calls throughout the codebase pick it up.
+///
+/// If Vault is not configured (`VAULT_ADDR` not set), this is a no-op.
+pub async fn inject_vault_secrets() {
+    if !vault::is_vault_enabled() {
+        info!(event = "vault_skip", "Vault not configured — using env vars directly for secrets");
+        return;
+    }
+
+    let config = match vault::parse_vault_config() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(event = "vault_config_error", error = %e, "Could not parse Vault config — falling back to env vars");
+            return;
+        }
+    };
+
+    info!(event = "vault_inject_start", "Resolving secrets from Vault...");
+    let mut injected = 0u32;
+
+    for key in VAULT_MANAGED_SECRETS {
+        match vault::resolve_secret(key, Some(&config)).await {
+            Ok((value, source)) => {
+                if source == "vault" {
+                    // SAFETY: set_var is safe here because we're single-threaded at startup
+                    unsafe { env::set_var(key, &value); }
+                    info!(event = "vault_injected", key = %key, "✅ Injected from Vault");
+                    injected += 1;
+                }
+                // source == "env" means it was already in env, no need to set
+            }
+            Err(e) => {
+                warn!(event = "vault_resolve_fail", key = %key, error = %e, "Could not resolve — will use env var if present");
+            }
+        }
+    }
+
+    info!(event = "vault_inject_done", injected = injected, total = VAULT_MANAGED_SECRETS.len(), "Vault secret injection complete");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+
 #[derive(Debug, Clone)]
 pub struct Config {
     // Server
@@ -28,6 +91,9 @@ pub struct Config {
     pub gemini_base_url: String,
     pub gemini_api_key: Option<String>,
     pub gemini_model: String,
+    pub heimdall_api_url: String,
+    pub heimdall_api_key: Option<String>,
+    pub heimdall_model: String,
 
     // Auth
     pub jwt_secret: String,
@@ -78,6 +144,13 @@ impl Config {
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
             gemini_model: env::var("GEMINI_MODEL")
                 .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
+
+            // Heimdall (Self-hosted LLM Gateway)
+            heimdall_api_url: env::var("HEIMDALL_API_URL")
+                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string()),
+            heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),
+            heimdall_model: env::var("HEIMDALL_MODEL")
+                .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
 
             // Auth
             jwt_secret: env::var("JWT_SECRET")

@@ -1,7 +1,7 @@
 # SI-04-14: Sprint 14 Test Script (Production Core — Cron, OCR, DB Connector, Vault, E2E)
 **Project Name:** Project Mimir
 **Sprint:** 14
-**Feature:** Cron Worker (#150), OCR Integration (#151), External DB Connectors (#152), Feedback & Bug Report (#153), E2E Test Suite (#154), Vault Secrets (#157)
+**Feature:** Cron Worker (#150), OCR Integration (#151), External DB Connectors (#152), Feedback & Bug Report (#153), E2E Test Suite (#154), Vault Secrets (#157), Vault Secret Injection (#157b)
 **ทดสอบเมื่อ:** 2026-03-01
 
 ## แนวทางการทดสอบตามมาตรฐาน ISO 29110 (Test Instructions & TDD Approach)
@@ -40,14 +40,18 @@
 
 #### 2.1 Vault Secrets Management (#157)
 
-| ID             | Test Scenario                 | Action / Steps (ขั้นตอนการทดสอบ)                   | Expected Result (ผลที่คาดหวัง)                     | ผลการประเมิน | Issue # / PR # | หมายเหตุ                         |
-| :------------- | :---------------------------- | :----------------------------------------------- | :---------------------------------------------- | :---------- | :------------- | :------------------------------ |
-| **TC_SP14_01** | VaultConfig default values    | 1. ทดสอบ `parse_vault_config` โดยไม่ตั้ง env vars   | Default mount="secret", path="mimir"            | ✅ Pass      | #157           | Pure function test              |
-| **TC_SP14_02** | URL builder — secret path     | 1. ทดสอบ `build_secret_path` ด้วย config ปกติ      | สร้าง URL ถูกต้อง: `{addr}/v1/{mount}/data/{path}` | ✅ Pass      | #157           | 17 tests ในกลุ่ม vault pass ทั้งหมด |
-| **TC_SP14_03** | Vault response parsing        | 1. ทดสอบ `parse_vault_response` ด้วย JSON mock    | ดึง secret key-value ได้ถูกต้อง                     | ✅ Pass      | #157           | Handles missing keys gracefully |
-| **TC_SP14_04** | Secret masking                | 1. ทดสอบ `mask_secret("my_secret_key")`          | Output: `my_***_key` (masked middle)            | ✅ Pass      | #157           | Short secrets show "***"        |
-| **TC_SP14_05** | Vault API: GET /vault/status  | 1. Code review: route registered in `main.rs`    | Endpoint accessible, returns VaultStatus JSON   | ✅ Pass      | #157           | Code review confirmed           |
-| **TC_SP14_06** | Vault API: POST /vault/rotate | 1. Code review: rotation payload builder + route | Builds correct KV v2 write payload              | ✅ Pass      | #157           | Code review confirmed           |
+| ID             | Test Scenario                 | Action / Steps (ขั้นตอนการทดสอบ)                                | Expected Result (ผลที่คาดหวัง)                                                                           | ผลการประเมิน | Issue # / PR # | หมายเหตุ                         |
+| :------------- | :---------------------------- | :------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------- | :---------- | :------------- | :------------------------------ |
+| **TC_SP14_01** | VaultConfig default values    | 1. ทดสอบ `parse_vault_config` โดยไม่ตั้ง env vars                | Default mount="secret", path="mimir"                                                                  | ✅ Pass      | #157           | Pure function test              |
+| **TC_SP14_02** | URL builder — secret path     | 1. ทดสอบ `build_secret_path` ด้วย config ปกติ                   | สร้าง URL ถูกต้อง: `{addr}/v1/{mount}/data/{path}`                                                       | ✅ Pass      | #157           | 17 tests ในกลุ่ม vault pass ทั้งหมด |
+| **TC_SP14_03** | Vault response parsing        | 1. ทดสอบ `parse_vault_response` ด้วย JSON mock                 | ดึง secret key-value ได้ถูกต้อง                                                                           | ✅ Pass      | #157           | Handles missing keys gracefully |
+| **TC_SP14_04** | Secret masking                | 1. ทดสอบ `mask_secret("my_secret_key")`                       | Output: `my_***_key` (masked middle)                                                                  | ✅ Pass      | #157           | Short secrets show "***"        |
+| **TC_SP14_05** | Vault API: GET /vault/status  | 1. Code review: route registered in `main.rs`                 | Endpoint accessible, returns VaultStatus JSON                                                         | ✅ Pass      | #157           | Code review confirmed           |
+| **TC_SP14_06** | Vault API: POST /vault/rotate | 1. Code review: rotation payload builder + route              | Builds correct KV v2 write payload                                                                    | ✅ Pass      | #157           | Code review confirmed           |
+| **TC_SP14_32** | VAULT_MANAGED_SECRETS list    | 1. ทดสอบ `test_vault_managed_secrets_contains_expected_keys`  | มี GEMINI_API_KEY, GITHUB_TOKEN, HEIMDALL_API_KEY, JWT_SECRET, S3_ACCESS_KEY, S3_SECRET_KEY ครบ 6 keys | ✅ Pass      | #157b          | UT-017k                         |
+| **TC_SP14_33** | Vault key mapping             | 1. ทดสอบ `test_vault_managed_secrets_map_to_valid_vault_keys` | map ทุก key จาก UPPER_SNAKE_CASE → lower_snake_case ถูกต้อง                                              | ✅ Pass      | #157b          | UT-017l                         |
+| **TC_SP14_34** | Non-secret key exclusion      | 1. ทดสอบ `test_vault_managed_secrets_excludes_non_secrets`    | PORT, MARIADB_URL, RUST_LOG ฯลฯ ไม่อยู่ใน managed list                                                   | ✅ Pass      | #157b          | UT-017m                         |
+| **TC_SP14_35** | Inject no-op without Vault    | 1. ทดสอบ `test_inject_vault_secrets_noop_without_vault`       | ไม่ panic, ไม่เปลี่ยนค่า env เมื่อ Vault disabled                                                            | ✅ Pass      | #157b          | UT-017n async test              |
 
 #### 2.2 External DB Connectors (#152)
 
@@ -118,20 +122,20 @@
 - [x] Reversible Migrations ครบ (25/25 .down.sql files)
 - [x] Structured Logging ผ่าน (2/2: request_id middleware tests)
 - [x] Frontend Unit Tests ผ่าน (64/66: npx jest — 2 pre-existing failures)
-- [x] Vault Secrets ผ่าน (6/6: TC_SP14_01~06)
+- [x] Vault Secrets ผ่าน (10/10: TC_SP14_01~06, TC_SP14_32~35)
 - [x] External DB Connectors ผ่าน (5/5: TC_SP14_07~11)
 - [x] Feedback & Bug Report ผ่าน (2/2: TC_SP14_12~13)
 - [x] E2E Integration Tests ผ่าน (8/8: TC_SP14_14~21)
 - [x] Frontend Components ผ่าน (10/10: TC_SP14_22~31)
 
 **ผลการทดสอบ 2026-03-01:**
-- **Unit Tests (Backend)**: 217/217 ✅ (+22 MCP/Performance tests)
+- **Unit Tests (Backend)**: 221/221 ✅ (+22 MCP/Performance tests, +4 Vault Injection tests)
 - **Unit Tests (Frontend)**: 64/66 ✅ (2 pre-existing failures ใน pipeline-status-bar)
-- **Backend Service Tests**: 21/21 ✅ Pass
+- **Backend Service Tests**: 25/25 ✅ Pass (incl. 4 new Vault injection)
 - **Frontend Component Tests**: 10/10 ✅ Pass
 - **MCP Server**: 12/12 ✅ (tool registry, validation, dispatch)
 - **Performance**: 10/10 ✅ (cache, pool config, indexes)
-- **Total**: 4/4 unit suites + 31/31 feature tests = **35/35 all pass**
+- **Total**: 4/4 unit suites + 35/35 feature tests = **39/39 all pass**
 
 **Bugs Fixed During Testing:**
 1. `CreateFeedbackRequest` struct field mismatch — fixed field names (category→report_type, severity→priority)
