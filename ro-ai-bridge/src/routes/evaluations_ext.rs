@@ -6,11 +6,11 @@
 //! - GET    /api/v1/evaluations/compare           — A/B model comparison
 //! - GET    /api/v1/evaluations/feedback-summary  — user feedback aggregation
 
-use axum::{
+use crate::routes::tenant::extract_tenant_id;use axum::{
     routing::{get, post},
     Router, Json,
     extract::{State, Query},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -85,10 +85,11 @@ pub fn evaluations_ext_routes() -> Router<DbPool> {
 
 /// POST /api/v1/evaluations/run — Run evaluation batch
 async fn run_evaluation_batch(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<RunEvalRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let batch_id = Uuid::new_v4().to_string();
     let judge_model = payload.judge_model.unwrap_or_else(|| "gemini-2.0-flash".into());
     let agent_name = payload.agent_name.unwrap_or_else(|| "oracle_rag".into());
@@ -179,10 +180,11 @@ async fn run_evaluation_batch(
 
 /// GET /api/v1/evaluations/results — Get evaluation results
 async fn get_eval_results(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<ResultsQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(50).min(100);
     let offset = (page - 1) * per_page;
@@ -246,10 +248,11 @@ async fn get_eval_results(
 
 /// GET /api/v1/evaluations/compare — A/B model comparison
 async fn compare_models(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<CompareQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let mut base_query = "SELECT model_id, AVG(accuracy) as avg_accuracy, AVG(completeness) as avg_completeness, AVG(relevance) as avg_relevance, AVG(latency_ms) as avg_latency, COUNT(*) as total FROM evaluation_reports WHERE tenant_id = ? AND model_id IN (?, ?)".to_string();
 
@@ -292,9 +295,10 @@ async fn compare_models(
 
 /// GET /api/v1/evaluations/feedback-summary — Aggregate user feedback
 async fn feedback_summary(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     // Per-agent feedback
     let by_agent: Vec<(Option<i64>, String, i64)> = sqlx::query_as(

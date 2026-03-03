@@ -1,7 +1,7 @@
 use axum::{
     routing::{get, post, put, delete},
     Router, Json, Extension, extract::{Path, State, Query},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     response::sse::{Event, Sse},
 };
 use std::sync::Arc;
@@ -25,6 +25,7 @@ use mimir_core_ai::services::db;
 use s3::creds::Credentials;
 use s3::Bucket;
 use s3::Region;
+use crate::routes::tenant::extract_tenant_id;
 
 pub fn sources_routes() -> Router<DbPool> {
     Router::new()
@@ -40,11 +41,12 @@ pub fn sources_routes() -> Router<DbPool> {
 }
 
 async fn list_sources(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<Vec<DataSource>>, (StatusCode, Json<Value>)> {
     // Note: To truly support multi-tenancy, we should extract the tenant_id from the Auth token middleware
     // We'll mock it here temporarily or retrieve from Extension if added by middleware
-    let tenant_id = "default_tenant"; 
+    let tenant_id = extract_tenant_id(&headers);
     
     let sources = sqlx::query_as::<_, DataSource>(
         "SELECT * FROM data_sources WHERE tenant_id = ?"
@@ -60,10 +62,11 @@ async fn list_sources(
 }
 
 async fn create_source(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<CreateDataSourceRequest>,
 ) -> Result<(StatusCode, Json<DataSource>), (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant"; // Future: get from auth token
+    let tenant_id = extract_tenant_id(&headers);
     
     let result = sqlx::query!(
         r#"
@@ -96,11 +99,12 @@ async fn create_source(
 }
 
 async fn update_source(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateDataSourceRequest>,
 ) -> Result<Json<DataSource>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     
     // Check if source exists
     let existing = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
@@ -147,10 +151,11 @@ async fn update_source(
 }
 
 async fn delete_source(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     
     let result = sqlx::query!(
         "DELETE FROM data_sources WHERE id = ? AND tenant_id = ?",
@@ -171,11 +176,12 @@ async fn delete_source(
 }
 
 async fn sync_source(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     
     // Check if source exists
     let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
@@ -424,11 +430,12 @@ struct HierarchyNode {
 /// Crawl root URL and discover linked pages via BFS.
 /// Returns a flat list of pages with status badges (new/updated/unchanged/duplicate).
 async fn discover_hierarchy(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<DiscoverHierarchyRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
     let max_depth = payload.max_depth.unwrap_or(3).min(5);
     // Read configurable max from tenant config (Issue #164)
     let tenant_max: i32 = sqlx::query_scalar(
@@ -577,11 +584,12 @@ struct ImportPageEntry {
 ///
 /// Import selected discovered pages into crawled_pages table.
 async fn import_pages(
+    headers: HeaderMap,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<ImportPagesRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
         .bind(id)
@@ -650,12 +658,13 @@ struct AiExtractResponse {
 /// Downloads the file from S3, sends its text content to the selected LLM,
 /// and returns the extracted content.
 async fn extract_with_ai(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<AiExtractRequest>,
 ) -> Result<Json<AiExtractResponse>, (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant";
+    let tenant_id = extract_tenant_id(&headers);
 
     // 1. Fetch source from DB
     let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
@@ -710,7 +719,7 @@ async fn extract_with_ai(
     let provider_str = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("unknown");
     let (content, tokens_used) = call_llm_api_with_logging(
         &api_key, &api_base, &payload.model, &prompt,
-        Some(&pool), Some("default_tenant"), Some(provider_str), Some("extract_with_ai"),
+        Some(&pool), Some(&tenant_id), Some(provider_str), Some("extract_with_ai"),
     ).await
         .map_err(|e| {
             error!("LLM API call failed: {}", e);
@@ -1045,11 +1054,12 @@ fn create_s3_bucket(config: &Config) -> Result<Box<Bucket>, (StatusCode, Json<Va
 /// - `storage_mode`: "markdown" | "sql" (optional, defaults to "markdown")
 /// - `folder_path`: String (optional, for folder upload)
 async fn upload_file(
+    headers: HeaderMap,
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    let tenant_id = "default_tenant"; // Future: extract from JWT via tenant_auth_middleware
+    let tenant_id = extract_tenant_id(&headers);
 
     let mut file_data: Option<Vec<u8>> = None;
     let mut file_name: Option<String> = None;
