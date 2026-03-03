@@ -211,6 +211,7 @@ export default function SettingsPage() {
                                             vllm: "meta-llama/Llama-3.2-3B",
                                             groq: "llama-3.3-70b-versatile",
                                             deepseek: "deepseek-chat",
+                                            heimdall: "mlx-community/Qwen3.5-35B-A3B-4bit",
                                         };
                                         if (models[provider]) {
                                             setConfig(prev => prev ? { ...prev, default_provider: provider, default_model: models[provider] } : prev);
@@ -218,6 +219,7 @@ export default function SettingsPage() {
                                     }}
                                 >
                                     <option value="">Select provider...</option>
+                                    <option value="heimdall">Heimdall (Self-Hosted)</option>
                                     <option value="ollama">Ollama (Local)</option>
                                     <option value="gemini">Google Gemini</option>
                                     <option value="openai">OpenAI</option>
@@ -282,6 +284,15 @@ export default function SettingsPage() {
                                             <>
                                                 <option value="deepseek-chat">deepseek-chat</option>
                                                 <option value="deepseek-coder">deepseek-coder</option>
+                                            </>
+                                        )}
+                                        {config.default_provider === "heimdall" && (
+                                            <>
+                                                <option value="mlx-community/Qwen3.5-35B-A3B-4bit">Qwen 3.5 35B MoE (Primary)</option>
+                                                <option value="mlx-community/Qwen3.5-27B-4bit">Qwen 3.5 27B (Complex)</option>
+                                                <option value="mlx-community/Qwen3.5-9B-MLX-4bit">Qwen 3.5 9B (Fast)</option>
+                                                <option value="mlx-community/Qwen3-0.6B-4bit">Qwen 3 0.6B (Smoke)</option>
+                                                <option value="lmstudio-community/medgemma-4b-it-MLX-4bit">MedGemma 4B (Medical)</option>
                                             </>
                                         )}
                                     </select>

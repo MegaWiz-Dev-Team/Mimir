@@ -4,7 +4,7 @@
 //! - Retrieval Augmented Generation (RAG) from wiki_qa and game_data collections
 //! - Custom tools for direct rAthena database queries (mobs, items)
 //! - Confidence scoring and source citation in responses
-//! - Support for multiple LLM providers (Ollama local, Gemini cloud)
+//! - Support for multiple LLM providers (Ollama local, Gemini cloud, Heimdall self-hosted)
 //!
 //! ## Architecture
 //! ```text
@@ -16,7 +16,7 @@
 //!                                      ↓
 //!                              Context Assembly
 //!                                      ↓
-//!                              LLM Generation (Ollama/Gemini)
+//!                              LLM Generation (Ollama/Gemini/Heimdall)
 //!                                      ↓
 //!                         Response + Confidence + Citations
 //! ```
@@ -40,6 +40,9 @@ const DEFAULT_MODEL: &str = "llama3.2";
 /// Default Gemini model
 const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
 
+/// Default Heimdall model
+const DEFAULT_HEIMDALL_MODEL: &str = "mlx-community/Qwen3.5-35B-A3B-4bit";
+
 /// Default timeout for completion requests (45 seconds for RAG operations)
 const DEFAULT_TIMEOUT_SECS: u64 = 45;
 
@@ -51,11 +54,17 @@ const DEFAULT_TIMEOUT_SECS: u64 = 45;
 pub enum LlmProvider {
     Ollama,
     Gemini,
+    Heimdall,
 }
 
 impl Default for LlmProvider {
     fn default() -> Self {
-        LlmProvider::Ollama
+        // Prefer Heimdall if HEIMDALL_API_URL is configured
+        if std::env::var("HEIMDALL_API_URL").is_ok() {
+            LlmProvider::Heimdall
+        } else {
+            LlmProvider::Ollama
+        }
     }
 }
 
@@ -64,6 +73,7 @@ impl std::fmt::Display for LlmProvider {
         match self {
             LlmProvider::Ollama => write!(f, "ollama"),
             LlmProvider::Gemini => write!(f, "gemini"),
+            LlmProvider::Heimdall => write!(f, "heimdall"),
         }
     }
 }
@@ -75,6 +85,7 @@ impl std::str::FromStr for LlmProvider {
         match s.to_lowercase().as_str() {
             "ollama" | "local" => Ok(LlmProvider::Ollama),
             "gemini" | "google" => Ok(LlmProvider::Gemini),
+            "heimdall" => Ok(LlmProvider::Heimdall),
             _ => Err(format!("Unknown provider: {}", s))
         }
     }
@@ -305,6 +316,14 @@ impl RagRetriever {
 pub enum AgentBackend {
     Ollama(rig::agent::Agent<ollama::CompletionModel>),
     Gemini(rig::agent::Agent<gemini::completion::CompletionModel>),
+    /// Heimdall uses reqwest directly (OpenAI-compatible HTTP API)
+    Heimdall {
+        client: reqwest::Client,
+        endpoint: String,
+        model: String,
+        api_key: String,
+        system_prompt: String,
+    },
 }
 
 impl AgentBackend {
@@ -318,6 +337,44 @@ impl AgentBackend {
             AgentBackend::Gemini(agent) => {
                 agent.prompt(message).await
                     .map_err(|e| anyhow::anyhow!("Gemini prompt failed: {}", e))
+            }
+            AgentBackend::Heimdall { client, endpoint, model, api_key, system_prompt } => {
+                let url = format!("{}/chat/completions",
+                    endpoint.trim_end_matches('/'));
+                let body = serde_json::json!({
+                    "model": model,
+                    "messages": [
+                        { "role": "system", "content": system_prompt },
+                        { "role": "user", "content": message }
+                    ],
+                    "max_tokens": 4096,
+                    "temperature": 0.7,
+                    "stream": false
+                });
+                let resp = client.post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Heimdall request failed: {}", e))?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let err = resp.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("Heimdall error {}: {}", status, err));
+                }
+
+                let json: serde_json::Value = resp.json().await
+                    .map_err(|e| anyhow::anyhow!("Heimdall parse error: {}", e))?;
+
+                json.get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| anyhow::anyhow!("Heimdall: no content in response"))
             }
         }
     }
@@ -392,6 +449,21 @@ impl OracleRagAgent {
                     .preamble(&enhanced_prompt)
                     .build();
                 (AgentBackend::Gemini(agent), model_name)
+            }
+            LlmProvider::Heimdall => {
+                let api_key = env::var("HEIMDALL_API_KEY")
+                    .unwrap_or_else(|_| "heimdall-default-key".to_string());
+                let endpoint = env::var("HEIMDALL_API_URL")
+                    .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+                let model_name = model.unwrap_or(DEFAULT_HEIMDALL_MODEL).to_string();
+                let backend = AgentBackend::Heimdall {
+                    client: reqwest::Client::new(),
+                    endpoint,
+                    model: model_name.clone(),
+                    api_key,
+                    system_prompt: enhanced_prompt.clone(),
+                };
+                (backend, model_name)
             }
         };
         

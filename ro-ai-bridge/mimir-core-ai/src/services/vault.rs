@@ -535,4 +535,109 @@ mod tests {
     fn test_mask_secret_nine_chars() {
         assert_eq!(mask_secret("123456789"), "1234***89");
     }
+
+    // ========================================
+    // UT-017k: VAULT_MANAGED_SECRETS constant
+    // ========================================
+    #[test]
+    fn test_vault_managed_secrets_contains_expected_keys() {
+        use crate::config::VAULT_MANAGED_SECRETS;
+
+        // Verify all expected secret keys are in the managed list
+        let expected = [
+            "GEMINI_API_KEY",
+            "GITHUB_TOKEN",
+            "HEIMDALL_API_KEY",
+            "JWT_SECRET",
+            "S3_ACCESS_KEY",
+            "S3_SECRET_KEY",
+        ];
+
+        for key in &expected {
+            assert!(
+                VAULT_MANAGED_SECRETS.contains(key),
+                "VAULT_MANAGED_SECRETS should contain '{}'",
+                key
+            );
+        }
+        assert_eq!(VAULT_MANAGED_SECRETS.len(), expected.len());
+    }
+
+    // ========================================
+    // UT-017l: VAULT_MANAGED_SECRETS → Vault key mapping
+    // ========================================
+    #[test]
+    fn test_vault_managed_secrets_map_to_valid_vault_keys() {
+        use crate::config::VAULT_MANAGED_SECRETS;
+
+        // Each managed secret should map to a lowercase vault key
+        let expected_mappings = [
+            ("GEMINI_API_KEY", "gemini_api_key"),
+            ("GITHUB_TOKEN", "github_token"),
+            ("HEIMDALL_API_KEY", "heimdall_api_key"),
+            ("JWT_SECRET", "jwt_secret"),
+            ("S3_ACCESS_KEY", "s3_access_key"),
+            ("S3_SECRET_KEY", "s3_secret_key"),
+        ];
+
+        for (env_key, vault_key) in &expected_mappings {
+            assert!(VAULT_MANAGED_SECRETS.contains(env_key));
+            assert_eq!(
+                map_config_to_vault_key(env_key),
+                *vault_key,
+                "Mapping for {} should be {}",
+                env_key,
+                vault_key
+            );
+        }
+    }
+
+    // ========================================
+    // UT-017m: VAULT_MANAGED_SECRETS — no non-secret keys
+    // ========================================
+    #[test]
+    fn test_vault_managed_secrets_excludes_non_secrets() {
+        use crate::config::VAULT_MANAGED_SECRETS;
+
+        // These are configuration values, NOT secrets — should NOT be in the list
+        let non_secret_keys = [
+            "PORT",
+            "MARIADB_URL",
+            "QDRANT_URL",
+            "REDIS_URL",
+            "S3_ENDPOINT",
+            "S3_BUCKET",
+            "S3_REGION",
+            "OLLAMA_URL",
+            "LOCAL_MODEL",
+            "RUST_LOG",
+            "CRON_TICK_SECONDS",
+        ];
+
+        for key in &non_secret_keys {
+            assert!(
+                !VAULT_MANAGED_SECRETS.contains(key),
+                "VAULT_MANAGED_SECRETS should NOT contain non-secret key '{}'",
+                key
+            );
+        }
+    }
+
+    // ========================================
+    // UT-017n: inject_vault_secrets — no-op when Vault disabled
+    // ========================================
+    #[tokio::test]
+    async fn test_inject_vault_secrets_noop_without_vault() {
+        // When VAULT_ADDR is not set, inject should be a no-op
+        // (does not panic, does not modify env)
+        unsafe { std::env::remove_var("VAULT_ADDR"); }
+
+        let test_key = "GEMINI_API_KEY";
+        let original = std::env::var(test_key).ok();
+
+        crate::config::inject_vault_secrets().await;
+
+        // Value should remain unchanged
+        assert_eq!(std::env::var(test_key).ok(), original);
+    }
 }

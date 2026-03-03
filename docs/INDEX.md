@@ -33,6 +33,8 @@
 - `docs/02_architecture_and_integration/02_08_rAthena_NPC_Types.md`: ประเภทของ rAthena NPC
 - `docs/02_architecture_and_integration/02_09_AI_Agent_Techniques_for_NPCs.md`: เทคนิค AI Agent สำหรับ NPC
 - `docs/02_architecture_and_integration/02_10_rAthena_Client_AI_Communication.md`: การสื่อสารระหว่างระบบต่างๆ
+- `docs/02_architecture_and_integration/02_11_Ragnarok_client_on_mac.md`: การพัฒนา Client บน Mac
+- `docs/02_architecture_and_integration/02_12_Heimdall_Self_Host_LLM_Server.md`: เอกสาร Heimdall Self-Hosted LLM Gateway สำหรับ Mimir
 
 ## 🚀 03. Implementation Plans (แผนการดำเนินงาน)
 แผนงานจริงที่แบ่งเป็น Phase, Sprints, และ Tasks สำหรับ Version 2.3
