@@ -125,6 +125,20 @@ services:
       - IPC_LOCK
     restart: unless-stopped
 
+  neo4j:
+    image: neo4j:5-community
+    container_name: mimir_neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/mimir_neo4j_password
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./data/neo4j/logs:/logs
+    restart: always
+
 volumes:
   qdrant_storage:
   rustfs_data:
