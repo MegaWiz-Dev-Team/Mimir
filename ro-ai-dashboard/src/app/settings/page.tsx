@@ -72,12 +72,14 @@ export default function SettingsPage() {
             setAllTenants(tenantsData);
 
             if (tenantsData.length > 0) {
-                const firstTenant = tenantsData[0];
-                setCurrentTenantId(firstTenant.id);
-                setTenantName(firstTenant.name);
+                // Use active tenant from cookie, fallback to first tenant
+                const activeTenantId = Cookies.get("tenant_id") || tenantsData[0].id;
+                const activeTenant = tenantsData.find(t => t.id === activeTenantId) || tenantsData[0];
+                setCurrentTenantId(activeTenant.id);
+                setTenantName(activeTenant.name);
 
                 try {
-                    const configData = await fetchTenantConfig(firstTenant.id);
+                    const configData = await fetchTenantConfig(activeTenant.id);
                     setConfig(configData);
                     // Initialize search settings from config
                     if (configData.search_settings) {
