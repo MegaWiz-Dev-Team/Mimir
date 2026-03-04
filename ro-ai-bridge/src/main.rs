@@ -38,6 +38,7 @@ use ro_ai_bridge::routes::mcp::mcp_routes;
 use ro_ai_bridge::routes::backup::backup_routes;
 use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::chunks::chunks_routes;
+use ro_ai_bridge::routes::graph::graph_routes;
 
 #[tokio::main]
 async fn main() {
@@ -109,6 +110,8 @@ async fn main() {
         .nest("/api/v1/mcp", mcp_routes())
         .nest("/api/v1/backup", backup_routes())
         .nest("/api/docs", docs_routes())
+        // Sprint 17: Knowledge Graph routes
+        .nest("/api/v1/graph", graph_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
