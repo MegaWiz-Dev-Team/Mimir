@@ -1428,7 +1428,7 @@ mod tests {
             gemini_base_url: "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
             gemini_api_key: Some("test-gemini-key".to_string()),
             gemini_model: String::new(),
-            heimdall_api_url: "https://stroppy-nonsensorial-lakita.ngrok-free.dev/v1".to_string(),
+            heimdall_api_url: "http://192.168.1.133:8000/v1".to_string(),
             heimdall_api_key: Some("test-heimdall-key".to_string()),
             heimdall_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
             neo4j_uri: "bolt://localhost:7687".to_string(),
@@ -1463,9 +1463,9 @@ mod tests {
     #[test]
     fn test_infer_api_base_heimdall() {
         // Set env for test
-        unsafe { std::env::set_var("HEIMDALL_API_URL", "https://stroppy-nonsensorial-lakita.ngrok-free.dev/v1"); }
+        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://192.168.1.133:8000/v1"); }
         let base = infer_api_base("heimdall");
-        assert!(base.contains("stroppy-nonsensorial-lakita.ngrok-free.dev"), "Heimdall base should contain gateway host, got: {}", base);
+        assert!(base.contains("192.168.1.133"), "Heimdall base should contain gateway host, got: {}", base);
         assert!(base.ends_with('/'), "Base URL should end with /");
     }
 
@@ -1503,7 +1503,7 @@ mod tests {
         assert!(result.is_ok(), "Should resolve Heimdall credentials");
         let (key, base) = result.unwrap();
         assert_eq!(key, "test-heimdall-key");
-        assert!(base.contains("stroppy-nonsensorial-lakita.ngrok-free.dev"), "Base should be Heimdall URL, got: {}", base);
+        assert!(base.contains("192.168.1.133"), "Base should be Heimdall URL, got: {}", base);
     }
 
     #[test]
