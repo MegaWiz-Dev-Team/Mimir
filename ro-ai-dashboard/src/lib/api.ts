@@ -1433,3 +1433,157 @@ export async function fetchVaultStatus(): Promise<VaultStatus> {
     if (!res.ok) throw new Error("Failed to fetch vault status");
     return res.json();
 }
+
+// ─── Knowledge Graph API (Sprint 17) ────────────────────────────────────────
+
+export interface GraphEntity {
+    id: number;
+    name: string;
+    entity_type: string;
+    properties?: Record<string, unknown>;
+    source_id?: number;
+    chunk_id?: number;
+    neo4j_node_id?: string;
+    color?: string;
+}
+
+export interface GraphRelation {
+    id: number;
+    from_entity: string;
+    to_entity: string;
+    relation_type: string;
+    properties?: Record<string, unknown>;
+}
+
+export interface GraphStats {
+    total_entities: number;
+    total_relations: number;
+    entities_by_type: { type: string; count: number }[];
+    relations_by_type: { type: string; count: number }[];
+}
+
+export interface GraphVisualizationData {
+    nodes: VisualizationNode[];
+    edges: VisualizationEdge[];
+    total_nodes: number;
+    total_edges: number;
+}
+
+export interface VisualizationNode {
+    id: string;
+    label: string;
+    entity_type: string;
+    color: string;
+    size: number;
+}
+
+export interface VisualizationEdge {
+    id: string;
+    source: string;
+    target: string;
+    label: string;
+}
+
+export interface PathResult {
+    found: boolean;
+    paths: { steps: { from: string; to: string; relation_type: string }[]; length: number }[];
+    message?: string;
+}
+
+export interface ExtractionRun {
+    id: number;
+    source_id: number;
+    status: string;
+    entities_found: number;
+    relations_found: number;
+    chunks_processed: number;
+    started_at: string;
+    completed_at?: string;
+    error_message?: string;
+}
+
+export async function fetchGraphStats(): Promise<GraphStats> {
+    const res = await authFetch(`${API_BASE_URL}/graph/stats`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch graph stats");
+    return res.json();
+}
+
+export async function searchGraphEntities(params?: {
+    q?: string;
+    type?: string;
+    limit?: number;
+    page?: number;
+}): Promise<{ entities: GraphEntity[]; total: number; page: number; limit: number }> {
+    const query = new URLSearchParams();
+    if (params?.q) query.set("q", params.q);
+    if (params?.type) query.set("type", params.type);
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.page) query.set("page", String(params.page));
+    const qs = query.toString();
+    const res = await authFetch(`${API_BASE_URL}/graph/entities${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to search graph entities");
+    return res.json();
+}
+
+export async function fetchEntityNeighbors(entityId: number, depth?: number): Promise<{
+    center: { name: string; entity_type: string };
+    nodes: VisualizationNode[];
+    edges: VisualizationEdge[];
+}> {
+    const query = depth ? `?depth=${depth}` : "";
+    const res = await authFetch(`${API_BASE_URL}/graph/entity/${entityId}/neighbors${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch entity neighbors");
+    return res.json();
+}
+
+export async function fetchGraphVisualization(params?: {
+    limit?: number;
+    type?: string;
+}): Promise<GraphVisualizationData> {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.type) query.set("type", params.type);
+    const qs = query.toString();
+    const res = await authFetch(`${API_BASE_URL}/graph/visualization${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch graph visualization data");
+    return res.json();
+}
+
+export async function findGraphPaths(from: string, to: string, depth?: number): Promise<PathResult> {
+    const query = new URLSearchParams({ from, to });
+    if (depth) query.set("depth", String(depth));
+    const res = await authFetch(`${API_BASE_URL}/graph/paths?${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to find graph paths");
+    return res.json();
+}
+
+export async function triggerKgExtraction(data: {
+    source_id?: number;
+    text?: string;
+    max_entities?: number;
+}): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/graph/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to trigger KG extraction");
+    return res.json();
+}
+
+export async function deleteGraphSource(sourceId: number): Promise<{
+    deleted_entities: number;
+    deleted_relations: number;
+}> {
+    const res = await authFetch(`${API_BASE_URL}/graph/source/${sourceId}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete graph source entities");
+    return res.json();
+}
+
+export async function fetchExtractionRuns(): Promise<{ runs: ExtractionRun[] }> {
+    const res = await authFetch(`${API_BASE_URL}/graph/extraction-runs`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch extraction runs");
+    return res.json();
+}

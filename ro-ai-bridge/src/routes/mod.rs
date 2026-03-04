@@ -22,3 +22,4 @@ pub mod docs;
 pub mod stats;
 pub mod chunks;
 pub mod tenant;
+pub mod graph;

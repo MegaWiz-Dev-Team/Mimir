@@ -32,6 +32,11 @@ pub struct Config {
     pub heimdall_api_key: Option<String>,
     pub heimdall_model: String,
 
+    // Neo4j (Knowledge Graph)
+    pub neo4j_uri: String,
+    pub neo4j_user: String,
+    pub neo4j_password: String,
+
     // Auth
     pub jwt_secret: String,
 }
@@ -88,6 +93,14 @@ impl Config {
             heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),
             heimdall_model: env::var("HEIMDALL_MODEL")
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
+
+            // Neo4j (Knowledge Graph) — Sprint 17
+            neo4j_uri: env::var("NEO4J_URI")
+                .unwrap_or_else(|_| "bolt://localhost:7687".to_string()),
+            neo4j_user: env::var("NEO4J_USER")
+                .unwrap_or_else(|_| "neo4j".to_string()),
+            neo4j_password: env::var("NEO4J_PASSWORD")
+                .unwrap_or_else(|_| "mimir_neo4j_password".to_string()),
 
             // Auth
             jwt_secret: env::var("JWT_SECRET")
