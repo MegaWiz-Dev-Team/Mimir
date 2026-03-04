@@ -59,8 +59,8 @@ function DropdownGroup({ group, pathname }: { group: NavGroup; pathname: string 
             <button
                 onClick={() => setOpen(!open)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${isGroupActive
-                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                        : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
                     }`}
             >
                 <Icon className="w-4 h-4" />
@@ -79,8 +79,8 @@ function DropdownGroup({ group, pathname }: { group: NavGroup; pathname: string 
                                 href={item.href}
                                 onClick={() => setOpen(false)}
                                 className={`flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${isActive
-                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                                        : "text-gray-600 hover:bg-gray-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                    : "text-gray-600 hover:bg-gray-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
                                     }`}
                             >
                                 <ItemIcon className="w-4 h-4 shrink-0" />
@@ -94,16 +94,33 @@ function DropdownGroup({ group, pathname }: { group: NavGroup; pathname: string 
     );
 }
 
+// Decode JWT payload without verification (just to read claims client-side)
+function decodeJwtPayload(token: string): Record<string, any> | null {
+    try {
+        const parts = token.split(".");
+        if (parts.length !== 3) return null;
+        const payload = JSON.parse(atob(parts[1]));
+        return payload;
+    } catch {
+        return null;
+    }
+}
+
 export function Navbar() {
     const pathname = usePathname();
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
     const [tenants, setTenants] = useState<Tenant[]>([]);
+    const [userRole, setUserRole] = useState<string>("viewer");
 
     useEffect(() => {
         setMounted(true);
         const token = Cookies.get("access_token");
         if (pathname !== "/login" && token) {
+            // Decode JWT to get user role
+            const claims = decodeJwtPayload(token);
+            if (claims?.role) setUserRole(claims.role);
+
             fetchTenants()
                 .then(setTenants)
                 .catch(() => setTenants([]));
@@ -112,6 +129,7 @@ export function Navbar() {
 
     if (!mounted || pathname === "/login") return null;
 
+    const isAdmin = userRole === "admin" || userRole === "SuperAdmin";
     const tenantId = Cookies.get("tenant_id") || "default_tenant";
     const currentTenantName = tenants.find(t => t.id === tenantId)?.name;
 
@@ -186,8 +204,8 @@ export function Navbar() {
                         <Link
                             href={overviewItem.href}
                             className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${isOverviewActive
-                                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                                    : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                                ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
                                 }`}
                         >
                             <LayoutDashboard className="w-4 h-4" />
@@ -195,9 +213,11 @@ export function Navbar() {
                         </Link>
 
                         {/* Dropdown groups */}
-                        {navGroups.map((group) => (
-                            <DropdownGroup key={group.label} group={group} pathname={pathname} />
-                        ))}
+                        {navGroups
+                            .filter((group) => group.label !== "Admin" || isAdmin)
+                            .map((group) => (
+                                <DropdownGroup key={group.label} group={group} pathname={pathname} />
+                            ))}
                     </div>
                 </div>
 
