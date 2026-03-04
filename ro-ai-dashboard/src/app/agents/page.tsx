@@ -12,6 +12,7 @@ import {
     AgentTemplate,
     AgentChatResponse,
     CreateAgentRequest,
+    PROVIDERS,
     fetchAgents,
     createAgent,
     getAgent,
@@ -104,7 +105,15 @@ export default function AgentStudioPage() {
     useEffect(() => {
         loadAgents();
         fetchTemplates().then(setTemplates).catch(() => { });
-        fetchModels().then(m => setProviders(modelsToProviders(m))).catch(() => { });
+        // Merge DB models with static PROVIDERS (ensures Heimdall always appears)
+        fetchModels().then(m => {
+            const dbProviders = modelsToProviders(m);
+            // Add any PROVIDERS not already in dbProviders
+            const mergedMap = new Map<string, LlmProvider>();
+            for (const p of PROVIDERS) mergedMap.set(p.id, p);
+            for (const p of dbProviders) mergedMap.set(p.id, p); // DB overrides if exists
+            setProviders(Array.from(mergedMap.values()));
+        }).catch(() => setProviders(PROVIDERS)); // fallback to static list
     }, []);
 
     useEffect(() => {
@@ -504,6 +513,7 @@ export default function AgentStudioPage() {
                                                 <option key={p.id} value={p.id}>{p.display_name}</option>
                                             )) : (
                                                 <>
+                                                    <option value="heimdall">Heimdall (Self-Hosted)</option>
                                                     <option value="ollama">Ollama (Local)</option>
                                                     <option value="gemini">Google Gemini</option>
                                                     <option value="openai">OpenAI</option>
