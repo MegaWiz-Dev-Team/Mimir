@@ -5,12 +5,32 @@ use super::generator::{generate_qa, generate_missing_qa, GeneratorClient};
 use super::extractor::extract_acus;
 use super::verifier::verify_coverage;
 use crate::services::db::DbPool;
+use crate::services::iam::IamService;
 use crate::config::QAConfig;
 use std::env;
 use tokio::fs;
 use tracing::{info, error};
 use chrono::Utc;
 use sqlx::Row;
+
+/// Resolve Heimdall URL/key from tenant config, falling back to env vars.
+async fn resolve_heimdall_config(db_pool: &DbPool, tenant_id: &str) -> (String, String) {
+    let iam = IamService::new_with_env(db_pool.clone());
+    if let Ok(tc) = iam.get_tenant_config(tenant_id).await {
+        let llm = tc.llm_config.as_ref().map(|c| &c.0);
+        let url = llm.and_then(|c| c.heimdall_url.clone())
+            .or_else(|| env::var("HEIMDALL_API_URL").ok())
+            .unwrap_or_else(|| "http://192.168.1.133:3000/v1".to_string());
+        let key = llm.and_then(|c| c.heimdall_api_key.clone())
+            .or_else(|| env::var("HEIMDALL_API_KEY").ok())
+            .unwrap_or_else(|| "heimdall-key".to_string());
+        (url, key)
+    } else {
+        let url = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+        let key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
+        (url, key)
+    }
+}
 
 pub async fn run_pipeline(
     db_pool: &DbPool,
@@ -67,13 +87,12 @@ pub async fn run_pipeline_with_config(
     let local_client = ollama::Client::new();
     let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
     let gemini_client = gemini::Client::new(&api_key);
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
 
     let gen_client = match provider {
         "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
         "heimdall" => {
-            let hd_api_key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
-            let hd_endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+            let (hd_endpoint, hd_api_key) = resolve_heimdall_config(db_pool, &tenant_id).await;
             GeneratorClient::Heimdall {
                 client: reqwest::Client::new(),
                 endpoint: hd_endpoint,
@@ -287,13 +306,12 @@ pub async fn retry_step_with_config(
     let local_client = ollama::Client::new();
     let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
     let gemini_client = gemini::Client::new(&api_key);
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
 
     let gen_client = match provider.as_str() {
         "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
         "heimdall" => {
-            let hd_api_key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
-            let hd_endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+            let (hd_endpoint, hd_api_key) = resolve_heimdall_config(db_pool, &tenant_id).await;
             GeneratorClient::Heimdall {
                 client: reqwest::Client::new(),
                 endpoint: hd_endpoint,
@@ -546,8 +564,7 @@ pub async fn generate_missing_qa_for_step(
             (GeneratorClient::Gemini(gemini_client.clone()), model)
         },
         "heimdall" => {
-            let hd_api_key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
-            let hd_endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+            let (hd_endpoint, hd_api_key) = resolve_heimdall_config(db_pool, &tenant_id).await;
             (GeneratorClient::Heimdall {
                 client: reqwest::Client::new(),
                 endpoint: hd_endpoint,

@@ -78,7 +78,7 @@ impl ProviderConfig {
         Self {
             provider: LlmProvider::Gemini,
             endpoint: "https://generativelanguage.googleapis.com".to_string(),
-            model: "gemini-2.0-flash".to_string(),
+            model: "gemini-2.5-flash".to_string(),
             api_key: Some(api_key.to_string()),
             max_tokens: 8192,
             temperature: 0.7,
