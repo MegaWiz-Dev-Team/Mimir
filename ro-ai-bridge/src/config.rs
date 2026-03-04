@@ -84,7 +84,7 @@ impl Config {
 
             // Heimdall (Self-hosted LLM Gateway)
             heimdall_api_url: env::var("HEIMDALL_API_URL")
-                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string()),
+                .unwrap_or_else(|_| "https://stroppy-nonsensorial-lakita.ngrok-free.dev/v1".to_string()),
             heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),
             heimdall_model: env::var("HEIMDALL_MODEL")
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
