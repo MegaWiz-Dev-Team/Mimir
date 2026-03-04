@@ -53,6 +53,14 @@ pub mod fast_models {
 enum AgentImplementation {
     Ollama(rig::agent::Agent<ollama::CompletionModel>),
     Gemini(rig::agent::Agent<gemini::completion::CompletionModel>),
+    /// Heimdall uses reqwest directly (OpenAI-compatible HTTP API)
+    Heimdall {
+        client: reqwest::Client,
+        endpoint: String,
+        model: String,
+        api_key: String,
+        system_prompt: String,
+    },
 }
 
 pub struct SimpleNpcAgent {
@@ -114,17 +122,26 @@ impl SimpleNpcAgent {
                 let client = gemini::Client::from_env();
                 AgentImplementation::Gemini(client.agent(&model_name)
                     .preamble(&preamble)
-                    // Removed native tools as rig-core 0.10.0 has JSON parsing issues with tool responses
-                    // We rely on the ReAct-style prompt fallback instead
                     .build())
+            },
+            "heimdall" => {
+                let api_key = std::env::var("HEIMDALL_API_KEY")
+                    .unwrap_or_else(|_| "heimdall-default-key".to_string());
+                let endpoint = std::env::var("HEIMDALL_API_URL")
+                    .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+                AgentImplementation::Heimdall {
+                    client: reqwest::Client::new(),
+                    endpoint,
+                    model: model_name.clone(),
+                    api_key,
+                    system_prompt: preamble,
+                }
             },
             _ => {
                 // Default to Ollama
                 let client = ollama::Client::new();
                 AgentImplementation::Ollama(client.agent(&model_name)
                     .preamble(&preamble)
-                    // Removed native tools as rig-core 0.10.0 fails to parse Ollama's tool response body
-                    // We rely on the ReAct-style prompt fallback instead
                     .build())
             }
         };
@@ -157,8 +174,48 @@ impl SimpleNpcAgent {
         
         let prompt_future = async {
             match &self.agent_impl {
-                AgentImplementation::Ollama(agent) => agent.prompt(enhanced_message.as_str()).await,
-                AgentImplementation::Gemini(agent) => agent.prompt(enhanced_message.as_str()).await,
+                AgentImplementation::Ollama(agent) => agent.prompt(enhanced_message.as_str()).await
+                    .map_err(|e| anyhow::anyhow!("{}", e)),
+                AgentImplementation::Gemini(agent) => agent.prompt(enhanced_message.as_str()).await
+                    .map_err(|e| anyhow::anyhow!("{}", e)),
+                AgentImplementation::Heimdall { client, endpoint, model, api_key, system_prompt } => {
+                    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+                    let body = serde_json::json!({
+                        "model": model,
+                        "messages": [
+                            { "role": "system", "content": system_prompt },
+                            { "role": "user", "content": enhanced_message }
+                        ],
+                        "max_tokens": 4096,
+                        "temperature": 0.7,
+                        "stream": false
+                    });
+                    let resp = client.post(&url)
+                        .header("Authorization", format!("Bearer {}", api_key))
+                        .header("Content-Type", "application/json")
+                        .header("ngrok-skip-browser-warning", "true")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Heimdall request failed: {}", e))?;
+
+                    if !resp.status().is_success() {
+                        let status = resp.status();
+                        let err = resp.text().await.unwrap_or_default();
+                        return Err(anyhow::anyhow!("Heimdall error {}: {}", status, err));
+                    }
+
+                    let json: serde_json::Value = resp.json().await
+                        .map_err(|e| anyhow::anyhow!("Heimdall parse error: {}", e))?;
+
+                    json.get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|c| c.get("message"))
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| anyhow::anyhow!("Heimdall: no content in response"))
+                }
             }
         };
 
