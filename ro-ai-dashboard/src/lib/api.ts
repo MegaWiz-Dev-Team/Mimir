@@ -573,6 +573,12 @@ export async function fetchTenants(): Promise<Tenant[]> {
     return res.json();
 }
 
+export async function fetchMyTenants(): Promise<Tenant[]> {
+    const res = await authFetch(`${API_BASE_URL}/iam/my-tenants`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch my tenants");
+    return res.json();
+}
+
 export async function createTenant(data: CreateTenantRequest): Promise<Tenant> {
     const res = await authFetch(`${API_BASE_URL}/iam/tenants`, {
         method: "POST",
