@@ -1,191 +1,265 @@
 # SI-05: User Manual (คู่มือการใช้งาน)
 **Project Name:** Project Mimir
-**Sprint:** 7 (Final - Documenting Complete Flow)
+**Sprint:** 18 (ปรับปรุงล่าสุด — ครอบคลุมทุกฟีเจอร์ถึง Sprint 18)
 
 ## 1. System Overview (ภาพรวมระบบ)
-Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ Multi-Tenant ที่ให้ผู้บริหารระบบ (SuperAdmin) สามารถแบ่งแยกพื้นที่ทำงาน (Workspace) ให้กับแต่ละ Tenant (หรือโปรเจกต์) ได้อย่างเป็นอิสระ โดยแต่ละ Tenant จะสามารถจัดการโมเดล AI (LLM), Vector Database (RAG) และทดสอบระบบผ่าน AI Playground ของตนเองได้โดยไม่ข้องแวะกับข้อมูลของ Tenant อื่น
+Project Mimir เป็นระบบ AI แพลตฟอร์มแบบ Multi-Tenant สำหรับจัดการ Knowledge Base, RAG Pipeline, Agent Testing และ Coverage Analytics โดยแต่ละ Tenant จะมีพื้นที่ข้อมูลแยกจากกันอย่างเป็นอิสระ (Data Isolation)
 
-ในคู่มือฉบับปรับปรุงนี้ จะนำเสนอรูปแบบการใช้งานตั้งแต่การล็อกอิน ตลอดจนถึงการประเมินคุณภาพของ AI ในขั้นตอนสุดท้าย โดยระบุรายละเอียดการโต้ตอบกับระบบ (ปุ่มกด, ช่องกรอกข้อมูล, เมนู) ในทุกระดับ เพื่อให้ผู้ใช้งานสามารถทำตามได้อย่างกะทัดรัดและเข้าใจง่าย
+ระบบประกอบด้วย 15 หน้าหลักที่จัดกลุ่มเป็น 4 กลุ่มหลัก + 1 หน้า Overview:
+
+| กลุ่ม           | หน้า                                        | คำอธิบาย                                 |
+| ------------- | ------------------------------------------ | -------------------------------------- |
+| **Overview**  | Dashboard                                  | สรุปสถิติภาพรวมทั้งระบบ                     |
+| **Data**      | Sources, Knowledge, Vector, Quality        | จัดการข้อมูลเข้า + ตรวจสอบคุณภาพ            |
+| **AI**        | Playground, Agents, Graph                  | ทดสอบ AI, จัดการ Agent, Knowledge Graph |
+| **Analytics** | Coverage, LLM Analytics, Evaluations, Logs | วิเคราะห์ความครอบคลุม + ประสิทธิภาพ         |
+| **Admin**     | Settings, Tenants, Users                   | จัดการระบบ, พื้นที่ทำงาน, ผู้ใช้                |
 
 ---
 
 ## 2. Getting Started (การเริ่มต้นใช้งาน)
+
 ### 2.1 การเข้าสู่ระบบ (Login)
-หน้าจอล็อกอินถูกออกแบบมาให้เรียบง่ายและปลอดภัย รองรับการเข้าถึงสำหรับทั้ง SuperAdmin และ Tenant User
+1. เปิดเว็บเบราว์เซอร์ไปที่ `http://localhost:3000` (หรือ URL ที่ติดตั้ง)
+2. กรอก **Email address** และ **Password** ในกล่อง Login
+   - SuperAdmin: `admin@superadmin.com`
+   - Tenant Admin: เช่น `admin@mimir.local`
+3. คลิกปุ่มสีน้ำเงิน **"Sign In"** → เข้าสู่หน้า Dashboard อัตโนมัติ
 
-#### ขั้นตอนการใช้งานหน้า Login:
-1. เปิดโปรแกรมเว็บเบราว์เซอร์ (Chrome, Firefox, Safari ถือเป็นมาตรฐาน) 
-2. พิมพ์ URL ไปที่ `http://localhost:3000` (หรือ URL ของเซิร์ฟเวอร์ที่ติดตั้ง)
-3. ที่กึ่งกลางหน้าจอ จะพบกล่องเข้าสู่ระบบ (Login Box)
-4. คลิกที่ช่องกรอกข้อมูล **Email address** และพิมพ์อีเมลที่ได้รับมอบหมาย
-   - *สิทธิ์ SuperAdmin สำหรับจัดการทุก Tenant (เช่น `admin@superadmin.com`)*
-   - *สิทธิ์ Admin ของ Tenant เฉพาะเจาะจง (เช่น `admin@mimir.local`)*
-5. คลิกที่ช่องกรอกข้อมูล **Password** และพิมพ์รหัสผ่าน
-6. (ทางเลือก) หากลืมรหัสผ่าน ให้คลิกที่ข้อความลิ้งก์ **"Forgot password?"** ระบบจะส่งอีเมลเพื่อรีเซ็ตรหัสผ่าน
-7. เมื่อกรอกข้อมูลครบถ้วน คลิกที่ปุ่มสีน้ำเงิน **"Sign In"**
-8. หากรหัสผ่านถูกต้อง ระบบจะพาคุณเข้าสู่หน้าจอ Dashboard อัตโนมัติ หากกรอกผิดจะมีข้อความสีแดงแจ้งเตือน "Invalid email or password"
+### 2.2 การใช้งาน Navigation Bar
+Navbar ถูกจัดเป็น **Grouped Dropdown Menus** 5 กลุ่ม:
 
-![หน้าจอล็อกอิน (Login Screen)](images/mockups/mock_login.png)
+```
+Project Mimir | Overview | Data ▼ | AI ▼ | Analytics ▼ | Admin ▼ | [Tenant: ___] [Logout]
+```
 
----
+- **เปิดเมนู:** Hover หรือคลิกที่กลุ่ม → dropdown แสดงรายการย่อย
+- **เปลี่ยน Tenant:** คลิก dropdown "Tenant" มุมขวาบน → เลือก Tenant → หน้าจะ reload อัตโนมัติ
+- **Logout:** คลิกไอคอน ลูกศรออก (→) มุมขวาสุด
 
-## 3. Core Features & Usage (ฟีเจอร์หลักและการใช้งาน)
+### 2.3 Pipeline Status Bar
+แถบ Pipeline แสดงอยู่ใต้ Navbar ทุกหน้า แสดงสถานะข้อมูลตลอดกระบวนการ:
 
-### 3.1 การเข้าถึงและตั้งค่าระบบ (Tenants, Settings & Users)
+```
+SOURCES (6) → CHUNKS (585) → DEDUP (4 done) → QA (—) → VECTOR (—)
+```
 
-#### การจัดการพื้นที่ทำงาน (Tenant Management) - เฉพาะสิทธิ์ SuperAdmin
-ฟีเจอร์นี้สงวนไว้สำหรับผู้ดูแลระบบระดับสูงสุด ใช้ในการสร้างพื้นที่ทำงานใหม่เพื่อแยกข้อมูลให้อิสระต่อกัน (Data Isolation)
-
-**ขั้นตอนการใช้งานหน้า Tenants:**
-1. หลังจากเข้าสู่ระบบด้วยบัญชีระดับ SuperAdmin ให้มองหา **แถบเมนูด้านบน (Top Navigation Bar)**
-2. คลิกที่เมนูคำว่า **"Tenants"** (ไอคอนรูปตึก/องค์กร)
-3. ระบบจะแสดงตาราง **"Tenant Management"** ซึ่งรวบรวมพื้นที่ทำงานทั้งหมดที่มีในปัจจุบัน
-   - ในตารางจะประกอบด้วยคอลัมน์: Tenant ID, Name, Admin Email, และ Status (Active/Inactive)
-4. **หากต้องการดูรายละเอียดหรือแก้ไขเงื่อนไข Tenant เดิม:** ให้คลิกที่ปุ่มไอคอน **"Edit (รูปดินสอ)"** ในแถวของ Tenant นั้นๆ
-5. **หากต้องการลบ Tenant:** ให้คลิกที่ปุ่มไอคอน **"Delete (รูปถังขยะ)"** และกดยืนยันในกล่องข้อความแจ้งเตือน
-6. **การสร้าง Tenant ใหม่:**
-   - มองไปที่มุมขวาบนของหน้าจอหลัก คลิกปุ่มสีฟ้า **"+ Add Tenant"**
-   - จะมีหน้าต่าง Pop-up ปรากฏขึ้นมา (Modal)
-   - คลิกที่ช่อง **"Tenant Name"** ป้อนชื่อโปรเจกต์หรือบริษัทลูกค้า
-   - คลิกที่ช่อง **"Admin Email"** ป้อนอีเมลหลักที่จะให้ดูแลระบบนี้
-   - ติ๊กถูกที่ช่อง **"Create Dedicated Vector DB"** หากต้องการแยกฐานข้อมูลอย่างเด็ดขาด
-   - คลิกปุ่ม **"Save"** หรือ **"Create"** ด้านล่างสุดของ Pop-up เพื่อยืนยัน
-   - ระบบจะใช้เวลาสักครู่ในการสร้าง Database Schema ย่อย และนำคุณกลับสู่หน้าตารางหลัก
-
-![หน้ารายการจัดการพื้นที่ทำงาน (Tenant Management)](images/mockups/mock_tenant.png)
-
-#### การตั้งค่า Tenant Configuration (Settings)
-ในแต่ละ Workspace ผู้ดูแลระบบของพื้นที่สามารถปรับแต่ง AI ของตัวเองได้ รวมถึงเปลี่ยนกุญแจ API
-
-**ขั้นตอนการใช้งานหน้า Settings:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) เลื่อนลงมาด้านล่างสุดและคลิกเมนู **"Settings"**
-2. หน้าต่างหลักจะแสดงหัวข้อ **"Platform Configuration"**
-3. ภายใต้หัวข้อย่อย **"AI Models"**:
-   - มองหาช่อง Dropdown เมนูชื่อ **"Default LLM Provider"** คลิกที่ลูกศรชี้ลงระบบจะแสดงตัวเลือก Provider ต่างๆ
-   - เลือกรูปแบบที่ต้องการ (เช่น เปลี่ยนจาก Google Vertex AI ไปยัง OpenAI (API) หรือ Ollama (Local Run))
-4. ไปที่ช่องกรอกข้อความ **"Default Model Name"** ลบชื่อเดิม (ถ้ามี) และพิมพ์ชื่อโมเดลระบบที่ Provider ให้บริการ (เช่น `gpt-4o`, `gemini-2.5-flash`, หรือ `llama3`)
-5. ลงมาที่ช่อง **"Provider API Key"** กรอกรหัส Secret Key ที่คุณได้จากผู้ให้บริการ AI โมเดล
-   - *หมายเหตุ: รหัสจะถูกซ่อนเป็นเครื่องหมาย ******* (ดอกจัน) เพื่อความปลอดภัย*
-6. เมื่อตรวจสอบข้อมูลครบถ้วน คลิกปุ่มสีฟ้ามุมขวาล่าง **"Save Configuration"**
-7. แถบแจ้งเตือนสีเขียว "Settings saved successfully" จะแสดงขึ้นที่มุมจอเป็นการยืนยัน
-
-![หน้าต่างการตั้งค่า (Settings)](images/mockups/mock_settings.png)
-
-#### การจัดการผู้ใช้งาน (Users)
-สำหรับให้สิทธ์คนเข้าถึงแพลตฟอร์ม
-
-**ขั้นตอนการใช้งานหน้า Users:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) คลิกเมนู **"Users"**
-2. ระบบจะแสดงตาราง **"Tenant Users"** ซึ่งประกอบด้วยรายชื่อบัญชีผู้ใช้งานทั้งหมดที่มีสิทธิ์เข้าถึง Tenant ปัจจุบัน
-   - คอลัมน์ที่แสดง: User ID (Email), Role (ระดับสิทธิ์), Last Login (ใช้งานล่าสุด), และ Actions (ปุ่มคำสั่ง)
-3. **การลบผู้ใช้ (Kick out):** 
-   - หาบรรทัดอีเมลของผู้ใช้ที่คุณต้องการเอาออก
-   - ใต้คอลัมน์ Actions คลิกปุ่ม **ไอคอนถังขยะ (🗑️)** ระบบจะเตือนและลบผู้ใช้นั้นทันที
-4. **การเชิญผู้ใช้ใหม่ (Invite User):**
-   - คลิกปุ่มสีฟ้า **"+ Invite User"** ที่มุมขวาบน
-   - เมื่อ Pop-up เปิดขึ้น พิมพ์อีเมลของบุคคลที่ต้องการเชิญ
-   - คลิกช่อง Dropdown **"Assign Role"** เลือกระดับสิทธิ์ให้เหมาะสม (ตัวเลือก: `Tenant Admin`, `Developer`, `Reviewer`)
-   - คลิกปุ่ม **"Send Invitation"** ระบบจะส่งอีเมลพร้อมลิงก์สร้างรหัสผ่านให้บัญชีปลายทาง
-
-![หน้ารายชื่อผู้ใช้งาน (Users)](images/mockups/mock_users.png)
+- คลิกที่แต่ละขั้นตอนเพื่อไปยังหน้าที่เกี่ยวข้อง
+- ตัวเลขอัปเดตอัตโนมัติทุก 10 วินาที
 
 ---
 
-### 3.2 การจัดการคลังข้อมูลและการตรวจสอบ (Sources, QC, Vector DB)
+## 3. Data — จัดการข้อมูล
 
-#### ควบคุมข้อมูลเข้า (Sources & Pipeline)
-ระบบ Mimir สามารถประมวลผลคำสั่งอัตโนมัติ 4 ขั้นตอนผ่าน Pipeline (Sources -> Generating -> Pending QC -> Vectorized)
+### 3.1 Sources (แหล่งข้อมูล)
+**เมนู:** Data ▼ → Sources | **URL:** `/sources`
 
-**ขั้นตอนการใช้งานหน้า Data Pipeline Dashboard:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) คลิกเมนู **"Dashboard"** หรือ **"Sources"**
-2. ด้านบนจะเห็นบล็อก **"Pipeline Status"** (โหมด Stepper ประกอบด้วยลูกศรวงกลม 4 วงเรียงซ้ายไปขวา) 
-   - วงกลมที่มีกรอบสีฟ้าสว่างแสดงว่าข้อมูลกำลังค้างอยู่ในขั้นตอนนั้น
-3. ลองมองดูที่ตารางหัวข้อ **"Connected Sources"** ด้านล่าง จะแสดงแหล่งข้อมูลที่ผูกเอาไว้
-4. กดปุ่มไอคอน **"Play (สามเหลี่ยม)"** ในช่อง Action ด้านขวาสุดของแต่ละแหล่งข้อมูล (หรือปุ่ม "Run All Pipeline" มุมบน) เพื่อสั่งดึงข้อมูล
-5. หลังจากคลิก สังเกตป้ายกำกับ (Badge) บนตารางเชื่อมต่อ ตัวหนังสือสถานะจะกระพริบเปลี่ยนจาก `IDLE` (สีเทา) กลายเป็น `RUNNING` (สีส้ม) 
-6. ระบบจะทำงานในแกน Background เมื่อดำเนินการตัดคำเสร็จเรียบร้อย ป้ายกำกับจะเปลี่ยนเป็น `COMPLETED` (สีเขียว) หรือ `QC NEEDED` (สีเหลือง)
+หน้านี้ใช้สำหรับเพิ่ม จัดการ และ sync แหล่งข้อมูลที่จะนำเข้าระบบ
 
-![หน้าจอควบคุมข้อมูลและดูสถิติ (Data Pipeline Dashboard)](images/mockups/mock_dashboard.png)
+**การใช้งาน:**
+1. คลิกปุ่ม **"+ Add Source"** มุมขวาบน
+2. เลือกประเภท Source: `File Upload`, `URL`, `Web Hierarchy` (Crawl เว็บไซต์)
+3. กรอกชื่อและรายละเอียด → คลิก **"Save"**
+4. คลิกปุ่ม **"▶ Sync"** ในแถวของ Source → ระบบจะเริ่ม Chunking อัตโนมัติ
+5. สถานะจะเปลี่ยนจาก `IDLE` → `RUNNING` → `COMPLETED`
 
-#### การควบคุมคุณภาพเนื้อหา (Quality Control)
-หาก AI สกัดเจอข้อมูลที่ขัดแย้งกัน หรือมีข้อมูลซ้ำซ้อนอย่างมีนัยสำคัญ ข้อมูลจะมาพักไว้ที่บอร์ด QC Kanban เพื่อรอมนุษย์วิเคราะห์
+**Web Hierarchy Loader:**
+- สำหรับ crawl เว็บไซต์ทั้งหมด ระบุ URL หลัก + จำนวนหน้าสูงสุด (ตั้งค่าได้ที่ Admin → Settings → Pipeline)
+- ระบบจะสร้าง Chunks แบบ hierarchy (h1/h2/h3 aware)
 
-**ขั้นตอนการใช้งานหน้า Quality Control:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) คลิกเมนู **"Quality Control"**
-2. หน้าจอจะแบ่งเป็น 2 คอลัมน์หลักของการแสดงการ์ด (Kanban Board): 
-   - คอลัมน์ซ้าย: **"Pending Review"** (รอดำเนินการ)
-   - คอลัมน์ขวา: **"Resolved"** (แก้ไขแล้ว)
-3. ภายในคอลัมน์ Pending Review จะเห็นการ์ดคำถาม-คำตอบ พร้อมป้ายกำกับสีแดง `CONFLICT` หรือสีเหลือง `DUPLICATE`
-4. การจัดการกรณี `DUPLICATE` (ซ้ำซ้อน):
-   - คลิกปุ่มสีเหลืองทอง **"Merge"** ภายในช่องการ์ดนั้นๆ
-   - ระบบจะนำเอาความนัยเนื้อหาและหน้าเอกสารมายำปนคัดรวมให้เหลือชิ้นเดียว (Auto-merge) และย้ายการ์ดไปอยู่คอลัมน์ Resolved อัตโนมัติด้วยตัวมันเอง
-5. การจัดการกรณี `CONFLICT` (ความขัดแย้ง):
-   - คลิกปุ่มสีฟ้า **"Resolve Conflict"** ในการ์ดที่มีป้ายสีแดง `CONFLICT`
-   - หน้าต่างย่อย (Modal) จะเด้งขึ้นมา ภายในจะแบ่งซ้าย-ขวา ระบุรายละเอียดของ Version A และ Version B ให้อ่านเทียบกัน
-   - ตัดสินใจเลือกคำตอบที่ถูกต้องที่สุด โดยคลิกปุ่ม **"Keep A"** หรือ **"Keep B"** ด้านล่างกล่องข้อความ
-   - หรือหากต้องการแต่งข้อความใหม่เอง ให้กรอกข้อความลงในช่อง **"Custom Resolution"** ด้านล่างสุด แล้วกดปุ่ม **"Save Resolution"**
-6. หลังไขปัญหาเสร็จสิ้น ข้อมูลจะถูกบันทึกและปูทางส่งต่อไปฝังในฐานข้อมูล Vector อัตโนมัติ
+### 3.2 Knowledge Base (คลังความรู้)
+**เมนู:** Data ▼ → Knowledge | **URL:** `/knowledge`
 
-![หน้าจอ Quality Control Kanban](images/mockups/mock_qc.png)
+แสดงรายการ Chunks ทั้งหมดในระบบพร้อม metadata
 
-#### ฐานข้อมูลเวกเตอร์ (Vector Explorer)
-เมื่อจัดเตรียมข้อมูลจนผ่านการ QC เรียบร้อย ข้อมูลจะถูกฝังค่า Embedding เวกเตอร์ลงใน Qdrant Engine คุณสามารถตรวจสอบได้ดังนี้
+**การใช้งาน:**
+1. ดูรายการ Chunks ทั้งหมด — แต่ละ chunk แสดง: เนื้อหา, Source (badge สี), chunk index, token count
+2. **กรอง:** ใช้ช่อง Search ค้นหาเนื้อหา หรือกรองตาม Source dropdown
+3. **ดูรายละเอียด:** คลิกที่ chunk → แสดง Side panel: เนื้อหาเต็ม, metadata (qa_status, split_level), timestamps
+4. **Generate QA:** เลือก chunks → คลิก **"Generate QA"** → ระบบสร้างคู่คำถาม-คำตอบจาก chunk content
 
-**ขั้นตอนการใช้งานหน้า Vector Explorer:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) เปิดเมนูย่อย **"Vector DB"** และคลิกเมนู **"Vector Explorer"**
-2. มองดูหน้าจอ **"Vector Collection (Qdrant)"**
-3. กล่องทางขวาบนใต้หัวข้อบอกชื่อ Collection จะระบุ Database Name (เช่น `Collection: mimir_tenant_1`) ช่วยให้สับสนน้อยลงหากเปลี่ยน Tenant
-4. ในตารางหลักจะโชว์ข้อมูล 3 คอลัมน์ คือ Chunk ID (รหัสเอกสารรันเนเบอร์), Source Text (เนื้อหา), และ Traceability
-5. ลองเลื่อนเมาส์ไปวาง (Hover) บริเวณรหัส Chunk ID ระบบจะแสดงกล่องเครื่องมือเล็กๆ `Copy` หากคลิกจะเป็นการคัดลอก UID นั้นไว้ในคลิปบอร์ดเครื่อง
-6. ในช่องคอลัมน์ซ้ายสุด แถบ "Traceability" จะโชว์ป้ายกำกับที่มาของข้อมูล 
-   - หากข้อมูลไม่ได้ผ่านการหยุดที่ด่านหน้า QC บอร์ด ระบบจะประทับตราสีเขียวเรืองแสงพิมพ์ว่า `✓ Auto-Verified` 
-   - หากข้อมูลเคยถูกจับมาระงับในด่าน QC แล้วคุณเข้าไปจัดการ Merge เรียบร้อย ระบบจะประทับตราว่า `✓ QC Approved` พร้อมแปะต้นกำเนิดไฟล​์ไว้คู่กัน
+### 3.3 Vector Management (จัดการเวกเตอร์)
+**เมนู:** Data ▼ → Vector | **URL:** `/vector`
 
-![หน้าต่างตรวจสอบเวกเตอร์ข้อมูล (Vector Explorer)](images/mockups/mock_vector.png)
+หน้านี้ใช้สำหรับจัดการ Qdrant vector database — ดูสถิติ, ค้นหา, และ index ข้อมูลใหม่
+
+**KPI Cards (4 กล่องด้านบน):**
+| Card          | คำอธิบาย                        |
+| ------------- | ----------------------------- |
+| Qdrant Points | จำนวน vectors ใน Qdrant        |
+| MariaDB Q/A   | จำนวน QA pairs ใน Database     |
+| Indexed       | จำนวนที่ embed แล้ว + Sync Rate % |
+| Pending Index | จำนวนที่รอ embed                 |
+
+**Vector Search Preview:**
+1. เลือก **Tenant** จาก dropdown (All / Default / Ragnarok TH / Medical Clinic A)
+2. Toggle **"Show Expired Data"** ตามต้องการ
+3. พิมพ์คำถามในช่อง Search (เช่น "What is Moonstone?") → คลิก **"Search"**
+4. ผลลัพธ์แสดง: **Score %** (similarity), **Q/A** content, **Source** badge + Chunk #
+
+**Index Pending Data:** คลิกปุ่ม **"⚡ Index Pending Data"** เพื่อ embed QA ที่ยังไม่ได้ index
+
+### 3.4 Quality Control (ควบคุมคุณภาพ)
+**เมนู:** Data ▼ → Quality | **URL:** `/quality_control`
+
+Kanban board สำหรับตรวจสอบ QA pairs ที่ AI สร้างขึ้น
+
+**การใช้งาน:**
+1. Board แบ่ง 2 คอลัมน์: **Pending Review** (รอ) | **Resolved** (เสร็จ)
+2. แต่ละการ์ดแสดง: คำถาม, คำตอบ, ป้ายกำกับ (`CONFLICT` สีแดง, `DUPLICATE` สีเหลือง)
+3. **Duplicate:** คลิก **"Merge"** → ระบบรวมเนื้อหาอัตโนมัติ
+4. **Conflict:** คลิก **"Resolve Conflict"** → เลือก **"Keep A"** / **"Keep B"** หรือกรอก Custom Resolution
+
+---
+
+## 4. AI — ทดสอบ AI
+
+### 4.1 Playground (ห้องทดลอง)
+**เมนู:** AI ▼ → Playground | **URL:** `/playground`
+
+จำลองการสนทนากับ AI Agent เหมือน Chat UI
+
+**การใช้งาน:**
+1. เลือก **Persona** จาก dropdown มุมขวาบน (เช่น `System Default`, `Mimir Game Guide`)
+2. พิมพ์คำถามในช่อง **"Type a message..."** ด้านล่าง
+3. คลิก **"Send"** (หรือกด Enter) → รอคำตอบจาก AI
+4. คำตอบจะแสดง: ข้อความ, Action badges (ถ้ามี), Source citations พร้อม Similarity Score
+5. คลิก Citation link เพื่อดูต้นฉบับ
+
+### 4.2 Agents (จัดการ Agent)
+**เมนู:** AI ▼ → Agents | **URL:** `/agents`
+
+หน้านี้แสดงรายการ Agent ที่มีในระบบ พร้อม Tool Registry ของแต่ละ Agent
+
+**การใช้งาน:**
+1. ดูรายการ Agent ทั้งหมด — แต่ละ Agent แสดง: ชื่อ, ประเภท (Tier 1/2), สถานะ
+2. คลิกที่ Agent เพื่อดูรายละเอียด: Prompt, Tools ที่ใช้ได้, Provider/Model ที่กำหนด
+
+### 4.3 Knowledge Graph (กราฟความรู้)
+**เมนู:** AI ▼ → Graph | **URL:** `/graph`
+
+แสดง Entity-Relationship Graph จากข้อมูลในระบบ (ใช้ Neo4j)
+
+**การใช้งาน:**
+1. ดูสถิติ: จำนวน Nodes, Edges, ประเภท Entity
+2. **Search Entities:** พิมพ์ชื่อ entity ในช่อง "Search by name..." → คลิก 🔍
+3. **Filter ประเภท:** เลือก Entity Type จาก dropdown (Person, Organization, Location, Concept, Event, Product, Drug, Symptom, Item, Monster)
+4. **Visualization:** คลิกที่ node ในกราฟ → แสดง details + connections ในแผงด้านขวา
+5. **Trigger Extraction:** กดปุ่ม "Refresh" เพื่อดึง entity ใหม่จาก source data
 
 ---
 
-### 3.3 การทดสอบและการวัดผล AI (Playground & Evaluations)
+## 5. Analytics — วิเคราะห์
 
-#### การจำลองการสนทนา (Playground)
-ใช้สำหรับทดสอบ Agent ว่าเข้าใจข้อมูลและทำ Action ได้ถูกต้องหรือไม่ เลียนแบบการแชท (Chat UI) เหมือนคุยกับ ChatGPT
+### 5.1 Coverage Analytics (วิเคราะห์ความครอบคลุม)
+**เมนู:** Analytics ▼ → Coverage | **URL:** `/coverage`
 
-**ขั้นตอนการทดสอบด้วยหน้า Playground:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) คลิกเมนู **"Playground"**
-2. เมื่อเข้าสู่โหมดจำลองแอปแชท ให้สังเกตแบนเนอร์ด้านบน 
-3. คลิก Dropdown กล่องข้อความหัวข้อมุมขวาบนที่ชื่อ **"Persona"** (ถ้ามี) ระบบจะให้คุณเลือกรูปแบบ Agent เช่น `System Default (RAG)` หรือ `Mimir Game Guide` เลือกได้ตามต้องการ
-4. ให้มองช่องกรอกข้อความด้านล่างสุดของหน้าจอที่มีคำว่า **"Type a message to test the AI..."**
-5. เลื่อนเคอร์เซอร์ไปคลิกภายในช่องว่าง แล้วพิมพ์ข้อความถามคำถามที่ท่านต้องการ (เช่น "มอนสเตอร์ป่า Elven ให้ EXP เท่าไหร่")
-6. เมื่อพิมพ์เสร็จ คลิกปุ่ม **"Send"** (หรือกดปุ่ม Enter บนคีย์บอร์ด)
-7. รอสักครู่จนฝั่งคู่สนทนา (วงกลมโพรไฟล์ AI ด้านซ้าย) พ่นคำบรรยายคำตอบออกมา
-8. **วิเคราะห์ผลลัพธ์ (เบื้องหลังการทำงาน):** 
-   - ภายใต้กล่องคำตอบ หาก AI ตัวนั้นมีการยิงคำสั่งกลับเข้าระบบเกม ระบบจะแสดงโค้ดคำสั่งพร้อมป้ายกำกับสีเขียว เช่น `[ACTION: heal target="user" amount="100%"]` 
-   - ด้านล่างสุดจะมีข้อความแถบเทาย่อขนาดเล็ก (Citation) เช่น `📑 Source: wiki/zones/elven_forest.md (Similarity: 0.92)` ซึ่งตรงนี้คุณสามารถ **คลิกเพื่อลิงก์กระโดดไปดูต้นฉบับ** กลับไปยังหน้า PDF บน Vector Explorer ได้ทันที
+Dashboard แสดงความครอบคลุมของข้อมูลในทุกมิติ (Source → Chunk → QA → Vector → KG)
 
-![หน้าต่างทดสอบแชทบอท (Playground)](images/mockups/mock_playground.png)
+**KPI Cards (5 กล่อง):**
+| Card              | คำอธิบาย                         |
+| ----------------- | ------------------------------ |
+| Total Sources     | จำนวนแหล่งข้อมูลทั้งหมด              |
+| QA Coverage       | สัดส่วน Sources ที่มี QA pairs      |
+| Vector Coverage   | สัดส่วน QA ที่ embed แล้ว           |
+| Avg Chunks/Source | จำนวน chunk เฉลี่ยต่อ source       |
+| KG Entities       | จำนวน entity ใน Knowledge Graph |
 
-#### การวัดผลด้วยชุดข้อสอบ (Agent Evaluations)
-ฟีเจอร์นี้เป็นเสาหลักในการทดสอบว่า AI ตอบคำถามได้ถูกต้อง ไม่มั่วข้อมูล (Hallucination) โดยการตั้งค่าทดสอบรวดเดียวหลักร้อยคำถามได้
+**Pipeline Flow:** แสดงความปกติ/ผิดปกติของการไหลข้อมูล Source→Chunk→QA→Vector→KG
 
-**ขั้นตอนการสั่งรัน Evaluation และตรวจสอบผลลัพธ์:**
-1. ที่แถบเมนูด้านบน (Top Navigation Bar) คลิกเมนู **"Evaluations"**
-2. ที่มุมบนขวาของหน้าต่างหลัก กดปุ่มสีฟ้าประกายกริตเตอร์ **"✨ New Evaluation Wizard"**
-3. หน้าต่าง Popup Setup จะปรากฏขึ้นเป็นรูปแบบเส้นทาง 3 ขั้น (Wizard 3-steps)
-   - **Step 1 (Select Agents):** ติ๊กถูกเลือกระบบตัวแทนจำลอง (Role) ที่ต้องการทดสอบ -> กดปุ่ม `Next`
-   - **Step 2 (Select Models):** ติ๊กถูกเลือกรุ่นปัญญาประดิษฐ์ที่จะใช้เป็นสมอง (เช่น GPT-4o, Gemini) สามารถเลือกทีเดียวได้มากกว่า 1 รุ่น -> กดปุ่ม `Next`
-   - **Step 3 (Configure):** กรอกขีดจำกัดจำนวนข้อคำถาม (Question Limit) ผ่านช่องกรอกตัวเลข -> กดปุ่ม `Start Batch Run`
-4. หน้าจอกรอบสีฟ้าจะถูกปิดไป และตารางบันทึกการทำงานของ Evaluation Run บรรทัดบนสุดใหม่ล่าสุดจะปรากฏพร้อมโปรเกรสบาร์ (Progress bar) ตัวเลขเปอร์เซ็นต์โหลดวิ่งขึ้นจนเต็ม 100% (ซึ่งตรงนี้โปรแกรมถูกโยนไปให้เซิร์ฟเวอร์หลังบ้านประมวลผลแล้ว)
-5. เมื่อโหลดเสร็จสิ้น สถานะจะเปลี่ยนเป็น `COMPLETED`
-6. มองดูที่ตารางผลลัพธ์ครึ่งล่างสุดของหน้าจอ (**Heatmap Grid**)
-   - แกนแนวตั้ง (Rows) จะระบุชื่อ AI Models แกนแนวนอน (Cols) ระบุชื่อ Agent (Prompt Role)
-   - คะแนนจะแสดงเป็นตัวเลขเปอร์เซ็นต์ หากผลรวมเฉลี่ยเกินเกณฑ์ดี ช่องผลลัพธ์จะเป็น **"สีเขียว"**, อยู่ระดับกลางจะเป็น **"สีเหลือง"**, กรณีต่ำตมจะเป็น **"สีแดง"** พร้อมแสดงคะแนน % 
-   - ระบบจะติดดาวทองคำ (🌟) บนช่องที่เป็นแชมเปี้ยนสูงสุด (Best Overall Score) ของเมตริกนั้นๆ 
-7. **การตรวจสอบเชิงลึกและการ Override (แก้ไขคะแนนมือ):**
-   - นำเมาส์ไปคลิกที่กล่องคะแนนตามช่วงต่างๆ บน Heatmap ตาราง
-   - หน้าต่างแถบดึงซ้ายจะม้วนเปิดออก (Sliding Panel) รายงานหมวดย่อยของคำถามคำตอบเป็นลิสต์ประเด็น เช่น ความแม่นยำ (Accuracy) ความเกี่ยวเนื่อง (Relevance) 
-   - หากเห็นคะแนนที่ AI ของฐานข้อมูล (Eval Model) ประเมินมาผิดพลาด เช่น "การตอบคำว่าใช่" ควรได้ 100% แต่ AI ดันให้มาร้อยละ 0 มนุษย์สามารถกดปุ่มดินสอเล็กๆ **"Edit Score"** ตรงใต้ความเห็นนั้น พิมพ์เกรดเปอร์เซ็นต์ตัวเลขแก้ลงไป แล้วกด **"Save Override"** คะแนนในบอร์ดใหญ่ก็จะพลิกคำนวณใหม่ตามเจตจำนงของคุณทันที
+**Gap Analysis Panel:**
+- แสดงรายการ Sources ที่ยังไม่ครบกระบวนการ
+- สามารถ Sort ตาม: Source Name, Chunks, QA Pairs, QA Coverage %, Gaps
 
-![หน้าจอแสดงผลการประเมินเอเจนต์ (Agent Evaluations Heatmap)](images/mockups/mock_eval.png)
+### 5.2 LLM Analytics (วิเคราะห์ LLM)
+**เมนู:** Analytics ▼ → LLM Analytics | **URL:** `/analytics/llm`
+
+แสดงสถิติการใช้งาน LLM: จำนวน requests, token usage, latency, costs (ถ้ามี)
+
+### 5.3 Evaluations (ประเมิน Agent)
+**เมนู:** Analytics ▼ → Evaluations | **URL:** `/evaluations`
+
+ทดสอบ AI Agent ด้วยชุดข้อสอบอัตโนมัติ (Batch Evaluation)
+
+**การใช้งาน:**
+1. คลิก **"✨ New Evaluation Wizard"** มุมขวาบน
+2. **Step 1:** เลือก Agents ที่จะทดสอบ → **Next**
+3. **Step 2:** เลือก AI Models (เลือกได้หลายตัว) → **Next**
+4. **Step 3:** กำหนด Question Limit → **Start Batch Run**
+5. ดูผลใน **Heatmap Grid**: แถว = Models, คอลัมน์ = Agents, สี = คะแนน (เขียว/เหลือง/แดง)
+6. คลิกช่องคะแนน → ดูรายละเอียด + **"Edit Score"** เพื่อ override คะแนน
+
+### 5.4 Conversation Logs (บันทึกสนทนา)
+**เมนู:** Analytics ▼ → Logs | **URL:** `/conversations`
+
+ดูประวัติการสนทนาทั้งหมดที่เกิดขึ้นในระบบ
+
+**การใช้งาน:**
+1. ดูรายการ conversations — แสดง: timestamp, user, agent, สรุปเนื้อหา
+2. คลิกที่ conversation เพื่อดู full chat history
+3. ดู Steps ของแต่ละ turn: RAG retrieval, tool calls, LLM responses
 
 ---
-*บันทึกโดย: AI Assistant (คู่มือฉบับสมบูรณ์สำหรับ Project Mimir - Phase 1 ล่าสุด)*
+
+## 6. Admin — จัดการระบบ
+
+### 6.1 Settings (ตั้งค่า)
+**เมนู:** Admin ▼ → Settings | **URL:** `/settings`
+
+หน้าตั้งค่าแบ่งเป็น **8 แท็บ** ด้านซ้าย:
+
+| แท็บ                 | คำอธิบาย                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **General**         | เปลี่ยนชื่อ Tenant, ดู Tenant ID                                                                                   |
+| **AI Models**       | กำหนด Provider/Model สำหรับแต่ละ slot: Chat, RAG, Pipeline Generator, Judge, Embedding + Heimdall Gateway URL/Key |
+| **Pipeline**        | Max Crawl Pages, Chunk Strategy/Size/Overlap, Dedup Threshold                                                 |
+| **Knowledge Graph** | Neo4j connection, link ไป Graph Explorer                                                                      |
+| **Search**          | Embedding Model, Top-K, Similarity Threshold, Search Mode (Semantic/Hybrid/Keyword)                           |
+| **Security**        | (Coming Soon)                                                                                                 |
+| **Tenants**         | สร้าง/ลบ Tenant (SuperAdmin)                                                                                   |
+| **Users**           | สร้าง/ลบ User, กำหนด Role                                                                                       |
+
+**การเปลี่ยน AI Model:**
+1. ไปแท็บ **AI Models**
+2. กรอก Provider (Ollama/Heimdall/Gemini) + Model ในแต่ละ slot
+3. กรอก Heimdall URL + API Key (ถ้าใช้)
+4. คลิก **"Save Changes"**
+
+### 6.2 Tenant Management (จัดการ Tenant)
+**เมนู:** Admin ▼ → Tenants | **URL:** `/tenants`
+
+*หรือผ่าน: Admin ▼ → Settings → แท็บ Tenants*
+
+**การสร้าง Tenant ใหม่:**
+1. คลิก **"+ Create Tenant"**
+2. กรอก: Tenant Name, Admin Email, Admin Password
+3. ติ๊ก "Create Dedicated Vector DB" (ถ้าต้องการแยก vector DB)
+4. คลิก **"Create"** → ระบบสร้าง schema + กลับหน้ารายการ
+
+### 6.3 User Management (จัดการผู้ใช้)
+**เมนู:** Admin ▼ → Users | **URL:** `/users`
+
+*หรือผ่าน: Admin ▼ → Settings → แท็บ Users*
+
+**การเพิ่มผู้ใช้:**
+1. คลิก **"+ Create User"**
+2. กรอก: Username, Password, เลือก Tenant, กำหนด Role (admin/viewer)
+3. คลิก **"Create"**
+
+**การลบผู้ใช้:** คลิกไอคอนถังขยะ 🗑️ → ยืนยัน
+
+---
+
+## 7. Troubleshooting (แก้ปัญหาเบื้องต้น)
+
+| ปัญหา                        | สาเหตุ                   | วิธีแก้                                          |
+| --------------------------- | ----------------------- | --------------------------------------------- |
+| Login ไม่ได้                  | Email/Password ผิด       | ตรวจสอบข้อมูล, ลอง reset password               |
+| หน้าจอว่างเปล่า                | Backend ไม่ทำงาน          | ตรวจสอบ Rust backend (`cargo run`)            |
+| Vector Search ไม่มีผลลัพธ์      | ยังไม่ได้ index            | ไปหน้า Vector → คลิก "Index Pending Data"       |
+| QA = 0 ในทุกหน้า              | ยังไม่ได้ generate         | ไปหน้า Knowledge → เลือก chunks → "Generate QA" |
+| Knowledge Graph ว่าง         | ยังไม่ได้ extract entities | รอ Sprint ถัดไป หรือ trigger extraction         |
+| เปลี่ยน Tenant แล้วข้อมูลไม่เปลี่ยน | Cache เบราว์เซอร์         | กด Cmd+Shift+R (Hard Refresh)                 |
+
+---
+*บันทึกโดย: AI Assistant — ปรับปรุงล่าสุดวันที่ 2026-03-04 (Sprint 18)*
