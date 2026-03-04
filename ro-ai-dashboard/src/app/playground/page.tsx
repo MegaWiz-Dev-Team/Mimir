@@ -17,9 +17,12 @@ import {
     SourceCitation,
     StreamDone,
     LlmProvider,
+    AgentConfigResponse,
     sendChat,
     streamChat,
     fetchModels,
+    fetchAgents,
+    agentToPersona,
     modelsToProviders,
     updatePersonaConfig,
     fetchVectorStats,
@@ -119,6 +122,11 @@ export default function PlaygroundPage() {
     const [modelsLoading, setModelsLoading] = useState(true);
     const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
+    // Agent configs from API (DB-backed)
+    const [agentConfigs, setAgentConfigs] = useState<AgentConfigResponse[]>([]);
+    const [personas, setPersonas] = useState<Persona[]>(PERSONAS);
+    const [agentsLoading, setAgentsLoading] = useState(true);
+
     // Wiki Modal state
     const [viewingWiki, setViewingWiki] = useState<string | null>(null);
     const [wikiContent, setWikiContent] = useState<string>("");
@@ -131,9 +139,36 @@ export default function PlaygroundPage() {
     const abortRef = useRef<(() => void) | null>(null);
 
     // Get selected persona and provider details
-    const selectedPersona = PERSONAS.find(p => p.name === persona) || PERSONAS[0];
+    const selectedPersona = personas.find(p => p.name === persona) || personas[0];
     const selectedProvider = providers.find(p => p.id === provider) || providers[0];
     const selectedModel = selectedProvider?.models.find(m => m.id === model) || selectedProvider?.models[0];
+    const selectedAgent = agentConfigs.find(a => a.name === persona);
+
+    // Fetch agents from Agent Studio API on mount
+    useEffect(() => {
+        async function loadAgents() {
+            try {
+                const agents = await fetchAgents();
+                if (agents.length > 0) {
+                    setAgentConfigs(agents);
+                    // Convert to Persona format
+                    const dbPersonas = agents.map(agentToPersona);
+                    setPersonas(dbPersonas);
+                    // Default to first agent
+                    setPersona(agents[0].name);
+                    setTier((agents[0].tier || 2) as 1 | 2);
+                    if (agents[0].provider) setProvider(agents[0].provider);
+                    if (agents[0].model_id) setModel(agents[0].model_id);
+                    if (agents[0].response_mode) setUseStreaming(agents[0].response_mode === "streaming");
+                }
+            } catch (err) {
+                console.warn("Failed to fetch agents from API, using fallback PERSONAS:", err);
+            } finally {
+                setAgentsLoading(false);
+            }
+        }
+        loadAgents();
+    }, []);
 
     // Fetch vector stats on mount
     useEffect(() => {
@@ -199,12 +234,28 @@ export default function PlaygroundPage() {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Set greeting and auto-select tier when persona changes
+    // Auto-fill settings when persona/agent changes
     useEffect(() => {
-        if (selectedPersona.name === "Mimir") {
-            setTier(1);
-        } else if (selectedPersona.name === "sage_ariel") {
-            setTier(2);
+        const agent = agentConfigs.find(a => a.name === persona);
+        if (agent) {
+            // Auto-fill from DB-backed agent config
+            setTier((agent.tier || 2) as 1 | 2);
+            if (agent.provider) {
+                setProvider(agent.provider);
+            }
+            if (agent.model_id) {
+                setModel(agent.model_id);
+            }
+            if (agent.response_mode) {
+                setUseStreaming(agent.response_mode === "streaming");
+            }
+        } else {
+            // Fallback to hardcoded persona logic
+            if (selectedPersona.name === "Mimir") {
+                setTier(1);
+            } else if (selectedPersona.name === "sage_ariel") {
+                setTier(2);
+            }
         }
 
         if (messages.length === 0 && selectedPersona.greeting) {
@@ -213,7 +264,7 @@ export default function PlaygroundPage() {
                 content: selectedPersona.greeting,
             }]);
         }
-    }, [persona, selectedPersona.name, selectedPersona.greeting]);
+    }, [persona, selectedPersona.name, selectedPersona.greeting, agentConfigs]);
 
     // Cleanup streaming on unmount
     useEffect(() => {
@@ -430,7 +481,11 @@ export default function PlaygroundPage() {
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Agent Playground</h1>
-                    <p className="text-muted-foreground">Test NPC agents with different personas, providers, and tiers</p>
+                    <p className="text-muted-foreground">
+                        {agentConfigs.length > 0
+                            ? `${agentConfigs.length} agents loaded from Agent Studio`
+                            : "Test NPC agents with different personas, providers, and tiers"}
+                    </p>
                 </div>
                 <Button variant="outline" onClick={handleClear}>
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -526,15 +581,15 @@ export default function PlaygroundPage() {
                             </p>
                         </div>
 
-                        {/* Persona Selector */}
+                        {/* Persona / Agent Selector */}
                         <div className="space-y-2">
-                            <Label>Persona</Label>
-                            <Select value={persona} onValueChange={setPersona}>
+                            <Label>{agentConfigs.length > 0 ? "Agent (from DB)" : "Persona"}</Label>
+                            <Select value={persona} onValueChange={setPersona} disabled={agentsLoading}>
                                 <SelectTrigger>
-                                    <SelectValue />
+                                    <SelectValue placeholder={agentsLoading ? "Loading agents..." : "Select agent"} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {PERSONAS.map((p) => (
+                                    {personas.map((p) => (
                                         <SelectItem key={p.name} value={p.name}>
                                             {p.display_name}
                                         </SelectItem>
