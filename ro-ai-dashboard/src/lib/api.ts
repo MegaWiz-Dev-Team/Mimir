@@ -228,6 +228,57 @@ export interface Persona {
     traits: string[];
 }
 
+/// Agent config from Agent Studio API (DB-backed)
+export interface AgentConfigResponse {
+    id: number;
+    tenant_id: string;
+    name: string;
+    display_name?: string;
+    description?: string;
+    system_prompt: string;
+    model_id: string;
+    provider: string;
+    temperature?: number;
+    max_tokens?: number;
+    top_k?: number;
+    use_rag?: boolean;
+    use_knowledge_graph?: boolean;
+    tools?: string[];
+    personality_traits?: string[];
+    greeting?: string;
+    avatar_url?: string;
+    template_id?: string;
+    is_published?: boolean;
+    tier?: number;
+    response_mode?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+/// Fetch all agents from Agent Studio API
+export async function fetchAgents(): Promise<AgentConfigResponse[]> {
+    try {
+        const res = await authFetch(`${API_BASE_URL}/agents`, { cache: "no-store" });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+/// Convert AgentConfigResponse to Persona format (for backwards compatibility)
+export function agentToPersona(agent: AgentConfigResponse): Persona {
+    return {
+        name: agent.name,
+        display_name: agent.display_name || agent.name,
+        tier: agent.tier || 2,
+        description: agent.description || "",
+        greeting: agent.greeting || "",
+        avatar_url: agent.avatar_url,
+        traits: agent.personality_traits || [],
+    };
+}
+
 export interface ModelConfig {
     model_id: string;
     provider: string;
@@ -1034,6 +1085,8 @@ export interface AgentConfig {
     template_id?: string;
     is_published?: boolean;
     api_key?: string;
+    tier?: number;
+    response_mode?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -1055,6 +1108,8 @@ export interface CreateAgentRequest {
     greeting?: string;
     avatar_url?: string;
     template_id?: string;
+    tier?: number;
+    response_mode?: string;
 }
 
 export interface AgentTemplate {
@@ -1072,6 +1127,8 @@ export interface AgentTemplate {
     tools: string[];
     personality_traits: string[];
     greeting: string;
+    tier?: number;
+    avatar_url?: string;
 }
 
 export interface AgentChatResponse {
@@ -1136,13 +1193,8 @@ export interface BenchmarkEntry {
     estimated_cost: number;
 }
 
-// Agent CRUD
+// Agent CRUD (fetchAgents is defined above near AgentConfigResponse)
 
-export async function fetchAgents(page = 1, perPage = 20) {
-    const res = await authFetch(`${API_BASE_URL}/agents?page=${page}&per_page=${perPage}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("Failed to fetch agents");
-    return res.json();
-}
 
 export async function createAgent(data: CreateAgentRequest): Promise<AgentConfig> {
     const res = await authFetch(`${API_BASE_URL}/agents`, {
