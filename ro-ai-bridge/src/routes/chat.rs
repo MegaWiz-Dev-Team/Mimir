@@ -76,6 +76,7 @@ struct StreamDone {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /// Resolve provider and model from request + tenant config defaults.
+/// Priority: request payload > llm_config.chat slot > tenant default_provider/model > hardcoded.
 async fn resolve_provider_model(
     pool: &DbPool,
     payload: &ChatRequest,
@@ -84,24 +85,23 @@ async fn resolve_provider_model(
     let iam = IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
 
-    let default_provider_str = tenant_config.as_ref()
-        .map(|c| c.default_provider.clone())
-        .unwrap_or_else(|| "ollama".to_string());
-    let default_model_str = tenant_config.as_ref()
-        .map(|c| c.default_model.clone());
+    // Use llm_config.resolve_slot for smart fallback chain
+    let llm_config = tenant_config.as_ref()
+        .and_then(|c| c.llm_config.as_ref())
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+
+    let default_p = tenant_config.as_ref().map(|c| c.default_provider.as_str());
+    let default_m = tenant_config.as_ref().map(|c| c.default_model.as_str());
+    let resolved = llm_config.resolve_slot("chat", default_p, default_m);
 
     let provider = payload.provider.as_deref()
-        .unwrap_or(&default_provider_str)
+        .unwrap_or(&resolved.provider)
         .parse::<LlmProvider>()
         .unwrap_or(LlmProvider::Ollama);
 
     let model = payload.model.clone()
-        .or(default_model_str)
-        .unwrap_or_else(|| match provider {
-            LlmProvider::Ollama  => "llama3.2".to_string(),
-            LlmProvider::Gemini  => "gemini-2.5-flash".to_string(),
-            LlmProvider::Heimdall => "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
-        });
+        .unwrap_or(resolved.model);
 
     (provider, model)
 }

@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
 
     // Cloud LLM (Gemini)
     let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set in .env");
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
     
     info!("☁️ Configuring Native Gemini Client");
     let gemini_client = gemini::Client::new(&api_key);

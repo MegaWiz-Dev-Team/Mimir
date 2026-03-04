@@ -73,7 +73,7 @@ impl Config {
             ollama_url: env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
             local_model: env::var("LOCAL_MODEL")
-                .unwrap_or_else(|_| "gemma:2b".to_string()),
+                .unwrap_or_else(|_| "llama3.2".to_string()),
             embed_model: env::var("EMBED_MODEL")
                 .unwrap_or_else(|_| "nomic-embed-text".to_string()),
             gemini_base_url: env::var("GEMINI_BASE_URL")
