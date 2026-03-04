@@ -81,6 +81,7 @@ export default function SettingsPage() {
 
                 try {
                     const configData = await fetchTenantConfig(activeTenant.id);
+                    console.log("[Settings] loaded config for", activeTenant.id, "llm_config:", JSON.stringify(configData.llm_config));
                     setConfig(configData);
                     // Initialize search settings from config
                     if (configData.search_settings) {
@@ -116,6 +117,7 @@ export default function SettingsPage() {
         try {
             await updateTenant(currentTenantId, tenantName);
             if (config) {
+                console.log("[Settings] saving config with llm_config:", JSON.stringify(config.llm_config));
                 await updateTenantConfig(currentTenantId, config);
             }
             alert("Settings updated successfully.");
@@ -790,7 +792,7 @@ export default function SettingsPage() {
             case "search":
                 return renderSearchTab();
             case "security":
-                return renderComingSoonTab(Shield, "Security & Access Settings", "Sprint 14");
+                return renderComingSoonTab(Shield, "Security & Access Settings", "Sprint 19 (Backlog)");
             case "tenants":
                 return renderTenantsTab();
             case "users":
