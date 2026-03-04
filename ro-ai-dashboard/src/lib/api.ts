@@ -1587,3 +1587,70 @@ export async function fetchExtractionRuns(): Promise<{ runs: ExtractionRun[] }> 
     if (!res.ok) throw new Error("Failed to fetch extraction runs");
     return res.json();
 }
+
+// ─── Sprint 18: Coverage Analytics API ──────────────────────────────────────
+
+export interface PipelineStages {
+    ingested: number;
+    chunked: number;
+    qa_generated: number;
+    vectorized: number;
+    kg_extracted: number;
+}
+
+export interface CoverageOverview {
+    total_sources: number;
+    sources_with_chunks: number;
+    sources_with_qa: number;
+    sources_with_vectors: number;
+    sources_with_kg: number;
+    overall_score: number;
+    pipeline_stages: PipelineStages;
+}
+
+export interface SourceCoverage {
+    source_id: number;
+    name: string;
+    source_type: string;
+    status: string;
+    chunk_count: number;
+    qa_count: number;
+    vector_coverage_pct: number;
+    kg_entity_count: number;
+    dedup_ratio: number;
+    blindspots: string[];
+    coverage_score: number;
+    last_sync_at: string | null;
+}
+
+export interface GapSource {
+    source_id: number;
+    name: string;
+}
+
+export interface CoverageGaps {
+    sources_missing_chunks: GapSource[];
+    sources_missing_qa: GapSource[];
+    sources_missing_vectors: GapSource[];
+    sources_missing_kg: GapSource[];
+    stale_sources: GapSource[];
+    high_dedup_sources: GapSource[];
+}
+
+export async function fetchCoverageOverview(): Promise<CoverageOverview> {
+    const res = await authFetch(`${API_BASE_URL}/coverage/overview`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch coverage overview");
+    return res.json();
+}
+
+export async function fetchCoverageSources(): Promise<SourceCoverage[]> {
+    const res = await authFetch(`${API_BASE_URL}/coverage/sources`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch coverage sources");
+    return res.json();
+}
+
+export async function fetchCoverageGaps(): Promise<CoverageGaps> {
+    const res = await authFetch(`${API_BASE_URL}/coverage/gaps`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch coverage gaps");
+    return res.json();
+}
