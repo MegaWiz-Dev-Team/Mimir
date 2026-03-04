@@ -187,77 +187,81 @@ pub fn agents_routes() -> Router<DbPool> {
 
 fn get_templates() -> Vec<AgentTemplate> {
     vec![
+        // ─── NPC Game Agent (consolidated) ──────────────────────────────
         AgentTemplate {
-            id: "npc_guide".into(),
-            name: "npc_guide".into(),
-            display_name: "NPC Guide (Tier 1)".into(),
-            description: "Simple NPC with action commands (heal, buff, warp)".into(),
-            system_prompt: "คุณคือ NPC Guide ในเกม Ragnarok Online สามารถช่วยตอบคำถามพื้นฐาน และดำเนินการคำสั่ง (Action) เช่น Heal, Buff, Warp ให้ผู้เล่นได้ ตอบเป็นภาษาไทยเสมอ พูดสั้นกระชับ".into(),
+            id: "npc_game_agent".into(),
+            name: "npc_game_agent".into(),
+            display_name: "NPC Game Agent".into(),
+            description: "Ragnarok Online NPC with RAG knowledge retrieval and action commands".into(),
+            system_prompt: "คุณคือ NPC ในเกม Ragnarok Online สามารถช่วยตอบคำถาม ค้นหาข้อมูล Monster, Item, Map จาก Knowledge Base (RAG) และดำเนินการคำสั่ง (Action) เช่น Heal, Buff, Warp ให้ผู้เล่นได้ ตอบเป็นภาษาไทยเสมอ อธิบายอย่างเป็นมิตรและกระชับ".into(),
             model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
             provider: "heimdall".into(),
             temperature: 0.7,
-            max_tokens: 2048,
-            use_rag: false,
+            max_tokens: 4096,
+            use_rag: true,
             use_knowledge_graph: false,
-            tools: vec!["heal".into(), "buff".into(), "warp".into()],
-            personality_traits: vec!["helpful".into(), "wise".into(), "concise".into()],
-            greeting: "สวัสดีนักผจญภัย! ข้าพร้อมช่วยเหลือท่าน จะให้ข้าช่วยอะไรดี?".into(),
-            tier: 1,
+            tools: vec!["QueryMobDb".into(), "QueryItemDb".into(), "heal".into(), "buff".into(), "warp".into()],
+            personality_traits: vec!["helpful".into(), "wise".into(), "friendly".into()],
+            greeting: "สวัสดีนักผจญภัย! ข้าพร้อมช่วยเหลือท่าน ไม่ว่าจะค้นหาข้อมูล Monster, Item หรือสั่ง Heal/Buff/Warp ได้เลย!".into(),
+            tier: 2,
             avatar_url: "/avatars/mimir.png".into(),
         },
+        // ─── Medical Doctor ─────────────────────────────────────────────
         AgentTemplate {
-            id: "npc_scholar".into(),
-            name: "npc_scholar".into(),
-            display_name: "NPC Scholar (Tier 2 — RAG)".into(),
-            description: "Knowledge expert with RAG retrieval for monster/item data".into(),
-            system_prompt: "คุณคือ NPC นักปราชญ์ เชี่ยวชาญการค้นหาข้อมูลจากวิกิและฐานข้อมูล Ragnarok Online ค้นหาข้อมูล Monster, Item, Map จาก Knowledge Base (RAG) อย่างละเอียด ตอบเป็นภาษาไทย อ้างอิงแหล่งข้อมูล".into(),
+            id: "medical_doctor".into(),
+            name: "medical_doctor".into(),
+            display_name: "Medical Doctor".into(),
+            description: "AI medical assistant for health Q&A with RAG-powered clinical knowledge".into(),
+            system_prompt: "You are a medical AI assistant trained to provide general health information and answer medical questions. Use RAG to retrieve evidence-based medical knowledge from clinical databases. Always provide disclaimers that you are not a substitute for professional medical advice. Answer clearly and accurately, citing sources when possible. Support both Thai and English.".into(),
+            model_id: "lmstudio-community/medgemma-4b-it-MLX-4bit".into(),
+            provider: "heimdall".into(),
+            temperature: 0.3,
+            max_tokens: 4096,
+            use_rag: true,
+            use_knowledge_graph: true,
+            tools: vec!["WebSearch".into()],
+            personality_traits: vec!["precise".into(), "empathetic".into(), "analytical".into(), "thorough".into()],
+            greeting: "สวัสดีครับ ผมเป็น AI Medical Assistant พร้อมให้คำปรึกษาด้านสุขภาพเบื้องต้น กรุณาสอบถามได้เลยครับ\n\n⚠️ **หมายเหตุ:** ข้อมูลที่ให้เป็นเพียงข้อมูลทั่วไป ไม่ใช่การวินิจฉัยหรือรักษาโรค กรุณาปรึกษาแพทย์สำหรับปัญหาสุขภาพเฉพาะทาง".into(),
+            tier: 2,
+            avatar_url: "/avatars/medical.png".into(),
+        },
+        // ─── Data Analytics ─────────────────────────────────────────────
+        AgentTemplate {
+            id: "data_analytics".into(),
+            name: "data_analytics".into(),
+            display_name: "Data Analytics".into(),
+            description: "Data analysis agent for SQL queries, statistical insights, and report generation".into(),
+            system_prompt: "You are a Data Analytics AI assistant specialized in data analysis, SQL query generation, statistical analysis, and business intelligence. Help users explore datasets, write SQL queries, interpret results, create visualizations descriptions, and generate actionable insights. Support both Thai and English. Present findings in structured, easy-to-understand formats with tables and bullet points.".into(),
+            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            provider: "heimdall".into(),
+            temperature: 0.4,
+            max_tokens: 4096,
+            use_rag: true,
+            use_knowledge_graph: false,
+            tools: vec!["Calculator".into(), "WebSearch".into()],
+            personality_traits: vec!["analytical".into(), "precise".into(), "structured".into(), "insightful".into()],
+            greeting: "สวัสดีครับ ผมเป็น Data Analytics Assistant พร้อมช่วยวิเคราะห์ข้อมูล เขียน SQL Query และสร้าง Insights จากข้อมูลของคุณครับ\n\n**ตัวอย่างสิ่งที่ช่วยได้:**\n- เขียน SQL Query จากคำอธิบาย\n- วิเคราะห์แนวโน้มข้อมูล\n- สรุป KPI และ Metrics\n- สร้างรายงานจากข้อมูลดิบ".into(),
+            tier: 2,
+            avatar_url: "/avatars/data_analyst.png".into(),
+        },
+        // ─── Customer Support ───────────────────────────────────────────
+        AgentTemplate {
+            id: "customer_support".into(),
+            name: "customer_support".into(),
+            display_name: "Customer Support".into(),
+            description: "Polite customer service agent with FAQ knowledge and ticket handling".into(),
+            system_prompt: "You are a Customer Support AI assistant. Help users resolve issues, answer frequently asked questions, and provide excellent service. Use RAG to retrieve relevant FAQ and knowledge base articles. Be polite, patient, and solution-oriented. Escalate complex issues when necessary. Support both Thai and English.".into(),
             model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
             provider: "heimdall".into(),
             temperature: 0.5,
-            max_tokens: 4096,
-            use_rag: true,
-            use_knowledge_graph: false,
-            tools: vec!["QueryMobDb".into(), "QueryItemDb".into()],
-            personality_traits: vec!["scholarly".into(), "thorough".into(), "analytical".into()],
-            greeting: "ยินดีต้อนรับสู่หอสมุด! ข้าพร้อมค้นหาข้อมูลจากฐานความรู้ให้ท่าน".into(),
-            tier: 2,
-            avatar_url: "/avatars/sage_ariel.png".into(),
-        },
-        AgentTemplate {
-            id: "npc_seer".into(),
-            name: "npc_seer".into(),
-            display_name: "NPC Seer (Tier 2 — Mysterious)".into(),
-            description: "Mysterious fortune teller with cryptic RAG responses".into(),
-            system_prompt: "คุณคือ NPC นักพยากรณ์ลึกลับ พูดด้วยถ้อยคำเป็นปริศนาและคำพยากรณ์ ใช้ RAG ค้นหาข้อมูลแต่ตอบในสไตล์ลึกลับ ตอบเป็นภาษาไทย".into(),
-            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
-            provider: "heimdall".into(),
-            temperature: 0.8,
-            max_tokens: 4096,
-            use_rag: true,
-            use_knowledge_graph: false,
-            tools: vec!["QueryMobDb".into(), "QueryItemDb".into()],
-            personality_traits: vec!["mysterious".into(), "cryptic".into(), "enigmatic".into()],
-            greeting: "ดวงดาวได้ทำนายการมาเยือนของท่าน... ถามข้ามาเถิด".into(),
-            tier: 2,
-            avatar_url: "/avatars/fortune_teller.png".into(),
-        },
-        AgentTemplate {
-            id: "npc_blacksmith".into(),
-            name: "npc_blacksmith".into(),
-            display_name: "NPC Blacksmith (Tier 2 — Equipment)".into(),
-            description: "Gruff equipment expert with item database knowledge".into(),
-            system_prompt: "คุณคือ NPC ช่างตีเหล็ก พูดตรงๆ ห้วนๆ ถนัดเรื่องอาวุธ ชุดเกราะ และการคราฟ ใช้ RAG ค้นหาข้อมูล Item ตอบเป็นภาษาไทย".into(),
-            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
-            provider: "heimdall".into(),
-            temperature: 0.6,
             max_tokens: 2048,
             use_rag: true,
             use_knowledge_graph: false,
-            tools: vec!["QueryItemDb".into()],
-            personality_traits: vec!["gruff".into(), "practical".into(), "knowledgeable".into()],
-            greeting: "หืม? มีธุระอะไรก็ว่ามา ข้าถนัดเรื่องอาวุธชุดเกราะ".into(),
+            tools: vec![],
+            personality_traits: vec!["friendly".into(), "patient".into(), "empathetic".into(), "helpful".into()],
+            greeting: "สวัสดีครับ ยินดีให้บริการ! มีอะไรให้ช่วยเหลือครับ? 😊\n\nผมสามารถช่วยตอบคำถาม แก้ปัญหา หรือแนะนำข้อมูลได้เลยครับ".into(),
             tier: 2,
-            avatar_url: "/avatars/blacksmith.png".into(),
+            avatar_url: "/avatars/support.png".into(),
         },
     ]
 }
@@ -745,15 +749,15 @@ async fn list_agent_conversations(
 mod tests {
     use super::*;
 
-    /// TC_MIG_01: Templates are NPC-themed and valid
+    /// TC_MIG_01: Templates are valid and contain expected categories
     #[test]
-    fn test_templates_are_npc_themed() {
+    fn test_templates_are_valid() {
         let templates = get_templates();
-        assert_eq!(templates.len(), 4, "Should have 4 NPC templates");
-        assert_eq!(templates[0].id, "npc_guide");
-        assert_eq!(templates[1].id, "npc_scholar");
-        assert_eq!(templates[2].id, "npc_seer");
-        assert_eq!(templates[3].id, "npc_blacksmith");
+        assert_eq!(templates.len(), 4, "Should have 4 templates");
+        assert_eq!(templates[0].id, "npc_game_agent");
+        assert_eq!(templates[1].id, "medical_doctor");
+        assert_eq!(templates[2].id, "data_analytics");
+        assert_eq!(templates[3].id, "customer_support");
     }
 
     /// TC_MIG_02: All templates have required fields populated
@@ -770,37 +774,42 @@ mod tests {
         }
     }
 
-    /// TC_MIG_03: Template tiers are correct (exactly one Tier 1 guide)
+    /// TC_MIG_03: All templates are Tier 2
     #[test]
     fn test_template_tiers() {
         let templates = get_templates();
-        let tier1_count = templates.iter().filter(|t| t.tier == 1).count();
         let tier2_count = templates.iter().filter(|t| t.tier == 2).count();
-        assert_eq!(tier1_count, 1, "Exactly one Tier 1 (NPC Guide) template");
-        assert_eq!(tier2_count, 3, "Three Tier 2 (RAG) templates");
+        assert_eq!(tier2_count, 4, "All 4 templates should be Tier 2");
     }
 
-    /// TC_MIG_04: Tier 1 template should not use RAG, Tier 2 should use RAG
+    /// TC_MIG_04: All templates use RAG
     #[test]
-    fn test_tier_rag_consistency() {
+    fn test_all_templates_use_rag() {
         let templates = get_templates();
         for t in &templates {
-            if t.tier == 1 {
-                assert!(!t.use_rag, "Tier 1 should not use RAG: {}", t.id);
-            } else {
-                assert!(t.use_rag, "Tier 2 should use RAG: {}", t.id);
-            }
+            assert!(t.use_rag, "Template '{}' should use RAG", t.id);
         }
     }
 
-    /// TC_MIG_05: Tier 1 guide has action tools
+    /// TC_MIG_05: NPC game agent has action tools + RAG tools
     #[test]
-    fn test_tier1_has_action_tools() {
+    fn test_npc_agent_has_action_tools() {
         let templates = get_templates();
-        let guide = templates.iter().find(|t| t.tier == 1).expect("Tier 1 guide");
-        assert!(guide.tools.contains(&"heal".to_string()), "Guide should have heal");
-        assert!(guide.tools.contains(&"buff".to_string()), "Guide should have buff");
-        assert!(guide.tools.contains(&"warp".to_string()), "Guide should have warp");
+        let npc = templates.iter().find(|t| t.id == "npc_game_agent").expect("NPC game agent");
+        assert!(npc.tools.contains(&"heal".to_string()), "NPC should have heal");
+        assert!(npc.tools.contains(&"buff".to_string()), "NPC should have buff");
+        assert!(npc.tools.contains(&"warp".to_string()), "NPC should have warp");
+        assert!(npc.tools.contains(&"QueryMobDb".to_string()), "NPC should have QueryMobDb");
+    }
+
+    /// TC_MIG_05b: Medical Doctor uses MedGemma and knowledge graph
+    #[test]
+    fn test_medical_doctor_config() {
+        let templates = get_templates();
+        let med = templates.iter().find(|t| t.id == "medical_doctor").expect("Medical Doctor");
+        assert!(med.model_id.contains("medgemma"), "Medical Doctor should use MedGemma model");
+        assert!(med.use_knowledge_graph, "Medical Doctor should use knowledge graph");
+        assert!(med.temperature <= 0.4, "Medical Doctor should have low temperature for accuracy");
     }
 
     /// TC_MIG_06: All NPC templates use Heimdall provider
