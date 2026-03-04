@@ -792,7 +792,202 @@ export default function SettingsPage() {
             case "search":
                 return renderSearchTab();
             case "security":
-                return renderComingSoonTab(Shield, "Security & Access Settings", "Sprint 19 (Backlog)");
+                return (() => {
+                    // Decode current JWT for session info
+                    const token = Cookies.get("access_token");
+                    let sessionInfo: Record<string, any> = {};
+                    if (token) {
+                        try {
+                            const parts = token.split(".");
+                            if (parts.length === 3) sessionInfo = JSON.parse(atob(parts[1]));
+                        } catch { /* ignore */ }
+                    }
+                    const expDate = sessionInfo.exp ? new Date(sessionInfo.exp * 1000) : null;
+                    const isExpired = expDate ? expDate < new Date() : true;
+
+                    const roles = [
+                        { role: "Admin", desc: "Full access — manage users, tenants, settings, and all data", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
+                        { role: "Editor", desc: "Read & write access — manage sources, pipelines, and knowledge base", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" },
+                        { role: "Viewer", desc: "Read-only access — view dashboards, analytics, and chat", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300" },
+                    ];
+
+                    const securityFeatures = [
+                        { label: "Password Hashing", value: "Argon2id", status: true, detail: "Industry-standard memory-hard hashing" },
+                        { label: "JWT Authentication", value: "HS256 / 24h expiry", status: true, detail: "Stateless token-based auth" },
+                        { label: "Role-Based Access Control", value: "3-tier RBAC", status: true, detail: "Admin / Editor / Viewer roles" },
+                        { label: "Tenant Isolation", value: config?.is_dedicated_vector_db ? "Dedicated" : "Shared", status: true, detail: "Data segregation per tenant" },
+                        { label: "API Authentication", value: "Bearer Token", status: true, detail: "All API routes require valid JWT" },
+                        { label: "CORS Protection", value: "Configured", status: true, detail: "Cross-origin request restriction" },
+                    ];
+
+                    const recommendations = [
+                        { text: "Rotate JWT secret periodically", done: false },
+                        { text: "Use strong passwords (8+ chars, mixed case, numbers)", done: true },
+                        { text: "Limit admin accounts to necessary personnel", done: true },
+                        { text: "Enable dedicated vector DB for sensitive tenants", done: config?.is_dedicated_vector_db || false },
+                        { text: "Review user access permissions regularly", done: false },
+                        { text: "Configure Heimdall API key in Vault (production)", done: !!config?.llm_config?.heimdall_api_key },
+                    ];
+
+                    return (
+                        <div className="space-y-6">
+                            {/* Security Overview */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Shield className="w-5 h-5 text-primary" />
+                                        Security Overview
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Security features and authentication configuration for this tenant.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {securityFeatures.map((f, i) => (
+                                            <div key={i} className="rounded-lg border bg-card p-4">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-sm font-medium">{f.label}</span>
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${f.status ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800'}`}>
+                                                        {f.status ? '✓ Active' : '✗ Inactive'}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm font-mono text-primary">{f.value}</p>
+                                                <p className="text-xs text-muted-foreground mt-1">{f.detail}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Active Session */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Lock className="w-5 h-5 text-primary" />
+                                        Current Session
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">User ID</p>
+                                            <p className="text-sm font-mono truncate">{sessionInfo.sub || "—"}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">Tenant</p>
+                                            <p className="text-sm font-mono">{sessionInfo.tenant_id || "—"}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">Role</p>
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sessionInfo.role === 'admin' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                                                    sessionInfo.role === 'editor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                        'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
+                                                }`}>
+                                                {(sessionInfo.role || "Unknown").toUpperCase()}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">Token Expires</p>
+                                            <p className={`text-sm font-mono ${isExpired ? 'text-red-600' : 'text-green-600'}`}>
+                                                {expDate ? expDate.toLocaleString() : "—"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* RBAC Roles */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Users className="w-5 h-5 text-primary" />
+                                        Role Permissions
+                                    </CardTitle>
+                                    <CardDescription>Access control matrix for each role level.</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="w-[120px]">Role</TableHead>
+                                                <TableHead>Dashboard</TableHead>
+                                                <TableHead>Sources</TableHead>
+                                                <TableHead>Knowledge</TableHead>
+                                                <TableHead>Pipeline</TableHead>
+                                                <TableHead>Chat</TableHead>
+                                                <TableHead>Settings</TableHead>
+                                                <TableHead>Users</TableHead>
+                                                <TableHead>Tenants</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            <TableRow>
+                                                <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">ADMIN</span></TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">EDITOR</span></TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>⛔</TableCell>
+                                                <TableCell>⛔</TableCell>
+                                                <TableCell>⛔</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">VIEWER</span></TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>👁️</TableCell>
+                                                <TableCell>👁️</TableCell>
+                                                <TableCell>👁️</TableCell>
+                                                <TableCell>✅</TableCell>
+                                                <TableCell>⛔</TableCell>
+                                                <TableCell>⛔</TableCell>
+                                                <TableCell>⛔</TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                    <p className="text-xs text-muted-foreground mt-3">✅ Full access · 👁️ Read-only · ⛔ No access</p>
+                                </CardContent>
+                            </Card>
+
+                            {/* Security Checklist */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Shield className="w-5 h-5 text-primary" />
+                                        Security Recommendations
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="space-y-3">
+                                        {recommendations.map((r, i) => (
+                                            <div key={i} className="flex items-center gap-3">
+                                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${r.done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                                    }`}>
+                                                    {r.done ? '✓' : '!'}
+                                                </div>
+                                                <span className={`text-sm ${r.done ? 'text-muted-foreground' : 'font-medium'}`}>
+                                                    {r.text}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    );
+                })();
             case "tenants":
                 return renderTenantsTab();
             case "users":
