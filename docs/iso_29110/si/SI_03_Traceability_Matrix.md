@@ -67,3 +67,6 @@
 | ENH-187  | Graph API Routes (Sprint 17)                  | KG Module            | `routes/graph.rs` (8 endpoints, 5 tests)                            | TC-017       | Done   |
 | ENH-188  | Graph Visualization Frontend (Sprint 17)      | KG UI Module         | `graph/page.tsx`, `api.ts`, `navbar.tsx`                            | TC-017       | Done   |
 | ENH-189  | KG Settings Tab (Sprint 17)                   | Settings Module      | `settings/page.tsx` (replace Coming Soon)                           | TC-017       | Done   |
+| ENH-190  | Coverage API Backend (Sprint 18)              | Coverage Module      | `routes/coverage.rs` (3 endpoints, 14 tests)                        | TC-018       | Done   |
+| ENH-191  | Coverage Dashboard Frontend (Sprint 18)       | Coverage UI Module   | `coverage/page.tsx`, `api.ts`                                       | TC-018       | Done   |
+| ENH-192  | Coverage API Functions (Sprint 18)            | Coverage API Module  | `api.ts` (5 interfaces + 3 functions)                               | TC-018       | Done   |
