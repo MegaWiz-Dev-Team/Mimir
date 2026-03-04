@@ -9,7 +9,7 @@ import {
     Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
     Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes
 } from "lucide-react";
-import { fetchTenants, Tenant } from "@/lib/api";
+import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
 
 type NavItem = {
     name: string;
@@ -119,9 +119,13 @@ export function Navbar() {
         if (pathname !== "/login" && token) {
             // Decode JWT to get user role
             const claims = decodeJwtPayload(token);
-            if (claims?.role) setUserRole(claims.role);
+            const role = claims?.role || "viewer";
+            setUserRole(role);
 
-            fetchTenants()
+            // Admin sees all tenants, regular users see only their assigned tenants
+            const isAdminRole = role === "admin" || role === "SuperAdmin";
+            const tenantFetcher = isAdminRole ? fetchTenants : fetchMyTenants;
+            tenantFetcher()
                 .then(setTenants)
                 .catch(() => setTenants([]));
         }

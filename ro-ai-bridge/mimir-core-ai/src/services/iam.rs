@@ -133,6 +133,20 @@ impl IamService {
         Ok(tenants)
     }
 
+    /// Get only tenants assigned to a specific user via tenant_users
+    pub async fn get_my_tenants(&self, user_id: &str) -> Result<Vec<Tenant>> {
+        let tenants = sqlx::query_as!(
+            Tenant,
+            r#"SELECT t.id, t.name, t.domain, t.created_at, t.updated_at
+            FROM tenants t
+            INNER JOIN tenant_users tu ON t.id = tu.tenant_id
+            WHERE tu.user_id = ?"#,
+            user_id
+        )
+        .fetch_all(&self.db).await?;
+        Ok(tenants)
+    }
+
     pub async fn create_user(&self, req: CreateUserRequest) -> Result<User> {
         let user_id = Uuid::new_v4().to_string();
         
