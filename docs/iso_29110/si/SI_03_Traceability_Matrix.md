@@ -73,3 +73,6 @@
 | ENH-193  | Playground → Agent Templates (Sprint 19)        | Agent Templates      | `api.ts` (fetchPlaygroundAgents), `playground/page.tsx`, `agents/page.tsx` | TC-019       | Done   |
 | ENH-193a | Agent Studio → Playground Deep-link (Sprint 19) | Agent Templates UI   | `agents/page.tsx` (Playground button + Tier badge)                         | TC-019       | Done   |
 | ENH-193b | Playground Empty State (Sprint 19)              | Playground UI        | `playground/page.tsx` (empty state + Suspense boundary)                    | TC-019       | Done   |
+| ENH-191  | Custom Roles + ACL Matrix (Sprint 20)           | IAM Module           | `roles` table, `models/iam.rs`, `services/iam.rs`, `routes/iam.rs`         | TC-020       | Done   |
+| ENH-191a | Role CRUD API (Sprint 20)                       | IAM API Module       | `services/iam.rs` (4 CRUD methods), `routes/iam.rs` (4 endpoints)          | TC-020       | Done   |
+| ENH-191b | Editable ACL Matrix UI (Sprint 20)              | ACL Matrix UI        | `settings/page.tsx` (dynamic matrix), `api.ts` (4 role API functions)      | TC-020       | Done   |
