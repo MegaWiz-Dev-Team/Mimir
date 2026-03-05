@@ -398,11 +398,109 @@ impl IamService {
         tx.commit().await?;
         Ok(())
     }
+
+    // ─── Custom Roles CRUD — Issue #191 ────────────────────────────────────────
+
+    /// List all roles (built-in + custom) for a tenant
+    pub async fn list_roles(&self, tenant_id: &str) -> Result<Vec<crate::models::iam::Role>> {
+        let roles = sqlx::query_as::<_, crate::models::iam::Role>(
+            "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE tenant_id = ? ORDER BY is_builtin DESC, name ASC"
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.db).await?;
+        Ok(roles)
+    }
+
+    /// Create a custom role (validates unique name per tenant)
+    pub async fn create_role(&self, tenant_id: &str, req: crate::models::iam::CreateRoleRequest) -> Result<crate::models::iam::Role> {
+        // Check for duplicate name
+        let row = sqlx::query("SELECT COUNT(*) as cnt FROM roles WHERE tenant_id = ? AND name = ?")
+            .bind(tenant_id)
+            .bind(&req.name)
+            .fetch_one(&self.db).await?;
+        let cnt: i64 = sqlx::Row::get(&row, "cnt");
+        if cnt > 0 {
+            return Err(anyhow!("Role '{}' already exists in this tenant", req.name));
+        }
+
+        let role_id = Uuid::new_v4().to_string();
+        let permissions_json = serde_json::to_string(&req.permissions)?;
+
+        sqlx::query("INSERT INTO roles (id, tenant_id, name, is_builtin, permissions) VALUES (?, ?, ?, FALSE, ?)")
+            .bind(&role_id)
+            .bind(tenant_id)
+            .bind(&req.name)
+            .bind(&permissions_json)
+            .execute(&self.db).await?;
+
+        let role = sqlx::query_as::<_, crate::models::iam::Role>(
+            "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE id = ?"
+        )
+        .bind(&role_id)
+        .fetch_one(&self.db).await?;
+        Ok(role)
+    }
+
+    /// Update a custom role's permissions (rejects built-in roles)
+    pub async fn update_role(&self, role_id: &str, req: crate::models::iam::UpdateRoleRequest) -> Result<crate::models::iam::Role> {
+        let role = sqlx::query_as::<_, crate::models::iam::Role>(
+            "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE id = ?"
+        )
+        .bind(role_id)
+        .fetch_optional(&self.db).await?
+        .ok_or_else(|| anyhow!("Role not found"))?;
+
+        if role.is_builtin {
+            return Err(anyhow!("Cannot modify built-in role"));
+        }
+
+        let permissions_json = serde_json::to_string(&req.permissions)?;
+        sqlx::query("UPDATE roles SET permissions = ? WHERE id = ?")
+            .bind(&permissions_json)
+            .bind(role_id)
+            .execute(&self.db).await?;
+
+        let updated = sqlx::query_as::<_, crate::models::iam::Role>(
+            "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE id = ?"
+        )
+        .bind(role_id)
+        .fetch_one(&self.db).await?;
+        Ok(updated)
+    }
+
+    /// Delete a custom role (rejects built-in or in-use roles)
+    pub async fn delete_role(&self, role_id: &str) -> Result<()> {
+        let role = sqlx::query_as::<_, crate::models::iam::Role>(
+            "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE id = ?"
+        )
+        .bind(role_id)
+        .fetch_optional(&self.db).await?
+        .ok_or_else(|| anyhow!("Role not found"))?;
+
+        if role.is_builtin {
+            return Err(anyhow!("Cannot delete built-in role"));
+        }
+
+        // Check if any users have this role assigned
+        let row = sqlx::query("SELECT COUNT(*) as cnt FROM tenant_users WHERE role = ?")
+            .bind(&role.name)
+            .fetch_one(&self.db).await?;
+        let cnt: i64 = sqlx::Row::get(&row, "cnt");
+        if cnt > 0 {
+            return Err(anyhow!("Cannot delete role '{}' — it is assigned to {} user(s)", role.name, cnt));
+        }
+
+        sqlx::query("DELETE FROM roles WHERE id = ?")
+            .bind(role_id)
+            .execute(&self.db).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_verify_password_valid() {
@@ -429,5 +527,31 @@ mod tests {
         
         let result = IamService::verify_password(password, invalid_hash);
         assert!(result.is_err(), "verify_password should return Err on invalid hash string format");
+    }
+
+    // ─── Custom Roles Tests — Issue #191 ─────────────────────────────────────
+
+    #[test]
+    fn test_role_permissions_serialization() {
+        let mut perms = HashMap::new();
+        perms.insert("dashboard".to_string(), "full".to_string());
+        perms.insert("sources".to_string(), "read".to_string());
+        perms.insert("settings".to_string(), "none".to_string());
+
+        let json = serde_json::to_string(&perms).unwrap();
+        let parsed: HashMap<String, String> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.get("dashboard").unwrap(), "full");
+        assert_eq!(parsed.get("sources").unwrap(), "read");
+        assert_eq!(parsed.get("settings").unwrap(), "none");
+    }
+
+    #[test]
+    fn test_create_role_request_validation() {
+        let json = r#"{"name":"custom_ops","permissions":{"dashboard":"full","sources":"read"}}"#;
+        let req: crate::models::iam::CreateRoleRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name, "custom_ops");
+        assert_eq!(req.permissions.len(), 2);
+        assert_eq!(req.permissions.get("dashboard").unwrap(), "full");
     }
 }

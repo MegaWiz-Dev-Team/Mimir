@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import Cookies from "js-cookie";
 
-import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, fetchVaultStatus, fetchVaultSecrets, rotateVaultSecret, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest, VaultStatus, VaultSecretInfo, VaultSecretsResponse } from "@/lib/api";
+import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, fetchVaultStatus, fetchVaultSecrets, rotateVaultSecret, fetchRoles, createRole, updateRole, deleteRole, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest, VaultStatus, VaultSecretInfo, VaultSecretsResponse, Role } from "@/lib/api";
 
 // ─── Tab Definitions ────────────────────────────────────────────────────────────
 
@@ -62,6 +62,79 @@ export default function SettingsPage() {
     const [rotateValue, setRotateValue] = useState("");
     const [isRotating, setIsRotating] = useState(false);
     const [rotatingKey, setRotatingKey] = useState<string | null>(null);
+
+    // Custom Roles state (Issue #191)
+    const [roles, setRoles] = useState<Role[]>([]);
+    const [isRolesLoading, setIsRolesLoading] = useState(false);
+    const [addRoleDialog, setAddRoleDialog] = useState(false);
+    const [newRoleName, setNewRoleName] = useState("");
+    const [deleteRoleDialog, setDeleteRoleDialog] = useState<{ open: boolean; role: Role | null }>({ open: false, role: null });
+    const [pendingPermChanges, setPendingPermChanges] = useState<Record<string, Record<string, string>>>({});
+    const [isSavingRoles, setIsSavingRoles] = useState(false);
+
+    const PERMISSION_RESOURCES = ["dashboard", "sources", "knowledge", "pipeline", "chat", "qc", "analytics", "settings", "users", "tenants"];
+    const PERMISSION_LEVELS = ["full", "read", "none"];
+    const PERMISSION_ICONS: Record<string, string> = { full: "\u2705", read: "\ud83d\udc41\ufe0f", none: "\u26d4" };
+
+    const loadRoles = async () => {
+        setIsRolesLoading(true);
+        try {
+            const data = await fetchRoles();
+            setRoles(data);
+            setPendingPermChanges({});
+        } catch (e) { console.error("Failed to load roles", e); }
+        setIsRolesLoading(false);
+    };
+
+    const togglePermission = (roleId: string, resource: string, currentLevel: string) => {
+        const idx = PERMISSION_LEVELS.indexOf(currentLevel);
+        const next = PERMISSION_LEVELS[(idx + 1) % PERMISSION_LEVELS.length];
+        setPendingPermChanges(prev => ({
+            ...prev,
+            [roleId]: { ...(prev[roleId] || {}), [resource]: next }
+        }));
+    };
+
+    const getEffectivePermission = (role: Role, resource: string): string => {
+        return pendingPermChanges[role.id]?.[resource] ?? role.permissions[resource] ?? "none";
+    };
+
+    const hasPendingChanges = Object.keys(pendingPermChanges).length > 0;
+
+    const handleSaveRoles = async () => {
+        setIsSavingRoles(true);
+        try {
+            for (const [roleId, changes] of Object.entries(pendingPermChanges)) {
+                const role = roles.find(r => r.id === roleId);
+                if (!role || role.is_builtin) continue;
+                const merged = { ...role.permissions, ...changes };
+                await updateRole(roleId, { permissions: merged });
+            }
+            await loadRoles();
+        } catch (e) { console.error("Failed to save roles", e); }
+        setIsSavingRoles(false);
+    };
+
+    const handleAddRole = async () => {
+        if (!newRoleName.trim()) return;
+        try {
+            const defaultPerms: Record<string, string> = {};
+            PERMISSION_RESOURCES.forEach(r => defaultPerms[r] = "none");
+            await createRole({ name: newRoleName.trim().toLowerCase(), permissions: defaultPerms });
+            setNewRoleName("");
+            setAddRoleDialog(false);
+            await loadRoles();
+        } catch (e) { console.error("Failed to add role", e); }
+    };
+
+    const handleDeleteRole = async () => {
+        if (!deleteRoleDialog.role) return;
+        try {
+            await deleteRole(deleteRoleDialog.role.id);
+            setDeleteRoleDialog({ open: false, role: null });
+            await loadRoles();
+        } catch (e) { console.error("Failed to delete role", e); }
+    };
 
     const refreshVaultData = async () => {
         setIsVaultLoading(true);
@@ -837,7 +910,7 @@ export default function SettingsPage() {
                     const expDate = sessionInfo.exp ? new Date(sessionInfo.exp * 1000) : null;
                     const isExpired = expDate ? expDate < new Date() : true;
 
-                    const roles = [
+                    const roleDescriptions = [
                         { role: "Admin", desc: "Full access — manage users, tenants, settings, and all data", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
                         { role: "Editor", desc: "Read & write access — manage sources, pipelines, and knowledge base", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" },
                         { role: "Viewer", desc: "Read-only access — view dashboards, analytics, and chat", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300" },
@@ -1084,67 +1157,96 @@ export default function SettingsPage() {
                                     </CardContent>
                                 </Card>
 
-                                {/* RBAC Roles */}
+                                {/* RBAC Roles — Dynamic ACL Matrix (Issue #191) */}
                                 <Card>
                                     <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Users className="w-5 h-5 text-primary" />
-                                            Role Permissions
-                                        </CardTitle>
-                                        <CardDescription>Access control matrix for each role level.</CardDescription>
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <CardTitle className="flex items-center gap-2">
+                                                    <Users className="w-5 h-5 text-primary" />
+                                                    Role Permissions
+                                                </CardTitle>
+                                                <CardDescription>Click permission cells on custom roles to toggle between Full / Read / None.</CardDescription>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button variant="outline" size="sm" onClick={loadRoles} disabled={isRolesLoading}>
+                                                    <RefreshCw className={`w-4 h-4 mr-1 ${isRolesLoading ? 'animate-spin' : ''}`} />
+                                                    Refresh
+                                                </Button>
+                                                <Button variant="outline" size="sm" onClick={() => setAddRoleDialog(true)}>
+                                                    <Plus className="w-4 h-4 mr-1" />
+                                                    Add Role
+                                                </Button>
+                                                {hasPendingChanges && (
+                                                    <Button size="sm" onClick={handleSaveRoles} disabled={isSavingRoles}>
+                                                        <Save className="w-4 h-4 mr-1" />
+                                                        Save Changes
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
                                     </CardHeader>
                                     <CardContent>
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead className="w-[120px]">Role</TableHead>
-                                                    <TableHead>Dashboard</TableHead>
-                                                    <TableHead>Sources</TableHead>
-                                                    <TableHead>Knowledge</TableHead>
-                                                    <TableHead>Pipeline</TableHead>
-                                                    <TableHead>Chat</TableHead>
-                                                    <TableHead>Settings</TableHead>
-                                                    <TableHead>Users</TableHead>
-                                                    <TableHead>Tenants</TableHead>
+                                                    {PERMISSION_RESOURCES.map(r => (
+                                                        <TableHead key={r} className="text-center capitalize text-xs">{r}</TableHead>
+                                                    ))}
+                                                    <TableHead className="w-[60px]"></TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                <TableRow>
-                                                    <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">ADMIN</span></TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                </TableRow>
-                                                <TableRow>
-                                                    <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">EDITOR</span></TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>⛔</TableCell>
-                                                    <TableCell>⛔</TableCell>
-                                                    <TableCell>⛔</TableCell>
-                                                </TableRow>
-                                                <TableRow>
-                                                    <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">VIEWER</span></TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>👁️</TableCell>
-                                                    <TableCell>👁️</TableCell>
-                                                    <TableCell>👁️</TableCell>
-                                                    <TableCell>✅</TableCell>
-                                                    <TableCell>⛔</TableCell>
-                                                    <TableCell>⛔</TableCell>
-                                                    <TableCell>⛔</TableCell>
-                                                </TableRow>
+                                                {roles.length === 0 && !isRolesLoading ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={PERMISSION_RESOURCES.length + 2} className="text-center text-muted-foreground py-8">
+                                                            No roles found. Click &quot;Refresh&quot; to load roles.
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : roles.map(role => (
+                                                    <TableRow key={role.id}>
+                                                        <TableCell>
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${role.name === 'admin' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                                                                role.name === 'editor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                                    role.name === 'viewer' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300' :
+                                                                        'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
+                                                                }`}>
+                                                                {role.name.toUpperCase()}
+                                                                {role.is_builtin && <Lock className="w-3 h-3 ml-1 opacity-50" />}
+                                                            </span>
+                                                        </TableCell>
+                                                        {PERMISSION_RESOURCES.map(resource => {
+                                                            const level = getEffectivePermission(role, resource);
+                                                            const hasPending = pendingPermChanges[role.id]?.[resource] !== undefined;
+                                                            return (
+                                                                <TableCell
+                                                                    key={resource}
+                                                                    className={`text-center ${!role.is_builtin ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''
+                                                                        } ${hasPending ? 'ring-1 ring-primary/30 bg-primary/5' : ''}`}
+                                                                    onClick={() => !role.is_builtin && togglePermission(role.id, resource, level)}
+                                                                >
+                                                                    <span title={level}>{PERMISSION_ICONS[level] || '⛔'}</span>
+                                                                </TableCell>
+                                                            );
+                                                        })}
+                                                        <TableCell>
+                                                            {!role.is_builtin && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                                                                    onClick={() => setDeleteRoleDialog({ open: true, role })}
+                                                                >
+                                                                    <Trash2 className="w-3 h-3" />
+                                                                </Button>
+                                                            )}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
                                             </TableBody>
                                         </Table>
-                                        <p className="text-xs text-muted-foreground mt-3">✅ Full access · 👁️ Read-only · ⛔ No access</p>
+                                        <p className="text-xs text-muted-foreground mt-3">✅ Full access · 👁️ Read-only · ⛔ No access · <Lock className="w-3 h-3 inline" /> Built-in (immutable)</p>
                                     </CardContent>
                                 </Card>
 
@@ -1200,6 +1302,52 @@ export default function SettingsPage() {
                                         <Button variant="outline" onClick={() => setRotateDialog({ open: false, key: "" })}>Cancel</Button>
                                         <Button onClick={handleRotateSecret} disabled={isRotating || !rotateValue.trim()}>
                                             {isRotating ? <><RotateCw className="w-4 h-4 mr-1 animate-spin" /> Rotating...</> : "Rotate Secret"}
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+
+                            {/* Add Role Dialog — Issue #191 */}
+                            <Dialog open={addRoleDialog} onOpenChange={setAddRoleDialog}>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle>Add Custom Role</DialogTitle>
+                                        <DialogDescription>Create a new role with default &quot;none&quot; permissions. You can edit permissions in the ACL matrix after creation.</DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-3 py-2">
+                                        <Label htmlFor="role-name">Role Name</Label>
+                                        <Input
+                                            id="role-name"
+                                            placeholder="e.g. operator, reviewer..."
+                                            value={newRoleName}
+                                            onChange={e => setNewRoleName(e.target.value)}
+                                            onKeyDown={e => e.key === "Enter" && handleAddRole()}
+                                        />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="outline" onClick={() => setAddRoleDialog(false)}>Cancel</Button>
+                                        <Button onClick={handleAddRole} disabled={!newRoleName.trim()}>
+                                            <Plus className="w-4 h-4 mr-1" />
+                                            Create Role
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+
+                            {/* Delete Role Dialog — Issue #191 */}
+                            <Dialog open={deleteRoleDialog.open} onOpenChange={(open) => !open && setDeleteRoleDialog({ open: false, role: null })}>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle>Delete Role</DialogTitle>
+                                        <DialogDescription>
+                                            Are you sure you want to delete the role <strong>&quot;{deleteRoleDialog.role?.name}&quot;</strong>? This action cannot be undone.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <DialogFooter>
+                                        <Button variant="outline" onClick={() => setDeleteRoleDialog({ open: false, role: null })}>Cancel</Button>
+                                        <Button variant="destructive" onClick={handleDeleteRole}>
+                                            <Trash2 className="w-4 h-4 mr-1" />
+                                            Delete Role
                                         </Button>
                                     </DialogFooter>
                                 </DialogContent>

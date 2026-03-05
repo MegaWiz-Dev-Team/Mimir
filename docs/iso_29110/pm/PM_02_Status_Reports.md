@@ -23,67 +23,69 @@
 | 2026-03-04 | Sprint 17                                   | Completed | [ดูรายละเอียด PM_02_17_Sprint17_Report](PM_02_17_Sprint17_Report.md)     |
 | 2026-03-05 | Sprint 18                                   | Completed | [ดูรายละเอียด PM_02_18_Sprint18_Report](PM_02_18_Sprint18_Report.md)     |
 | 2026-03-05 | Sprint 19                                   | Completed | [ดูรายละเอียด PM_02_19_Sprint19_Report](PM_02_19_Sprint19_Report.md)     |
+| 2026-03-05 | Sprint 20                                   | Completed | [ดูรายละเอียด PM_02_20_Sprint20_Report](PM_02_20_Sprint20_Report.md)     |
 | 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
-| Date       | Issue / Change Request                                                                                 | Raised By | Status | Resolution                        |
-| ---------- | ------------------------------------------------------------------------------------------------------ | --------- | ------ | --------------------------------- |
-| 2026-03-05 | Issue #194: Bug: Vault ใช้ Dev Mode (inmem) ทำให้ Secrets หายทุก Restart                                   | User      | Closed | feat/sprint-18-coverage-analytics |
-| 2026-03-05 | Fix: Heimdall API URL port 8000→3000, API key saved to Vault                                           | System    | Done   | feat/sprint-18-coverage-analytics |
-| 2026-03-04 | PR #187: feat(sprint-17): Knowledge Graph system — Neo4j, Entity Extraction, Graph API & Visualization | Auto      | Done   | feat/sprint-17-knowledge-graph    |
-| 2026-03-01 | Issue #159: Feat: Reversible DB Migrations (25/25 .down.sql)                                           | Auto      | Done   | feat/sprint-14                    |
-| 2026-03-01 | Issue #158: Feat: Structured Logging & Request Tracing (JSON + ID)                                     | Auto      | Done   | feat/sprint-14                    |
-| 2026-03-01 | Issue #156: Feat: Performance Optimization (Cache + Pool + Indexes)                                    | Auto      | Done   | feat/sprint-14                    |
-| 2026-03-01 | Issue #155: Feat: MCP Real Implementation (Tool Registry + Routes)                                     | Auto      | Done   | feat/sprint-14                    |
-| 2026-03-01 | Issue #157: Feat: Vault Secrets Management (HashiCorp Vault KV v2)                                     | User      | Open   | feat/sprint-14                    |
-| 2026-03-01 | Issue #154: Feat: E2E Test Suite (Full pipeline integration tests)                                     | User      | Open   | feat/sprint-14                    |
-| 2026-03-01 | Issue #153: Feat: Feedback & Bug Report (GitHub Issue integration)                                     | User      | Open   | feat/sprint-14                    |
-| 2026-03-01 | Issue #152: Feat: External DB Connectors (MySQL/PostgreSQL/SQLite)                                     | User      | Open   | feat/sprint-14                    |
-| 2026-03-01 | Issue #151: Feat: OCR Integration (Gemini 2.5 Flash Vision)                                            | User      | Open   | feat/sprint-14                    |
-| 2026-03-01 | Issue #150: Feat: Scheduled Re-sync (Cron Worker)                                                      | User      | Open   | feat/sprint-14                    |
-| 2026-02-28 | Issue #148: Feat: Advanced Analytics — Budget, Alerts & Benchmark                                      | User      | Open   | PR #149                           |
-| 2026-02-28 | Issue #147: Feat: LLM Performance Evaluation Dashboard                                                 | User      | Open   | PR #149                           |
-| 2026-02-28 | Issue #146: Feat: Conversation Logging — Playground & Agent Studio                                     | User      | Open   | PR #149                           |
-| 2026-02-28 | Issue #145: Feat: Agent Studio — Frontend UI                                                           | User      | Open   | PR #149                           |
-| 2026-02-28 | Issue #144: Feat: Agent Studio — Backend CRUD API                                                      | User      | Open   | PR #149                           |
-| 2026-02-28 | Issue #138: Feat: Search Settings Backend Persistence                                                  | User      | Open   | PR #143 Merged                    |
-| 2026-02-28 | Issue #137: Feat: LLM Analytics Dashboard                                                              | User      | Open   | PR #142 Merged                    |
-| 2026-02-28 | Issue #136: Feat: LLM Usage Logging — Backend                                                          | User      | Open   | PR #140 Merged                    |
-| 2026-02-28 | Issue #135: Feat: Web Hierarchy Loader — Frontend UI                                                   | User      | Open   | PR #141 Merged                    |
-| 2026-02-28 | Issue #134: Feat: Web Hierarchy Loader — Backend API                                                   | User      | Open   | PR #140 Merged                    |
-| 2026-02-27 | Issue #112: Bug: Unsupported source type 'file'                                                        | User      | Closed | PR #113 Merged                    |
-| 2026-02-27 | Issue #110: Bug: Test environment login fails                                                          | System    | Closed | Migration fix                     |
-| 2026-02-27 | Issue #109: Bug: Compile errors (Deserialize + crate path)                                             | System    | Closed | Direct commit                     |
-| 2026-02-27 | Issue #100: Sprint 9 DB Migration Schema                                                               | User      | Closed | PR #101 Merged                    |
-| 2026-02-27 | Issue #99: Settings Page — Tabbed Interface                                                            | User      | Closed | PR #108 Merged                    |
-| 2026-02-27 | Issue #98: Frontend Navigation Restructure                                                             | User      | Closed | PR #107 Merged                    |
-| 2026-02-27 | Issue #97: Cross-source Deduplication                                                                  | User      | Closed | PR #106 Merged                    |
-| 2026-02-27 | Issue #96: Link Discovery                                                                              | User      | Closed | PR #105 Merged                    |
-| 2026-02-27 | Issue #95: Chunking Service                                                                            | User      | Closed | PR #104 Merged                    |
-| 2026-02-27 | Issue #94: Pipeline Wiring                                                                             | User      | Closed | PR #103 Merged                    |
-| 2026-02-26 | Issue #77: Data Connection Wizard UI — 3-Step Sheet Drawer                                             | User      | Closed | PR #78 Merged                     |
-| 2026-02-26 | Issue #73: File/Folder Upload API + RustFS Integration                                                 | User      | Closed | PR #80 Merged                     |
-| 2026-02-26 | Issue #73: Sprint 7 Final Testing UI Component                                                         | User      | Closed | Closed                            |
-| 2026-02-26 | Issue #71: Sprint 6 Agent Evaluations System                                                           | User      | Closed | Closed                            |
-| 2026-02-26 | Issue #68: Fix React Hydration Mismatch in Navbar and PipelineStatusBar                                | User      | Closed | PR Merged                         |
-| 2026-02-26 | Issue #66: Fix Next.js React Error in PipelineStatusBar                                                | User      | Closed | PR Merged                         |
-| 2026-02-26 | Issue #64: PipelineStatusBar visible on login page after logout                                        | User      | Closed | PR Merged                         |
-| 2026-02-26 | Issue #62: Users page: "Failed to load users" error on navigation                                      | User      | Closed | PR Merged                         |
-| 2026-02-26 | Issue #61: Sprint 7: Add TDD Unit Tests for all UI/UX Pipeline Features                                | User      | Closed | PR Merged                         |
-| 2026-02-26 | Issue #59: Console TypeError: Failed to fetch across all Dashboard pages                               | User      | Closed | PR Merged                         |
-| 2026-02-26 | Issue #57: Console TypeError: Failed to fetch in fetchQcClusters                                       | User      | Closed | PR Merged                         |
-| 2026-02-25 | Issue #55: Sprint 7: UX/UI Pipeline Refinement & Traceability                                          | User      | Closed | PR Merged                         |
-| 2026-02-25 | Issue #53: Implement actual background worker for Data Ingress Sync                                    | User      | Closed | PR #54 Merged                     |
-| 2026-02-25 | Issue #51: "Configure" button on Sources page does nothing                                             | User      | Closed | PR #52 Merged                     |
-| 2026-02-25 | Issue #43: Users page redirects to login abruptly (Failed to load users)                               | User      | Closed | PR #44 Merged                     |
-| 2026-02-25 | Issue #41: Vector Stats API 404 (Failed to fetch vector stats)                                         | User      | Closed | PR #42 Merged                     |
-| 2026-02-25 | Issue #39: Auto-scan QC UI Feedback                                                                    | User      | Closed | PR Merged                         |
-| 2026-02-24 | Sprint 4: Quality Control Kanban & Clustering                                                          | User      | Closed | PR Merged                         |
-| 2026-02-24 | Issue #29: Sprint 3 - Tenant Configuration & Provisioning                                              | User      | Closed | PR #31, #32 Merged                |
-| 2026-02-23 | Issue #27: Bug: Missing Settings Menu from Navbar                                                      | User      | Closed | PR #28 Merged                     |
-| 2026-02-23 | Issue #25: Bug: Users table fail to load                                                               | System    | Closed | PR #26 Merged                     |
-| 2026-02-23 | Issue #19: Tenant Settings Page Feature                                                                | User      | Closed | PR #20 Merged                     |
-| 2026-02-22 | Issue #17: Users page redirects to login due to undefined token                                        | User      | Closed | PR #18 Merged                     |
-| 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring                                                            | User      | Closed | PR #50 Merged                     |
+| Date       | Issue / Change Request                                                                                 | Raised By | Status | Resolution                         |
+| ---------- | ------------------------------------------------------------------------------------------------------ | --------- | ------ | ---------------------------------- |
+| 2026-03-05 | PR #198: feat(#191): Custom Roles + Editable ACL Matrix                                                | Auto      | Open   | feature/issue-191-custom-roles-acl |
+| 2026-03-05 | Issue #194: Bug: Vault ใช้ Dev Mode (inmem) ทำให้ Secrets หายทุก Restart                                   | User      | Closed | feat/sprint-18-coverage-analytics  |
+| 2026-03-05 | Fix: Heimdall API URL port 8000→3000, API key saved to Vault                                           | System    | Done   | feat/sprint-18-coverage-analytics  |
+| 2026-03-04 | PR #187: feat(sprint-17): Knowledge Graph system — Neo4j, Entity Extraction, Graph API & Visualization | Auto      | Done   | feat/sprint-17-knowledge-graph     |
+| 2026-03-01 | Issue #159: Feat: Reversible DB Migrations (25/25 .down.sql)                                           | Auto      | Done   | feat/sprint-14                     |
+| 2026-03-01 | Issue #158: Feat: Structured Logging & Request Tracing (JSON + ID)                                     | Auto      | Done   | feat/sprint-14                     |
+| 2026-03-01 | Issue #156: Feat: Performance Optimization (Cache + Pool + Indexes)                                    | Auto      | Done   | feat/sprint-14                     |
+| 2026-03-01 | Issue #155: Feat: MCP Real Implementation (Tool Registry + Routes)                                     | Auto      | Done   | feat/sprint-14                     |
+| 2026-03-01 | Issue #157: Feat: Vault Secrets Management (HashiCorp Vault KV v2)                                     | User      | Open   | feat/sprint-14                     |
+| 2026-03-01 | Issue #154: Feat: E2E Test Suite (Full pipeline integration tests)                                     | User      | Open   | feat/sprint-14                     |
+| 2026-03-01 | Issue #153: Feat: Feedback & Bug Report (GitHub Issue integration)                                     | User      | Open   | feat/sprint-14                     |
+| 2026-03-01 | Issue #152: Feat: External DB Connectors (MySQL/PostgreSQL/SQLite)                                     | User      | Open   | feat/sprint-14                     |
+| 2026-03-01 | Issue #151: Feat: OCR Integration (Gemini 2.5 Flash Vision)                                            | User      | Open   | feat/sprint-14                     |
+| 2026-03-01 | Issue #150: Feat: Scheduled Re-sync (Cron Worker)                                                      | User      | Open   | feat/sprint-14                     |
+| 2026-02-28 | Issue #148: Feat: Advanced Analytics — Budget, Alerts & Benchmark                                      | User      | Open   | PR #149                            |
+| 2026-02-28 | Issue #147: Feat: LLM Performance Evaluation Dashboard                                                 | User      | Open   | PR #149                            |
+| 2026-02-28 | Issue #146: Feat: Conversation Logging — Playground & Agent Studio                                     | User      | Open   | PR #149                            |
+| 2026-02-28 | Issue #145: Feat: Agent Studio — Frontend UI                                                           | User      | Open   | PR #149                            |
+| 2026-02-28 | Issue #144: Feat: Agent Studio — Backend CRUD API                                                      | User      | Open   | PR #149                            |
+| 2026-02-28 | Issue #138: Feat: Search Settings Backend Persistence                                                  | User      | Open   | PR #143 Merged                     |
+| 2026-02-28 | Issue #137: Feat: LLM Analytics Dashboard                                                              | User      | Open   | PR #142 Merged                     |
+| 2026-02-28 | Issue #136: Feat: LLM Usage Logging — Backend                                                          | User      | Open   | PR #140 Merged                     |
+| 2026-02-28 | Issue #135: Feat: Web Hierarchy Loader — Frontend UI                                                   | User      | Open   | PR #141 Merged                     |
+| 2026-02-28 | Issue #134: Feat: Web Hierarchy Loader — Backend API                                                   | User      | Open   | PR #140 Merged                     |
+| 2026-02-27 | Issue #112: Bug: Unsupported source type 'file'                                                        | User      | Closed | PR #113 Merged                     |
+| 2026-02-27 | Issue #110: Bug: Test environment login fails                                                          | System    | Closed | Migration fix                      |
+| 2026-02-27 | Issue #109: Bug: Compile errors (Deserialize + crate path)                                             | System    | Closed | Direct commit                      |
+| 2026-02-27 | Issue #100: Sprint 9 DB Migration Schema                                                               | User      | Closed | PR #101 Merged                     |
+| 2026-02-27 | Issue #99: Settings Page — Tabbed Interface                                                            | User      | Closed | PR #108 Merged                     |
+| 2026-02-27 | Issue #98: Frontend Navigation Restructure                                                             | User      | Closed | PR #107 Merged                     |
+| 2026-02-27 | Issue #97: Cross-source Deduplication                                                                  | User      | Closed | PR #106 Merged                     |
+| 2026-02-27 | Issue #96: Link Discovery                                                                              | User      | Closed | PR #105 Merged                     |
+| 2026-02-27 | Issue #95: Chunking Service                                                                            | User      | Closed | PR #104 Merged                     |
+| 2026-02-27 | Issue #94: Pipeline Wiring                                                                             | User      | Closed | PR #103 Merged                     |
+| 2026-02-26 | Issue #77: Data Connection Wizard UI — 3-Step Sheet Drawer                                             | User      | Closed | PR #78 Merged                      |
+| 2026-02-26 | Issue #73: File/Folder Upload API + RustFS Integration                                                 | User      | Closed | PR #80 Merged                      |
+| 2026-02-26 | Issue #73: Sprint 7 Final Testing UI Component                                                         | User      | Closed | Closed                             |
+| 2026-02-26 | Issue #71: Sprint 6 Agent Evaluations System                                                           | User      | Closed | Closed                             |
+| 2026-02-26 | Issue #68: Fix React Hydration Mismatch in Navbar and PipelineStatusBar                                | User      | Closed | PR Merged                          |
+| 2026-02-26 | Issue #66: Fix Next.js React Error in PipelineStatusBar                                                | User      | Closed | PR Merged                          |
+| 2026-02-26 | Issue #64: PipelineStatusBar visible on login page after logout                                        | User      | Closed | PR Merged                          |
+| 2026-02-26 | Issue #62: Users page: "Failed to load users" error on navigation                                      | User      | Closed | PR Merged                          |
+| 2026-02-26 | Issue #61: Sprint 7: Add TDD Unit Tests for all UI/UX Pipeline Features                                | User      | Closed | PR Merged                          |
+| 2026-02-26 | Issue #59: Console TypeError: Failed to fetch across all Dashboard pages                               | User      | Closed | PR Merged                          |
+| 2026-02-26 | Issue #57: Console TypeError: Failed to fetch in fetchQcClusters                                       | User      | Closed | PR Merged                          |
+| 2026-02-25 | Issue #55: Sprint 7: UX/UI Pipeline Refinement & Traceability                                          | User      | Closed | PR Merged                          |
+| 2026-02-25 | Issue #53: Implement actual background worker for Data Ingress Sync                                    | User      | Closed | PR #54 Merged                      |
+| 2026-02-25 | Issue #51: "Configure" button on Sources page does nothing                                             | User      | Closed | PR #52 Merged                      |
+| 2026-02-25 | Issue #43: Users page redirects to login abruptly (Failed to load users)                               | User      | Closed | PR #44 Merged                      |
+| 2026-02-25 | Issue #41: Vector Stats API 404 (Failed to fetch vector stats)                                         | User      | Closed | PR #42 Merged                      |
+| 2026-02-25 | Issue #39: Auto-scan QC UI Feedback                                                                    | User      | Closed | PR Merged                          |
+| 2026-02-24 | Sprint 4: Quality Control Kanban & Clustering                                                          | User      | Closed | PR Merged                          |
+| 2026-02-24 | Issue #29: Sprint 3 - Tenant Configuration & Provisioning                                              | User      | Closed | PR #31, #32 Merged                 |
+| 2026-02-23 | Issue #27: Bug: Missing Settings Menu from Navbar                                                      | User      | Closed | PR #28 Merged                      |
+| 2026-02-23 | Issue #25: Bug: Users table fail to load                                                               | System    | Closed | PR #26 Merged                      |
+| 2026-02-23 | Issue #19: Tenant Settings Page Feature                                                                | User      | Closed | PR #20 Merged                      |
+| 2026-02-22 | Issue #17: Users page redirects to login due to undefined token                                        | User      | Closed | PR #18 Merged                      |
+| 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring                                                            | User      | Closed | PR #50 Merged                      |
 
 | Date       | Issue / Change Request                                                                                 | Raised By | Status | Resolution                     |
 | ---------- | ------------------------------------------------------------------------------------------------------ | --------- | ------ | ------------------------------ |
