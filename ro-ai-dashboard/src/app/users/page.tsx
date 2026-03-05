@@ -198,7 +198,7 @@ export default function UsersPage() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Username</TableHead>
-                                <TableHead>Tenant ID</TableHead>
+                                <TableHead>Tenant</TableHead>
                                 <TableHead>Role</TableHead>
                                 <TableHead>Created At</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
@@ -219,7 +219,7 @@ export default function UsersPage() {
                                         <TableCell className="font-medium">{user.username}</TableCell>
                                         <TableCell>
                                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300">
-                                                {user.tenant_id || "Unassigned"}
+                                                {tenants.find(t => t.id === user.tenant_id)?.name || user.tenant_id || "Unassigned"}
                                             </span>
                                         </TableCell>
                                         <TableCell>

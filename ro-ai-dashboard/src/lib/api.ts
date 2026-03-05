@@ -228,6 +228,57 @@ export interface Persona {
     traits: string[];
 }
 
+/// Agent config from Agent Studio API (DB-backed)
+export interface AgentConfigResponse {
+    id: number;
+    tenant_id: string;
+    name: string;
+    display_name?: string;
+    description?: string;
+    system_prompt: string;
+    model_id: string;
+    provider: string;
+    temperature?: number;
+    max_tokens?: number;
+    top_k?: number;
+    use_rag?: boolean;
+    use_knowledge_graph?: boolean;
+    tools?: string[];
+    personality_traits?: string[];
+    greeting?: string;
+    avatar_url?: string;
+    template_id?: string;
+    is_published?: boolean;
+    tier?: number;
+    response_mode?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+/// Fetch all agents from Agent Studio API
+export async function fetchAgents(): Promise<AgentConfigResponse[]> {
+    try {
+        const res = await authFetch(`${API_BASE_URL}/agents`, { cache: "no-store" });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+/// Convert AgentConfigResponse to Persona format (for backwards compatibility)
+export function agentToPersona(agent: AgentConfigResponse): Persona {
+    return {
+        name: agent.name,
+        display_name: agent.display_name || agent.name,
+        tier: agent.tier || 2,
+        description: agent.description || "",
+        greeting: agent.greeting || "",
+        avatar_url: agent.avatar_url,
+        traits: agent.personality_traits || [],
+    };
+}
+
 export interface ModelConfig {
     model_id: string;
     provider: string;
@@ -570,6 +621,12 @@ export async function fetchUsers(): Promise<User[]> {
 export async function fetchTenants(): Promise<Tenant[]> {
     const res = await authFetch(`${API_BASE_URL}/iam/tenants`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch tenants");
+    return res.json();
+}
+
+export async function fetchMyTenants(): Promise<Tenant[]> {
+    const res = await authFetch(`${API_BASE_URL}/iam/my-tenants`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch my tenants");
     return res.json();
 }
 
@@ -1028,6 +1085,8 @@ export interface AgentConfig {
     template_id?: string;
     is_published?: boolean;
     api_key?: string;
+    tier?: number;
+    response_mode?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -1049,6 +1108,8 @@ export interface CreateAgentRequest {
     greeting?: string;
     avatar_url?: string;
     template_id?: string;
+    tier?: number;
+    response_mode?: string;
 }
 
 export interface AgentTemplate {
@@ -1066,6 +1127,8 @@ export interface AgentTemplate {
     tools: string[];
     personality_traits: string[];
     greeting: string;
+    tier?: number;
+    avatar_url?: string;
 }
 
 export interface AgentChatResponse {
@@ -1130,13 +1193,8 @@ export interface BenchmarkEntry {
     estimated_cost: number;
 }
 
-// Agent CRUD
+// Agent CRUD (fetchAgents is defined above near AgentConfigResponse)
 
-export async function fetchAgents(page = 1, perPage = 20) {
-    const res = await authFetch(`${API_BASE_URL}/agents?page=${page}&per_page=${perPage}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("Failed to fetch agents");
-    return res.json();
-}
 
 export async function createAgent(data: CreateAgentRequest): Promise<AgentConfig> {
     const res = await authFetch(`${API_BASE_URL}/agents`, {
@@ -1587,3 +1645,72 @@ export async function fetchExtractionRuns(): Promise<{ runs: ExtractionRun[] }> 
     if (!res.ok) throw new Error("Failed to fetch extraction runs");
     return res.json();
 }
+
+
+// ─── Sprint 18: Coverage Analytics API ──────────────────────────────────────
+
+export interface PipelineStages {
+    ingested: number;
+    chunked: number;
+    qa_generated: number;
+    vectorized: number;
+    kg_extracted: number;
+}
+
+export interface CoverageOverview {
+    total_sources: number;
+    sources_with_chunks: number;
+    sources_with_qa: number;
+    sources_with_vectors: number;
+    sources_with_kg: number;
+    overall_score: number;
+    pipeline_stages: PipelineStages;
+}
+
+export interface SourceCoverage {
+    source_id: number;
+    name: string;
+    source_type: string;
+    status: string;
+    chunk_count: number;
+    qa_count: number;
+    vector_coverage_pct: number;
+    kg_entity_count: number;
+    dedup_ratio: number;
+    blindspots: string[];
+    coverage_score: number;
+    last_sync_at: string | null;
+}
+
+export interface GapSource {
+    source_id: number;
+    name: string;
+}
+
+export interface CoverageGaps {
+    sources_missing_chunks: GapSource[];
+    sources_missing_qa: GapSource[];
+    sources_missing_vectors: GapSource[];
+    sources_missing_kg: GapSource[];
+    stale_sources: GapSource[];
+    high_dedup_sources: GapSource[];
+}
+
+export async function fetchCoverageOverview(): Promise<CoverageOverview> {
+    const res = await authFetch(`${API_BASE_URL}/coverage/overview`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch coverage overview");
+    return res.json();
+}
+
+export async function fetchCoverageSources(): Promise<SourceCoverage[]> {
+    const res = await authFetch(`${API_BASE_URL}/coverage/sources`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch coverage sources");
+    return res.json();
+}
+
+export async function fetchCoverageGaps(): Promise<CoverageGaps> {
+    const res = await authFetch(`${API_BASE_URL}/coverage/gaps`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch coverage gaps");
+    return res.json();
+}
+

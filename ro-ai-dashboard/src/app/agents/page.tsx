@@ -12,6 +12,7 @@ import {
     AgentTemplate,
     AgentChatResponse,
     CreateAgentRequest,
+    PROVIDERS,
     fetchAgents,
     createAgent,
     getAgent,
@@ -93,7 +94,9 @@ export default function AgentStudioPage() {
         try {
             setLoading(true);
             const data = await fetchAgents();
-            setAgents(data.agents || []);
+            // Handle both array and {agents:[]} response shapes
+            const list = Array.isArray(data) ? data : ((data as any).agents || []);
+            setAgents(list);
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -104,7 +107,15 @@ export default function AgentStudioPage() {
     useEffect(() => {
         loadAgents();
         fetchTemplates().then(setTemplates).catch(() => { });
-        fetchModels().then(m => setProviders(modelsToProviders(m))).catch(() => { });
+        // Merge DB models with static PROVIDERS (ensures Heimdall always appears)
+        fetchModels().then(m => {
+            const dbProviders = modelsToProviders(m);
+            // Add any PROVIDERS not already in dbProviders
+            const mergedMap = new Map<string, LlmProvider>();
+            for (const p of PROVIDERS) mergedMap.set(p.id, p);
+            for (const p of dbProviders) mergedMap.set(p.id, p); // DB overrides if exists
+            setProviders(Array.from(mergedMap.values()));
+        }).catch(() => setProviders(PROVIDERS)); // fallback to static list
     }, []);
 
     useEffect(() => {
@@ -254,117 +265,179 @@ export default function AgentStudioPage() {
 
     // --- LIST VIEW ---
     if (view === "list") {
+        const publishedCount = agents.filter(a => a.is_published).length;
+        const draftCount = agents.length - publishedCount;
+        const agentColors: Record<string, string> = {
+            heimdall: "from-violet-500 to-purple-600",
+            ollama: "from-emerald-500 to-teal-600",
+            gemini: "from-blue-500 to-cyan-600",
+            openai: "from-gray-700 to-gray-900",
+        };
+
         return (
-            <div className="container mx-auto p-6 space-y-6">
+            <div className="container mx-auto p-6 space-y-6 max-w-7xl">
                 {/* Header */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-end justify-between">
                     <div>
                         <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
                             Agent Studio
                         </h1>
                         <p className="text-gray-500 mt-1">Build, test, and deploy AI agents — no code required</p>
                     </div>
-                    <Button
-                        onClick={() => { resetForm(); setView("builder"); }}
-                        className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
-                    >
-                        <Plus className="w-4 h-4 mr-2" /> New Agent
-                    </Button>
+                    <div className="flex items-center gap-3">
+                        <Button variant="outline" onClick={() => { resetForm(); setShowTemplates(true); setView("builder"); }} className="hidden sm:flex">
+                            <Sparkles className="w-4 h-4 mr-2" /> From Template
+                        </Button>
+                        <Button
+                            onClick={() => { resetForm(); setView("builder"); }}
+                            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-200 dark:shadow-none"
+                        >
+                            <Plus className="w-4 h-4 mr-2" /> New Agent
+                        </Button>
+                    </div>
                 </div>
+
+                {/* Stats Bar */}
+                {agents.length > 0 && (
+                    <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-100 dark:border-zinc-800 px-5 py-4 flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                                <Bot className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                            </div>
+                            <div>
+                                <p className="text-2xl font-bold">{agents.length}</p>
+                                <p className="text-xs text-gray-500">Total Agents</p>
+                            </div>
+                        </div>
+                        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-100 dark:border-zinc-800 px-5 py-4 flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                <Rocket className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            </div>
+                            <div>
+                                <p className="text-2xl font-bold">{publishedCount}</p>
+                                <p className="text-xs text-gray-500">Published</p>
+                            </div>
+                        </div>
+                        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-100 dark:border-zinc-800 px-5 py-4 flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                                <Edit className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <div>
+                                <p className="text-2xl font-bold">{draftCount}</p>
+                                <p className="text-xs text-gray-500">Drafts</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Error */}
                 {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between">
-                        <span>{error}</span>
-                        <button onClick={() => setError(null)}><X className="w-4 h-4" /></button>
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex justify-between items-center">
+                        <span className="text-sm">{error}</span>
+                        <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 rounded"><X className="w-4 h-4" /></button>
                     </div>
                 )}
 
                 {/* Loading */}
                 {loading ? (
-                    <div className="flex justify-center py-20">
+                    <div className="flex flex-col items-center justify-center py-20 gap-3">
                         <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+                        <p className="text-sm text-gray-400">Loading agents...</p>
                     </div>
                 ) : agents.length === 0 ? (
                     /* Empty state */
-                    <Card className="border-dashed border-2 border-purple-200 dark:border-purple-800">
-                        <CardContent className="flex flex-col items-center justify-center py-16">
-                            <Brain className="w-16 h-16 text-purple-300 mb-4" />
+                    <div className="border-2 border-dashed border-purple-200 dark:border-purple-800 rounded-2xl">
+                        <div className="flex flex-col items-center justify-center py-20">
+                            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/40 dark:to-pink-900/40 flex items-center justify-center mb-5">
+                                <Brain className="w-10 h-10 text-purple-400" />
+                            </div>
                             <h3 className="text-xl font-semibold text-gray-700 dark:text-zinc-300">No agents yet</h3>
-                            <p className="text-gray-500 mt-2 mb-6">Create your first AI agent from scratch or use a template</p>
+                            <p className="text-gray-500 mt-2 mb-8 text-sm">Create your first AI agent from scratch or start with a template</p>
                             <div className="flex gap-3">
                                 <Button onClick={() => { resetForm(); setView("builder"); }}
-                                    className="bg-gradient-to-r from-purple-600 to-pink-600 text-white">
+                                    className="bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-200 dark:shadow-none">
                                     <Plus className="w-4 h-4 mr-2" /> Create Agent
                                 </Button>
                                 <Button variant="outline" onClick={() => { resetForm(); setShowTemplates(true); setView("builder"); }}>
                                     <Sparkles className="w-4 h-4 mr-2" /> Use Template
                                 </Button>
                             </div>
-                        </CardContent>
-                    </Card>
+                        </div>
+                    </div>
                 ) : (
                     /* Agent cards grid */
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {agents.map(agent => (
-                            <Card key={agent.id}
-                                className="hover:shadow-lg transition-all duration-200 hover:border-purple-300 dark:hover:border-purple-700 group cursor-pointer"
-                                onClick={() => openChat(agent)}>
-                                <CardHeader className="pb-3">
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg shadow-md">
-                                                {(agent.display_name || agent.name).charAt(0).toUpperCase()}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {agents.map(agent => {
+                            const gradient = agentColors[agent.provider] || "from-purple-500 to-pink-500";
+                            return (
+                                <div key={agent.id}
+                                    className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-100 dark:border-zinc-800 hover:shadow-xl hover:shadow-purple-100/50 dark:hover:shadow-none hover:border-purple-200 dark:hover:border-purple-800 transition-all duration-300 cursor-pointer overflow-hidden group"
+                                    onClick={() => openChat(agent)}>
+                                    {/* Gradient top bar */}
+                                    <div className={`h-1 bg-gradient-to-r ${gradient}`} />
+                                    <div className="p-5">
+                                        {/* Header */}
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold text-lg shadow-md`}>
+                                                    {(agent.display_name || agent.name).charAt(0).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-semibold text-[15px] leading-tight">{agent.display_name || agent.name}</h3>
+                                                    <p className="text-xs text-gray-400 mt-0.5">{agent.provider} · {(agent.model_id || '').split('/').pop()}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <CardTitle className="text-base">{agent.display_name || agent.name}</CardTitle>
-                                                <p className="text-xs text-gray-500">{agent.provider}/{agent.model_id}</p>
-                                            </div>
+                                            <Badge variant={agent.is_published ? "default" : "secondary"}
+                                                className={`text-[10px] px-2 ${agent.is_published ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-green-200" : "bg-gray-100 text-gray-500"}`}>
+                                                {agent.is_published ? "● Live" : "Draft"}
+                                            </Badge>
                                         </div>
-                                        <Badge variant={agent.is_published ? "default" : "secondary"}
-                                            className={agent.is_published ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400" : ""}>
-                                            {agent.is_published ? "Published" : "Draft"}
-                                        </Badge>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm text-gray-600 dark:text-zinc-400 line-clamp-2 mb-4">
-                                        {agent.description || "No description"}
-                                    </p>
-                                    <div className="flex flex-wrap gap-1.5 mb-4">
-                                        {agent.use_rag && <Badge variant="outline" className="text-xs"><Database className="w-3 h-3 mr-1" />RAG</Badge>}
-                                        {agent.use_knowledge_graph && <Badge variant="outline" className="text-xs"><Globe className="w-3 h-3 mr-1" />KG</Badge>}
-                                        {agent.tools && (agent.tools as string[]).length > 0 && (
-                                            <Badge variant="outline" className="text-xs"><Wrench className="w-3 h-3 mr-1" />{(agent.tools as string[]).length} tools</Badge>
-                                        )}
-                                    </div>
-                                    <div className="flex gap-2 pt-2 border-t opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                                        <Button size="sm" variant="ghost" onClick={() => { loadAgentToForm(agent); setView("builder"); }}>
-                                            <Edit className="w-3 h-3 mr-1" /> Edit
-                                        </Button>
-                                        <Button size="sm" variant="ghost" onClick={() => openChat(agent)}>
-                                            <MessageSquare className="w-3 h-3 mr-1" /> Chat
-                                        </Button>
-                                        {!agent.is_published && (
-                                            <Button size="sm" variant="ghost" className="text-green-600" onClick={() => handlePublish(agent.id)}>
-                                                <Rocket className="w-3 h-3 mr-1" /> Publish
-                                            </Button>
-                                        )}
-                                        <Button size="sm" variant="ghost" className="text-red-600 ml-auto" onClick={() => handleDelete(agent.id)}>
-                                            <Trash2 className="w-3 h-3" />
-                                        </Button>
-                                    </div>
-                                    {agent.is_published && agent.api_key && (
-                                        <div className="mt-2 flex items-center gap-2 text-xs bg-gray-50 dark:bg-zinc-900 rounded px-2 py-1" onClick={e => e.stopPropagation()}>
-                                            <code className="truncate flex-1 font-mono">{agent.api_key}</code>
-                                            <button onClick={() => copyApiKey(agent.api_key!)}>
-                                                {copiedKey ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+
+                                        {/* Description */}
+                                        <p className="text-sm text-gray-500 dark:text-zinc-400 line-clamp-2 mb-4 min-h-[40px]">
+                                            {agent.description || "No description"}
+                                        </p>
+
+                                        {/* Feature badges */}
+                                        <div className="flex flex-wrap gap-1.5 mb-4">
+                                            {agent.use_rag && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full"><Database className="w-2.5 h-2.5" />RAG</span>}
+                                            {agent.use_knowledge_graph && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full"><Globe className="w-2.5 h-2.5" />KG</span>}
+                                            {agent.tools && (agent.tools as string[]).length > 0 && (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full"><Wrench className="w-2.5 h-2.5" />{(agent.tools as string[]).length} tools</span>
+                                            )}
+                                        </div>
+
+                                        {/* Action bar — always visible */}
+                                        <div className="flex items-center gap-1 pt-3 border-t border-gray-100 dark:border-zinc-800" onClick={e => e.stopPropagation()}>
+                                            <button onClick={() => openChat(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-purple-600 px-2.5 py-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
+                                                <MessageSquare className="w-3.5 h-3.5" /> Chat
+                                            </button>
+                                            <button onClick={() => { loadAgentToForm(agent); setView("builder"); }} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                                                <Edit className="w-3.5 h-3.5" /> Edit
+                                            </button>
+                                            {!agent.is_published && (
+                                                <button onClick={() => handlePublish(agent.id)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-600 px-2.5 py-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
+                                                    <Rocket className="w-3.5 h-3.5" /> Publish
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleDelete(agent.id)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto">
+                                                <Trash2 className="w-3.5 h-3.5" />
                                             </button>
                                         </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        ))}
+
+                                        {/* API key row */}
+                                        {agent.is_published && agent.api_key && (
+                                            <div className="mt-3 flex items-center gap-2 text-xs bg-gray-50 dark:bg-zinc-800 rounded-lg px-3 py-2" onClick={e => e.stopPropagation()}>
+                                                <code className="truncate flex-1 font-mono text-[11px] text-gray-500">{agent.api_key}</code>
+                                                <button onClick={() => copyApiKey(agent.api_key!)} className="p-1 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded transition-colors">
+                                                    {copiedKey ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-gray-400" />}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -504,6 +577,7 @@ export default function AgentStudioPage() {
                                                 <option key={p.id} value={p.id}>{p.display_name}</option>
                                             )) : (
                                                 <>
+                                                    <option value="heimdall">Heimdall (Self-Hosted)</option>
                                                     <option value="ollama">Ollama (Local)</option>
                                                     <option value="gemini">Google Gemini</option>
                                                     <option value="openai">OpenAI</option>
@@ -687,75 +761,93 @@ export default function AgentStudioPage() {
                     <div ref={chatEndRef} />
                 </div>
 
-                {/* Input */}
-                <div className="border-t px-6 py-4 bg-white dark:bg-zinc-950">
-                    <div className="flex gap-3">
-                        <Input
-                            value={chatInput}
-                            onChange={e => setChatInput(e.target.value)}
-                            onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
-                            placeholder="Type a message..."
-                            className="flex-1"
-                            disabled={chatSending}
-                        />
+                {/* Input — pl-14 avoids Next.js dev badge */}
+                <div className="border-t pl-14 pr-6 py-4 bg-white dark:bg-zinc-950">
+                    <div className="flex gap-3 items-end">
+                        <div className="flex-1 relative">
+                            <Input
+                                value={chatInput}
+                                onChange={e => setChatInput(e.target.value)}
+                                onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                                placeholder="Type a message..."
+                                className="pr-8"
+                                disabled={chatSending}
+                            />
+                            {chatInput.length > 0 && (
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-300">{chatInput.length}</span>
+                            )}
+                        </div>
                         <Button onClick={handleSendMessage} disabled={!chatInput.trim() || chatSending}
-                            className="bg-gradient-to-r from-purple-600 to-pink-600 text-white">
-                            <Send className="w-4 h-4" />
+                            className="bg-gradient-to-r from-purple-600 to-pink-600 text-white h-10 w-10 p-0 rounded-xl shrink-0">
+                            {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                         </Button>
                     </div>
                 </div>
             </div>
 
             {/* Right sidebar — Agent info */}
-            <div className="w-80 border-l bg-gray-50 dark:bg-zinc-900 overflow-y-auto p-4 space-y-4 hidden lg:block">
-                <h3 className="font-semibold text-sm text-gray-700 dark:text-zinc-300">Agent Config</h3>
-                <div className="space-y-3 text-xs">
-                    <div>
-                        <span className="text-gray-400">Model</span>
-                        <p className="font-mono">{selectedAgent?.model_id}</p>
+            <div className="w-80 border-l bg-gray-50/50 dark:bg-zinc-900/50 overflow-y-auto hidden lg:block">
+                {/* Agent header */}
+                <div className="px-5 py-4 border-b bg-white dark:bg-zinc-900">
+                    <h3 className="font-semibold text-sm text-gray-700 dark:text-zinc-300 flex items-center gap-2"><Zap className="w-4 h-4 text-purple-500" /> Agent Config</h3>
+                </div>
+                <div className="p-4 space-y-3">
+                    {/* Model & Provider */}
+                    <div className="bg-white dark:bg-zinc-900 rounded-xl p-3.5 border border-gray-100 dark:border-zinc-800 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Model</span>
+                            <span className="text-xs font-mono bg-gray-50 dark:bg-zinc-800 px-2 py-0.5 rounded">{(selectedAgent?.model_id || '').split('/').pop()}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Provider</span>
+                            <span className="text-xs font-medium capitalize">{selectedAgent?.provider}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Temp</span>
+                            <span className="text-xs">{selectedAgent?.temperature ?? 0.7}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Max Tokens</span>
+                            <span className="text-xs">{selectedAgent?.max_tokens ?? 2048}</span>
+                        </div>
                     </div>
-                    <div>
-                        <span className="text-gray-400">Provider</span>
-                        <p>{selectedAgent?.provider}</p>
+
+                    {/* Capabilities */}
+                    <div className="bg-white dark:bg-zinc-900 rounded-xl p-3.5 border border-gray-100 dark:border-zinc-800 space-y-2">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Capabilities</span>
+                        <div className="flex gap-2">
+                            <span className={`text-[10px] font-medium px-2.5 py-1 rounded-full ${selectedAgent?.use_rag ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20' : 'bg-gray-100 text-gray-400 line-through'}`}>RAG</span>
+                            <span className={`text-[10px] font-medium px-2.5 py-1 rounded-full ${selectedAgent?.use_knowledge_graph ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20' : 'bg-gray-100 text-gray-400 line-through'}`}>KG</span>
+                        </div>
                     </div>
-                    <div>
-                        <span className="text-gray-400">Temperature</span>
-                        <p>{selectedAgent?.temperature ?? 0.7}</p>
-                    </div>
-                    <div>
-                        <span className="text-gray-400">Max Tokens</span>
-                        <p>{selectedAgent?.max_tokens ?? 2048}</p>
-                    </div>
-                    <div>
-                        <span className="text-gray-400">RAG</span>
-                        <p>{selectedAgent?.use_rag ? "Enabled" : "Disabled"}</p>
-                    </div>
-                    <div>
-                        <span className="text-gray-400">Knowledge Graph</span>
-                        <p>{selectedAgent?.use_knowledge_graph ? "Enabled" : "Disabled"}</p>
-                    </div>
+
+                    {/* Traits */}
                     {selectedAgent?.personality_traits && (selectedAgent.personality_traits as string[]).length > 0 && (
-                        <div>
-                            <span className="text-gray-400">Traits</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
+                        <div className="bg-white dark:bg-zinc-900 rounded-xl p-3.5 border border-gray-100 dark:border-zinc-800 space-y-2">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Traits</span>
+                            <div className="flex flex-wrap gap-1.5">
                                 {(selectedAgent.personality_traits as string[]).map(t => (
-                                    <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>
+                                    <span key={t} className="text-[10px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full">{t}</span>
                                 ))}
                             </div>
                         </div>
                     )}
+
+                    {/* Tools */}
                     {selectedAgent?.tools && (selectedAgent.tools as string[]).length > 0 && (
-                        <div>
-                            <span className="text-gray-400">Tools</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
+                        <div className="bg-white dark:bg-zinc-900 rounded-xl p-3.5 border border-gray-100 dark:border-zinc-800 space-y-2">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Tools</span>
+                            <div className="flex flex-wrap gap-1.5">
                                 {(selectedAgent.tools as string[]).map(t => (
-                                    <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>
+                                    <span key={t} className="text-[10px] font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">{t}</span>
                                 ))}
                             </div>
                         </div>
                     )}
                 </div>
-                <div className="pt-3 border-t space-y-2">
+
+                {/* Action buttons */}
+                <div className="px-4 pb-4 space-y-2">
                     <Button size="sm" variant="outline" className="w-full" onClick={() => { if (selectedAgent) { loadAgentToForm(selectedAgent); setView("builder"); } }}>
                         <Edit className="w-3 h-3 mr-2" /> Edit Agent
                     </Button>

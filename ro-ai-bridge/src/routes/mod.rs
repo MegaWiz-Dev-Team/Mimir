@@ -23,3 +23,4 @@ pub mod stats;
 pub mod chunks;
 pub mod tenant;
 pub mod graph;
+pub mod coverage;

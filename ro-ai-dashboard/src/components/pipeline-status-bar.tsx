@@ -60,7 +60,7 @@ export function PipelineStatusBar() {
         { label: "Sources", count: counts.sources, unit: "sources", icon: FolderInput, href: "/sources", color: "text-blue-500" },
         { label: "Chunks", count: counts.chunks, unit: "chunks", icon: Layers, href: "/knowledge", color: "text-amber-500" },
         { label: "Dedup", count: counts.dedup, unit: "done", icon: Fingerprint, href: "/knowledge", color: "text-emerald-500" },
-        { label: "QA", count: counts.qa, unit: "pairs", icon: MessageSquare, href: "/quality", color: "text-purple-500", future: true },
+        { label: "QA", count: counts.qa, unit: "pairs", icon: MessageSquare, href: "/quality_control", color: "text-purple-500", future: true },
         { label: "Vector", count: counts.vector, unit: "embedded", icon: Cpu, href: "/knowledge?tab=vectors", color: "text-rose-500", future: true },
     ];
 

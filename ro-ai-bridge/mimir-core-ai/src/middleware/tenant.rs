@@ -22,6 +22,7 @@ pub struct TenantClaims {
 
 #[derive(Debug, Clone)]
 pub struct TenantContext {
+    pub user_id: String,
     pub tenant_id: String,
     pub role: String,
 }
@@ -71,6 +72,7 @@ pub async fn tenant_auth_middleware(
     };
 
     req.extensions_mut().insert(TenantContext {
+        user_id: token_data.claims.sub,
         tenant_id: token_data.claims.tenant_id,
         role: token_data.claims.role,
     });

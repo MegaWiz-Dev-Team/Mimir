@@ -28,6 +28,7 @@ pub fn iam_routes() -> Router<MySqlPool> {
         .route("/tenants/{id}", patch(update_tenant).delete(delete_tenant))
         .route("/tenants/{id}/config", get(get_tenant_config).patch(update_tenant_config))
         .route("/tenants/{id}/features", get(get_tenant_features))
+        .route("/my-tenants", get(get_my_tenants))
         .route_layer(middleware::from_fn(tenant_auth_middleware))
 }
 
@@ -89,6 +90,21 @@ async fn get_tenants(
     
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.get_tenants().await {
+        Ok(tenants) => Ok(Json(tenants)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+/// GET /api/v1/iam/my-tenants
+/// Returns only tenants assigned to the current user (from JWT sub claim).
+/// No admin check needed — every user can see their own tenants.
+async fn get_my_tenants(
+    State(pool): State<MySqlPool>,
+    Extension(config): Extension<Arc<Config>>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let iam_service = IamService::new(pool, config.jwt_secret.clone());
+    match iam_service.get_my_tenants(&tenant_ctx.user_id).await {
         Ok(tenants) => Ok(Json(tenants)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }

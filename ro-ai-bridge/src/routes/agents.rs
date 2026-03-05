@@ -30,6 +30,16 @@ use mimir_core_ai::services::db::DbPool;
 use crate::routes::sources::{resolve_llm_credentials, infer_api_base};
 use crate::routes::llm_usage::insert_llm_usage_log;
 
+/// SELECT column list for agent_configs queries.
+/// Uses CAST(temperature AS DOUBLE) because MariaDB DECIMAL(3,2) is not compatible with Rust f64.
+const AGENT_SELECT_COLS: &str = r#"
+    id, tenant_id, name, display_name, description, system_prompt, model_id, provider,
+    CAST(temperature AS DOUBLE) as temperature, max_tokens, top_k,
+    use_rag, use_knowledge_graph, tools, personality_traits, greeting, avatar_url,
+    template_id, is_published, api_key, tier, response_mode,
+    CAST(created_at AS DATETIME) as created_at, CAST(updated_at AS DATETIME) as updated_at
+"#;
+
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
@@ -54,6 +64,8 @@ pub struct AgentConfig {
     pub template_id: Option<String>,
     pub is_published: Option<bool>,
     pub api_key: Option<String>,
+    pub tier: Option<i32>,
+    pub response_mode: Option<String>,
     pub created_at: Option<chrono::NaiveDateTime>,
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
@@ -76,6 +88,8 @@ pub struct CreateAgentRequest {
     pub greeting: Option<String>,
     pub avatar_url: Option<String>,
     pub template_id: Option<String>,
+    pub tier: Option<i32>,
+    pub response_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +108,8 @@ pub struct UpdateAgentRequest {
     pub personality_traits: Option<Vec<String>>,
     pub greeting: Option<String>,
     pub avatar_url: Option<String>,
+    pub tier: Option<i32>,
+    pub response_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +152,8 @@ pub struct AgentTemplate {
     pub tools: Vec<String>,
     pub personality_traits: Vec<String>,
     pub greeting: String,
+    pub tier: i32,
+    pub avatar_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,69 +187,81 @@ pub fn agents_routes() -> Router<DbPool> {
 
 fn get_templates() -> Vec<AgentTemplate> {
     vec![
+        // ─── NPC Game Agent (consolidated) ──────────────────────────────
         AgentTemplate {
-            id: "general_assistant".into(),
-            name: "general_assistant".into(),
-            display_name: "General Assistant".into(),
-            description: "General Q&A agent with RAG-powered knowledge retrieval".into(),
-            system_prompt: "You are a helpful assistant. Answer questions accurately and concisely using the provided context. If you don't know the answer, say so honestly.".into(),
-            model_id: "llama3.2".into(),
-            provider: "ollama".into(),
+            id: "npc_game_agent".into(),
+            name: "npc_game_agent".into(),
+            display_name: "NPC Game Agent".into(),
+            description: "Ragnarok Online NPC with RAG knowledge retrieval and action commands".into(),
+            system_prompt: "คุณคือ NPC ในเกม Ragnarok Online สามารถช่วยตอบคำถาม ค้นหาข้อมูล Monster, Item, Map จาก Knowledge Base (RAG) และดำเนินการคำสั่ง (Action) เช่น Heal, Buff, Warp ให้ผู้เล่นได้ ตอบเป็นภาษาไทยเสมอ อธิบายอย่างเป็นมิตรและกระชับ".into(),
+            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            provider: "heimdall".into(),
             temperature: 0.7,
-            max_tokens: 2048,
-            use_rag: true,
-            use_knowledge_graph: false,
-            tools: vec![],
-            personality_traits: vec!["helpful".into(), "concise".into(), "accurate".into()],
-            greeting: "Hello! I'm your general assistant. How can I help you today?".into(),
-        },
-        AgentTemplate {
-            id: "knowledge_expert".into(),
-            name: "knowledge_expert".into(),
-            display_name: "Knowledge Expert".into(),
-            description: "Deep knowledge retrieval with Knowledge Graph integration".into(),
-            system_prompt: "You are a knowledge expert with deep expertise. Use RAG and Knowledge Graph to provide comprehensive, well-sourced answers. Always cite your sources and explain your reasoning.".into(),
-            model_id: "llama3.2".into(),
-            provider: "ollama".into(),
-            temperature: 0.5,
             max_tokens: 4096,
             use_rag: true,
-            use_knowledge_graph: true,
-            tools: vec!["QueryMobDb".into(), "QueryItemDb".into()],
-            personality_traits: vec!["scholarly".into(), "thorough".into(), "analytical".into()],
-            greeting: "Welcome! I'm a knowledge expert ready to dive deep into any topic. What would you like to explore?".into(),
+            use_knowledge_graph: false,
+            tools: vec!["QueryMobDb".into(), "QueryItemDb".into(), "heal".into(), "buff".into(), "warp".into()],
+            personality_traits: vec!["helpful".into(), "wise".into(), "friendly".into()],
+            greeting: "สวัสดีนักผจญภัย! ข้าพร้อมช่วยเหลือท่าน ไม่ว่าจะค้นหาข้อมูล Monster, Item หรือสั่ง Heal/Buff/Warp ได้เลย!".into(),
+            tier: 2,
+            avatar_url: "/avatars/mimir.png".into(),
         },
+        // ─── Medical Doctor ─────────────────────────────────────────────
         AgentTemplate {
-            id: "data_analyst".into(),
-            name: "data_analyst".into(),
-            display_name: "Data Analyst".into(),
-            description: "SQL query generation and data interpretation agent".into(),
-            system_prompt: "You are a data analyst. Help users query and interpret data. When asked about data, generate appropriate SQL queries and explain the results clearly. Use tables and charts descriptions when helpful.".into(),
-            model_id: "llama3.2".into(),
-            provider: "ollama".into(),
+            id: "medical_doctor".into(),
+            name: "medical_doctor".into(),
+            display_name: "Medical Doctor".into(),
+            description: "AI medical assistant for health Q&A with RAG-powered clinical knowledge".into(),
+            system_prompt: "You are a medical AI assistant trained to provide general health information and answer medical questions. Use RAG to retrieve evidence-based medical knowledge from clinical databases. Always provide disclaimers that you are not a substitute for professional medical advice. Answer clearly and accurately, citing sources when possible. Support both Thai and English.".into(),
+            model_id: "lmstudio-community/medgemma-4b-it-MLX-4bit".into(),
+            provider: "heimdall".into(),
             temperature: 0.3,
             max_tokens: 4096,
             use_rag: true,
-            use_knowledge_graph: false,
-            tools: vec!["QueryMobDb".into(), "QueryItemDb".into()],
-            personality_traits: vec!["analytical".into(), "precise".into(), "data-driven".into()],
-            greeting: "Hi! I'm your data analyst. I can help you query databases and interpret data. What data would you like to explore?".into(),
+            use_knowledge_graph: true,
+            tools: vec!["WebSearch".into()],
+            personality_traits: vec!["precise".into(), "empathetic".into(), "analytical".into(), "thorough".into()],
+            greeting: "สวัสดีครับ ผมเป็น AI Medical Assistant พร้อมให้คำปรึกษาด้านสุขภาพเบื้องต้น กรุณาสอบถามได้เลยครับ\n\n⚠️ **หมายเหตุ:** ข้อมูลที่ให้เป็นเพียงข้อมูลทั่วไป ไม่ใช่การวินิจฉัยหรือรักษาโรค กรุณาปรึกษาแพทย์สำหรับปัญหาสุขภาพเฉพาะทาง".into(),
+            tier: 2,
+            avatar_url: "/avatars/medical.png".into(),
         },
+        // ─── Data Analytics ─────────────────────────────────────────────
+        AgentTemplate {
+            id: "data_analytics".into(),
+            name: "data_analytics".into(),
+            display_name: "Data Analytics".into(),
+            description: "Data analysis agent for SQL queries, statistical insights, and report generation".into(),
+            system_prompt: "You are a Data Analytics AI assistant specialized in data analysis, SQL query generation, statistical analysis, and business intelligence. Help users explore datasets, write SQL queries, interpret results, create visualizations descriptions, and generate actionable insights. Support both Thai and English. Present findings in structured, easy-to-understand formats with tables and bullet points.".into(),
+            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            provider: "heimdall".into(),
+            temperature: 0.4,
+            max_tokens: 4096,
+            use_rag: true,
+            use_knowledge_graph: false,
+            tools: vec!["Calculator".into(), "WebSearch".into()],
+            personality_traits: vec!["analytical".into(), "precise".into(), "structured".into(), "insightful".into()],
+            greeting: "สวัสดีครับ ผมเป็น Data Analytics Assistant พร้อมช่วยวิเคราะห์ข้อมูล เขียน SQL Query และสร้าง Insights จากข้อมูลของคุณครับ\n\n**ตัวอย่างสิ่งที่ช่วยได้:**\n- เขียน SQL Query จากคำอธิบาย\n- วิเคราะห์แนวโน้มข้อมูล\n- สรุป KPI และ Metrics\n- สร้างรายงานจากข้อมูลดิบ".into(),
+            tier: 2,
+            avatar_url: "/avatars/data_analyst.png".into(),
+        },
+        // ─── Customer Support ───────────────────────────────────────────
         AgentTemplate {
             id: "customer_support".into(),
             name: "customer_support".into(),
             display_name: "Customer Support".into(),
-            description: "Polite, structured responses with FAQ context".into(),
-            system_prompt: "You are a friendly customer support agent. Always be polite, empathetic, and solution-oriented. Use knowledge base to find relevant FAQ answers. Structure your responses clearly with steps when applicable.".into(),
-            model_id: "llama3.2".into(),
-            provider: "ollama".into(),
-            temperature: 0.6,
+            description: "Polite customer service agent with FAQ knowledge and ticket handling".into(),
+            system_prompt: "You are a Customer Support AI assistant. Help users resolve issues, answer frequently asked questions, and provide excellent service. Use RAG to retrieve relevant FAQ and knowledge base articles. Be polite, patient, and solution-oriented. Escalate complex issues when necessary. Support both Thai and English.".into(),
+            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            provider: "heimdall".into(),
+            temperature: 0.5,
             max_tokens: 2048,
             use_rag: true,
             use_knowledge_graph: false,
             tools: vec![],
-            personality_traits: vec!["friendly".into(), "empathetic".into(), "solution-oriented".into()],
-            greeting: "Hello! Welcome to our support. I'm here to help you with any questions or issues. How can I assist you today?".into(),
+            personality_traits: vec!["friendly".into(), "patient".into(), "empathetic".into(), "helpful".into()],
+            greeting: "สวัสดีครับ ยินดีให้บริการ! มีอะไรให้ช่วยเหลือครับ? 😊\n\nผมสามารถช่วยตอบคำถาม แก้ปัญหา หรือแนะนำข้อมูลได้เลยครับ".into(),
+            tier: 2,
+            avatar_url: "/avatars/support.png".into(),
         },
     ]
 }
@@ -250,7 +280,7 @@ async fn list_agents(
     let offset = (page - 1) * per_page;
 
     let agents = sqlx::query_as::<_, AgentConfig>(
-        "SELECT * FROM agent_configs WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        &format!("SELECT {} FROM agent_configs WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?", AGENT_SELECT_COLS)
     )
     .bind(tenant_id)
     .bind(per_page)
@@ -289,6 +319,8 @@ async fn create_agent(
     let temperature = payload.temperature.unwrap_or(0.7);
     let max_tokens = payload.max_tokens.unwrap_or(2048);
     let top_k = payload.top_k.unwrap_or(5);
+    let tier = payload.tier.unwrap_or(2);
+    let response_mode = payload.response_mode.unwrap_or_else(|| "streaming".into());
     let use_rag = payload.use_rag.unwrap_or(true);
     let use_kg = payload.use_knowledge_graph.unwrap_or(false);
     let tools_json = payload.tools.as_ref().map(|t| json!(t));
@@ -298,8 +330,8 @@ async fn create_agent(
         r#"INSERT INTO agent_configs
             (tenant_id, name, display_name, description, system_prompt, model_id, provider,
              temperature, max_tokens, top_k, use_rag, use_knowledge_graph,
-             tools, personality_traits, greeting, avatar_url, template_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
+             tools, personality_traits, greeting, avatar_url, template_id, tier, response_mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
     )
     .bind(tenant_id)
     .bind(&payload.name)
@@ -318,6 +350,8 @@ async fn create_agent(
     .bind(&payload.greeting)
     .bind(&payload.avatar_url)
     .bind(&payload.template_id)
+    .bind(tier)
+    .bind(&response_mode)
     .execute(&pool)
     .await
     .map_err(|e| {
@@ -332,7 +366,7 @@ async fn create_agent(
     let id = result.last_insert_id() as i64;
     info!("Created agent config id={} name={}", id, payload.name);
 
-    let agent = sqlx::query_as::<_, AgentConfig>("SELECT * FROM agent_configs WHERE id = ?")
+    let agent = sqlx::query_as::<_, AgentConfig>(&format!("SELECT {} FROM agent_configs WHERE id = ?", AGENT_SELECT_COLS))
         .bind(id)
         .fetch_one(&pool)
         .await
@@ -355,7 +389,7 @@ async fn get_agent(
     let tenant_id = extract_tenant_id(&headers);
 
     let agent = sqlx::query_as::<_, AgentConfig>(
-        "SELECT * FROM agent_configs WHERE id = ? AND tenant_id = ?"
+        &format!("SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?", AGENT_SELECT_COLS)
     )
     .bind(id)
     .bind(tenant_id)
@@ -379,7 +413,7 @@ async fn update_agent(
 
     // Verify agent exists
     let existing = sqlx::query_as::<_, AgentConfig>(
-        "SELECT * FROM agent_configs WHERE id = ? AND tenant_id = ?"
+        &format!("SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?", AGENT_SELECT_COLS)
     )
     .bind(id)
     .bind(tenant_id)
@@ -400,6 +434,8 @@ async fn update_agent(
     let temperature = payload.temperature.unwrap_or(0.7);
     let max_tokens = payload.max_tokens.unwrap_or(existing.max_tokens.unwrap_or(2048));
     let top_k = payload.top_k.unwrap_or(existing.top_k.unwrap_or(5));
+    let tier = payload.tier.unwrap_or(existing.tier.unwrap_or(2));
+    let response_mode = payload.response_mode.clone().unwrap_or_else(|| existing.response_mode.clone().unwrap_or_else(|| "streaming".into()));
     let use_rag = payload.use_rag.unwrap_or(existing.use_rag.unwrap_or(true));
     let use_kg = payload.use_knowledge_graph.unwrap_or(existing.use_knowledge_graph.unwrap_or(false));
     let tools_json = payload.tools.map(|t| json!(t)).or(existing.tools);
@@ -411,7 +447,8 @@ async fn update_agent(
         r#"UPDATE agent_configs SET
             display_name = ?, description = ?, system_prompt = ?, model_id = ?, provider = ?,
             temperature = ?, max_tokens = ?, top_k = ?, use_rag = ?, use_knowledge_graph = ?,
-            tools = ?, personality_traits = ?, greeting = ?, avatar_url = ?
+            tools = ?, personality_traits = ?, greeting = ?, avatar_url = ?,
+            tier = ?, response_mode = ?
         WHERE id = ? AND tenant_id = ?"#
     )
     .bind(&display_name)
@@ -428,13 +465,15 @@ async fn update_agent(
     .bind(&traits_json)
     .bind(&greeting)
     .bind(&avatar_url)
+    .bind(tier)
+    .bind(&response_mode)
     .bind(id)
     .bind(tenant_id)
     .execute(&pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
 
-    let updated = sqlx::query_as::<_, AgentConfig>("SELECT * FROM agent_configs WHERE id = ?")
+    let updated = sqlx::query_as::<_, AgentConfig>(&format!("SELECT {} FROM agent_configs WHERE id = ?", AGENT_SELECT_COLS))
         .bind(id)
         .fetch_one(&pool)
         .await
@@ -510,7 +549,7 @@ async fn agent_chat(
 
     // 1. Load agent config
     let agent = sqlx::query_as::<_, AgentConfig>(
-        "SELECT * FROM agent_configs WHERE id = ? AND tenant_id = ?"
+        &format!("SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?", AGENT_SELECT_COLS)
     )
     .bind(id)
     .bind(tenant_id)
@@ -710,28 +749,127 @@ async fn list_agent_conversations(
 mod tests {
     use super::*;
 
+    /// TC_MIG_01: Templates are valid and contain expected categories
     #[test]
-    fn test_templates_valid() {
+    fn test_templates_are_valid() {
         let templates = get_templates();
-        assert_eq!(templates.len(), 4);
-        assert_eq!(templates[0].id, "general_assistant");
-        assert_eq!(templates[1].id, "knowledge_expert");
-        assert_eq!(templates[2].id, "data_analyst");
+        assert_eq!(templates.len(), 4, "Should have 4 templates");
+        assert_eq!(templates[0].id, "npc_game_agent");
+        assert_eq!(templates[1].id, "medical_doctor");
+        assert_eq!(templates[2].id, "data_analytics");
         assert_eq!(templates[3].id, "customer_support");
+    }
 
-        // All templates have required fields
-        for t in &templates {
-            assert!(!t.name.is_empty());
-            assert!(!t.system_prompt.is_empty());
-            assert!(!t.model_id.is_empty());
-            assert!(!t.greeting.is_empty());
+    /// TC_MIG_02: All templates have required fields populated
+    #[test]
+    fn test_templates_have_required_fields() {
+        for t in &get_templates() {
+            assert!(!t.name.is_empty(), "Template name must not be empty");
+            assert!(!t.system_prompt.is_empty(), "System prompt must not be empty");
+            assert!(!t.model_id.is_empty(), "Model ID must not be empty");
+            assert!(!t.greeting.is_empty(), "Greeting must not be empty");
+            assert!(!t.provider.is_empty(), "Provider must not be empty");
+            assert!(!t.avatar_url.is_empty(), "Avatar URL must not be empty");
+            assert!(!t.personality_traits.is_empty(), "Traits must not be empty");
         }
     }
 
+    /// TC_MIG_03: All templates are Tier 2
+    #[test]
+    fn test_template_tiers() {
+        let templates = get_templates();
+        let tier2_count = templates.iter().filter(|t| t.tier == 2).count();
+        assert_eq!(tier2_count, 4, "All 4 templates should be Tier 2");
+    }
+
+    /// TC_MIG_04: All templates use RAG
+    #[test]
+    fn test_all_templates_use_rag() {
+        let templates = get_templates();
+        for t in &templates {
+            assert!(t.use_rag, "Template '{}' should use RAG", t.id);
+        }
+    }
+
+    /// TC_MIG_05: NPC game agent has action tools + RAG tools
+    #[test]
+    fn test_npc_agent_has_action_tools() {
+        let templates = get_templates();
+        let npc = templates.iter().find(|t| t.id == "npc_game_agent").expect("NPC game agent");
+        assert!(npc.tools.contains(&"heal".to_string()), "NPC should have heal");
+        assert!(npc.tools.contains(&"buff".to_string()), "NPC should have buff");
+        assert!(npc.tools.contains(&"warp".to_string()), "NPC should have warp");
+        assert!(npc.tools.contains(&"QueryMobDb".to_string()), "NPC should have QueryMobDb");
+    }
+
+    /// TC_MIG_05b: Medical Doctor uses MedGemma and knowledge graph
+    #[test]
+    fn test_medical_doctor_config() {
+        let templates = get_templates();
+        let med = templates.iter().find(|t| t.id == "medical_doctor").expect("Medical Doctor");
+        assert!(med.model_id.contains("medgemma"), "Medical Doctor should use MedGemma model");
+        assert!(med.use_knowledge_graph, "Medical Doctor should use knowledge graph");
+        assert!(med.temperature <= 0.4, "Medical Doctor should have low temperature for accuracy");
+    }
+
+    /// TC_MIG_06: All NPC templates use Heimdall provider
+    #[test]
+    fn test_npc_templates_use_heimdall() {
+        for t in &get_templates() {
+            assert_eq!(t.provider, "heimdall", "NPC template '{}' should use heimdall", t.id);
+        }
+    }
+
+    /// TC_MIG_07: API key format is correct
     #[test]
     fn test_api_key_format() {
         let api_key = format!("ak_{}", Uuid::new_v4().to_string().replace("-", ""));
         assert!(api_key.starts_with("ak_"));
         assert_eq!(api_key.len(), 35); // "ak_" + 32 hex chars
+    }
+
+    /// TC_MIG_08: AgentConfig struct has tier and response_mode fields
+    #[test]
+    fn test_agent_config_has_new_fields() {
+        let config = AgentConfig {
+            id: 1,
+            tenant_id: "test".into(),
+            name: "test_agent".into(),
+            display_name: Some("Test Agent".into()),
+            description: None,
+            system_prompt: "You are a test agent".into(),
+            model_id: "test-model".into(),
+            provider: "heimdall".into(),
+            temperature: Some(0.7),
+            max_tokens: Some(2048),
+            top_k: Some(5),
+            use_rag: Some(true),
+            use_knowledge_graph: Some(false),
+            tools: None,
+            personality_traits: None,
+            greeting: Some("Hello".into()),
+            avatar_url: None,
+            template_id: Some("npc_guide".into()),
+            is_published: Some(false),
+            api_key: None,
+            tier: Some(1),
+            response_mode: Some("streaming".into()),
+            created_at: None,
+            updated_at: None,
+        };
+        assert_eq!(config.tier, Some(1));
+        assert_eq!(config.response_mode, Some("streaming".into()));
+    }
+
+    /// TC_MIG_09: CreateAgentRequest defaults for tier and response_mode
+    #[test]
+    fn test_create_request_defaults() {
+        let req: CreateAgentRequest = serde_json::from_str(r#"{
+            "name": "test",
+            "system_prompt": "test prompt",
+            "model_id": "test-model"
+        }"#).unwrap();
+        assert_eq!(req.tier, None, "Tier should default to None (resolved to 2 in handler)");
+        assert_eq!(req.response_mode, None, "Response mode should default to None");
     }
 }
