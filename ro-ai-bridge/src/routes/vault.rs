@@ -1,6 +1,7 @@
-//! Vault Secrets Management Routes (Issue #157)
+//! Vault Secrets Management Routes (Issue #157, #190)
 //!
 //! - GET  /api/v1/vault/status  — check Vault connectivity
+//! - GET  /api/v1/vault/secrets — list managed secrets with masked values
 //! - POST /api/v1/vault/rotate  — rotate a specific secret key
 
 use axum::{
@@ -20,6 +21,7 @@ use mimir_core_ai::services::vault::{
 pub fn vault_routes() -> Router<MySqlPool> {
     Router::new()
         .route("/status", get(vault_status))
+        .route("/secrets", get(vault_secrets))
         .route("/rotate", post(rotate_secret))
 }
 
@@ -46,6 +48,20 @@ async fn vault_status() -> impl IntoResponse {
             }))).into_response()
         }
     }
+}
+
+/// GET /vault/secrets — list all managed secrets with masked values (Issue #190)
+async fn vault_secrets() -> impl IntoResponse {
+    let secrets = vault::list_managed_secrets().await;
+    let total = secrets.len();
+    let present_count = secrets.iter().filter(|s| s.status == "present").count();
+
+    (StatusCode::OK, Json(json!({
+        "secrets": secrets,
+        "total": total,
+        "present_count": present_count,
+        "vault_enabled": vault::is_vault_enabled()
+    }))).into_response()
 }
 
 /// POST /vault/rotate — rotate a secret key in Vault

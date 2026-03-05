@@ -330,6 +330,55 @@ pub async fn rotate_secret(config: &VaultConfig, key: &str, new_value: &str) -> 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Managed Secrets Listing (Issue #190)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Information about a single managed secret.
+#[derive(Debug, Serialize)]
+pub struct ManagedSecretInfo {
+    pub key: String,
+    pub status: &'static str,   // "present" | "missing"
+    pub source: &'static str,   // "vault" | "env" | "none"
+    pub masked_value: Option<String>,
+}
+
+/// List all managed secrets with their status and masked values.
+///
+/// For each key in `VAULT_MANAGED_SECRETS`, resolves the value from Vault or env,
+/// returning status ("present"/"missing"), source ("vault"/"env"/"none"),
+/// and a masked value if present.
+pub async fn list_managed_secrets() -> Vec<ManagedSecretInfo> {
+    let vault_config = if is_vault_enabled() {
+        parse_vault_config().ok()
+    } else {
+        None
+    };
+
+    let mut results = Vec::new();
+    for key in crate::config::VAULT_MANAGED_SECRETS {
+        match resolve_secret(key, vault_config.as_ref()).await {
+            Ok((value, source)) => {
+                results.push(ManagedSecretInfo {
+                    key: key.to_string(),
+                    status: "present",
+                    source,
+                    masked_value: Some(mask_secret(&value)),
+                });
+            }
+            Err(_) => {
+                results.push(ManagedSecretInfo {
+                    key: key.to_string(),
+                    status: "missing",
+                    source: "none",
+                    masked_value: None,
+                });
+            }
+        }
+    }
+    results
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // TDD Tests — Pure function tests (no Vault server required)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -549,6 +598,7 @@ mod tests {
             "GITHUB_TOKEN",
             "HEIMDALL_API_KEY",
             "JWT_SECRET",
+            "NEO4J_PASSWORD",
             "S3_ACCESS_KEY",
             "S3_SECRET_KEY",
         ];
@@ -576,6 +626,7 @@ mod tests {
             ("GITHUB_TOKEN", "github_token"),
             ("HEIMDALL_API_KEY", "heimdall_api_key"),
             ("JWT_SECRET", "jwt_secret"),
+            ("NEO4J_PASSWORD", "neo4j_password"),
             ("S3_ACCESS_KEY", "s3_access_key"),
             ("S3_SECRET_KEY", "s3_secret_key"),
         ];
