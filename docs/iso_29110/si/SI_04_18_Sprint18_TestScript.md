@@ -66,7 +66,29 @@
 | TC_SP18_F4 | Sortable table           | 1. Click column headers          | Table sorts by name/score/chunks/qa/kg                 | ✅ Pass | #188     | Asc/desc toggle      |
 | TC_SP18_F5 | Gap filter               | 1. Click gap item in panel       | Table filters to matching sources                      | ✅ Pass | #188     | Clear filter button  |
 
-**Grand Total: 19/19 (100%)**
+---
+
+## 3. Agent Studio & Infrastructure Tests
+
+### 3.1 Agent Chat (Heimdall)
+| ID         | Scenario                     | Steps                                                               | Expected                                   | Result | Issue/PR | หมายเหตุ                   |
+| ---------- | ---------------------------- | ------------------------------------------------------------------- | ------------------------------------------ | ------ | -------- | ------------------------- |
+| TC_SP18_A1 | Chat via Heimdall→Qwen3.5-9B | 1. Open Agent Studio → Chat with Mimir → Send "hello"               | Agent responds in Thai (HTTP 200)          | ✅ Pass | #194     | Latency ~42s for 9B model |
+| TC_SP18_A2 | Agent Studio UX redesign     | 1. Navigate to /agents → Check stats bar, card design, chat sidebar | Stats bar, provider-colored cards rendered | ✅ Pass | —        | Professional UI           |
+
+### 3.2 Vault Persistent Storage
+| ID         | Scenario                      | Steps                                                       | Expected                                | Result | Issue/PR | หมายเหตุ                    |
+| ---------- | ----------------------------- | ----------------------------------------------------------- | --------------------------------------- | ------ | -------- | -------------------------- |
+| TC_SP18_V1 | Secrets persist after restart | 1. Save secret → `docker restart mimir_vault` → Read secret | Secret still accessible after restart   | ✅ Pass | #194     | file backend works         |
+| TC_SP18_V2 | Auto-unseal on restart        | 1. `docker restart mimir_vault` → Check logs                | Logs show "Vault unsealed" + Root Token | ✅ Pass | #194     | entrypoint.sh via HTTP API |
+
+### 3.3 Layout Fix
+| ID         | Scenario                     | Steps                                         | Expected                      | Result | Issue/PR | หมายเหตุ                  |
+| ---------- | ---------------------------- | --------------------------------------------- | ----------------------------- | ------ | -------- | ------------------------ |
+| TC_SP18_H1 | Hydration warning suppressed | 1. Open browser console → Navigate to /agents | No hydration mismatch warning | ✅ Pass | —        | suppressHydrationWarning |
+
+**Grand Total: 24/24 (100%)**
 
 ---
 *บันทึกโดย: AI Assistant (ตามมาตรฐาน ISO/IEC 29110 หมวด SI-04)*
+
