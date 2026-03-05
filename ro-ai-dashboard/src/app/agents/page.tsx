@@ -29,7 +29,9 @@ import {
     Plus, Brain, Bot, Send, Trash2, Edit, Rocket, Copy, Check,
     ChevronLeft, Loader2, Globe, Zap, Database, Wrench, Sparkles,
     ThumbsUp, ThumbsDown, Clock, Hash, X, LayoutGrid, MessageSquare,
+    ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -387,10 +389,15 @@ export default function AgentStudioPage() {
                                                     <p className="text-xs text-gray-400 mt-0.5">{agent.provider} · {(agent.model_id || '').split('/').pop()}</p>
                                                 </div>
                                             </div>
-                                            <Badge variant={agent.is_published ? "default" : "secondary"}
-                                                className={`text-[10px] px-2 ${agent.is_published ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-green-200" : "bg-gray-100 text-gray-500"}`}>
-                                                {agent.is_published ? "● Live" : "Draft"}
-                                            </Badge>
+                                            <div className="flex items-center gap-1.5">
+                                                <Badge variant={agent.is_published ? "default" : "secondary"}
+                                                    className={`text-[10px] px-2 ${agent.is_published ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-green-200" : "bg-gray-100 text-gray-500"}`}>
+                                                    {agent.is_published ? "● Live" : "Draft"}
+                                                </Badge>
+                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                                                    T{agent.tier || 2}
+                                                </Badge>
+                                            </div>
                                         </div>
 
                                         {/* Description */}
@@ -412,6 +419,9 @@ export default function AgentStudioPage() {
                                             <button onClick={() => openChat(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-purple-600 px-2.5 py-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
                                                 <MessageSquare className="w-3.5 h-3.5" /> Chat
                                             </button>
+                                            <Link href={`/playground?agent=${agent.name}`} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 px-2.5 py-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
+                                                <ExternalLink className="w-3.5 h-3.5" /> Playground
+                                            </Link>
                                             <button onClick={() => { loadAgentToForm(agent); setView("builder"); }} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
                                                 <Edit className="w-3.5 h-3.5" /> Edit
                                             </button>
