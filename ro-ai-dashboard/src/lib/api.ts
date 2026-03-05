@@ -355,45 +355,18 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
     return Array.from(providerMap.values());
 }
 
-/// Available personas (static list matching backend configs)
-export const PERSONAS: Persona[] = [
-    {
-        name: "Mimir",
-        display_name: "Mimir The Guide",
-        tier: 1,
-        description: "All-knowing guide capable of actions",
-        greeting: "สวัสดีนักผจญภัย ข้าคือ Mimir ผู้รอบรู้แห่ง Yggdrasil ข้าสามารถช่วยตอบคำถามพื้นฐาน และช่วยเหลือท่านด้วยคำสั่งต่างๆ (Action) ได้\n\n**ตัวอย่างคำถามที่ท่านสามารถทดสอบได้:**\n- `ช่วย Heal ฉันหน่อย`\n- `ขอรับบัพ Agi หน่อย`\n- `พาฉันกลับเมือง Prontera ที`",
-        avatar_url: "/avatars/mimir.png",
-        traits: ["helpful", "wise", "concise"],
-    },
-    {
-        name: "sage_ariel",
-        display_name: "Sage Ariel",
-        tier: 2,
-        description: "Scholar who explains in detail",
-        greeting: "ยินดีต้อนรับสู่หอสมุดแห่ง Prontera ข้าคือ Sage Ariel ผู้รวมรวบความรู้แห่ง Midgard ข้าสามารถค้นหาข้อมูลจากเอกสารวิกิ (RAG) มาตอบท่านได้อย่างละเอียด\n\n**ลองสอบถามข้าดูสิ:**\n- `มอนสเตอร์ Baphomet อาศัยอยู่ที่ไหน?`\n- `ดาบ Excalibur ดรอปจากตัวอะไร?`\n- `เล่าประวัติศาสตร์ของเมือง Glast Heim ให้ฟังหน่อย`",
-        avatar_url: "/avatars/sage_ariel.png",
-        traits: ["wise", "calm", "helpful", "scholarly", "thorough"],
-    },
-    {
-        name: "fortune_teller",
-        display_name: "Fortune Teller Maya",
-        tier: 2,
-        description: "Mysterious seer, speaks in riddles",
-        greeting: "ดวงดาวได้ทำนายการมาเยือนของท่าน... ข้าคือ Maya ผู้มองเห็นอนาคตผ่านหน้าไพ่ทาโรต์\n\n**ลองให้ข้าทำนายดูสิ:**\n- `ขอทราบนิสัยและจุดอ่อนของบอส Dark Lord`\n- `มีแผนที่ไหนดรอปการ์ดดีๆ บ้าง?`",
-        avatar_url: "/avatars/fortune_teller.png",
-        traits: ["mysterious", "cryptic", "enigmatic", "prophetic"],
-    },
-    {
-        name: "blacksmith",
-        display_name: "Blacksmith Grumm",
-        tier: 2,
-        description: "Gruff dwarf, speaks plainly",
-        greeting: "หืม? มีธุระอะไรก็ว่ามา ข้าคือ Grumm ช่างตีเหล็กมือหนึ่ง ถนัดเรื่องอาวุธชุดเกราะ\n\n**อยากรู้เรื่องการคราฟหรืออุปกรณ์หรอ? ถามมาสิ:**\n- `ดาบธาตุไฟ คราฟยังไงใช้อะไรบ้าง?`\n- `เกราะแบบไหนป้องกันเวทย์ได้ดีที่สุด?`",
-        avatar_url: "/avatars/blacksmith.png",
-        traits: ["gruff", "straightforward", "practical", "knowledgeable"],
-    },
-];
+/// Fetch agents from Agent Studio and convert to Persona format for Playground
+/// This replaces the old hardcoded PERSONAS array — agents in DB are now the single source of truth
+export async function fetchPlaygroundAgents(): Promise<{ personas: Persona[]; agents: AgentConfigResponse[] }> {
+    const agents = await fetchAgents();
+    if (agents.length === 0) {
+        return { personas: [], agents: [] };
+    }
+    // Sort by tier (Tier 1 first) then by name
+    agents.sort((a, b) => (a.tier || 2) - (b.tier || 2) || a.name.localeCompare(b.name));
+    const personas = agents.map(agentToPersona);
+    return { personas, agents };
+}
 
 /// Fallback providers when database is not available
 export const PROVIDERS: LlmProvider[] = [
