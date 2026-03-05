@@ -171,6 +171,31 @@ pub struct UpdateTenantConfigRequest {
     pub llm_config: Option<sqlx::types::Json<LlmConfig>>,
 }
 
+// ─── Custom Roles — Issue #191 ──────────────────────────────────────────────
+
+/// A role with JSON permissions map (e.g. {"dashboard":"full","sources":"read"})
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct Role {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub is_builtin: bool,
+    pub permissions: sqlx::types::Json<std::collections::HashMap<String, String>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateRoleRequest {
+    pub name: String,
+    pub permissions: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRoleRequest {
+    pub permissions: std::collections::HashMap<String, String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

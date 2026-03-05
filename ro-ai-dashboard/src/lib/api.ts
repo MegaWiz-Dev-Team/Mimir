@@ -1495,6 +1495,70 @@ export async function rotateVaultSecret(key: string, newValue: string): Promise<
     return res.json();
 }
 
+// ─── Custom Roles API (Issue #191) ──────────────────────────────────────────
+
+export interface Role {
+    id: string;
+    tenant_id: string;
+    name: string;
+    is_builtin: boolean;
+    permissions: Record<string, string>;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface CreateRoleRequest {
+    name: string;
+    permissions: Record<string, string>;
+}
+
+export interface UpdateRoleRequest {
+    permissions: Record<string, string>;
+}
+
+export async function fetchRoles(): Promise<Role[]> {
+    const res = await authFetch(`${API_BASE_URL}/iam/roles`);
+    if (!res.ok) throw new Error("Failed to fetch roles");
+    return res.json();
+}
+
+export async function createRole(req: CreateRoleRequest): Promise<Role> {
+    const res = await authFetch(`${API_BASE_URL}/iam/roles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+        if (res.status === 409) throw new Error("Role name already exists");
+        throw new Error("Failed to create role");
+    }
+    return res.json();
+}
+
+export async function updateRole(roleId: string, req: UpdateRoleRequest): Promise<Role> {
+    const res = await authFetch(`${API_BASE_URL}/iam/roles/${roleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+        if (res.status === 403) throw new Error("Cannot modify built-in role");
+        throw new Error("Failed to update role");
+    }
+    return res.json();
+}
+
+export async function deleteRole(roleId: string): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/iam/roles/${roleId}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) {
+        if (res.status === 403) throw new Error("Cannot delete built-in role");
+        if (res.status === 400) throw new Error("Role is in use");
+        throw new Error("Failed to delete role");
+    }
+}
+
 // ─── Knowledge Graph API (Sprint 17) ────────────────────────────────────────
 
 export interface GraphEntity {
