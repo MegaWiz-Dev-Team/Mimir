@@ -6,14 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
     Building2, Save, Settings2, Bot, Workflow, Share2,
-    Search, Shield, Lock, Users, Layers, Plus, Trash2, RefreshCw
+    Search, Shield, Lock, Users, Layers, Plus, Trash2, RefreshCw,
+    Server, Key, RotateCw, CheckCircle2, XCircle, AlertTriangle
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import Cookies from "js-cookie";
 
-import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest } from "@/lib/api";
+import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, fetchVaultStatus, fetchVaultSecrets, rotateVaultSecret, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest, VaultStatus, VaultSecretInfo, VaultSecretsResponse } from "@/lib/api";
 
 // ─── Tab Definitions ────────────────────────────────────────────────────────────
 
@@ -52,6 +53,11 @@ export default function SettingsPage() {
     const [topK, setTopK] = useState(5);
     const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
     const [searchMode, setSearchMode] = useState("hybrid");
+
+    // Vault state (Issue #190)
+    const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
+    const [vaultSecrets, setVaultSecrets] = useState<VaultSecretsResponse | null>(null);
+    const [isVaultLoading, setIsVaultLoading] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -860,6 +866,133 @@ export default function SettingsPage() {
                                 </CardContent>
                             </Card>
 
+                            {/* Vault Status Dashboard — Issue #190 */}
+                            <Card>
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <CardTitle className="flex items-center gap-2">
+                                                <Server className="w-5 h-5 text-primary" />
+                                                Vault Status
+                                            </CardTitle>
+                                            <CardDescription>HashiCorp Vault connectivity and secret management.</CardDescription>
+                                        </div>
+                                        <Button variant="outline" size="sm" disabled={isVaultLoading}
+                                            onClick={async () => {
+                                                setIsVaultLoading(true);
+                                                try {
+                                                    const [status, secrets] = await Promise.all([
+                                                        fetchVaultStatus(),
+                                                        fetchVaultSecrets()
+                                                    ]);
+                                                    setVaultStatus(status);
+                                                    setVaultSecrets(secrets);
+                                                } catch (err) {
+                                                    console.warn("[Vault] Health check failed:", err);
+                                                } finally {
+                                                    setIsVaultLoading(false);
+                                                }
+                                            }}
+                                        >
+                                            <RotateCw className={`w-4 h-4 mr-1 ${isVaultLoading ? 'animate-spin' : ''}`} />
+                                            Health Check
+                                        </Button>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    {vaultStatus ? (
+                                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Status</p>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-2.5 h-2.5 rounded-full ${vaultStatus.enabled && vaultStatus.connected ? 'bg-green-500' : vaultStatus.enabled ? 'bg-red-500' : 'bg-gray-400'}`} />
+                                                    <span className="text-sm font-medium">
+                                                        {vaultStatus.enabled && vaultStatus.connected ? 'Connected' : vaultStatus.enabled ? 'Disconnected' : 'Not Configured'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Address</p>
+                                                <p className="text-sm font-mono truncate">{vaultStatus.addr || '—'}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Sealed</p>
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${vaultStatus.sealed === false ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                                                        vaultStatus.sealed === true ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                                                            'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                                    }`}>
+                                                    {vaultStatus.sealed === false ? '🔓 Unsealed' : vaultStatus.sealed === true ? '🔒 Sealed' : '—'}
+                                                </span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Version</p>
+                                                <p className="text-sm font-mono">{vaultStatus.version || '—'}</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-6 text-muted-foreground">
+                                            <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                                            <p className="text-sm">Click &quot;Health Check&quot; to check Vault connectivity.</p>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            {/* Managed Secrets Table — Issue #190 */}
+                            {vaultSecrets && (
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Key className="w-5 h-5 text-primary" />
+                                            Managed Secrets
+                                            <span className="text-sm font-normal text-muted-foreground">
+                                                ({vaultSecrets.present_count}/{vaultSecrets.total} present)
+                                            </span>
+                                        </CardTitle>
+                                        <CardDescription>Secrets managed by Vault or environment variables.</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Secret</TableHead>
+                                                    <TableHead>Status</TableHead>
+                                                    <TableHead>Source</TableHead>
+                                                    <TableHead>Masked Value</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {vaultSecrets.secrets.map((s) => (
+                                                    <TableRow key={s.key}>
+                                                        <TableCell className="font-mono text-sm">{s.key}</TableCell>
+                                                        <TableCell>
+                                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.status === 'present'
+                                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                                                }`}>
+                                                                {s.status === 'present' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                                                {s.status === 'present' ? 'Present' : 'Missing'}
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.source === 'vault' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' :
+                                                                    s.source === 'env' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                                        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                                                }`}>
+                                                                {s.source === 'vault' ? '🔐 Vault' : s.source === 'env' ? '📁 Env' : '—'}
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell className="font-mono text-xs text-muted-foreground">
+                                                            {s.masked_value || '—'}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </CardContent>
+                                </Card>
+                            )}
+
                             {/* Active Session */}
                             <Card>
                                 <CardHeader>
@@ -881,8 +1014,8 @@ export default function SettingsPage() {
                                         <div className="space-y-1">
                                             <p className="text-xs text-muted-foreground">Role</p>
                                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sessionInfo.role === 'admin' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
-                                                    sessionInfo.role === 'editor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                        'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
+                                                sessionInfo.role === 'editor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                    'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
                                                 }`}>
                                                 {(sessionInfo.role || "Unknown").toUpperCase()}
                                             </span>
