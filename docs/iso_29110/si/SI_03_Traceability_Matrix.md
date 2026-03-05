@@ -76,3 +76,4 @@
 | ENH-191  | Custom Roles + ACL Matrix (Sprint 20)           | IAM Module           | `roles` table, `models/iam.rs`, `services/iam.rs`, `routes/iam.rs`         | TC-020       | Done   |
 | ENH-191a | Role CRUD API (Sprint 20)                       | IAM API Module       | `services/iam.rs` (4 CRUD methods), `routes/iam.rs` (4 endpoints)          | TC-020       | Done   |
 | ENH-191b | Editable ACL Matrix UI (Sprint 20)              | ACL Matrix UI        | `settings/page.tsx` (dynamic matrix), `api.ts` (4 role API functions)      | TC-020       | Done   |
+| ENH-179  | Selective Chunk → QA Generation (Sprint 21)     | Chunk QA Module      | `knowledge/page.tsx` (QaStatusBadge, auto-refresh polling)                 | TC-021       | Done   |
