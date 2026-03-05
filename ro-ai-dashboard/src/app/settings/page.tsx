@@ -755,7 +755,35 @@ export default function SettingsPage() {
             case "pipeline":
                 return renderPipelineTab();
             case "knowledge-graph":
-                return renderComingSoonTab(Share2, "Knowledge Graph Settings", "Sprint 11");
+                return (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Share2 className="w-5 h-5" />
+                                Knowledge Graph Settings
+                            </CardTitle>
+                            <CardDescription>Configure entity extraction and graph visualization.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                                <h4 className="font-medium text-green-800 dark:text-green-300">✓ Knowledge Graph Active</h4>
+                                <p className="text-sm text-green-600 dark:text-green-400 mt-1">
+                                    Sprint 17 — Entity extraction, graph visualization, and path finding are available.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <a href="/graph" className="p-4 rounded-lg border border-slate-200 dark:border-zinc-700 hover:border-purple-400 dark:hover:border-purple-500 transition-colors group">
+                                    <h4 className="font-medium group-hover:text-purple-600 dark:group-hover:text-purple-400">Open Graph Explorer</h4>
+                                    <p className="text-sm text-muted-foreground mt-1">Visualize entities and relationships</p>
+                                </a>
+                                <div className="p-4 rounded-lg border border-slate-200 dark:border-zinc-700">
+                                    <h4 className="font-medium">Neo4j Connection</h4>
+                                    <p className="text-sm text-muted-foreground mt-1">bolt://localhost:7687 (default)</p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                );
             case "search":
                 return renderSearchTab();
             case "security":
