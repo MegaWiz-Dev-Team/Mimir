@@ -13,7 +13,7 @@ use crate::config::Config;
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::models::iam::{
     CreateUserRequest, UpdateUserPasswordRequest, UpdateUserRoleRequest, UpdateTenantRequest,
-    CreateTenantRequest, UpdateTenantConfigRequest, TenantConfig
+    CreateTenantRequest, UpdateTenantConfigRequest, TenantConfig, CreateRoleRequest, UpdateRoleRequest,
 };
 use mimir_core_ai::services::iam::IamService;
 use mimir_core_ai::services::domain;
@@ -29,6 +29,9 @@ pub fn iam_routes() -> Router<MySqlPool> {
         .route("/tenants/{id}/config", get(get_tenant_config).patch(update_tenant_config))
         .route("/tenants/{id}/features", get(get_tenant_features))
         .route("/my-tenants", get(get_my_tenants))
+        // Custom Roles — Issue #191
+        .route("/roles", get(list_roles).post(create_role))
+        .route("/roles/{id}", patch(update_role).delete(delete_role))
         .route_layer(middleware::from_fn(tenant_auth_middleware))
 }
 
@@ -246,5 +249,87 @@ async fn update_tenant_config(
     match iam_service.update_tenant_config(&id, payload).await {
         Ok(_) => Ok(StatusCode::OK),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── Custom Roles Handlers — Issue #191 ──────────────────────────────────────
+
+/// GET /api/v1/iam/roles — list all roles for the current tenant
+async fn list_roles(
+    State(pool): State<MySqlPool>,
+    Extension(config): Extension<Arc<Config>>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let iam_service = IamService::new(pool, config.jwt_secret.clone());
+    match iam_service.list_roles(&tenant_ctx.tenant_id).await {
+        Ok(roles) => Ok(Json(roles)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+/// POST /api/v1/iam/roles — create a custom role (admin only)
+async fn create_role(
+    State(pool): State<MySqlPool>,
+    Extension(config): Extension<Arc<Config>>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Json(payload): Json<CreateRoleRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    let iam_service = IamService::new(pool, config.jwt_secret.clone());
+    match iam_service.create_role(&tenant_ctx.tenant_id, payload).await {
+        Ok(role) => Ok((StatusCode::CREATED, Json(role))),
+        Err(e) => {
+            if e.to_string().contains("already exists") {
+                Err(StatusCode::CONFLICT)
+            } else {
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
+}
+
+/// PATCH /api/v1/iam/roles/:id — update a custom role's permissions (admin only)
+async fn update_role(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(config): Extension<Arc<Config>>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Json(payload): Json<UpdateRoleRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    let iam_service = IamService::new(pool, config.jwt_secret.clone());
+    match iam_service.update_role(&id, payload).await {
+        Ok(role) => Ok(Json(role)),
+        Err(e) => {
+            if e.to_string().contains("built-in") {
+                Err(StatusCode::FORBIDDEN)
+            } else {
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
+}
+
+/// DELETE /api/v1/iam/roles/:id — delete a custom role (admin only)
+async fn delete_role(
+    State(pool): State<MySqlPool>,
+    Path(id): Path<String>,
+    Extension(config): Extension<Arc<Config>>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_admin(&tenant_ctx)?;
+    let iam_service = IamService::new(pool, config.jwt_secret.clone());
+    match iam_service.delete_role(&id).await {
+        Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("built-in") {
+                Err(StatusCode::FORBIDDEN)
+            } else if msg.contains("assigned to") {
+                Err(StatusCode::BAD_REQUEST)
+            } else {
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
     }
 }
