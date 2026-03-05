@@ -519,6 +519,22 @@ export interface Tenant {
     updated_at: string | null;
 }
 
+export interface LlmSlot {
+    provider: string;
+    model: string;
+}
+
+export interface LlmConfig {
+    chat?: LlmSlot;
+    rag?: LlmSlot;
+    pipeline_generator?: LlmSlot;
+    pipeline_evaluator?: LlmSlot;
+    judge?: LlmSlot;
+    embedding?: LlmSlot;
+    heimdall_url?: string;
+    heimdall_api_key?: string;
+}
+
 export interface TenantConfig {
     tenant_id: string;
     default_provider?: string;
@@ -535,6 +551,7 @@ export interface TenantConfig {
         similarity_threshold?: number;
         search_mode?: string;
     };
+    llm_config?: LlmConfig;
 }
 
 export interface CreateTenantRequest {

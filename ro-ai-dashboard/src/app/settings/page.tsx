@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
-import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, Tenant, TenantConfig, User, CreateTenantRequest } from "@/lib/api";
+import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest } from "@/lib/api";
 
 // ─── Tab Definitions ────────────────────────────────────────────────────────────
 
@@ -177,6 +177,106 @@ export default function SettingsPage() {
         </Card>
     );
 
+    const PROVIDER_OPTIONS = [
+        { value: "ollama", label: "Ollama (Local)" },
+        { value: "heimdall", label: "Heimdall (Self-Hosted)" },
+        { value: "gemini", label: "Google Gemini" },
+    ] as const;
+
+    const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+        ollama: [
+            { value: "llama3.2", label: "llama3.2" },
+            { value: "llama3.1", label: "llama3.1" },
+            { value: "qwen2.5", label: "qwen2.5" },
+            { value: "qwen2.5:32b", label: "qwen2.5:32b" },
+        ],
+        heimdall: [
+            { value: "mlx-community/Qwen3.5-35B-A3B-4bit", label: "Qwen 3.5 35B MoE" },
+            { value: "mlx-community/Qwen3.5-27B-4bit", label: "Qwen 3.5 27B" },
+            { value: "mlx-community/Qwen3.5-9B-MLX-4bit", label: "Qwen 3.5 9B" },
+            { value: "mlx-community/Qwen3-0.6B-4bit", label: "Qwen 3 0.6B" },
+            { value: "lmstudio-community/medgemma-4b-it-MLX-4bit", label: "MedGemma 4B" },
+        ],
+        gemini: [
+            { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+            { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+            { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+        ],
+    };
+
+    const EMBEDDING_MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+        ollama: [
+            { value: "nomic-embed-text", label: "nomic-embed-text" },
+            { value: "bge-m3", label: "bge-m3" },
+        ],
+        openai: [
+            { value: "text-embedding-3-small", label: "text-embedding-3-small" },
+            { value: "text-embedding-3-large", label: "text-embedding-3-large" },
+        ],
+        google: [
+            { value: "text-embedding-004", label: "text-embedding-004" },
+        ],
+    };
+
+    const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+    const updateSlot = (slotName: keyof LlmConfig, field: "provider" | "model", value: string) => {
+        if (!config) return;
+        const current = config.llm_config || {};
+        const currentSlot = (current[slotName] as LlmSlot | undefined) || { provider: "", model: "" };
+        const updatedSlot = { ...currentSlot, [field]: value };
+        // Auto-select first model when provider changes
+        if (field === "provider") {
+            const isEmbedding = slotName === "embedding";
+            const models = isEmbedding ? (EMBEDDING_MODEL_OPTIONS[value] || []) : (MODEL_OPTIONS[value] || []);
+            updatedSlot.model = models[0]?.value || "";
+        }
+        setConfig({ ...config, llm_config: { ...current, [slotName]: updatedSlot } });
+    };
+
+    const SlotCard = ({ slotName, icon, title, desc }: { slotName: keyof LlmConfig; icon: string; title: string; desc: string }) => {
+        const slot = (config?.llm_config?.[slotName] as LlmSlot | undefined) || { provider: "", model: "" };
+        const isEmbedding = slotName === "embedding";
+        const providerModels = isEmbedding ? (EMBEDDING_MODEL_OPTIONS[slot.provider] || []) : (MODEL_OPTIONS[slot.provider] || []);
+        return (
+            <div className="rounded-lg border bg-card p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-lg">{icon}</span>
+                    <div>
+                        <h4 className="font-medium text-sm">{title}</h4>
+                        <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Provider</label>
+                        <select className={selectClass} value={slot.provider}
+                            onChange={e => updateSlot(slotName, "provider", e.target.value)}>
+                            <option value="">Select...</option>
+                            {(isEmbedding ? [
+                                { value: "ollama", label: "Ollama" },
+                                { value: "openai", label: "OpenAI" },
+                                { value: "google", label: "Google" },
+                            ] : PROVIDER_OPTIONS).map(p => (
+                                <option key={p.value} value={p.value}>{p.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Model</label>
+                        <select className={selectClass} value={slot.model}
+                            onChange={e => updateSlot(slotName, "model", e.target.value)}>
+                            <option value="">Select...</option>
+                            {providerModels.map(m => (
+                                <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const renderAIModelsTab = () => (
         <Card>
             <CardHeader>
@@ -185,7 +285,7 @@ export default function SettingsPage() {
                     AI Model Configuration
                 </CardTitle>
                 <CardDescription>
-                    Configure default models, limits, and system behavior.
+                    Configure models for each purpose. Each slot can use a different provider and model.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -193,113 +293,48 @@ export default function SettingsPage() {
                     <div className="py-4 text-center text-muted-foreground">Loading...</div>
                 ) : config ? (
                     <form onSubmit={handleSave} className="space-y-6">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Default Provider</label>
-                                <select
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    value={config.default_provider || ""}
-                                    onChange={e => {
-                                        const provider = e.target.value;
-                                        setConfig({ ...config, default_provider: provider });
-                                        // Auto-select first model for this provider
-                                        const models: Record<string, string> = {
-                                            ollama: "llama3.2",
-                                            gemini: "gemini-2.5-flash",
-                                            openai: "gpt-4o-mini",
-                                            mlx: "mlx-community/Mistral-7B",
-                                            vllm: "meta-llama/Llama-3.2-3B",
-                                            groq: "llama-3.3-70b-versatile",
-                                            deepseek: "deepseek-chat",
-                                            heimdall: "mlx-community/Qwen3.5-35B-A3B-4bit",
-                                        };
-                                        if (models[provider]) {
-                                            setConfig(prev => prev ? { ...prev, default_provider: provider, default_model: models[provider] } : prev);
-                                        }
-                                    }}
-                                >
-                                    <option value="">Select provider...</option>
-                                    <option value="heimdall">Heimdall (Self-Hosted)</option>
-                                    <option value="ollama">Ollama (Local)</option>
-                                    <option value="gemini">Google Gemini</option>
-                                    <option value="openai">OpenAI</option>
-                                    <option value="mlx">MLX (Apple Silicon)</option>
-                                    <option value="vllm">vLLM</option>
-                                    <option value="groq">Groq</option>
-                                    <option value="deepseek">DeepSeek</option>
-                                    <option value="custom">Custom</option>
-                                </select>
+                        {/* Per-Purpose Slot Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <SlotCard slotName="chat" icon="💬" title="Chat & NPC" desc="Agent chat (Tier 1+2)" />
+                            <SlotCard slotName="rag" icon="📚" title="RAG (Oracle Agent)" desc="Knowledge retrieval queries" />
+                            <SlotCard slotName="pipeline_generator" icon="🔄" title="Pipeline Generator" desc="QA pair generation" />
+                            <SlotCard slotName="judge" icon="⚖️" title="Evaluation Judge" desc="LLM-as-Judge scoring" />
+                            <SlotCard slotName="embedding" icon="🧬" title="Embedding" desc="Vector embedding model" />
+                        </div>
+
+                        {/* Heimdall Gateway */}
+                        <div className="rounded-lg border bg-card p-4 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg">🔗</span>
+                                <div>
+                                    <h4 className="font-medium text-sm">Heimdall Gateway</h4>
+                                    <p className="text-xs text-muted-foreground">Self-hosted LLM gateway connection</p>
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Default Model</label>
-                                {config.default_provider === "custom" ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <label className="text-xs text-muted-foreground">URL</label>
                                     <Input
-                                        placeholder="model-name"
-                                        value={config.default_model || ""}
-                                        onChange={e => setConfig({ ...config, default_model: e.target.value })}
+                                        placeholder="https://...ngrok-free.dev/v1"
+                                        value={config.llm_config?.heimdall_url || ""}
+                                        onChange={e => setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_url: e.target.value } })}
                                     />
-                                ) : (
-                                    <select
-                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        value={config.default_model || ""}
-                                        onChange={e => setConfig({ ...config, default_model: e.target.value })}
-                                    >
-                                        <option value="">Select model...</option>
-                                        {config.default_provider === "ollama" && (
-                                            <>
-                                                <option value="llama3.2">llama3.2</option>
-                                                <option value="llama3.1">llama3.1</option>
-                                                <option value="qwen2.5">qwen2.5</option>
-                                                <option value="nomic-embed-text">nomic-embed-text</option>
-                                                <option value="gemma2">gemma2</option>
-                                            </>
-                                        )}
-                                        {config.default_provider === "gemini" && (
-                                            <>
-                                                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                                                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-                                                <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-                                            </>
-                                        )}
-                                        {config.default_provider === "openai" && (
-                                            <>
-                                                <option value="gpt-4o-mini">gpt-4o-mini</option>
-                                                <option value="gpt-4o">gpt-4o</option>
-                                                <option value="gpt-4-turbo">gpt-4-turbo</option>
-                                            </>
-                                        )}
-                                        {config.default_provider === "mlx" && (
-                                            <option value="mlx-community/Mistral-7B">mlx-community/Mistral-7B</option>
-                                        )}
-                                        {config.default_provider === "vllm" && (
-                                            <option value="meta-llama/Llama-3.2-3B">meta-llama/Llama-3.2-3B</option>
-                                        )}
-                                        {config.default_provider === "groq" && (
-                                            <>
-                                                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-                                                <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
-                                            </>
-                                        )}
-                                        {config.default_provider === "deepseek" && (
-                                            <>
-                                                <option value="deepseek-chat">deepseek-chat</option>
-                                                <option value="deepseek-coder">deepseek-coder</option>
-                                            </>
-                                        )}
-                                        {config.default_provider === "heimdall" && (
-                                            <>
-                                                <option value="mlx-community/Qwen3.5-35B-A3B-4bit">Qwen 3.5 35B MoE (Primary)</option>
-                                                <option value="mlx-community/Qwen3.5-27B-4bit">Qwen 3.5 27B (Complex)</option>
-                                                <option value="mlx-community/Qwen3.5-9B-MLX-4bit">Qwen 3.5 9B (Fast)</option>
-                                                <option value="mlx-community/Qwen3-0.6B-4bit">Qwen 3 0.6B (Smoke)</option>
-                                                <option value="lmstudio-community/medgemma-4b-it-MLX-4bit">MedGemma 4B (Medical)</option>
-                                            </>
-                                        )}
-                                    </select>
-                                )}
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                        <Lock className="w-3 h-3" /> API Key
+                                    </label>
+                                    <Input
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={config.llm_config?.heimdall_api_key || ""}
+                                        onChange={e => setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_api_key: e.target.value } })}
+                                    />
+                                </div>
                             </div>
                         </div>
 
+                        {/* System Prompt */}
                         <div className="space-y-2">
                             <label className="text-sm font-medium">System Prompt</label>
                             <textarea
@@ -310,24 +345,26 @@ export default function SettingsPage() {
                             />
                         </div>
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Max Daily Tokens</label>
-                            <Input
-                                type="number"
-                                value={config.max_daily_tokens || 100000}
-                                onChange={e => setConfig({ ...config, max_daily_tokens: parseInt(e.target.value) || 0 })}
-                            />
-                        </div>
-
-                        <div className="space-y-2 flex items-center gap-2 pt-2">
-                            <input
-                                type="checkbox"
-                                id="vectorDb"
-                                checked={config.is_dedicated_vector_db}
-                                onChange={e => setConfig({ ...config, is_dedicated_vector_db: e.target.checked })}
-                                className="w-4 h-4 rounded border-gray-300 text-primary"
-                            />
-                            <label htmlFor="vectorDb" className="text-sm font-medium">Use Dedicated Vector DB Collection</label>
+                        {/* Max Daily Tokens + Dedicated Vector DB */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Max Daily Tokens</label>
+                                <Input
+                                    type="number"
+                                    value={config.max_daily_tokens || 100000}
+                                    onChange={e => setConfig({ ...config, max_daily_tokens: parseInt(e.target.value) || 0 })}
+                                />
+                            </div>
+                            <div className="space-y-2 flex items-end gap-2 pb-1">
+                                <input
+                                    type="checkbox"
+                                    id="vectorDb"
+                                    checked={config.is_dedicated_vector_db}
+                                    onChange={e => setConfig({ ...config, is_dedicated_vector_db: e.target.checked })}
+                                    className="w-4 h-4 rounded border-gray-300 text-primary"
+                                />
+                                <label htmlFor="vectorDb" className="text-sm font-medium">Dedicated Vector DB</label>
+                            </div>
                         </div>
 
                         <div className="pt-4 flex justify-end">

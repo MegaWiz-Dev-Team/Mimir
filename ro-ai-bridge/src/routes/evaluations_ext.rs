@@ -91,7 +91,18 @@ async fn run_evaluation_batch(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
     let batch_id = Uuid::new_v4().to_string();
-    let judge_model = payload.judge_model.unwrap_or_else(|| "gemini-2.0-flash".into());
+
+    // Resolve judge model from tenant config (llm_config.judge slot)
+    let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
+    let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
+    let llm_config = tenant_config.as_ref()
+        .and_then(|c| c.llm_config.as_ref())
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+    let default_p = tenant_config.as_ref().map(|c| c.default_provider.as_str());
+    let default_m = tenant_config.as_ref().map(|c| c.default_model.as_str());
+    let judge_slot = llm_config.resolve_slot("judge", default_p, default_m);
+    let judge_model = payload.judge_model.unwrap_or(judge_slot.model);
     let agent_name = payload.agent_name.unwrap_or_else(|| "oracle_rag".into());
 
     info!("Starting evaluation batch {} with {} models x {} questions",

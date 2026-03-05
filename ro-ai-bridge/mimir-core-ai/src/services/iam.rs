@@ -213,27 +213,25 @@ impl IamService {
     }
 
     pub async fn get_tenant_config(&self, tenant_id: &str) -> Result<crate::models::iam::TenantConfig> {
-        let config = sqlx::query_as!(
-            crate::models::iam::TenantConfig,
-            r#"
-            SELECT 
+        let config = sqlx::query_as::<_, crate::models::iam::TenantConfig>(
+            r#"SELECT 
                 tenant_id, 
-                default_provider AS "default_provider!", 
-                default_model AS "default_model!", 
-                provider_api_keys AS "provider_api_keys: sqlx::types::Json<serde_json::Value>", 
-                qa_rules AS "qa_rules: sqlx::types::Json<serde_json::Value>", 
+                default_provider, 
+                default_model, 
+                provider_api_keys, 
+                qa_rules, 
                 system_prompt, 
-                max_daily_tokens AS "max_daily_tokens!", 
-                is_dedicated_vector_db AS "is_dedicated_vector_db: bool",
-                max_crawl_pages AS "max_crawl_pages!",
-                search_settings AS "search_settings: sqlx::types::Json<serde_json::Value>",
+                max_daily_tokens, 
+                is_dedicated_vector_db,
+                max_crawl_pages,
+                search_settings,
+                llm_config,
                 created_at, 
                 updated_at
             FROM tenant_configs 
-            WHERE tenant_id = ?
-            "#,
-            tenant_id
+            WHERE tenant_id = ?"#
         )
+        .bind(tenant_id)
         .fetch_one(&self.db).await?;
         Ok(config)
     }
@@ -250,24 +248,31 @@ impl IamService {
         let is_dedicated_vector_db = req.is_dedicated_vector_db.unwrap_or(config.is_dedicated_vector_db);
         let max_crawl_pages = req.max_crawl_pages.unwrap_or(config.max_crawl_pages);
         let search_settings = req.search_settings.or(config.search_settings);
+        let llm_config = req.llm_config.or(config.llm_config);
 
-        sqlx::query!(
-            r#"
-            UPDATE tenant_configs 
-            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, max_crawl_pages = ?, search_settings = ?
-            WHERE tenant_id = ?
-            "#,
-            default_provider,
-            default_model,
-            provider_api_keys,
-            qa_rules,
-            system_prompt,
-            max_daily_tokens,
-            is_dedicated_vector_db,
-            max_crawl_pages,
-            search_settings,
-            tenant_id
+        // Serialize llm_config to JSON string for runtime query binding
+        let llm_config_json = llm_config
+            .as_ref()
+            .map(|c| serde_json::to_string(&c.0))
+            .transpose()
+            .map_err(|e| anyhow!("Failed to serialize llm_config: {}", e))?;
+
+        sqlx::query(
+            r#"UPDATE tenant_configs 
+            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, max_crawl_pages = ?, search_settings = ?, llm_config = ?
+            WHERE tenant_id = ?"#
         )
+        .bind(&default_provider)
+        .bind(&default_model)
+        .bind(&provider_api_keys)
+        .bind(&qa_rules)
+        .bind(&system_prompt)
+        .bind(max_daily_tokens)
+        .bind(is_dedicated_vector_db)
+        .bind(max_crawl_pages)
+        .bind(&search_settings)
+        .bind(&llm_config_json)
+        .bind(tenant_id)
         .execute(&self.db).await?;
         Ok(())
     }
@@ -347,6 +352,7 @@ impl IamService {
                 is_dedicated_vector_db: false,
                 max_crawl_pages: 100,
                 search_settings: None,
+                llm_config: None,
                 created_at: None,
                 updated_at: None,
             });

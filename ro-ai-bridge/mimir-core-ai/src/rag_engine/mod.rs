@@ -354,6 +354,7 @@ impl AgentBackend {
                 let resp = client.post(&url)
                     .header("Authorization", format!("Bearer {}", api_key))
                     .header("Content-Type", "application/json")
+                    .header("ngrok-skip-browser-warning", "true")
                     .json(&body)
                     .send()
                     .await

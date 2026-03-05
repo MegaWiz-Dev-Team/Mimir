@@ -10,6 +10,7 @@ axum.workspace = true
 dotenvy.workspace = true
 mimir-core-ai = { version = "0.1.0", path = "../mimir-core-ai" }
 regex.workspace = true
+reqwest = { workspace = true, features = ["json"] }
 rig-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
