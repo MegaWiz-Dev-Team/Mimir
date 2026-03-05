@@ -1428,7 +1428,7 @@ mod tests {
             gemini_base_url: "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
             gemini_api_key: Some("test-gemini-key".to_string()),
             gemini_model: String::new(),
-            heimdall_api_url: "http://192.168.1.133:8000/v1".to_string(),
+            heimdall_api_url: "http://192.168.1.133:3000/v1".to_string(),
             heimdall_api_key: Some("test-heimdall-key".to_string()),
             heimdall_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
             neo4j_uri: "bolt://localhost:7687".to_string(),
@@ -1463,7 +1463,7 @@ mod tests {
     #[test]
     fn test_infer_api_base_heimdall() {
         // Set env for test
-        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://192.168.1.133:8000/v1"); }
+        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://192.168.1.133:3000/v1"); }
         let base = infer_api_base("heimdall");
         assert!(base.contains("192.168.1.133"), "Heimdall base should contain gateway host, got: {}", base);
         assert!(base.ends_with('/'), "Base URL should end with /");

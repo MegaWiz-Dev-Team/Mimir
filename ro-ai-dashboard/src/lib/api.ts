@@ -1646,6 +1646,7 @@ export async function fetchExtractionRuns(): Promise<{ runs: ExtractionRun[] }> 
     return res.json();
 }
 
+
 // ─── Sprint 18: Coverage Analytics API ──────────────────────────────────────
 
 export interface PipelineStages {
@@ -1712,3 +1713,4 @@ export async function fetchCoverageGaps(): Promise<CoverageGaps> {
     if (!res.ok) throw new Error("Failed to fetch coverage gaps");
     return res.json();
 }
+
