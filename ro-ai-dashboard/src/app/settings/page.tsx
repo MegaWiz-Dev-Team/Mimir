@@ -6,14 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
     Building2, Save, Settings2, Bot, Workflow, Share2,
-    Search, Shield, Lock, Users, Layers, Plus, Trash2, RefreshCw
+    Search, Shield, Lock, Users, Layers, Plus, Trash2, RefreshCw,
+    Server, Key, RotateCw, CheckCircle2, XCircle, AlertTriangle
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import Cookies from "js-cookie";
 
-import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest } from "@/lib/api";
+import { fetchTenants, updateTenant, fetchTenantConfig, updateTenantConfig, createTenant, deleteTenant, fetchUsers, createUser, deleteUser, updateUserRole, fetchVaultStatus, fetchVaultSecrets, rotateVaultSecret, Tenant, TenantConfig, LlmConfig, LlmSlot, User, CreateTenantRequest, VaultStatus, VaultSecretInfo, VaultSecretsResponse } from "@/lib/api";
 
 // ─── Tab Definitions ────────────────────────────────────────────────────────────
 
@@ -52,6 +53,37 @@ export default function SettingsPage() {
     const [topK, setTopK] = useState(5);
     const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
     const [searchMode, setSearchMode] = useState("hybrid");
+
+    // Vault state (Issue #190)
+    const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
+    const [vaultSecrets, setVaultSecrets] = useState<VaultSecretsResponse | null>(null);
+    const [isVaultLoading, setIsVaultLoading] = useState(false);
+    const [rotateDialog, setRotateDialog] = useState<{ open: boolean; key: string }>({ open: false, key: "" });
+    const [rotateValue, setRotateValue] = useState("");
+    const [isRotating, setIsRotating] = useState(false);
+    const [rotatingKey, setRotatingKey] = useState<string | null>(null);
+
+    const refreshVaultData = async () => {
+        setIsVaultLoading(true);
+        try {
+            const [status, secrets] = await Promise.all([fetchVaultStatus(), fetchVaultSecrets()]);
+            setVaultStatus(status);
+            setVaultSecrets(secrets);
+        } catch (err) { console.warn("[Vault] Refresh failed:", err); }
+        finally { setIsVaultLoading(false); }
+    };
+
+    const handleRotateSecret = async () => {
+        if (!rotateValue.trim()) return;
+        setIsRotating(true);
+        try {
+            await rotateVaultSecret(rotateDialog.key, rotateValue);
+            setRotateDialog({ open: false, key: "" });
+            setRotateValue("");
+            await refreshVaultData();
+        } catch (err) { console.error("[Vault] Rotate failed:", err); }
+        finally { setIsRotating(false); }
+    };
 
     useEffect(() => {
         loadData();
@@ -830,162 +862,349 @@ export default function SettingsPage() {
                     ];
 
                     return (
-                        <div className="space-y-6">
-                            {/* Security Overview */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Shield className="w-5 h-5 text-primary" />
-                                        Security Overview
-                                    </CardTitle>
-                                    <CardDescription>
-                                        Security features and authentication configuration for this tenant.
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {securityFeatures.map((f, i) => (
-                                            <div key={i} className="rounded-lg border bg-card p-4">
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-sm font-medium">{f.label}</span>
-                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${f.status ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800'}`}>
-                                                        {f.status ? '✓ Active' : '✗ Inactive'}
+                        <>
+                            <div className="space-y-6">
+                                {/* Security Overview */}
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Shield className="w-5 h-5 text-primary" />
+                                            Security Overview
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Security features and authentication configuration for this tenant.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {securityFeatures.map((f, i) => (
+                                                <div key={i} className="rounded-lg border bg-card p-4">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-sm font-medium">{f.label}</span>
+                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${f.status ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800'}`}>
+                                                            {f.status ? '✓ Active' : '✗ Inactive'}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-sm font-mono text-primary">{f.value}</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">{f.detail}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                {/* Vault Status Dashboard — Issue #190 */}
+                                <Card>
+                                    <CardHeader>
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <CardTitle className="flex items-center gap-2">
+                                                    <Server className="w-5 h-5 text-primary" />
+                                                    Vault Status
+                                                </CardTitle>
+                                                <CardDescription>HashiCorp Vault connectivity and secret management.</CardDescription>
+                                            </div>
+                                            <Button variant="outline" size="sm" disabled={isVaultLoading}
+                                                onClick={async () => {
+                                                    setIsVaultLoading(true);
+                                                    try {
+                                                        const [status, secrets] = await Promise.all([
+                                                            fetchVaultStatus(),
+                                                            fetchVaultSecrets()
+                                                        ]);
+                                                        setVaultStatus(status);
+                                                        setVaultSecrets(secrets);
+                                                    } catch (err) {
+                                                        console.warn("[Vault] Health check failed:", err);
+                                                    } finally {
+                                                        setIsVaultLoading(false);
+                                                    }
+                                                }}
+                                            >
+                                                <RotateCw className={`w-4 h-4 mr-1 ${isVaultLoading ? 'animate-spin' : ''}`} />
+                                                Health Check
+                                            </Button>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {vaultStatus ? (
+                                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                                <div className="space-y-1">
+                                                    <p className="text-xs text-muted-foreground">Status</p>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`w-2.5 h-2.5 rounded-full ${vaultStatus.enabled && vaultStatus.connected ? 'bg-green-500' : vaultStatus.enabled ? 'bg-red-500' : 'bg-gray-400'}`} />
+                                                        <span className="text-sm font-medium">
+                                                            {vaultStatus.enabled && vaultStatus.connected ? 'Connected' : vaultStatus.enabled ? 'Disconnected' : 'Not Configured'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-xs text-muted-foreground">Address</p>
+                                                    <p className="text-sm font-mono truncate">{vaultStatus.addr || '—'}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-xs text-muted-foreground">Sealed</p>
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${vaultStatus.sealed === false ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                                                        vaultStatus.sealed === true ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                                                            'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                                        }`}>
+                                                        {vaultStatus.sealed === false ? '🔓 Unsealed' : vaultStatus.sealed === true ? '🔒 Sealed' : '—'}
                                                     </span>
                                                 </div>
-                                                <p className="text-sm font-mono text-primary">{f.value}</p>
-                                                <p className="text-xs text-muted-foreground mt-1">{f.detail}</p>
+                                                <div className="space-y-1">
+                                                    <p className="text-xs text-muted-foreground">Version</p>
+                                                    <p className="text-sm font-mono">{vaultStatus.version || '—'}</p>
+                                                </div>
                                             </div>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </Card>
+                                        ) : (
+                                            <div className="text-center py-6 text-muted-foreground">
+                                                <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                                                <p className="text-sm">Click &quot;Health Check&quot; to check Vault connectivity.</p>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
 
-                            {/* Active Session */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Lock className="w-5 h-5 text-primary" />
-                                        Current Session
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                        <div className="space-y-1">
-                                            <p className="text-xs text-muted-foreground">User ID</p>
-                                            <p className="text-sm font-mono truncate">{sessionInfo.sub || "—"}</p>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-xs text-muted-foreground">Tenant</p>
-                                            <p className="text-sm font-mono">{sessionInfo.tenant_id || "—"}</p>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-xs text-muted-foreground">Role</p>
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sessionInfo.role === 'admin' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                                {/* Managed Secrets Table — Issue #190 */}
+                                {vaultSecrets && (
+                                    <Card>
+                                        <CardHeader>
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <CardTitle className="flex items-center gap-2">
+                                                        <Key className="w-5 h-5 text-primary" />
+                                                        Managed Secrets
+                                                        <span className="text-sm font-normal text-muted-foreground">
+                                                            ({vaultSecrets.present_count}/{vaultSecrets.total} present)
+                                                        </span>
+                                                    </CardTitle>
+                                                    <CardDescription>Secrets managed by Vault or environment variables.</CardDescription>
+                                                </div>
+                                                {vaultSecrets.vault_enabled && (
+                                                    <Button variant="outline" size="sm" disabled={isVaultLoading}
+                                                        onClick={refreshVaultData}
+                                                    >
+                                                        <RefreshCw className={`w-4 h-4 mr-1 ${isVaultLoading ? 'animate-spin' : ''}`} />
+                                                        Re-seed All
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead>Secret</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead>Source</TableHead>
+                                                        <TableHead>Masked Value</TableHead>
+                                                        {vaultSecrets.vault_enabled && <TableHead className="text-right">Actions</TableHead>}
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {vaultSecrets.secrets.map((s) => (
+                                                        <TableRow key={s.key}>
+                                                            <TableCell className="font-mono text-sm">{s.key}</TableCell>
+                                                            <TableCell>
+                                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.status === 'present'
+                                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                                                    }`}>
+                                                                    {s.status === 'present' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                                                    {s.status === 'present' ? 'Present' : 'Missing'}
+                                                                </span>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.source === 'vault' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' :
+                                                                    s.source === 'env' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                                        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                                                    }`}>
+                                                                    {s.source === 'vault' ? '🔐 Vault' : s.source === 'env' ? '📁 Env' : '—'}
+                                                                </span>
+                                                            </TableCell>
+                                                            <TableCell className="font-mono text-xs text-muted-foreground">
+                                                                {s.masked_value || '—'}
+                                                            </TableCell>
+                                                            {vaultSecrets.vault_enabled && (
+                                                                <TableCell className="text-right">
+                                                                    <Button variant="ghost" size="sm"
+                                                                        disabled={rotatingKey === s.key}
+                                                                        onClick={() => {
+                                                                            setRotateDialog({ open: true, key: s.key });
+                                                                            setRotateValue("");
+                                                                        }}
+                                                                    >
+                                                                        <RotateCw className={`w-3.5 h-3.5 mr-1 ${rotatingKey === s.key ? 'animate-spin' : ''}`} />
+                                                                        Rotate
+                                                                    </Button>
+                                                                </TableCell>
+                                                            )}
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </CardContent>
+                                    </Card>
+                                )}
+
+                                {/* Active Session */}
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Lock className="w-5 h-5 text-primary" />
+                                            Current Session
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">User ID</p>
+                                                <p className="text-sm font-mono truncate">{sessionInfo.sub || "—"}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Tenant</p>
+                                                <p className="text-sm font-mono">{sessionInfo.tenant_id || "—"}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Role</p>
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sessionInfo.role === 'admin' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
                                                     sessionInfo.role === 'editor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
                                                         'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
-                                                }`}>
-                                                {(sessionInfo.role || "Unknown").toUpperCase()}
-                                            </span>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-xs text-muted-foreground">Token Expires</p>
-                                            <p className={`text-sm font-mono ${isExpired ? 'text-red-600' : 'text-green-600'}`}>
-                                                {expDate ? expDate.toLocaleString() : "—"}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            {/* RBAC Roles */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Users className="w-5 h-5 text-primary" />
-                                        Role Permissions
-                                    </CardTitle>
-                                    <CardDescription>Access control matrix for each role level.</CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead className="w-[120px]">Role</TableHead>
-                                                <TableHead>Dashboard</TableHead>
-                                                <TableHead>Sources</TableHead>
-                                                <TableHead>Knowledge</TableHead>
-                                                <TableHead>Pipeline</TableHead>
-                                                <TableHead>Chat</TableHead>
-                                                <TableHead>Settings</TableHead>
-                                                <TableHead>Users</TableHead>
-                                                <TableHead>Tenants</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            <TableRow>
-                                                <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">ADMIN</span></TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">EDITOR</span></TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>⛔</TableCell>
-                                                <TableCell>⛔</TableCell>
-                                                <TableCell>⛔</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">VIEWER</span></TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>👁️</TableCell>
-                                                <TableCell>👁️</TableCell>
-                                                <TableCell>👁️</TableCell>
-                                                <TableCell>✅</TableCell>
-                                                <TableCell>⛔</TableCell>
-                                                <TableCell>⛔</TableCell>
-                                                <TableCell>⛔</TableCell>
-                                            </TableRow>
-                                        </TableBody>
-                                    </Table>
-                                    <p className="text-xs text-muted-foreground mt-3">✅ Full access · 👁️ Read-only · ⛔ No access</p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Security Checklist */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Shield className="w-5 h-5 text-primary" />
-                                        Security Recommendations
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="space-y-3">
-                                        {recommendations.map((r, i) => (
-                                            <div key={i} className="flex items-center gap-3">
-                                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${r.done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                                                     }`}>
-                                                    {r.done ? '✓' : '!'}
-                                                </div>
-                                                <span className={`text-sm ${r.done ? 'text-muted-foreground' : 'font-medium'}`}>
-                                                    {r.text}
+                                                    {(sessionInfo.role || "Unknown").toUpperCase()}
                                                 </span>
                                             </div>
-                                        ))}
+                                            <div className="space-y-1">
+                                                <p className="text-xs text-muted-foreground">Token Expires</p>
+                                                <p className={`text-sm font-mono ${isExpired ? 'text-red-600' : 'text-green-600'}`}>
+                                                    {expDate ? expDate.toLocaleString() : "—"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                {/* RBAC Roles */}
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Users className="w-5 h-5 text-primary" />
+                                            Role Permissions
+                                        </CardTitle>
+                                        <CardDescription>Access control matrix for each role level.</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="w-[120px]">Role</TableHead>
+                                                    <TableHead>Dashboard</TableHead>
+                                                    <TableHead>Sources</TableHead>
+                                                    <TableHead>Knowledge</TableHead>
+                                                    <TableHead>Pipeline</TableHead>
+                                                    <TableHead>Chat</TableHead>
+                                                    <TableHead>Settings</TableHead>
+                                                    <TableHead>Users</TableHead>
+                                                    <TableHead>Tenants</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                <TableRow>
+                                                    <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">ADMIN</span></TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                </TableRow>
+                                                <TableRow>
+                                                    <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">EDITOR</span></TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>⛔</TableCell>
+                                                    <TableCell>⛔</TableCell>
+                                                    <TableCell>⛔</TableCell>
+                                                </TableRow>
+                                                <TableRow>
+                                                    <TableCell><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">VIEWER</span></TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>👁️</TableCell>
+                                                    <TableCell>👁️</TableCell>
+                                                    <TableCell>👁️</TableCell>
+                                                    <TableCell>✅</TableCell>
+                                                    <TableCell>⛔</TableCell>
+                                                    <TableCell>⛔</TableCell>
+                                                    <TableCell>⛔</TableCell>
+                                                </TableRow>
+                                            </TableBody>
+                                        </Table>
+                                        <p className="text-xs text-muted-foreground mt-3">✅ Full access · 👁️ Read-only · ⛔ No access</p>
+                                    </CardContent>
+                                </Card>
+
+                                {/* Security Checklist */}
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Shield className="w-5 h-5 text-primary" />
+                                            Security Recommendations
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="space-y-3">
+                                            {recommendations.map((r, i) => (
+                                                <div key={i} className="flex items-center gap-3">
+                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${r.done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                                        }`}>
+                                                        {r.done ? '✓' : '!'}
+                                                    </div>
+                                                    <span className={`text-sm ${r.done ? 'text-muted-foreground' : 'font-medium'}`}>
+                                                        {r.text}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </div>
+
+                            {/* Rotate Secret Dialog — Issue #192 */}
+                            <Dialog open={rotateDialog.open} onOpenChange={(open) => { if (!open) setRotateDialog({ open: false, key: "" }); }}>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle className="flex items-center gap-2">
+                                            <RotateCw className="w-5 h-5" />
+                                            Rotate Secret
+                                        </DialogTitle>
+                                        <DialogDescription>Enter a new value for <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono">{rotateDialog.key}</code></DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-2">
+                                        <div className="space-y-2">
+                                            <Label>New Secret Value</Label>
+                                            <Input
+                                                type="password"
+                                                placeholder="Enter new value..."
+                                                value={rotateValue}
+                                                onChange={(e) => setRotateValue(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === "Enter") handleRotateSecret(); }}
+                                            />
+                                        </div>
                                     </div>
-                                </CardContent>
-                            </Card>
-                        </div>
+                                    <DialogFooter>
+                                        <Button variant="outline" onClick={() => setRotateDialog({ open: false, key: "" })}>Cancel</Button>
+                                        <Button onClick={handleRotateSecret} disabled={isRotating || !rotateValue.trim()}>
+                                            {isRotating ? <><RotateCw className="w-4 h-4 mr-1 animate-spin" /> Rotating...</> : "Rotate Secret"}
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                        </>
                     );
                 })();
             case "tenants":
