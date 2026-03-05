@@ -81,15 +81,25 @@ async fn trigger_indexing(State(pool): State<DbPool>) -> impl IntoResponse {
 }
 
 async fn search_vectors(
-    State(_pool): State<DbPool>,
+    State(pool): State<DbPool>,
     Extension(tenant): Extension<TenantContext>,
     Json(payload): Json<SearchRequest>,
 ) -> impl IntoResponse {
     use rig::embeddings::EmbeddingModel;
     let qdrant = QdrantService::new();
 
+    // Resolve embedding model from tenant config
+    let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
+    let tenant_config = iam.get_tenant_config(&tenant.tenant_id).await.ok();
+    let llm_config = tenant_config.as_ref()
+        .and_then(|c| c.llm_config.as_ref())
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+    let embed_slot = llm_config.resolve_slot("embedding", None, None);
+    let embed_model_name = embed_slot.model;
+
     let ollama_client = ollama::Client::new();
-    let embed_model = ollama_client.embedding_model("nomic-embed-text");
+    let embed_model = ollama_client.embedding_model(&embed_model_name);
 
     let target_tenant = if tenant.role == "SuperAdmin" {
         payload.tenant_id.unwrap_or(tenant.tenant_id)
