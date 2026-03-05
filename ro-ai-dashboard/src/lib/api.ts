@@ -1449,7 +1449,7 @@ export async function fetchFeedbackList(params?: { status?: string; page?: numbe
     return res.json();
 }
 
-// ─── Vault API (Sprint 14 — #157) ───────────────────────────────────────────
+// ─── Vault API (Sprint 14 — #157, Sprint 20 — #190) ─────────────────────────
 
 export interface VaultStatus {
     enabled: boolean;
@@ -1462,6 +1462,36 @@ export interface VaultStatus {
 export async function fetchVaultStatus(): Promise<VaultStatus> {
     const res = await authFetch(`${API_BASE_URL}/vault/status`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch vault status");
+    return res.json();
+}
+
+export interface VaultSecretInfo {
+    key: string;
+    status: "present" | "missing";
+    source: "vault" | "env" | "none";
+    masked_value: string | null;
+}
+
+export interface VaultSecretsResponse {
+    secrets: VaultSecretInfo[];
+    total: number;
+    present_count: number;
+    vault_enabled: boolean;
+}
+
+export async function fetchVaultSecrets(): Promise<VaultSecretsResponse> {
+    const res = await authFetch(`${API_BASE_URL}/vault/secrets`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch vault secrets");
+    return res.json();
+}
+
+export async function rotateVaultSecret(key: string, newValue: string): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/vault/rotate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, new_value: newValue }),
+    });
+    if (!res.ok) throw new Error("Failed to rotate secret");
     return res.json();
 }
 
