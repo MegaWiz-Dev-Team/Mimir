@@ -1,24 +1,131 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Cookies from "js-cookie";
-import { LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon, Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare, Share2 } from "lucide-react";
-import { fetchTenants, Tenant } from "@/lib/api";
+import {
+    LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon,
+    Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
+    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes
+} from "lucide-react";
+import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
+
+type NavItem = {
+    name: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+};
+
+type NavGroup = {
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    items: NavItem[];
+};
+
+function DropdownGroup({ group, pathname }: { group: NavGroup; pathname: string }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const isGroupActive = group.items.some(
+        (item) => pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+    );
+
+    const handleMouseEnter = () => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        setOpen(true);
+    };
+
+    const handleMouseLeave = () => {
+        timeoutRef.current = setTimeout(() => setOpen(false), 150);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        };
+    }, []);
+
+    const Icon = group.icon;
+
+    return (
+        <div
+            ref={ref}
+            className="relative"
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+        >
+            <button
+                onClick={() => setOpen(!open)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${isGroupActive
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                    }`}
+            >
+                <Icon className="w-4 h-4" />
+                {group.label}
+                <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
+            </button>
+
+            {open && (
+                <div className="absolute top-full left-0 mt-1 w-52 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg py-1 z-50 animate-in fade-in-0 zoom-in-95 duration-100">
+                    {group.items.map((item) => {
+                        const ItemIcon = item.icon;
+                        const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+                        return (
+                            <Link
+                                key={item.name}
+                                href={item.href}
+                                onClick={() => setOpen(false)}
+                                className={`flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${isActive
+                                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                    : "text-gray-600 hover:bg-gray-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                    }`}
+                            >
+                                <ItemIcon className="w-4 h-4 shrink-0" />
+                                {item.name}
+                            </Link>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Decode JWT payload without verification (just to read claims client-side)
+function decodeJwtPayload(token: string): Record<string, any> | null {
+    try {
+        const parts = token.split(".");
+        if (parts.length !== 3) return null;
+        const payload = JSON.parse(atob(parts[1]));
+        return payload;
+    } catch {
+        return null;
+    }
+}
 
 export function Navbar() {
     const pathname = usePathname();
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
-
     const [tenants, setTenants] = useState<Tenant[]>([]);
+    const [userRole, setUserRole] = useState<string>("viewer");
 
     useEffect(() => {
         setMounted(true);
         const token = Cookies.get("access_token");
         if (pathname !== "/login" && token) {
-            fetchTenants()
+            // Decode JWT to get user role
+            const claims = decodeJwtPayload(token);
+            const role = claims?.role || "viewer";
+            setUserRole(role);
+
+            // Admin sees all tenants, regular users see only their assigned tenants
+            const isAdminRole = role === "admin" || role === "SuperAdmin";
+            const tenantFetcher = isAdminRole ? fetchTenants : fetchMyTenants;
+            tenantFetcher()
                 .then(setTenants)
                 .catch(() => setTenants([]));
         }
@@ -26,6 +133,7 @@ export function Navbar() {
 
     if (!mounted || pathname === "/login") return null;
 
+    const isAdmin = userRole === "admin" || userRole === "SuperAdmin";
     const tenantId = Cookies.get("tenant_id") || "default_tenant";
     const currentTenantName = tenants.find(t => t.id === tenantId)?.name;
 
@@ -40,46 +148,80 @@ export function Navbar() {
         window.location.reload();
     };
 
-    const navItems = [
-        { name: "Overview", href: "/", icon: LayoutDashboard },
-        { name: "Sources", href: "/sources", icon: LinkIcon },
-        { name: "Knowledge", href: "/knowledge", icon: BookOpen },
-        { name: "Quality", href: "/quality_control", icon: ShieldCheck },
-        { name: "Playground", href: "/playground", icon: Bot },
-        { name: "Agents", href: "/agents", icon: Brain },
-        { name: "Logs", href: "/conversations", icon: MessageSquare },
-        { name: "Coverage", href: "/coverage", icon: BarChart3 },
-        { name: "Graph", href: "/graph", icon: Share2 },
-        { name: "Analytics", href: "/analytics/llm", icon: Activity },
-        { name: "Admin", href: "/settings", icon: Settings },
+    // Standalone item
+    const overviewItem: NavItem = { name: "Overview", href: "/", icon: LayoutDashboard };
+
+    // Grouped items
+    const navGroups: NavGroup[] = [
+        {
+            label: "Data",
+            icon: Database,
+            items: [
+                { name: "Sources", href: "/sources", icon: LinkIcon },
+                { name: "Knowledge", href: "/knowledge", icon: BookOpen },
+                { name: "Vector", href: "/vector", icon: Search },
+                { name: "Quality", href: "/quality_control", icon: ShieldCheck },
+            ],
+        },
+        {
+            label: "AI",
+            icon: Brain,
+            items: [
+                { name: "Playground", href: "/playground", icon: Bot },
+                { name: "Agents", href: "/agents", icon: Brain },
+                { name: "Graph", href: "/graph", icon: Share2 },
+            ],
+        },
+        {
+            label: "Analytics",
+            icon: BarChart3,
+            items: [
+                { name: "Coverage", href: "/coverage", icon: BarChart3 },
+                { name: "LLM Analytics", href: "/analytics/llm", icon: Activity },
+                { name: "Evaluations", href: "/evaluations", icon: FlaskConical },
+                { name: "Logs", href: "/conversations", icon: MessageSquare },
+            ],
+        },
+        {
+            label: "Admin",
+            icon: Settings,
+            items: [
+                { name: "Settings", href: "/settings", icon: Settings },
+                { name: "Tenants", href: "/tenants", icon: Building2 },
+                { name: "Users", href: "/users", icon: Users },
+            ],
+        },
     ];
+
+    const isOverviewActive = pathname === "/";
 
     return (
         <nav className="border-b bg-white dark:bg-zinc-950 dark:border-zinc-800">
-            <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-                <div className="flex items-center gap-8">
+            <div className="container mx-auto px-4 h-14 flex items-center justify-between">
+                <div className="flex items-center gap-6">
                     <Link href="/" className="font-bold text-xl tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                        Project-Mimir
+                        Project Mimir
                     </Link>
 
-                    <div className="hidden md:flex items-center gap-1">
-                        {navItems.map((item) => {
-                            const Icon = item.icon;
-                            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
-                            return (
-                                <Link
-                                    key={item.name}
-                                    href={item.href}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive
-                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                                        : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-                                        }`}
-                                >
-                                    <Icon className="w-4 h-4" />
-                                    {item.name}
-                                </Link>
-                            );
-                        })}
+                    <div className="hidden md:flex items-center gap-0.5">
+                        {/* Overview — standalone */}
+                        <Link
+                            href={overviewItem.href}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${isOverviewActive
+                                ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                : "text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                                }`}
+                        >
+                            <LayoutDashboard className="w-4 h-4" />
+                            Overview
+                        </Link>
+
+                        {/* Dropdown groups */}
+                        {navGroups
+                            .filter((group) => group.label !== "Admin" || isAdmin)
+                            .map((group) => (
+                                <DropdownGroup key={group.label} group={group} pathname={pathname} />
+                            ))}
                     </div>
                 </div>
 

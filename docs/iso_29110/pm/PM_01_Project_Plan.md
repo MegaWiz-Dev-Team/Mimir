@@ -51,6 +51,8 @@
   - Training Config UI, Axolotl/Unsloth Integration (Docker), MLflow Tracking, Model Registry (version + A/B test), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes)
 - **Sprint 17: Knowledge Graph Implementation** [✅ Completed — 2026-03-04]
   - Neo4j service wrapper (Cypher builders, tenant isolation, 14 tests), LLM entity extraction (prompt builder, JSON parser, dedup, 12 tests), Graph API routes (8 endpoints: stats/search/neighbors/paths/extract/viz/delete/runs, 5 tests), Frontend graph visualization (canvas force-directed layout, search, path finding), Graph navigation, KG Settings tab
+- **Sprint 18: Coverage Analytics Dashboard** [✅ Completed — 2026-03-04]
+  - Coverage API (3 endpoints: overview/sources/gaps, 14 tests), Pure-function helpers (calculate_coverage_score, detect_blindspots), Coverage Dashboard (KPI cards, pipeline flow, gap analysis panel, sortable per-source table), REQ-012 Coverage Intelligence
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                                | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |
