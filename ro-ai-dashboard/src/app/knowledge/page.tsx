@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw, CheckCircle2, AlertCircle, X } from "lucide-react";
+import { BookOpen, Search, Filter, ChevronLeft, ChevronRight, FileText, Hash, Clock, Layers, ExternalLink, Sparkles, RefreshCw, CheckCircle2, AlertCircle, X, Loader2 } from "lucide-react";
 import { fetchChunks, fetchSources, generateQaForChunks, ChunkItem, DataSource } from "@/lib/api";
 import Link from "next/link";
 
@@ -35,6 +35,39 @@ function isGarbageChunk(content: string): boolean {
     const nonWord = (trimmed.match(/[^a-zA-Z0-9\s.,!?;:\-()]/g) || []).length;
     if (nonWord / trimmed.length > 0.5 && trimmed.length > 50) return true;
     return false;
+}
+
+/** Get QA status from chunk metadata */
+function getQaStatus(chunk: ChunkItem): "none" | "processing" | "completed" | "failed" {
+    if (!chunk.metadata_json) return "none";
+    const meta = typeof chunk.metadata_json === "string" ? JSON.parse(chunk.metadata_json) : chunk.metadata_json;
+    return meta?.qa_status || "none";
+}
+
+/** Render QA status badge */
+function QaStatusBadge({ status }: { status: "none" | "processing" | "completed" | "failed" }) {
+    switch (status) {
+        case "processing":
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Running
+                </span>
+            );
+        case "completed":
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                    <CheckCircle2 className="w-3 h-3" /> Done
+                </span>
+            );
+        case "failed":
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                    <AlertCircle className="w-3 h-3" /> Failed
+                </span>
+            );
+        default:
+            return <span className="text-muted-foreground text-xs">—</span>;
+    }
 }
 
 /** Highlight search terms in text */
@@ -146,6 +179,20 @@ export default function KnowledgePage() {
         }
     };
 
+    // Auto-refresh polling when QA is running
+    const [pollActive, setPollActive] = useState(false);
+    useEffect(() => {
+        if (!pollActive) return;
+        const interval = setInterval(() => {
+            loadChunks().then(() => {
+                // Stop polling if no chunks are "processing"
+                const anyProcessing = chunks.some(c => getQaStatus(c) === "processing");
+                if (!anyProcessing) setPollActive(false);
+            });
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [pollActive, chunks, loadChunks]);
+
     const handleGenerateQa = async () => {
         if (selectedIds.size === 0) return;
         setQaRunning(true);
@@ -153,7 +200,8 @@ export default function KnowledgePage() {
             const result = await generateQaForChunks(Array.from(selectedIds));
             setToast({ message: result.message || `QA generation started for ${selectedIds.size} chunks`, type: "success" });
             setSelectedIds(new Set());
-            setTimeout(loadChunks, 3000);
+            setPollActive(true);
+            setTimeout(loadChunks, 2000);
         } catch (err: any) {
             setToast({ message: err?.message || "Failed to start QA generation", type: "error" });
         } finally {
@@ -267,6 +315,7 @@ export default function KnowledgePage() {
                                     <TableHead className="w-44">Source</TableHead>
                                     <TableHead>Content Preview</TableHead>
                                     <TableHead className="w-24 text-center">Tokens</TableHead>
+                                    <TableHead className="w-28 text-center">QA</TableHead>
                                     <TableHead className="w-36 text-center">Created</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -303,6 +352,9 @@ export default function KnowledgePage() {
                                             </TableCell>
                                             <TableCell className="text-center cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
                                                 <span className="text-sm font-mono">{chunk.token_count ?? "—"}</span>
+                                            </TableCell>
+                                            <TableCell className="text-center cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
+                                                <QaStatusBadge status={getQaStatus(chunk)} />
                                             </TableCell>
                                             <TableCell className="text-center text-sm text-muted-foreground cursor-pointer" onClick={() => setSelectedChunk(chunk)}>
                                                 {chunk.created_at ? new Date(chunk.created_at).toLocaleDateString() : "—"}
