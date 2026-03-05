@@ -1431,6 +1431,9 @@ mod tests {
             heimdall_api_url: "https://stroppy-nonsensorial-lakita.ngrok-free.dev/v1".to_string(),
             heimdall_api_key: Some("test-heimdall-key".to_string()),
             heimdall_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
+            neo4j_uri: "bolt://localhost:7687".to_string(),
+            neo4j_user: "neo4j".to_string(),
+            neo4j_password: "test_password".to_string(),
             jwt_secret: String::new(),
         }
     }

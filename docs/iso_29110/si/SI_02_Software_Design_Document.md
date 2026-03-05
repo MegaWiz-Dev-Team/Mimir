@@ -107,7 +107,7 @@ graph LR
 
 ### Navigation Structure (Sprint 13+):
 ```
-Overview · Sources · Knowledge · Quality · Playground · Agents · Logs · Coverage · Analytics · ⚙️ Admin
+Overview · Sources · Knowledge · Quality · Playground · Agents · Logs · Coverage · Graph · Analytics · ⚙️ Admin
 ```
 
 ## 2. Database Design (การออกแบบฐานข้อมูล)
@@ -116,6 +116,7 @@ Overview · Sources · Knowledge · Quality · Playground · Agents · Logs · C
 - **Sprint 12+ Tables:** `llm_usage_logs` (model_id, provider, input_tokens, output_tokens, total_tokens, latency_ms, status, endpoint, tenant_id, created_at) — LLM Observability per-call logging
 - **Sprint 13+ Tables:** `agent_configs` (agent builder CRUD config), `agent_conversations` (conversation audit log with feedback), `evaluation_reports` (batch eval results), `llm_budget_configs` (per-model daily token budget + alert threshold)
 - **Sprint 14+ Tables:** `external_db_connections` (DB connector configs — type, connection_string, last_used), `feedback_reports` (bug/feature reports with GitHub issue link, system_logs, client_logs, priority)
+- **Sprint 17 Tables:** `kg_entities` (tenant_id, name, entity_type, properties JSON, source_id, chunk_id, neo4j_node_id), `kg_relations` (tenant_id, from_entity_id, to_entity_id, relation_type, properties JSON, neo4j_rel_id), `kg_extraction_runs` (tenant_id, source_id, status, entities_found, relations_found, chunks_processed)
 - **Vector DB (Qdrant):** ใช้ Per-Tenant Collection เป็น default, รองรับ per-source metadata filter ผ่าน Agent/Search config
 - **Graph DB (Neo4j):** Entities (Drug, Symptom, Person, etc.) + Relations (treats, causes, contains) แยก per tenant via property `tenant_id`
 - [ER Diagram Placeholder - รอสร้างและนำภาพมาแนบ]
@@ -139,4 +140,5 @@ Overview · Sources · Knowledge · Quality · Playground · Agents · Logs · C
 - **Deploy & Docs Module:** Setup & Deployment (Docker Compose prod, .env templates, setup scripts), Deployment Test (M3→M4 Pro), Update & Rollback (update.sh + rollback.sh + GHCR + auto-backup), API documentation (OpenAPI/Swagger), Backup & DR, MLX + vLLM Providers Phase 2 (add + benchmark on M4 Pro), Configurable Max Crawl Pages (tenant_configs → Pipeline Settings UI, #164) (Sprint 14b)
 - **Bug Fixes & Hardening Module:** JWT Expiry fix (#165), Data Ingress fixes (File/Folder S3 upload #168/#170, MCP URL #169, External DB #171), Knowledge Base 0 chunks (#172), Pipeline nav (#174), Sources Group by Type (#167), Provider/Model dropdown (#175), QA UX at Knowledge page (#166/#173) (Sprint 15)
 - **Dataset Studio Module:** Dataset CRUD (config-based), Data Source Selector (QA/KG/chunks/conversations), Filter & Transform (quality score, dedup, language), Format Converter (Alpaca/ShareGPT/DPO/Raw/Custom), Export (JSONL/Parquet + HuggingFace push), Data Augmentation (LLM paraphrase) (Sprint 16)
-- **Training Integration Module:** Training Config UI (base model, hyperparameters, LoRA rank), Axolotl/Unsloth Integration (Docker), MLflow Tracking (metrics, loss curves), Model Registry (version + A/B test in Playground), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes) (Sprint 17)
+- **Training Integration Module:** Training Config UI (base model, hyperparameters, LoRA rank), Axolotl/Unsloth Integration (Docker), MLflow Tracking (metrics, loss curves), Model Registry (version + A/B test in Playground), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes) (Sprint 16)
+- **Knowledge Graph Module (Implementation):** Neo4j service wrapper (Cypher builders, tenant isolation, graceful degradation — 14 tests), LLM Entity Extraction (prompt builder, JSON parser, deduplication — 12 tests), Graph API (8 REST endpoints: stats/search/neighbors/paths/extract/visualization/delete/runs — 5 tests), Frontend Graph Visualization (canvas-based force-directed layout, entity search, path finding, detail panels), Graph navigation link, KG Settings tab (Sprint 17)

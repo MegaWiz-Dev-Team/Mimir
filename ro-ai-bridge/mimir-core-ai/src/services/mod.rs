@@ -21,6 +21,8 @@ pub mod mcp_server;
 pub mod performance;
 pub mod backup;
 pub mod llm_provider;
+pub mod neo4j;
+pub mod entity_extractor;
 
 #[cfg(test)]
 mod e2e_tests;

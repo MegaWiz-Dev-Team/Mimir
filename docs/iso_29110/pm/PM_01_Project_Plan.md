@@ -49,6 +49,8 @@
   - Dataset CRUD, Data Source Selector, Filter & Transform, Format Converter (Alpaca/ShareGPT/DPO/Raw/Custom), Export (JSONL/Parquet + HuggingFace), Data Augmentation, Dataset Preview
 - **Sprint 16: Training Integration + ISO Docs** [Week 19-20]
   - Training Config UI, Axolotl/Unsloth Integration (Docker), MLflow Tracking, Model Registry (version + A/B test), ISO Final Documentation (SI-05 User Manual, SI-06 Release Notes)
+- **Sprint 17: Knowledge Graph Implementation** [✅ Completed — 2026-03-04]
+  - Neo4j service wrapper (Cypher builders, tenant isolation, 14 tests), LLM entity extraction (prompt builder, JSON parser, dedup, 12 tests), Graph API routes (8 endpoints: stats/search/neighbors/paths/extract/viz/delete/runs, 5 tests), Frontend graph visualization (canvas force-directed layout, search, path finding), Graph navigation, KG Settings tab
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                                | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |

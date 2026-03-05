@@ -40,3 +40,4 @@ tower = { workspace = true }
 tracing-subscriber = { workspace = true }
 http = "1"
 base64 = "0.22"
+neo4rs = { workspace = true }
