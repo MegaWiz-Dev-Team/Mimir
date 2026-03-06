@@ -53,6 +53,20 @@
   - Neo4j service wrapper (Cypher builders, tenant isolation, 14 tests), LLM entity extraction (prompt builder, JSON parser, dedup, 12 tests), Graph API routes (8 endpoints: stats/search/neighbors/paths/extract/viz/delete/runs, 5 tests), Frontend graph visualization (canvas force-directed layout, search, path finding), Graph navigation, KG Settings tab
 - **Sprint 18: Coverage Analytics Dashboard** [✅ Completed — 2026-03-04]
   - Coverage API (3 endpoints: overview/sources/gaps, 14 tests), Pure-function helpers (calculate_coverage_score, detect_blindspots), Coverage Dashboard (KPI cards, pipeline flow, gap analysis panel, sortable per-source table), REQ-012 Coverage Intelligence
+- **Sprint 19: Agent Templates & Security** [✅ Completed — 2026-03-04]
+  - Agent Templates migration (PERSONAS → DB), Playground → Agent Studio integration, Security & Access Settings tab, Vault Status Dashboard, Custom Roles + ACL Matrix
+- **Sprint 20: Custom Roles ACL** [✅ Completed — 2026-03-05]
+  - Custom Role CRUD, Editable ACL Matrix UI, Permission module granularity (10 modules × 3 levels), Role assignment in Users page
+- **Sprint 21: QA Status & Auto-Refresh** [✅ Completed — 2026-03-05]
+  - QA status column in Knowledge Base (QaStatusBadge), Auto-refresh polling (5s interval, auto-stop), Selective Chunk → QA Generation end-to-end
+- **Sprint 22: Antigravity Skills & E2E Analysis** [✅ Completed — 2026-03-06]
+  - 8 Antigravity Skills (ISO Documentation, Testing Workflow, Rust Backend Patterns, TDD, Agile Scrum, Code Review, Next.js Frontend Patterns, UX Designer), E2E Flow Review (12-step user journey analysis), Product Backlog (15 items for Sprint 23-25)
+- **Sprint 23: Code Quality & Refactoring** [Planned]
+  - Refactor sources.rs (61KB → sub-modules), Extract Settings tabs to separate components, Split agents.rs (CRUD + Chat)
+- **Sprint 24: UX Flow & Navigation** [Planned]
+  - Reorganize Nav groups to match RAG pipeline, Pipeline status breadcrumb, Source wizard simplification, Getting Started onboarding
+- **Sprint 25: New Capabilities** [Planned]
+  - Auto-pipeline (Source → Chunk → QA → Vector one-click), Agent evaluation from Playground, Coverage gap detection, One-click Agent publish
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                                | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |
