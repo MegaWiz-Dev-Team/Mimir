@@ -44,11 +44,10 @@
 | **Vector DB**        | Qdrant (semantic search)                            |
 | **Graph DB**         | Neo4j Community (knowledge graph) — *Sprint 11*     |
 | **Graph Viz**        | Sigma.js + graphology (WebGL) — *Sprint 11*         |
-| **LLM Providers**    | Ollama (local), Google Gemini, Qwen API             |
-| **Embedding Models** | nomic-embed-text, text-embedding-004, bge-m3        |
-| **Game Server**      | [rAthena](https://github.com/rathena/rathena) (C++) |
-| **Infrastructure**   | Docker Compose                                      |
-| **Hardware Target**  | Mac Air M3 / Mac mini M4 Pro                        |
+| **LLM Gateway**      | [Heimdall](https://github.com/megacare-dev/mega-llm-server) (Rust) |
+| **Embedding Models** | BAAI/bge-m3 (MLX native)                            |
+| **Infrastructure**   | Docker Compose + Colima                             |
+| **Hardware Target**  | Mac Mini M4 Pro (64GB)                              |
 
 ---
 
@@ -93,69 +92,80 @@
 
 ```
 Project-Mimir/
-├── ro-ai-bridge/              # 🦀 Rust AI Backend (Axum)
+├── ro-ai-bridge/              # 🦀 Rust AI Backend (Axum) → :3000
 │   ├── src/
 │   │   ├── routes/            # API endpoints (auth, sources, eval, chat...)
 │   │   └── services/          # Business logic (ingress, extraction, sql_import...)
 │   ├── Cargo.toml
 │   └── .env
-├── ro-ai-dashboard/           # ⚛️ Next.js Admin Dashboard
+├── ro-ai-dashboard/           # ⚛️ Next.js Admin Dashboard → :3001
 │   ├── src/app/               # Pages (sources, playground, settings...)
 │   ├── src/components/        # UI components (shadcn/ui based)
 │   └── src/lib/               # API client, utils
-├── rathena/                   # 🎮 rAthena Game Server (C++)
 ├── docs/
 │   ├── iso_29110/             # 📋 ISO 29110 Documents
 │   │   ├── pm/                # PM-01 Project Plan, PM-02 Sprint Reports
 │   │   └── si/                # SI-01 SRS, SI-02 SDD, SI-03 Traceability, SI-04 Tests
 │   └── ...
 ├── tests/                     # 🧪 Integration tests
-├── docker-compose.yml         # 🐳 Full stack (MariaDB + Qdrant + rAthena)
+├── docker-compose.yml         # 🐳 Infrastructure services
 └── README.md
 ```
 
 ---
 
+## 🏰 Asgard Port Assignments
+
+> Full port map: [Asgard Port Allocation](https://github.com/megacare-dev/Asgard/blob/main/docs/technical/port-allocation-startup.md)
+
+| Port | Service | Description |
+|------|---------|-------------|
+| `3000` | **Mimir API** | Rust backend |
+| `3001` | **Dashboard** | Next.js frontend |
+| `3306` | MariaDB | Database |
+| `6333` | Qdrant | Vector search |
+| `6379` | Redis | Cache |
+| `7474` | Neo4j | Graph DB |
+| `8201` | Vault | Secrets |
+| `9000` | RustFS | Object storage |
+
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker & Docker Compose
+- Docker & Docker Compose (via [Colima](https://github.com/abiosoft/colima) on macOS)
 - Rust (1.75+)
 - Node.js (18+)
-- Ollama (for local LLM)
+- [Heimdall](https://github.com/megacare-dev/mega-llm-server) (LLM Gateway)
 
 ### 1. Start Infrastructure
 ```bash
+# Using deploy script (recommended)
+./scripts/deploy.sh --prod
+
+# Or manually:
 docker compose up -d
-# MariaDB (3306) + Qdrant (6333) + rAthena (6900/6121/5121)
 ```
 
-### 2. Start AI Backend
+### 2. Start Heimdall (LLM Gateway)
+```bash
+cd ~/Documents/Heimdall
+./scripts/start.sh
+# Gateway: http://localhost:8080
+```
+
+### 3. Start AI Backend
 ```bash
 cd ro-ai-bridge
-cp .env.example .env        # Configure DB, Qdrant, LLM settings
-cargo run --bin monitor
+cp .env.example .env
+./target/release/ro-ai-bridge    # http://localhost:3000
 ```
 
-### 3. Start Dashboard
+### 4. Start Dashboard
 ```bash
 cd ro-ai-dashboard
 npm install
-npm run dev                  # http://localhost:3000
+npm run dev                      # http://localhost:3001
 ```
-
-### 4. Connect Game Client (Optional)
-Edit `data/clientinfo.xml`:
-```xml
-<connection>
-    <display>Project Mimir Local</display>
-    <address>127.0.0.1</address>
-    <port>6900</port>
-    <version>46</version>
-    <langtype>0</langtype>
-</connection>
-```
-Test account: `test` / `test`
 
 ---
 
