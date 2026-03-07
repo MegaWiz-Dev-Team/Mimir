@@ -41,3 +41,6 @@ venv/
 *.log
 monitor.log
 ro-ai-bridge/monitor.log
+
+# macOS AppleDouble resource fork files (external drives)
+._*
