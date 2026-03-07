@@ -82,7 +82,7 @@ service_health_checks() {
 
     # Vault
     local vault_ok=1
-    if curl -sf http://localhost:8200/v1/sys/health >/dev/null 2>&1; then vault_ok=0; fi
+    if curl -sf http://localhost:8201/v1/sys/health >/dev/null 2>&1; then vault_ok=0; fi
     check_warn "Vault (sys/health)" "$vault_ok"
 }
 

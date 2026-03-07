@@ -66,7 +66,7 @@ ok "All prerequisites found"
 if [ ! -f "$ROOT_DIR/.env" ]; then
     warn ".env not found — creating from template..."
     cat > "$ROOT_DIR/.env" <<'ENVEOF'
-PORT=3001
+PORT=3000
 DATABASE_URL=mysql://mimir:REDACTED-PW@localhost:3306/mimir
 MARIADB_URL=mysql://mimir:REDACTED-PW@localhost:3306/mimir
 QDRANT_URL=http://localhost:6333
@@ -86,7 +86,7 @@ HEIMDALL_API_URL=
 HEIMDALL_API_KEY=
 HEIMDALL_MODEL=llama3
 JWT_SECRET=JWT_REDACTED
-VAULT_ADDR=http://localhost:8200
+VAULT_ADDR=http://localhost:8201
 VAULT_TOKEN=
 VAULT_MOUNT=secret
 VAULT_PATH=mimir/secrets
@@ -133,7 +133,7 @@ fi
 info "Waiting for Vault to be healthy..."
 VAULT_READY=false
 for i in $(seq 1 15); do
-    if curl -sf http://localhost:8200/v1/sys/health >/dev/null 2>&1; then
+    if curl -sf http://localhost:8201/v1/sys/health >/dev/null 2>&1; then
         VAULT_READY=true
         break
     fi
@@ -256,8 +256,8 @@ else
     echo "    cd ro-ai-dashboard && npm run dev"
 fi
 echo ""
-echo "  Dashboard: http://localhost:3000"
-echo "  API:       http://localhost:3001"
-echo "  Vault UI:  http://localhost:8200"
+echo "  Dashboard: http://localhost:3001"
+echo "  API:       http://localhost:3000"
+echo "  Vault UI:  http://localhost:8201"
 echo "  Neo4j UI:  http://localhost:7474"
 echo ""
