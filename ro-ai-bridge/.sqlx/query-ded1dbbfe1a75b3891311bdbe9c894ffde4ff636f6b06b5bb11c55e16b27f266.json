@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE tenant_users SET role = ?, tenant_id = ? WHERE user_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ded1dbbfe1a75b3891311bdbe9c894ffde4ff636f6b06b5bb11c55e16b27f266"
+}

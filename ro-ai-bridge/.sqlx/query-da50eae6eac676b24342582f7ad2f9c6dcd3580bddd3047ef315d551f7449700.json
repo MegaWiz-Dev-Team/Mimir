@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "\n            DELETE FROM users WHERE id IN (\n                SELECT user_id FROM tenant_users WHERE tenant_id = ?\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "da50eae6eac676b24342582f7ad2f9c6dcd3580bddd3047ef315d551f7449700"
+}
