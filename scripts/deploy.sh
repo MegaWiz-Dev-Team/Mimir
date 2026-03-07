@@ -19,6 +19,27 @@ ok()    { echo -e "${GREEN}✅ $1${NC}"; }
 warn()  { echo -e "${YELLOW}⚠️  $1${NC}"; }
 fail()  { echo -e "${RED}❌ $1${NC}"; exit 1; }
 
+prompt_install() {
+    local tool="$1"
+    local install_cmd="$2"
+    local purpose="$3"
+    echo -e "${YELLOW}⚠️  $tool is not installed ($purpose)${NC}"
+    # Skip prompt in non-interactive mode
+    if [ ! -t 0 ]; then
+        warn "Non-interactive mode — skipping $tool install"
+        return
+    fi
+    echo -n "   Install now? [y/N] "
+    read -r answer
+    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+        info "Installing $tool..."
+        eval "$install_cmd"
+        ok "$tool installed"
+    else
+        warn "Skipping $tool — $purpose will not be available"
+    fi
+}
+
 echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║   🧠 Project Mimir — Deploy Script      ║"
@@ -33,6 +54,11 @@ command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Run: brew in
 command -v cargo  >/dev/null 2>&1 || fail "Rust is not installed. Run: brew install rust"
 command -v node   >/dev/null 2>&1 || fail "Node.js is not installed. Run: brew install node"
 command -v npm    >/dev/null 2>&1 || fail "npm is not installed."
+
+# Check optional tools
+if ! command -v docker-buildx >/dev/null 2>&1 && ! docker buildx version >/dev/null 2>&1; then
+    warn "docker-buildx not found — some compose features may show warnings"
+fi
 
 ok "All prerequisites found"
 
@@ -74,25 +100,58 @@ fi
 # Export env vars
 set -a; source "$ROOT_DIR/.env"; set +a
 
-# ─── Step 3: Start Docker services ──────────────────────────────
+# ─── Step 3: Fix file permissions ───────────────────────────────
+info "Fixing file permissions..."
+chmod +x "$ROOT_DIR/config/vault/entrypoint.sh" 2>/dev/null || true
+chmod +x "$ROOT_DIR/scripts/"*.sh 2>/dev/null || true
+ok "Permissions set"
+
+# ─── Step 4: Start Docker services ──────────────────────────────
 info "Starting Docker services..."
 cd "$ROOT_DIR"
 docker compose up -d --remove-orphans 2>&1 | tail -5
 
-# Wait for MariaDB
+# Wait for MariaDB to be healthy (with proper check)
 info "Waiting for MariaDB to be healthy..."
+MARIADB_READY=false
 for i in $(seq 1 30); do
     if docker exec mimir_mariadb healthcheck.sh --connect --innodb_initialized 2>/dev/null; then
+        MARIADB_READY=true
         break
     fi
+    echo -n "."
     sleep 2
 done
+echo ""
+if [ "$MARIADB_READY" = true ]; then
+    ok "MariaDB is healthy"
+else
+    warn "MariaDB may not be fully ready — backend build will use SQLX_OFFLINE=true as fallback"
+fi
+
+# Wait for Vault to be healthy (retry loop)
+info "Waiting for Vault to be healthy..."
+VAULT_READY=false
+for i in $(seq 1 15); do
+    if curl -sf http://localhost:8200/v1/sys/health >/dev/null 2>&1; then
+        VAULT_READY=true
+        break
+    fi
+    echo -n "."
+    sleep 2
+done
+echo ""
+if [ "$VAULT_READY" = true ]; then
+    ok "Vault is healthy"
+else
+    warn "Vault not ready yet — token retrieval may fail"
+fi
+
 ok "Docker services running"
 
-# ─── Step 4: Get Vault token ────────────────────────────────────
+# ─── Step 5: Get Vault token ────────────────────────────────────
 if [ -z "$VAULT_TOKEN" ]; then
     info "Fetching Vault root token..."
-    sleep 3
     VAULT_TOKEN=$(docker logs mimir_vault 2>&1 | grep "Root Token" | tail -1 | awk '{print $NF}')
     if [ -n "$VAULT_TOKEN" ]; then
         # Update .env with the token
@@ -107,27 +166,53 @@ if [ -z "$VAULT_TOKEN" ]; then
     fi
 fi
 
-# ─── Step 5: Create S3 bucket ───────────────────────────────────
+# ─── Step 6: Create S3 bucket ───────────────────────────────────
 info "Ensuring S3 bucket exists..."
 if command -v mc >/dev/null 2>&1; then
     mc alias set mimir "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --api S3v4 2>/dev/null || true
     mc mb mimir/"$S3_BUCKET" 2>/dev/null || true
     ok "S3 bucket '$S3_BUCKET' ready"
 else
-    warn "mc (MinIO client) not installed — run: brew install minio/stable/mc"
+    prompt_install "mc (MinIO client)" "brew install minio/stable/mc" "S3 bucket management"
+    # Retry if installed
+    if command -v mc >/dev/null 2>&1; then
+        mc alias set mimir "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --api S3v4 2>/dev/null || true
+        mc mb mimir/"$S3_BUCKET" 2>/dev/null || true
+        ok "S3 bucket '$S3_BUCKET' ready"
+    fi
 fi
 
-# ─── Step 6: Run DB migrations ──────────────────────────────────
+# ─── Step 7: Run DB migrations ──────────────────────────────────
 info "Running database migrations..."
 cd "$ROOT_DIR/ro-ai-bridge"
+MIGRATIONS_RAN=false
 if command -v sqlx >/dev/null 2>&1; then
-    sqlx migrate run --source mimir-core-ai/migrations 2>&1 | tail -5
-    ok "Migrations complete"
+    if sqlx migrate run --source mimir-core-ai/migrations 2>&1 | tail -5; then
+        MIGRATIONS_RAN=true
+        ok "Migrations complete"
+    else
+        warn "Migrations failed — will use SQLX_OFFLINE=true for build"
+    fi
 else
-    warn "sqlx-cli not installed — run: cargo install sqlx-cli --no-default-features --features mysql"
+    prompt_install "sqlx-cli" "cargo install sqlx-cli --no-default-features --features mysql" "database migrations"
+    # Retry if installed
+    if command -v sqlx >/dev/null 2>&1; then
+        if sqlx migrate run --source mimir-core-ai/migrations 2>&1 | tail -5; then
+            MIGRATIONS_RAN=true
+            ok "Migrations complete"
+        fi
+    else
+        warn "Migrations skipped — will use SQLX_OFFLINE=true for build"
+    fi
 fi
 
-# ─── Step 7: Build backend ──────────────────────────────────────
+# ─── Step 8: Build backend ──────────────────────────────────────
+# Set SQLX_OFFLINE as fallback if DB schema is not ready
+if [ "$MARIADB_READY" != true ] || [ "$MIGRATIONS_RAN" != true ]; then
+    export SQLX_OFFLINE=true
+    warn "Using SQLX_OFFLINE=true (DB schema not verified)"
+fi
+
 if [ "$MODE" = "--prod" ]; then
     info "Building backend (release)..."
     cargo build --release 2>&1 | tail -3
@@ -139,7 +224,7 @@ else
 fi
 ok "Backend built: $BACKEND_BIN"
 
-# ─── Step 8: Build frontend ─────────────────────────────────────
+# ─── Step 9: Build frontend ─────────────────────────────────────
 info "Building frontend..."
 cd "$ROOT_DIR/ro-ai-dashboard"
 npm install --silent 2>&1 | tail -3

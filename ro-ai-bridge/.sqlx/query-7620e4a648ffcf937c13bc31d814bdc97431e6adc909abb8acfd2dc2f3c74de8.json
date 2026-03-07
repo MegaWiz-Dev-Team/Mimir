@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "\n        INSERT INTO data_sources (tenant_id, name, source_type, config_json, schedule)\n        VALUES (?, ?, ?, ?, ?)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "7620e4a648ffcf937c13bc31d814bdc97431e6adc909abb8acfd2dc2f3c74de8"
+}

@@ -62,57 +62,6 @@ services:
       RUSTFS_ROOT_PASSWORD: minioadmin
     restart: always
 
-  rathena-login:
-    build:
-      context: ./rathena
-    container_name: rathena_login
-    command: login
-    depends_on:
-      mariadb:
-        condition: service_healthy
-    volumes:
-      - ./rathena/conf:/app/conf
-      - ./rathena/db:/app/db
-      - ./rathena/npc:/app/npc
-      - ./rathena/log:/app/log
-    ports:
-      - "6900:6900"
-    restart: always
-
-  rathena-char:
-    build:
-      context: ./rathena
-    container_name: rathena_char
-    command: char
-    depends_on:
-      rathena-login:
-        condition: service_started
-    volumes:
-      - ./rathena/conf:/app/conf
-      - ./rathena/db:/app/db
-      - ./rathena/npc:/app/npc
-      - ./rathena/log:/app/log
-    ports:
-      - "6121:6121"
-    restart: always
-
-  rathena-map:
-    build:
-      context: ./rathena
-    container_name: rathena_map
-    command: map
-    depends_on:
-      rathena-char:
-        condition: service_started
-    volumes:
-      - ./rathena/conf:/app/conf
-      - ./rathena/db:/app/db
-      - ./rathena/npc:/app/npc
-      - ./rathena/log:/app/log
-    ports:
-      - "5121:5121"
-    restart: always
-
   vault:
     image: hashicorp/vault:1.15
     container_name: mimir_vault
