@@ -6,6 +6,8 @@ import Cookies from "js-cookie";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
+const PROJECT_DIR = process.env.NEXT_PUBLIC_PROJECT_DIR || "~/Developer/Mimir";
+
 export default function LoginPage() {
     const router = useRouter();
     const [username, setUsername] = useState("");
@@ -116,7 +118,7 @@ export default function LoginPage() {
                         </p>
                         <div className="bg-gray-100 dark:bg-zinc-950 p-4 rounded-md border border-gray-200 dark:border-zinc-800">
                             <p className="text-xs font-mono text-gray-800 dark:text-gray-200">
-                                cd ~/Developer/Mimir/ro-ai-bridge<br />
+                                cd {PROJECT_DIR}/ro-ai-bridge<br />
                                 <span className="text-blue-600 dark:text-blue-400 mt-2 block">cargo run --bin reset_admin admin "NewPassword123!"</span>
                             </p>
                         </div>
