@@ -20,7 +20,7 @@ export default function LoginPage() {
         setError("");
 
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"}/v1/auth/login`, {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api"}/v1/auth/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username, password }),
@@ -116,7 +116,7 @@ export default function LoginPage() {
                         </p>
                         <div className="bg-gray-100 dark:bg-zinc-950 p-4 rounded-md border border-gray-200 dark:border-zinc-800">
                             <p className="text-xs font-mono text-gray-800 dark:text-gray-200">
-                                cd /Volumes/T7\&nbsp;Shield/Development/Active_Projects/project/Project-Mimir/ro-ai-bridge<br />
+                                cd ~/Developer/Mimir/ro-ai-bridge<br />
                                 <span className="text-blue-600 dark:text-blue-400 mt-2 block">cargo run --bin reset_admin admin "NewPassword123!"</span>
                             </p>
                         </div>
