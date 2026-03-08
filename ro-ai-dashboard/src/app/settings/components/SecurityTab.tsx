@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Shield, Lock, Users, Plus, Trash2, RefreshCw, Server, Key, RotateCw, CheckCircle2, XCircle, Save } from "lucide-react";
+import { Shield, Lock, Users, Plus, Trash2, RefreshCw, Server, Key, RotateCw, CheckCircle2, XCircle, Save, AlertTriangle } from "lucide-react";
 import Cookies from "js-cookie";
 import { SettingsTabProps } from "./types";
 
@@ -47,6 +47,41 @@ export function SecurityTab(props: SettingsTabProps) {
         { text: "Review user access permissions regularly", done: false },
         { text: "Configure Heimdall API key in Vault (production)", done: !!config?.llm_config?.heimdall_api_key },
     ];
+
+    // Helper text for each secret type
+    const SECRET_DESCRIPTIONS: Record<string, { description: string; hint: string }> = {
+        GITHUB_TOKEN: {
+            description: "GitHub Personal Access Token for repository integrations",
+            hint: "Generate at: github.com → Settings → Developer Settings → Personal Access Tokens → Fine-grained tokens",
+        },
+        NEO4J_PASSWORD: {
+            description: "Neo4j graph database password for Knowledge Graph feature",
+            hint: "Default Neo4j password is 'neo4j'. Change it on first login at http://localhost:7474",
+        },
+        GEMINI_API_KEY: {
+            description: "Google Gemini API key for cloud LLM fallback",
+            hint: "Get from: aistudio.google.com → Get API Key",
+        },
+        HEIMDALL_API_KEY: {
+            description: "Heimdall self-hosted LLM gateway API key",
+            hint: "Set in Heimdall Gateway configuration",
+        },
+        JWT_SECRET: {
+            description: "Secret key for signing JWT authentication tokens",
+            hint: "Use a strong random string (32+ chars). Generate: openssl rand -hex 32",
+        },
+        S3_ACCESS_KEY: {
+            description: "S3-compatible storage access key (MinIO)",
+            hint: "Default MinIO access key: minioadmin",
+        },
+        S3_SECRET_KEY: {
+            description: "S3-compatible storage secret key (MinIO)",
+            hint: "Default MinIO secret key: minioadmin",
+        },
+    };
+
+    // Count missing secrets for banner
+    const missingSecrets = vaultSecrets?.secrets?.filter((s: any) => s.status !== "present") || [];
 
     const pendingPermChanges = props.hasPendingChanges; // used for display logic
 
@@ -130,6 +165,23 @@ export function SecurityTab(props: SettingsTabProps) {
                     </CardContent>
                 </Card>
 
+                {/* Missing Secrets Banner */}
+                {missingSecrets.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-4">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                            <div className="flex-1">
+                                <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">Initial Setup Required</h4>
+                                <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                                    <strong>{missingSecrets.length}</strong> secret{missingSecrets.length > 1 ? 's' : ''} not configured yet:
+                                    {' '}<code className="bg-amber-100 dark:bg-amber-900/50 px-1 py-0.5 rounded text-xs">{missingSecrets.map((s: any) => s.key).join(', ')}</code>
+                                </p>
+                                <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">Click &quot;Set&quot; next to each missing secret below to configure initial values.</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Managed Secrets Table */}
                 {vaultSecrets && (
                     <Card>
@@ -182,9 +234,17 @@ export function SecurityTab(props: SettingsTabProps) {
                                             <TableCell className="font-mono text-xs text-muted-foreground">{s.masked_value || '—'}</TableCell>
                                             {vaultSecrets.vault_enabled && (
                                                 <TableCell className="text-right">
-                                                    <Button variant="ghost" size="sm" disabled={rotatingKey === s.key}
+                                                    <Button
+                                                        variant={s.status === 'present' ? 'ghost' : 'default'}
+                                                        size="sm"
+                                                        disabled={rotatingKey === s.key}
+                                                        className={s.status !== 'present' ? 'bg-amber-500 hover:bg-amber-600 text-white text-xs' : ''}
                                                         onClick={() => { setRotateDialog({ open: true, key: s.key }); setRotateValue(""); }}>
-                                                        <RotateCw className={`w-3.5 h-3.5 mr-1 ${rotatingKey === s.key ? 'animate-spin' : ''}`} /> Rotate
+                                                        {s.status === 'present' ? (
+                                                            <><RotateCw className={`w-3.5 h-3.5 mr-1 ${rotatingKey === s.key ? 'animate-spin' : ''}`} /> Rotate</>
+                                                        ) : (
+                                                            <><Key className="w-3.5 h-3.5 mr-1" /> Set</>
+                                                        )}
                                                     </Button>
                                                 </TableCell>
                                             )}
@@ -327,24 +387,45 @@ export function SecurityTab(props: SettingsTabProps) {
                 </Card>
             </div>
 
-            {/* Rotate Secret Dialog */}
+            {/* Set/Rotate Secret Dialog */}
             <Dialog open={rotateDialog.open} onOpenChange={(open) => { if (!open) setRotateDialog({ open: false, key: "" }); }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2"><RotateCw className="w-5 h-5" /> Rotate Secret</DialogTitle>
-                        <DialogDescription>Enter a new value for <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono">{rotateDialog.key}</code></DialogDescription>
+                        {(() => {
+                            const isMissing = vaultSecrets?.secrets?.find((s: any) => s.key === rotateDialog.key)?.status !== 'present';
+                            return (
+                                <>
+                                    <DialogTitle className="flex items-center gap-2">
+                                        {isMissing ? <Key className="w-5 h-5" /> : <RotateCw className="w-5 h-5" />}
+                                        {isMissing ? 'Set Initial Secret' : 'Rotate Secret'}
+                                    </DialogTitle>
+                                    <DialogDescription>
+                                        {isMissing ? 'Set the initial value for' : 'Enter a new value for'}{' '}
+                                        <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono">{rotateDialog.key}</code>
+                                    </DialogDescription>
+                                </>
+                            );
+                        })()}
                     </DialogHeader>
                     <div className="space-y-4 py-2">
+                        {SECRET_DESCRIPTIONS[rotateDialog.key] && (
+                            <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3">
+                                <p className="text-sm text-blue-800 dark:text-blue-300">{SECRET_DESCRIPTIONS[rotateDialog.key].description}</p>
+                                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">💡 {SECRET_DESCRIPTIONS[rotateDialog.key].hint}</p>
+                            </div>
+                        )}
                         <div className="space-y-2">
-                            <Label>New Secret Value</Label>
-                            <Input type="password" placeholder="Enter new value..." value={rotateValue}
+                            <Label>Secret Value</Label>
+                            <Input type="password" placeholder="Enter value..." value={rotateValue}
                                 onChange={(e) => setRotateValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleRotateSecret(); }} />
                         </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setRotateDialog({ open: false, key: "" })}>Cancel</Button>
                         <Button onClick={handleRotateSecret} disabled={isRotating || !rotateValue.trim()}>
-                            {isRotating ? <><RotateCw className="w-4 h-4 mr-1 animate-spin" /> Rotating...</> : "Rotate Secret"}
+                            {isRotating ? <><RotateCw className="w-4 h-4 mr-1 animate-spin" /> Saving...</> : (
+                                vaultSecrets?.secrets?.find((s: any) => s.key === rotateDialog.key)?.status !== 'present' ? 'Set Secret' : 'Rotate Secret'
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
