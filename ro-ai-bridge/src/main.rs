@@ -70,6 +70,14 @@ async fn main() {
     let pool = db::init_db().await.expect("Failed to initialize database");
     info!(event = "db_connected", "✅ Database connected and migrations applied");
 
+    // Seed built-in roles (admin, editor, viewer) for all tenants (Issue #220)
+    {
+        let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
+        if let Err(e) = iam.seed_builtin_roles_for_all_tenants().await {
+            tracing::warn!(error = %e, "Failed to seed built-in roles on startup");
+        }
+    }
+
     // Start cron worker for scheduled re-sync (Issue #150)
     let cron_tick_seconds: u64 = std::env::var("CRON_TICK_SECONDS")
         .ok()
