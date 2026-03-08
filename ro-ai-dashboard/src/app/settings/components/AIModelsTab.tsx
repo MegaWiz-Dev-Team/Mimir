@@ -39,6 +39,9 @@ const EMBEDDING_MODEL_OPTIONS: Record<string, { value: string; label: string }[]
         { value: "nomic-embed-text", label: "nomic-embed-text" },
         { value: "bge-m3", label: "bge-m3" },
     ],
+    heimdall: [
+        { value: "BAAI/bge-m3", label: "BGE-M3 (MLX)" },
+    ],
     openai: [
         { value: "text-embedding-3-small", label: "text-embedding-3-small" },
         { value: "text-embedding-3-large", label: "text-embedding-3-large" },
@@ -86,6 +89,7 @@ function SlotCard({ slotName, icon, title, desc, config, setConfig }: {
                         onChange={e => updateSlot("provider", e.target.value)}>
                         <option value="">Select...</option>
                         {(isEmbedding ? [
+                            { value: "heimdall", label: "Heimdall (Self-Hosted)" },
                             { value: "ollama", label: "Ollama" },
                             { value: "openai", label: "OpenAI" },
                             { value: "google", label: "Google" },
