@@ -90,7 +90,7 @@ impl ProviderConfig {
         Self {
             provider: LlmProvider::Heimdall,
             endpoint: std::env::var("HEIMDALL_API_URL")
-                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1/".to_string()),
+                .unwrap_or_else(|_| "http://localhost:8080/v1".to_string()),
             model: std::env::var("HEIMDALL_MODEL")
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
             api_key: Some(api_key.to_string()),
@@ -656,7 +656,7 @@ mod tests {
     fn test_heimdall_default_config() {
         let config = ProviderConfig::heimdall_default("hd-test-key");
         assert_eq!(config.provider, LlmProvider::Heimdall);
-        assert!(config.endpoint.contains("192.168.1.133") || !config.endpoint.is_empty());
+        assert!(config.endpoint.contains("localhost") || !config.endpoint.is_empty());
         assert!(!config.model.is_empty());
         assert_eq!(config.api_key, Some("hd-test-key".to_string()));
         assert_eq!(config.max_tokens, 4096);
