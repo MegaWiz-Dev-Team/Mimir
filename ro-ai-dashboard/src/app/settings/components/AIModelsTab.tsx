@@ -152,7 +152,7 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                                 <div className="space-y-1">
                                     <label className="text-xs text-muted-foreground">URL</label>
                                     <Input
-                                        placeholder="https://...ngrok-free.dev/v1"
+                                        placeholder="http://localhost:8080/v1"
                                         value={config.llm_config?.heimdall_url || ""}
                                         onChange={e => setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_url: e.target.value } })}
                                     />
@@ -163,11 +163,12 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                                     </label>
                                     <Input
                                         type="password"
-                                        placeholder="••••••••"
+                                        placeholder="sk-... (dev only, use Vault in production)"
                                         value={config.llm_config?.heimdall_api_key || ""}
                                         onChange={e => setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_api_key: e.target.value } })}
                                     />
                                 </div>
+                                <p className="text-xs text-muted-foreground col-span-full mt-1">💡 For production, manage API keys via <strong>Security → Vault</strong> instead of storing here.</p>
                             </div>
                         </div>
 
