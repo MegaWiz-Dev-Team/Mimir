@@ -325,6 +325,11 @@ impl IamService {
         // Commit DB transaction
         tx.commit().await?;
 
+        // Seed built-in roles for this tenant (Issue #220)
+        if let Err(e) = self.seed_builtin_roles(&tenant_id).await {
+            tracing::warn!(tenant_id = %tenant_id, error = %e, "Failed to seed built-in roles for new tenant");
+        }
+
         // 4. Data Isolation / Vector DB Provisioning
         let qdrant = crate::services::qdrant::QdrantService::new();
         if req.is_dedicated_vector_db {
@@ -397,6 +402,64 @@ impl IamService {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    // ─── Built-in Roles Seeding — Issue #220 ──────────────────────────────────
+
+    /// Seed built-in roles (admin, editor, viewer) for a specific tenant.
+    /// Uses INSERT IGNORE to skip if they already exist.
+    pub async fn seed_builtin_roles(&self, tenant_id: &str) -> Result<u32> {
+        let builtin_roles = vec![
+            (
+                format!("builtin_admin_{}", &tenant_id[..8.min(tenant_id.len())]),
+                "admin",
+                r#"{"dashboard":"full","sources":"full","knowledge":"full","pipeline":"full","chat":"full","qc":"full","analytics":"full","settings":"full","users":"full","tenants":"full"}"#,
+            ),
+            (
+                format!("builtin_editor_{}", &tenant_id[..8.min(tenant_id.len())]),
+                "editor",
+                r#"{"dashboard":"full","sources":"full","knowledge":"full","pipeline":"full","chat":"full","qc":"full","analytics":"full","settings":"none","users":"none","tenants":"none"}"#,
+            ),
+            (
+                format!("builtin_viewer_{}", &tenant_id[..8.min(tenant_id.len())]),
+                "viewer",
+                r#"{"dashboard":"full","sources":"read","knowledge":"read","pipeline":"read","chat":"full","qc":"read","analytics":"read","settings":"none","users":"none","tenants":"none"}"#,
+            ),
+        ];
+
+        let mut seeded = 0u32;
+        for (id, name, perms) in &builtin_roles {
+            let result = sqlx::query(
+                "INSERT IGNORE INTO roles (id, tenant_id, name, is_builtin, permissions) VALUES (?, ?, ?, TRUE, ?)"
+            )
+            .bind(id)
+            .bind(tenant_id)
+            .bind(name)
+            .bind(perms)
+            .execute(&self.db).await?;
+
+            if result.rows_affected() > 0 {
+                tracing::info!(tenant_id = %tenant_id, role = %name, "Seeded built-in role");
+                seeded += 1;
+            }
+        }
+        Ok(seeded)
+    }
+
+    /// Seed built-in roles for ALL existing tenants (called on server startup).
+    pub async fn seed_builtin_roles_for_all_tenants(&self) -> Result<u32> {
+        let tenants = self.get_tenants().await?;
+        let mut total = 0u32;
+        for tenant in &tenants {
+            match self.seed_builtin_roles(&tenant.id).await {
+                Ok(n) => total += n,
+                Err(e) => tracing::warn!(tenant_id = %tenant.id, error = %e, "Failed to seed roles"),
+            }
+        }
+        if total > 0 {
+            tracing::info!(total_seeded = total, "✅ Built-in roles seeded");
+        }
+        Ok(total)
     }
 
     // ─── Custom Roles CRUD — Issue #191 ────────────────────────────────────────
