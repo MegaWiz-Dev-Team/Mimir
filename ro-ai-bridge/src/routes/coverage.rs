@@ -258,7 +258,7 @@ async fn get_overview(
             chunked: sources_with_chunks.0,
             qa_generated: sources_with_qa.0,
             vectorized: sources_with_vectors.0,
-            kg_extracted: kg_extracted.0,
+            kg_extracted: sources_with_kg.0,
         },
     }))
 }

@@ -82,3 +82,7 @@
 | REF-200a | Refactor `sources.rs` → 6 sub-modules (Sprint 23)      | Routes Module        | `sources/{mod,crud,sync,upload,connectors,config}.rs` (1568→6 files)          | TC-023       | Done   |
 | REF-200b | Extract `settings/page.tsx` → 8 components (Sprint 23) | Settings UI          | `settings/components/{types,General,AIModels,Pipeline,Search,Security,Admin}` | TC-023       | Done   |
 | REF-200c | Split `agents.rs` → 4 sub-modules (Sprint 23)          | Routes Module        | `agents/{mod,crud,templates,chat}.rs` (876→4 files)                           | TC-023       | Done   |
+| BUG-222  | Graph API SQL + FK schema (5 fixes) (Sprint 24)        | Graph Module         | `graph.rs` (NOW(), bulk API, FK JOINs, relations FK lookup)                   | TC-024       | Done   |
+| BUG-223  | Duplicate KG entities dedup (Sprint 24)                | Graph Module         | `migrations/20260309_dedup.sql`, UNIQUE index                                 | TC-024       | Done   |
+| BUG-224  | Vector Search Ollama→Heimdall (Sprint 24)              | Vector Module        | `vector.rs` (reqwest HTTP to /v1/embeddings, HeaderMap fix)                   | TC-024       | Done   |
+| ENH-225  | Coverage kg_extracted detection (Sprint 24)            | Coverage Module      | `coverage.rs` (sources_with_kg instead of extraction_runs)                    | TC-024       | Done   |
