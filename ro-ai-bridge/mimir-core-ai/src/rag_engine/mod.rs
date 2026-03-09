@@ -172,10 +172,12 @@ pub struct RagRetriever {
 
 impl RagRetriever {
     pub fn new(qdrant: QdrantService) -> Self {
-        let ollama_url = env::var("OLLAMA_BASE_URL")
+        // Prefer Heimdall embedding endpoint, fallback to Ollama
+        let ollama_url = env::var("HEIMDALL_API_URL")
+            .or_else(|_| env::var("OLLAMA_BASE_URL"))
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         let embed_model = env::var("EMBED_MODEL")
-            .unwrap_or_else(|_| "nomic-embed-text".to_string());
+            .unwrap_or_else(|_| "BAAI/bge-m3".to_string());
         
         Self {
             qdrant,
@@ -184,41 +186,65 @@ impl RagRetriever {
         }
     }
 
-    /// Get embedding for text using Ollama
+    /// Get embedding for text — auto-detects Heimdall (OpenAI) vs Ollama format
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let client = reqwest::Client::new();
         
-        #[derive(serde::Serialize)]
-        struct EmbedRequest {
-            model: String,
-            input: Vec<String>,
+        // Use OpenAI-compatible /v1/embeddings format for Heimdall
+        let is_openai_format = self.ollama_url.contains("/v1")
+            || env::var("HEIMDALL_API_URL").is_ok();
+
+        if is_openai_format {
+            let url = if self.ollama_url.ends_with("/v1") {
+                format!("{}/embeddings", self.ollama_url)
+            } else {
+                format!("{}/v1/embeddings", self.ollama_url.trim_end_matches('/'))
+            };
+            let api_key = env::var("HEIMDALL_API_KEY").unwrap_or_default();
+
+            let body = serde_json::json!({
+                "model": self.embed_model,
+                "input": [text]
+            });
+            let resp = client.post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .json(&body)
+                .send().await?;
+            if !resp.status().is_success() {
+                let err = resp.text().await?;
+                return Err(anyhow::anyhow!("Embedding error: {}", err));
+            }
+            let json: serde_json::Value = resp.json().await?;
+            let embedding = json["data"][0]["embedding"]
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("No embedding in response"))?
+                .iter()
+                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                .collect();
+            Ok(embedding)
+        } else {
+            // Fallback to Ollama /api/embed format
+            #[derive(serde::Serialize)]
+            struct EmbedRequest { model: String, input: Vec<String> }
+            #[derive(serde::Deserialize)]
+            struct EmbedResponse { embeddings: Vec<Vec<f32>> }
+            
+            let req = EmbedRequest {
+                model: self.embed_model.clone(),
+                input: vec![text.to_string()],
+            };
+            let resp = client
+                .post(format!("{}/api/embed", self.ollama_url))
+                .json(&req)
+                .send().await?;
+            if !resp.status().is_success() {
+                let err = resp.text().await?;
+                return Err(anyhow::anyhow!("Ollama embed error: {}", err));
+            }
+            let embed_resp: EmbedResponse = resp.json().await?;
+            embed_resp.embeddings.into_iter().next()
+                .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
         }
-        
-        #[derive(serde::Deserialize)]
-        struct EmbedResponse {
-            embeddings: Vec<Vec<f32>>,
-        }
-        
-        let req = EmbedRequest {
-            model: self.embed_model.clone(),
-            input: vec![text.to_string()],
-        };
-        
-        let resp = client
-            .post(format!("{}/api/embed", self.ollama_url))
-            .json(&req)
-            .send()
-            .await?;
-        
-        if !resp.status().is_success() {
-            let err = resp.text().await?;
-            return Err(anyhow::anyhow!("Ollama embed error: {}", err));
-        }
-        
-        let embed_resp: EmbedResponse = resp.json().await?;
-        
-        embed_resp.embeddings.into_iter().next()
-            .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
     }
 
     pub async fn search_wiki(&self, query: &str, limit: usize, tenant_id: &str) -> Result<Vec<SourceCitation>> {
