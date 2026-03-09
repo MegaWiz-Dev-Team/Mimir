@@ -1,6 +1,7 @@
-//! Knowledge Graph API Routes — Sprint 17
+//! Knowledge Graph API Routes — Sprint 17+
 //!
-//! Provides endpoints for graph CRUD, search, visualization, and extraction.
+//! Provides endpoints for graph CRUD, search, visualization, extraction,
+//! and bulk import of entities/relations.
 //! All endpoints enforce tenant isolation via X-Tenant-Id header.
 
 use axum::{
@@ -15,7 +16,7 @@ use mimir_core_ai::services::neo4j::{
 };
 use serde_json::{json, Value};
 use serde::Deserialize;
-use tracing::{info, instrument};
+use tracing::{info, warn, instrument};
 use crate::routes::tenant::extract_tenant_id;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -58,6 +59,34 @@ pub struct ExtractRequest {
     pub max_entities: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BulkEntityRequest {
+    pub entities: Vec<BulkEntity>,
+    pub source_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkEntity {
+    pub name: String,
+    pub entity_type: String,
+    pub properties: Option<Value>,
+    pub chunk_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkRelationRequest {
+    pub relations: Vec<BulkRelation>,
+    pub source_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkRelation {
+    pub from_entity: String,
+    pub to_entity: String,
+    pub relation_type: String,
+    pub properties: Option<Value>,
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Routes definition
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -66,6 +95,8 @@ pub fn graph_routes() -> Router<DbPool> {
     Router::new()
         .route("/stats", get(get_stats))
         .route("/entities", get(search_entities))
+        .route("/entities/bulk", post(bulk_create_entities))
+        .route("/relations/bulk", post(bulk_create_relations))
         .route("/entity/{id}/neighbors", get(get_neighbors))
         .route("/paths", get(find_paths))
         .route("/extract", post(trigger_extraction))
@@ -231,27 +262,27 @@ async fn get_neighbors(
         None => return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Entity not found"})))),
     };
 
-    // Get relations where this entity is involved
-    let outgoing: Vec<(i64, String, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT r.id, r.to_entity, r.relation_type, e.entity_type, e.properties \
+    // Get relations where this entity is involved (via FK)
+    let outgoing: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT r.id, e.name, r.relation_type, e.entity_type \
          FROM kg_relations r \
-         JOIN kg_entities e ON e.name = r.to_entity AND e.tenant_id = r.tenant_id \
-         WHERE r.from_entity = ? AND r.tenant_id = ? LIMIT ?"
+         JOIN kg_entities e ON e.id = r.to_entity_id \
+         WHERE r.from_entity_id = ? AND r.tenant_id = ? LIMIT ?"
     )
-    .bind(&entity_name)
+    .bind(entity_id)
     .bind(tenant_id)
     .bind(limit)
     .fetch_all(&pool)
     .await
     .unwrap_or_default();
 
-    let incoming: Vec<(i64, String, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT r.id, r.from_entity, r.relation_type, e.entity_type, e.properties \
+    let incoming: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT r.id, e.name, r.relation_type, e.entity_type \
          FROM kg_relations r \
-         JOIN kg_entities e ON e.name = r.from_entity AND e.tenant_id = r.tenant_id \
-         WHERE r.to_entity = ? AND r.tenant_id = ? LIMIT ?"
+         JOIN kg_entities e ON e.id = r.from_entity_id \
+         WHERE r.to_entity_id = ? AND r.tenant_id = ? LIMIT ?"
     )
-    .bind(&entity_name)
+    .bind(entity_id)
     .bind(tenant_id)
     .bind(limit)
     .fetch_all(&pool)
@@ -268,7 +299,8 @@ async fn get_neighbors(
 
     let mut edges = Vec::new();
 
-    for (rid, to_name, rel_type, to_type, _) in &outgoing {
+    for (rid, to_name, rel_type, to_type) in &outgoing {
+        let to_type = to_type.as_deref().unwrap_or("concept");
         nodes.push(json!({
             "id": format!("n_{}", to_name),
             "label": to_name,
@@ -284,7 +316,8 @@ async fn get_neighbors(
         }));
     }
 
-    for (rid, from_name, rel_type, from_type, _) in &incoming {
+    for (rid, from_name, rel_type, from_type) in &incoming {
+        let from_type = from_type.as_deref().unwrap_or("concept");
         nodes.push(json!({
             "id": format!("n_{}", from_name),
             "label": from_name,
@@ -319,11 +352,13 @@ async fn find_paths(
     // Simple BFS/DFS path-finding using SQL (limited depth)
     let max_depth = params.depth.unwrap_or(4).min(6);
 
-    // Find direct relations
+    // Find direct relations (via FK join)
     let direct: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT from_entity, to_entity, relation_type FROM kg_relations \
-         WHERE tenant_id = ? AND \
-         ((from_entity = ? AND to_entity = ?) OR (from_entity = ? AND to_entity = ?))"
+        "SELECT e1.name, e2.name, r.relation_type FROM kg_relations r \
+         JOIN kg_entities e1 ON e1.id = r.from_entity_id \
+         JOIN kg_entities e2 ON e2.id = r.to_entity_id \
+         WHERE r.tenant_id = ? AND \
+         ((e1.name = ? AND e2.name = ?) OR (e1.name = ? AND e2.name = ?))"
     )
     .bind(tenant_id)
     .bind(&params.from)
@@ -345,12 +380,15 @@ async fn find_paths(
         })));
     }
 
-    // 2-hop search
+    // 2-hop search (via FK join)
     let two_hop: Vec<(String, String, String, String, String)> = sqlx::query_as(
-        "SELECT r1.from_entity, r1.to_entity, r1.relation_type, r2.to_entity, r2.relation_type \
+        "SELECT e1.name, e_mid.name, r1.relation_type, e2.name, r2.relation_type \
          FROM kg_relations r1 \
-         JOIN kg_relations r2 ON r1.to_entity = r2.from_entity AND r1.tenant_id = r2.tenant_id \
-         WHERE r1.tenant_id = ? AND r1.from_entity = ? AND r2.to_entity = ? \
+         JOIN kg_entities e1 ON e1.id = r1.from_entity_id \
+         JOIN kg_entities e_mid ON e_mid.id = r1.to_entity_id \
+         JOIN kg_relations r2 ON r2.from_entity_id = r1.to_entity_id AND r1.tenant_id = r2.tenant_id \
+         JOIN kg_entities e2 ON e2.id = r2.to_entity_id \
+         WHERE r1.tenant_id = ? AND e1.name = ? AND e2.name = ? \
          LIMIT 5"
     )
     .bind(tenant_id)
@@ -414,7 +452,7 @@ async fn trigger_extraction(
     if let Some(source_id) = payload.source_id {
         // Record extraction run in DB
         let run_result = sqlx::query(
-            "INSERT INTO kg_extraction_runs (source_id, tenant_id, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
+            "INSERT INTO kg_extraction_runs (source_id, tenant_id, status, started_at) VALUES (?, ?, 'running', NOW())"
         )
         .bind(source_id)
         .bind(tenant_id)
@@ -474,9 +512,9 @@ async fn get_visualization(
     let mut edges = Vec::new();
 
     if !entity_names.is_empty() {
-        // Get relations where both from and to are in the visible entity set
-        let relations: Vec<(i64, String, String, String)> = sqlx::query_as(
-            "SELECT r.id, r.from_entity, r.to_entity, r.relation_type \
+        // Get relations between visible entities (via FK)
+        let relations: Vec<(i64, i64, i64, String)> = sqlx::query_as(
+            "SELECT r.id, r.from_entity_id, r.to_entity_id, r.relation_type \
              FROM kg_relations r \
              WHERE r.tenant_id = ? \
              LIMIT ?"
@@ -487,13 +525,13 @@ async fn get_visualization(
         .await
         .unwrap_or_default();
 
-        // Build entity name → id lookup
-        let name_to_id: std::collections::HashMap<&str, i64> = entities.iter()
-            .map(|(id, name, _, _)| (name.as_str(), *id))
+        // Build entity id → string id lookup
+        let id_to_str: std::collections::HashMap<i64, String> = entities.iter()
+            .map(|(id, _, _, _)| (*id, id.to_string()))
             .collect();
 
-        for (rid, from, to, rtype) in &relations {
-            if let (Some(from_id), Some(to_id)) = (name_to_id.get(from.as_str()), name_to_id.get(to.as_str())) {
+        for (rid, from_id, to_id, rtype) in &relations {
+            if id_to_str.contains_key(from_id) && id_to_str.contains_key(to_id) {
                 edges.push(json!({
                     "id": format!("e_{}", rid),
                     "source": from_id.to_string(),
@@ -590,6 +628,142 @@ async fn get_extraction_runs(
 
     Ok(Json(json!({
         "runs": runs_json,
+    })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Bulk Import handlers (Sprint 18+)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// POST /api/v1/graph/entities/bulk — Bulk import entities
+#[instrument(skip(headers, pool))]
+async fn bulk_create_entities(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(payload): Json<BulkEntityRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+    let source_id = payload.source_id;
+    let total = payload.entities.len();
+    
+    info!(event = "kg_bulk_create_entities", tenant_id = tenant_id, count = total, "Bulk creating entities");
+
+    let mut inserted = 0u64;
+    let mut skipped = 0u64;
+
+    for ent in &payload.entities {
+        let props_json = ent.properties.as_ref()
+            .map(|p| serde_json::to_string(p).unwrap_or_default());
+
+        let result = sqlx::query(
+            "INSERT IGNORE INTO kg_entities (name, entity_type, properties, source_id, chunk_id, tenant_id) \
+             VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&ent.name)
+        .bind(&ent.entity_type)
+        .bind(&props_json)
+        .bind(source_id)
+        .bind(ent.chunk_id)
+        .bind(tenant_id)
+        .execute(&pool)
+        .await;
+
+        match result {
+            Ok(r) if r.rows_affected() > 0 => inserted += 1,
+            Ok(_) => skipped += 1,
+            Err(e) => {
+                warn!(error = %e, name = %ent.name, "Entity insert failed");
+                skipped += 1;
+            }
+        }
+    }
+
+    info!(event = "kg_bulk_entities_done", inserted = inserted, skipped = skipped);
+
+    Ok(Json(json!({
+        "inserted": inserted,
+        "skipped": skipped,
+        "total": total,
+    })))
+}
+
+/// POST /api/v1/graph/relations/bulk — Bulk import relations
+#[instrument(skip(headers, pool))]
+async fn bulk_create_relations(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(payload): Json<BulkRelationRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+    let source_id = payload.source_id;
+    let total = payload.relations.len();
+
+    info!(event = "kg_bulk_create_relations", tenant_id = tenant_id, count = total, "Bulk creating relations");
+
+    let mut inserted = 0u64;
+    let mut skipped = 0u64;
+
+    for rel in &payload.relations {
+        let props_json = rel.properties.as_ref()
+            .map(|p| serde_json::to_string(p).unwrap_or_default());
+
+        // Lookup from_entity_id
+        let from_id: Option<(i64,)> = sqlx::query_as(
+            "SELECT id FROM kg_entities WHERE name = ? AND tenant_id = ? LIMIT 1"
+        )
+        .bind(&rel.from_entity)
+        .bind(tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+
+        // Lookup to_entity_id
+        let to_id: Option<(i64,)> = sqlx::query_as(
+            "SELECT id FROM kg_entities WHERE name = ? AND tenant_id = ? LIMIT 1"
+        )
+        .bind(&rel.to_entity)
+        .bind(tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+
+        let (from_id, to_id) = match (from_id, to_id) {
+            (Some((fid,)), Some((tid,))) => (fid, tid),
+            _ => {
+                skipped += 1;
+                continue;
+            }
+        };
+
+        let result = sqlx::query(
+            "INSERT IGNORE INTO kg_relations (from_entity_id, to_entity_id, relation_type, properties, source_id, tenant_id) \
+             VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind(from_id)
+        .bind(to_id)
+        .bind(&rel.relation_type)
+        .bind(&props_json)
+        .bind(source_id)
+        .bind(tenant_id)
+        .execute(&pool)
+        .await;
+
+        match result {
+            Ok(r) if r.rows_affected() > 0 => inserted += 1,
+            Ok(_) => skipped += 1,
+            Err(e) => {
+                warn!(error = %e, from = %rel.from_entity, to = %rel.to_entity, "Relation insert failed");
+                skipped += 1;
+            }
+        }
+    }
+
+    info!(event = "kg_bulk_relations_done", inserted = inserted, skipped = skipped);
+
+    Ok(Json(json!({
+        "inserted": inserted,
+        "skipped": skipped,
+        "total": total,
     })))
 }
 
