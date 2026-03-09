@@ -83,6 +83,8 @@ pub fn evaluations_ext_routes() -> Router<DbPool> {
         .route("/extraction-summary", get(extraction_summary))
         .route("/extraction-compare", get(extraction_compare))
         .route("/retrieval-summary", get(retrieval_summary))
+        // Sprint 28: E2E Pipeline evaluation
+        .route("/pipeline-scorecard", get(pipeline_scorecard))
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────────────
@@ -564,4 +566,102 @@ mod tests {
         };
         assert_eq!(q.model_a, "llama3.2");
     }
+}
+
+// ─── Sprint 28: E2E Pipeline Scorecard ──────────────────────────────────────────
+
+/// GET /api/v1/evaluations/pipeline-scorecard
+/// Returns per-source pipeline completion scorecard with step-level status
+async fn pipeline_scorecard(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+
+    // Get all sources with their pipeline coverage
+    let sources: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, name, source_type FROM data_sources WHERE tenant_id = ? ORDER BY name"
+    )
+    .bind(tenant_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    let mut scorecards = Vec::new();
+
+    for (source_id, name, source_type) in &sources {
+        // Count chunks
+        let chunk_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM chunks WHERE source_id = ? AND tenant_id = ?"
+        ).bind(source_id).bind(tenant_id).fetch_one(&pool).await.unwrap_or((0,));
+
+        // Count KG entities
+        let entity_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM kg_entities WHERE source_id = ? AND tenant_id = ?"
+        ).bind(source_id).bind(tenant_id).fetch_one(&pool).await.unwrap_or((0,));
+
+        // Count KG relations
+        let relation_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM kg_relations WHERE source_id = ? AND tenant_id = ?"
+        ).bind(source_id).bind(tenant_id).fetch_one(&pool).await.unwrap_or((0,));
+
+        // Count QA results
+        let qa_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM qa_results WHERE tenant_id = ? AND chunk_id IN (SELECT id FROM chunks WHERE source_id = ?)"
+        ).bind(tenant_id).bind(source_id).fetch_one(&pool).await.unwrap_or((0,));
+
+        // Check embedding status
+        let embed_step: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM pipeline_steps WHERE source_id = ? AND step_name = 'embedding' AND status = 'completed'"
+        ).bind(source_id).fetch_one(&pool).await.unwrap_or((0,));
+
+        // Check QA generation status
+        let qa_step: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM pipeline_steps WHERE source_id = ? AND step_name = 'qa_generation'"
+        ).bind(source_id).fetch_one(&pool).await.unwrap_or((0,));
+
+        // Latest pipeline run status
+        let latest_run: Option<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT id, status, provider, model FROM pipeline_runs WHERE source_id = ? AND tenant_id = ? ORDER BY started_at DESC LIMIT 1"
+        ).bind(source_id).bind(tenant_id).fetch_optional(&pool).await.unwrap_or(None);
+
+        let has_chunks = chunk_count.0 > 0;
+        let has_embed = embed_step.0 > 0;
+        let has_kg = entity_count.0 > 0;
+        let has_qa = qa_count.0 > 0;
+        let has_qa_index = qa_step.0 > 0;
+
+        let steps_done = [has_chunks, has_embed, has_kg, has_qa, has_qa_index].iter().filter(|&&x| x).count();
+
+        scorecards.push(json!({
+            "source_id": source_id,
+            "name": name,
+            "source_type": source_type,
+            "steps": {
+                "chunks": { "done": has_chunks, "count": chunk_count.0 },
+                "embedded": { "done": has_embed, "count": chunk_count.0 },
+                "kg_entities": { "done": has_kg, "count": entity_count.0 },
+                "kg_relations": { "count": relation_count.0 },
+                "qa_pairs": { "done": has_qa, "count": qa_count.0 },
+                "qa_indexed": { "done": has_qa_index },
+            },
+            "completion": format!("{}/5", steps_done),
+            "completion_pct": (steps_done as f64 / 5.0 * 100.0) as i32,
+            "latest_run": latest_run.as_ref().map(|(id, status, provider, model)| json!({
+                "run_id": id, "status": status,
+                "provider": provider, "model": model,
+            })),
+        }));
+    }
+
+    // Summary totals
+    let total_sources = sources.len();
+    let fully_complete = scorecards.iter().filter(|s| s["completion_pct"] == 100).count();
+
+    Ok(Json(json!({
+        "total_sources": total_sources,
+        "fully_complete": fully_complete,
+        "completion_rate": if total_sources > 0 { (fully_complete as f64 / total_sources as f64 * 100.0) as i32 } else { 0 },
+        "sources": scorecards,
+    })))
 }
