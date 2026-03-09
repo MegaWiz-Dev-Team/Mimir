@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle, GitCompare, BarChart3, ThumbsUp, ThumbsDown } from "lucide-react";
+import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle, GitCompare, BarChart3, ThumbsUp, ThumbsDown, Beaker, Database } from "lucide-react";
 import Link from "next/link";
 import { EvalWizard } from "@/components/evaluations/eval-wizard";
 import { EvalScoreOverride } from "@/components/evaluations/eval-score-override";
@@ -97,7 +97,7 @@ export default function EvaluationsPage() {
     const [expandedCell, setExpandedCell] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadingScores, setLoadingScores] = useState(false);
-    const [activeTab, setActiveTab] = useState<"matrix" | "performance">("matrix");
+    const [activeTab, setActiveTab] = useState<"matrix" | "performance" | "extraction" | "retrieval">("matrix");
 
     // Model Performance state
     const [modelA, setModelA] = useState("");
@@ -105,6 +105,14 @@ export default function EvaluationsPage() {
     const [comparison, setComparison] = useState<any>(null);
     const [feedbackSummary, setFeedbackSummary] = useState<any>(null);
     const [loadingComparison, setLoadingComparison] = useState(false);
+
+    // Extraction eval state
+    const [extractionData, setExtractionData] = useState<any>(null);
+    const [loadingExtraction, setLoadingExtraction] = useState(false);
+
+    // Retrieval eval state
+    const [retrievalData, setRetrievalData] = useState<any>(null);
+    const [loadingRetrieval, setLoadingRetrieval] = useState(false);
 
     const loadRuns = useCallback(async () => {
         try {
@@ -200,6 +208,18 @@ export default function EvaluationsPage() {
         if (activeTab === "performance") {
             getFeedbackSummary().then(setFeedbackSummary).catch(() => { });
         }
+        if (activeTab === "extraction" && !extractionData) {
+            setLoadingExtraction(true);
+            fetch(`${API_BASE}/evaluations/extraction-summary`, { cache: "no-store" })
+                .then(r => r.json()).then(setExtractionData)
+                .catch(console.warn).finally(() => setLoadingExtraction(false));
+        }
+        if (activeTab === "retrieval" && !retrievalData) {
+            setLoadingRetrieval(true);
+            fetch(`${API_BASE}/evaluations/retrieval-summary`, { cache: "no-store" })
+                .then(r => r.json()).then(setRetrievalData)
+                .catch(console.warn).finally(() => setLoadingRetrieval(false));
+        }
     }, [activeTab]);
 
     const allModels = matrix?.models || [];
@@ -253,6 +273,16 @@ export default function EvaluationsPage() {
                     className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "performance" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
                         }`}>
                     <GitCompare className="w-4 h-4" /> Model Performance
+                </button>
+                <button onClick={() => setActiveTab("extraction")}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "extraction" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}>
+                    <Beaker className="w-4 h-4" /> Extraction
+                </button>
+                <button onClick={() => setActiveTab("retrieval")}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "retrieval" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}>
+                    <Database className="w-4 h-4" /> Retrieval
                 </button>
             </div>
 
@@ -623,6 +653,194 @@ export default function EvaluationsPage() {
                                 </div>
                             ) : (
                                 <p className="text-center text-muted-foreground py-8">No feedback data available</p>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Extraction Evaluation Tab */}
+            {activeTab === "extraction" && (
+                <div className="space-y-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Beaker className="w-5 h-5" /> Extraction Performance — Provider × Model
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground">KG entities, QA pairs, and latency by provider and model combination</p>
+                        </CardHeader>
+                        <CardContent>
+                            {loadingExtraction ? (
+                                <div className="text-center py-8 text-muted-foreground">Loading extraction data...</div>
+                            ) : !extractionData ? (
+                                <div className="text-center py-8 text-muted-foreground">No extraction data available. Use POST /sources/:id/extract to generate data.</div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {/* QA Stats Table */}
+                                    <div>
+                                        <h3 className="text-sm font-semibold mb-3">QA Pairs Generated</h3>
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Provider</TableHead>
+                                                    <TableHead>Model</TableHead>
+                                                    <TableHead>Prompt Version</TableHead>
+                                                    <TableHead className="text-right">QA Count</TableHead>
+                                                    <TableHead className="text-right">Avg Latency</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {(extractionData.qa_stats || []).map((s: any, i: number) => (
+                                                    <TableRow key={i}>
+                                                        <TableCell>
+                                                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">
+                                                                {s.provider}
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell className="font-mono text-xs">{s.model}</TableCell>
+                                                        <TableCell>
+                                                            <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded text-xs">{s.prompt_version}</span>
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-bold">{s.qa_count}</TableCell>
+                                                        <TableCell className="text-right text-muted-foreground">{formatLatency(s.avg_latency_ms)}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+
+                                    {/* KG Stats Table */}
+                                    <div>
+                                        <h3 className="text-sm font-semibold mb-3">KG Entities Extracted</h3>
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Provider</TableHead>
+                                                    <TableHead>Model</TableHead>
+                                                    <TableHead>Prompt Version</TableHead>
+                                                    <TableHead className="text-right">Entity Count</TableHead>
+                                                    <TableHead className="text-right">Avg Latency</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {(extractionData.kg_stats || []).map((s: any, i: number) => (
+                                                    <TableRow key={i}>
+                                                        <TableCell>
+                                                            <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs font-medium">
+                                                                {s.provider}
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell className="font-mono text-xs">{s.model}</TableCell>
+                                                        <TableCell>
+                                                            <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded text-xs">{s.prompt_version}</span>
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-bold">{s.entity_count}</TableCell>
+                                                        <TableCell className="text-right text-muted-foreground">{formatLatency(s.avg_latency_ms)}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+
+                                    {/* Relation Stats */}
+                                    <div>
+                                        <h3 className="text-sm font-semibold mb-3">KG Relations</h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            {(extractionData.relation_stats || []).map((s: any, i: number) => (
+                                                <div key={i} className="text-center p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
+                                                    <p className="text-2xl font-bold">{s.relation_count}</p>
+                                                    <p className="text-xs text-muted-foreground">{s.provider} / {s.model}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Retrieval Evaluation Tab */}
+            {activeTab === "retrieval" && (
+                <div className="space-y-6">
+                    {/* Qdrant Collections */}
+                    <div className="grid gap-4 md:grid-cols-2">
+                        {(retrievalData?.qdrant_collections || []).map((c: any) => (
+                            <Card key={c.name}>
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">{c.name}</CardTitle>
+                                    <Database className="h-4 w-4 text-muted-foreground" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold">{c.points_count.toLocaleString()}</div>
+                                    <p className="text-xs text-muted-foreground">vectors indexed</p>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+
+                    {/* Source Pipeline Coverage */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Database className="w-5 h-5" /> Source Pipeline Coverage
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground">Per-source status: chunks, QA pairs, and KG entities</p>
+                        </CardHeader>
+                        <CardContent>
+                            {loadingRetrieval ? (
+                                <div className="text-center py-8 text-muted-foreground">Loading retrieval data...</div>
+                            ) : !retrievalData?.sources?.length ? (
+                                <div className="text-center py-8 text-muted-foreground">No sources found</div>
+                            ) : (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Source</TableHead>
+                                            <TableHead className="text-right">Chunks</TableHead>
+                                            <TableHead className="text-right">QA Pairs</TableHead>
+                                            <TableHead className="text-right">KG Entities</TableHead>
+                                            <TableHead className="text-center">Pipeline</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {retrievalData.sources.map((s: any) => {
+                                            const hasChunks = s.chunk_count > 0;
+                                            const hasQA = s.qa_count > 0;
+                                            const hasKG = s.entity_count > 0;
+                                            const steps = [hasChunks, hasQA, hasKG].filter(Boolean).length;
+                                            return (
+                                                <TableRow key={s.source_id}>
+                                                    <TableCell className="font-medium">{s.name}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <span className={hasChunks ? "text-emerald-500 font-bold" : "text-muted-foreground"}>
+                                                            {s.chunk_count}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <span className={hasQA ? "text-blue-500 font-bold" : "text-muted-foreground"}>
+                                                            {s.qa_count}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <span className={hasKG ? "text-purple-500 font-bold" : "text-muted-foreground"}>
+                                                            {s.entity_count}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <div className="flex justify-center gap-1">
+                                                            <span className={`w-2 h-2 rounded-full ${hasChunks ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"}`} title="Chunks" />
+                                                            <span className={`w-2 h-2 rounded-full ${hasQA ? "bg-blue-500" : "bg-zinc-300 dark:bg-zinc-700"}`} title="QA" />
+                                                            <span className={`w-2 h-2 rounded-full ${hasKG ? "bg-purple-500" : "bg-zinc-300 dark:bg-zinc-700"}`} title="KG" />
+                                                        </div>
+                                                        <span className="text-[10px] text-muted-foreground">{steps}/3</span>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
                             )}
                         </CardContent>
                     </Card>
