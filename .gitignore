@@ -44,3 +44,6 @@ ro-ai-bridge/monitor.log
 
 # macOS AppleDouble resource fork files (external drives)
 ._*
+
+# Runtime PID files
+.pids/
