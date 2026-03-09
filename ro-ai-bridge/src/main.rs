@@ -40,6 +40,7 @@ use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::chunks::chunks_routes;
 use ro_ai_bridge::routes::graph::graph_routes;
 use ro_ai_bridge::routes::coverage::coverage_routes;
+use ro_ai_bridge::routes::prompts::prompts_routes;
 
 #[tokio::main]
 async fn main() {
@@ -123,6 +124,7 @@ async fn main() {
         .nest("/api/v1/graph", graph_routes())
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
+        .nest("/api/v1/prompts", prompts_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
