@@ -1,7 +1,7 @@
 import { PipelineRun, RunDetails, QAResult, EvaluationReport } from "@/types/pipeline";
 import Cookies from "js-cookie";
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api") + "/v1";
+export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api") + "/v1";
 
 function getAuthHeaders(): HeadersInit {
     const token = Cookies.get("access_token");
@@ -15,7 +15,7 @@ function getAuthHeaders(): HeadersInit {
 }
 
 // Custom fetch wrapper to auto-add auth headers
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const headers = {
         ...getAuthHeaders(),
         ...(options.headers || {})
