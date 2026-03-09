@@ -79,6 +79,10 @@ pub fn evaluations_ext_routes() -> Router<DbPool> {
         .route("/results", get(get_eval_results))
         .route("/compare", get(compare_models))
         .route("/feedback-summary", get(feedback_summary))
+        // Sprint 27: Extraction & RAG evaluation
+        .route("/extraction-summary", get(extraction_summary))
+        .route("/extraction-compare", get(extraction_compare))
+        .route("/retrieval-summary", get(retrieval_summary))
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────────────
@@ -346,6 +350,194 @@ async fn feedback_summary(
             "feedback": fb,
             "count": count
         })).collect::<Vec<_>>()
+    })))
+}
+
+// ─── Sprint 27: Extraction Evaluation ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ExtractionQuery {
+    pub source_id: Option<i64>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub prompt_version: Option<String>,
+    pub run_label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExtractionCompareQuery {
+    pub provider_a: String,
+    pub model_a: String,
+    pub provider_b: String,
+    pub model_b: String,
+    pub source_id: Option<i64>,
+}
+
+/// GET /api/v1/evaluations/extraction-summary
+/// Returns Provider × Model matrix with KG count, QA count, avg latency
+async fn extraction_summary(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Query(params): Query<ExtractionQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+
+    // QA summary by provider × model
+    let qa_stats: Vec<(String, String, String, i64, f64)> = sqlx::query_as(
+        r#"SELECT COALESCE(provider, 'unknown'), COALESCE(model, 'unknown'), COALESCE(prompt_version, 'v1.0'),
+           COUNT(*) as qa_count, AVG(COALESCE(latency_ms, 0)) as avg_latency
+           FROM qa_results WHERE tenant_id = ?
+           GROUP BY provider, model, prompt_version
+           ORDER BY qa_count DESC"#
+    )
+    .bind(tenant_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    // KG summary by provider × model
+    let kg_stats: Vec<(String, String, String, i64, f64)> = sqlx::query_as(
+        r#"SELECT COALESCE(provider, 'unknown'), COALESCE(model, 'unknown'), COALESCE(prompt_version, 'v1.0'),
+           COUNT(*) as entity_count, AVG(COALESCE(latency_ms, 0)) as avg_latency
+           FROM kg_entities WHERE tenant_id = ?
+           GROUP BY provider, model, prompt_version
+           ORDER BY entity_count DESC"#
+    )
+    .bind(tenant_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    // Relation counts by provider × model
+    let rel_stats: Vec<(String, String, i64)> = sqlx::query_as(
+        r#"SELECT COALESCE(provider, 'unknown'), COALESCE(model, 'unknown'), COUNT(*) as rel_count
+           FROM kg_relations WHERE tenant_id = ?
+           GROUP BY provider, model"#
+    )
+    .bind(tenant_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    // Unique providers and models
+    let providers: Vec<String> = qa_stats.iter().map(|r| r.0.clone())
+        .chain(kg_stats.iter().map(|r| r.0.clone()))
+        .collect::<std::collections::HashSet<_>>().into_iter().collect();
+
+    let models: Vec<String> = qa_stats.iter().map(|r| r.1.clone())
+        .chain(kg_stats.iter().map(|r| r.1.clone()))
+        .collect::<std::collections::HashSet<_>>().into_iter().collect();
+
+    Ok(Json(json!({
+        "qa_stats": qa_stats.iter().map(|(p, m, pv, count, lat)| json!({
+            "provider": p, "model": m, "prompt_version": pv,
+            "qa_count": count, "avg_latency_ms": lat
+        })).collect::<Vec<_>>(),
+        "kg_stats": kg_stats.iter().map(|(p, m, pv, count, lat)| json!({
+            "provider": p, "model": m, "prompt_version": pv,
+            "entity_count": count, "avg_latency_ms": lat
+        })).collect::<Vec<_>>(),
+        "relation_stats": rel_stats.iter().map(|(p, m, count)| json!({
+            "provider": p, "model": m, "relation_count": count
+        })).collect::<Vec<_>>(),
+        "providers": providers,
+        "models": models
+    })))
+}
+
+/// GET /api/v1/evaluations/extraction-compare
+/// Side-by-side comparison of two provider+model combinations
+async fn extraction_compare(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Query(params): Query<ExtractionCompareQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+
+    let fetch_stats = |provider: &str, model: &str| {
+        let p = provider.to_string();
+        let m = model.to_string();
+        let t = tenant_id.to_string();
+        let pool = pool.clone();
+        async move {
+            let qa: (i64, f64) = sqlx::query_as(
+                "SELECT COUNT(*), AVG(COALESCE(latency_ms, 0)) FROM qa_results WHERE tenant_id = ? AND provider = ? AND model = ?"
+            ).bind(&t).bind(&p).bind(&m).fetch_one(&pool).await.unwrap_or((0, 0.0));
+
+            let kg: (i64, f64) = sqlx::query_as(
+                "SELECT COUNT(*), AVG(COALESCE(latency_ms, 0)) FROM kg_entities WHERE tenant_id = ? AND provider = ? AND model = ?"
+            ).bind(&t).bind(&p).bind(&m).fetch_one(&pool).await.unwrap_or((0, 0.0));
+
+            let rels: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM kg_relations WHERE tenant_id = ? AND provider = ? AND model = ?"
+            ).bind(&t).bind(&p).bind(&m).fetch_one(&pool).await.unwrap_or((0,));
+
+            json!({
+                "provider": p, "model": m,
+                "qa_count": qa.0, "qa_avg_latency_ms": qa.1,
+                "entity_count": kg.0, "kg_avg_latency_ms": kg.1,
+                "relation_count": rels.0
+            })
+        }
+    };
+
+    let (a, b) = tokio::join!(
+        fetch_stats(&params.provider_a, &params.model_a),
+        fetch_stats(&params.provider_b, &params.model_b)
+    );
+
+    Ok(Json(json!({
+        "model_a": a,
+        "model_b": b
+    })))
+}
+
+/// GET /api/v1/evaluations/retrieval-summary
+/// RAG retrieval quality metrics
+async fn retrieval_summary(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+
+    // Source coverage
+    let source_stats: Vec<(i64, String, i64, i64, i64)> = sqlx::query_as(
+        r#"SELECT d.id, d.name,
+           (SELECT COUNT(*) FROM chunks WHERE source_id = d.id) as chunk_count,
+           (SELECT COUNT(*) FROM qa_results q JOIN pipeline_steps ps ON q.step_id = ps.id WHERE ps.file_name LIKE CONCAT('chunk_%') AND q.tenant_id = d.tenant_id) as qa_count,
+           (SELECT COUNT(*) FROM kg_entities WHERE source_id = d.id) as entity_count
+           FROM data_sources d WHERE d.tenant_id = ?
+           ORDER BY d.name"#
+    )
+    .bind(tenant_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    // Collection stats from Qdrant (HTTP check)
+    let qdrant_url = std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string());
+    let client = reqwest::Client::new();
+
+    let mut collections = vec![];
+    for col_name in &["source_chunks", "wiki_qa"] {
+        let resp = client.get(format!("{}/collections/{}", qdrant_url, col_name))
+            .send().await;
+        let count = match resp {
+            Ok(r) if r.status().is_success() => {
+                let body: Value = r.json().await.unwrap_or_default();
+                body["result"]["points_count"].as_u64().unwrap_or(0)
+            }
+            _ => 0,
+        };
+        collections.push(json!({ "name": col_name, "points_count": count }));
+    }
+
+    Ok(Json(json!({
+        "sources": source_stats.iter().map(|(id, name, chunks, qa, ents)| json!({
+            "source_id": id, "name": name,
+            "chunk_count": chunks, "qa_count": qa, "entity_count": ents
+        })).collect::<Vec<_>>(),
+        "qdrant_collections": collections
     })))
 }
 
