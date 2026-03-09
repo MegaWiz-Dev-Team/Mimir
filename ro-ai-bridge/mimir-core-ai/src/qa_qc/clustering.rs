@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // Global flag to prevent multiple clustering jobs executing concurrently
 pub static IS_CLUSTERING_RUNNING: AtomicBool = AtomicBool::new(false);
+pub static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 pub static PROCESSED_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static TOTAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -18,6 +19,7 @@ struct ClusteringGuard;
 impl Drop for ClusteringGuard {
     fn drop(&mut self) {
         IS_CLUSTERING_RUNNING.store(false, Ordering::SeqCst);
+        STOP_REQUESTED.store(false, Ordering::SeqCst);
         PROCESSED_COUNT.store(0, Ordering::SeqCst);
         TOTAL_COUNT.store(0, Ordering::SeqCst);
         info!("Released global Clustering lock.");
@@ -153,7 +155,24 @@ impl ClusteringService {
             return Ok(());
         }
 
+        let max_iterations = 100; // Safety cap
+        let mut iteration = 0;
+        let mut last_batch_ids: Vec<i64> = Vec::new();
+
         loop {
+            // Check for stop request
+            if STOP_REQUESTED.load(Ordering::SeqCst) {
+                info!("Clustering job stopped by user request.");
+                break;
+            }
+
+            // Safety: max iterations
+            iteration += 1;
+            if iteration > max_iterations {
+                warn!("Clustering hit max iteration limit ({}), stopping.", max_iterations);
+                break;
+            }
+
             // Fetch batch of 10 unclustered QA results
             let qas = sqlx::query(
                 r#"SELECT id, question, answer 
@@ -169,6 +188,14 @@ impl ClusteringService {
                 info!("Finished clustering loop: Not enough unclustered QA pairs remaining.");
                 break;
             }
+
+            // Stall detection: if we got the exact same batch, no progress was made
+            let current_ids: Vec<i64> = qas.iter().map(|q| q.get::<i64, _>("id")).collect();
+            if current_ids == last_batch_ids {
+                info!("Clustering stalled — same batch returned twice. Stopping to avoid infinite loop.");
+                break;
+            }
+            last_batch_ids = current_ids;
 
             // Use Gemini to group and detect conflicts
             let client = gemini::Client::new(&env::var("GEMINI_API_KEY").unwrap_or_default());
@@ -239,8 +266,10 @@ Return a STRICT JSON list:
                 Err(e) => error!("Gemini prompt failed: {}", e)
             }
             
-            // Advance progress count by the number of QA items processed in this iteration
-            PROCESSED_COUNT.fetch_add(qas.len(), Ordering::SeqCst);
+            // Advance progress count, capped at total
+            let new_processed = PROCESSED_COUNT.load(Ordering::SeqCst) + qas.len();
+            let total = TOTAL_COUNT.load(Ordering::SeqCst);
+            PROCESSED_COUNT.store(new_processed.min(total), Ordering::SeqCst);
         }
 
         Ok(())
