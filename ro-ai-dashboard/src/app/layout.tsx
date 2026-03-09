@@ -18,7 +18,6 @@ export const metadata: Metadata = {
 };
 
 import { Navbar } from "@/components/navbar";
-import { PipelineStatusBar } from "@/components/pipeline-status-bar";
 import { FeedbackButton } from "@/components/feedback-button";
 
 export default function RootLayout({
@@ -33,7 +32,6 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <Navbar />
-        <PipelineStatusBar />
         <main className="flex-1">
           {children}
         </main>
