@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle, GitCompare, BarChart3, ThumbsUp, ThumbsDown, Beaker, Database } from "lucide-react";
+import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle, GitCompare, BarChart3, ThumbsUp, ThumbsDown, Beaker, Database, Workflow } from "lucide-react";
 import Link from "next/link";
 import { EvalWizard } from "@/components/evaluations/eval-wizard";
 import { EvalScoreOverride } from "@/components/evaluations/eval-score-override";
@@ -97,7 +97,7 @@ export default function EvaluationsPage() {
     const [expandedCell, setExpandedCell] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadingScores, setLoadingScores] = useState(false);
-    const [activeTab, setActiveTab] = useState<"matrix" | "performance" | "extraction" | "retrieval">("matrix");
+    const [activeTab, setActiveTab] = useState<"matrix" | "performance" | "extraction" | "retrieval" | "pipeline">("matrix");
 
     // Model Performance state
     const [modelA, setModelA] = useState("");
@@ -113,6 +113,10 @@ export default function EvaluationsPage() {
     // Retrieval eval state
     const [retrievalData, setRetrievalData] = useState<any>(null);
     const [loadingRetrieval, setLoadingRetrieval] = useState(false);
+
+    // Pipeline scorecard state
+    const [pipelineData, setPipelineData] = useState<any>(null);
+    const [loadingPipeline, setLoadingPipeline] = useState(false);
 
     const loadRuns = useCallback(async () => {
         try {
@@ -220,6 +224,12 @@ export default function EvaluationsPage() {
                 .then(r => r.json()).then(setRetrievalData)
                 .catch(console.warn).finally(() => setLoadingRetrieval(false));
         }
+        if (activeTab === "pipeline" && !pipelineData) {
+            setLoadingPipeline(true);
+            fetch(`${API_BASE}/evaluations/pipeline-scorecard`, { cache: "no-store" })
+                .then(r => r.json()).then(setPipelineData)
+                .catch(console.warn).finally(() => setLoadingPipeline(false));
+        }
     }, [activeTab]);
 
     const allModels = matrix?.models || [];
@@ -283,6 +293,11 @@ export default function EvaluationsPage() {
                     className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "retrieval" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
                         }`}>
                     <Database className="w-4 h-4" /> Retrieval
+                </button>
+                <button onClick={() => setActiveTab("pipeline")}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "pipeline" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}>
+                    <Workflow className="w-4 h-4" /> Pipeline
                 </button>
             </div>
 
@@ -839,6 +854,133 @@ export default function EvaluationsPage() {
                                                 </TableRow>
                                             );
                                         })}
+                                    </TableBody>
+                                </Table>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Pipeline Scorecard Tab */}
+            {activeTab === "pipeline" && (
+                <div className="space-y-6">
+                    {/* Summary Cards */}
+                    {pipelineData && (
+                        <div className="grid gap-4 md:grid-cols-3">
+                            <Card>
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">Total Sources</CardTitle>
+                                    <Database className="h-4 w-4 text-muted-foreground" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold">{pipelineData.total_sources}</div>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">Fully Complete</CardTitle>
+                                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold text-emerald-500">{pipelineData.fully_complete}</div>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
+                                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold">{pipelineData.completion_rate}%</div>
+                                    <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-2 mt-2">
+                                        <div className="bg-emerald-500 h-2 rounded-full transition-all" style={{ width: `${pipelineData.completion_rate}%` }} />
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Scorecard Table */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Workflow className="w-5 h-5" /> Pipeline Scorecard
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground">Per-source pipeline step completion: Chunks → Embed → KG → QA → Index</p>
+                        </CardHeader>
+                        <CardContent>
+                            {loadingPipeline ? (
+                                <div className="text-center py-8 text-muted-foreground">Loading pipeline data...</div>
+                            ) : !pipelineData?.sources?.length ? (
+                                <div className="text-center py-8 text-muted-foreground">No sources found</div>
+                            ) : (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Source</TableHead>
+                                            <TableHead className="text-center">Chunks</TableHead>
+                                            <TableHead className="text-center">Embed</TableHead>
+                                            <TableHead className="text-center">KG</TableHead>
+                                            <TableHead className="text-center">QA</TableHead>
+                                            <TableHead className="text-center">Index</TableHead>
+                                            <TableHead className="text-center">Progress</TableHead>
+                                            <TableHead>Last Run</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {pipelineData.sources.map((s: any) => (
+                                            <TableRow key={s.source_id}>
+                                                <TableCell>
+                                                    <div className="font-medium">{s.name}</div>
+                                                    <div className="text-xs text-muted-foreground">{s.source_type}</div>
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className={`inline-flex items-center gap-1 ${s.steps.chunks.done ? "text-emerald-500" : "text-zinc-400"}`}>
+                                                        <span className={`w-2.5 h-2.5 rounded-full ${s.steps.chunks.done ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"}`} />
+                                                        <span className="text-xs">{s.steps.chunks.count}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <span className={`w-2.5 h-2.5 rounded-full inline-block ${s.steps.embedded.done ? "bg-blue-500" : "bg-zinc-300 dark:bg-zinc-700"}`} />
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className={`inline-flex items-center gap-1 ${s.steps.kg_entities.done ? "text-purple-500" : "text-zinc-400"}`}>
+                                                        <span className={`w-2.5 h-2.5 rounded-full ${s.steps.kg_entities.done ? "bg-purple-500" : "bg-zinc-300 dark:bg-zinc-700"}`} />
+                                                        <span className="text-xs">{s.steps.kg_entities.count}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className={`inline-flex items-center gap-1 ${s.steps.qa_pairs.done ? "text-amber-500" : "text-zinc-400"}`}>
+                                                        <span className={`w-2.5 h-2.5 rounded-full ${s.steps.qa_pairs.done ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-700"}`} />
+                                                        <span className="text-xs">{s.steps.qa_pairs.count}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <span className={`w-2.5 h-2.5 rounded-full inline-block ${s.steps.qa_indexed.done ? "bg-teal-500" : "bg-zinc-300 dark:bg-zinc-700"}`} />
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <div className="w-16 bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5">
+                                                            <div className={`h-1.5 rounded-full transition-all ${s.completion_pct === 100 ? "bg-emerald-500" : s.completion_pct >= 60 ? "bg-amber-500" : "bg-red-400"}`} style={{ width: `${s.completion_pct}%` }} />
+                                                        </div>
+                                                        <span className="text-[10px] text-muted-foreground">{s.completion}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {s.latest_run ? (
+                                                        <div className="text-xs">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${s.latest_run.status === "completed" ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300" : s.latest_run.status === "running" ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"}`}>
+                                                                {s.latest_run.status}
+                                                            </span>
+                                                            <div className="text-muted-foreground mt-0.5">{s.latest_run.provider}/{s.latest_run.model}</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">—</span>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
                                     </TableBody>
                                 </Table>
                             )}
