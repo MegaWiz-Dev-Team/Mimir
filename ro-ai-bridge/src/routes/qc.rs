@@ -37,6 +37,7 @@ pub fn qc_routes() -> Router<DbPool> {
         .route("/resolve/{id}", post(resolve_cluster))
         .route("/generate", post(trigger_generate))
         .route("/status", get(get_qc_status))
+        .route("/stop", post(stop_qc_generation))
         .route("/seed", post(seed_qa_data))
 }
 
@@ -162,4 +163,30 @@ async fn get_qc_status() -> Json<serde_json::Value> {
         "processed_count": processed,
         "total_count": total
     }))
+}
+
+/// POST /api/v1/qc/stop — Force stop the running clustering job
+async fn stop_qc_generation() -> Json<serde_json::Value> {
+    let was_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
+    
+    if was_running {
+        // Set stop flag — the clustering loop checks this each iteration
+        mimir_core_ai::qa_qc::clustering::STOP_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!("QC stop requested — clustering will stop at next iteration");
+        Json(serde_json::json!({
+            "success": true,
+            "message": "Stop requested. Clustering will stop at the next iteration."
+        }))
+    } else {
+        // Force reset all flags in case they're stuck
+        mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::STOP_REQUESTED.store(false, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::PROCESSED_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::TOTAL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!("QC force reset — all flags cleared");
+        Json(serde_json::json!({
+            "success": true,
+            "message": "No clustering running. All flags force-reset."
+        }))
+    }
 }
