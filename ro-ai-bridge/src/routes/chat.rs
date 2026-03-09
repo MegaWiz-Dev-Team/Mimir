@@ -7,8 +7,9 @@ use axum::{
     routing::post,
     Router, Json, extract::{State, Extension},
     response::{IntoResponse, sse::Event, Sse},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
 };
+use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::qdrant::QdrantService;
@@ -118,6 +119,7 @@ pub fn chat_routes() -> Router<DbPool> {
 
 async fn chat_handler(
     State(pool): State<DbPool>,
+    headers: HeaderMap,
     tenant_ctx: Option<Extension<TenantContext>>,
     Json(payload): Json<ChatRequest>,
 ) -> impl IntoResponse {
@@ -125,7 +127,7 @@ async fn chat_handler(
     let tenant_id = tenant_ctx.as_ref()
         .map(|ctx| ctx.tenant_id.clone())
         .or_else(|| payload.tenant_id.clone())
-        .unwrap_or_else(|| "default_tenant".to_string());
+        .unwrap_or_else(|| extract_tenant_id(&headers).to_string());
 
     let (provider, model) = resolve_provider_model(&pool, &payload).await;
 
@@ -217,13 +219,14 @@ async fn chat_handler(
 
 async fn chat_stream_handler(
     State(pool): State<DbPool>,
+    headers: HeaderMap,
     tenant_ctx: Option<Extension<TenantContext>>,
     Json(payload): Json<ChatRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
     let tenant_id = tenant_ctx.as_ref()
         .map(|ctx| ctx.tenant_id.clone())
         .or_else(|| payload.tenant_id.clone())
-        .unwrap_or_else(|| "default_tenant".to_string());
+        .unwrap_or_else(|| extract_tenant_id(&headers).to_string());
 
     let (provider, model) = resolve_provider_model(&pool, &payload).await;
 
