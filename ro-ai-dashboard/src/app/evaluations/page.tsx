@@ -10,9 +10,9 @@ import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, Chec
 import Link from "next/link";
 import { EvalWizard } from "@/components/evaluations/eval-wizard";
 import { EvalScoreOverride } from "@/components/evaluations/eval-score-override";
-import { compareModels, getFeedbackSummary } from "@/lib/api";
+import { compareModels, getFeedbackSummary, authFetch, API_BASE_URL } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_BASE = API_BASE_URL;
 
 // ─── Types ─────────────────────────────────────────────────────────────
 interface EvalRun {
@@ -120,7 +120,7 @@ export default function EvaluationsPage() {
 
     const loadRuns = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/eval/runs`, { cache: "no-store" });
+            const res = await authFetch(`${API_BASE}/eval/runs`, { cache: "no-store" });
             if (!res.ok) return;
             const data: EvalRun[] = await res.json();
             setRuns(data);
@@ -136,7 +136,7 @@ export default function EvaluationsPage() {
 
     const loadMatrix = useCallback(async (runId: string) => {
         try {
-            const res = await fetch(`${API_BASE}/eval/runs/${runId}/matrix`, { cache: "no-store" });
+            const res = await authFetch(`${API_BASE}/eval/runs/${runId}/matrix`, { cache: "no-store" });
             if (!res.ok) return;
             const data: MatrixResponse = await res.json();
             setMatrix(data);
@@ -148,7 +148,7 @@ export default function EvaluationsPage() {
     const loadScores = useCallback(async (runId: string, agent: string, model: string) => {
         setLoadingScores(true);
         try {
-            const res = await fetch(
+            const res = await authFetch(
                 `${API_BASE}/eval/runs/${runId}/scores?agent=${encodeURIComponent(agent)}&model=${encodeURIComponent(model)}`,
                 { cache: "no-store" }
             );
@@ -214,19 +214,19 @@ export default function EvaluationsPage() {
         }
         if (activeTab === "extraction" && !extractionData) {
             setLoadingExtraction(true);
-            fetch(`${API_BASE}/evaluations/extraction-summary`, { cache: "no-store" })
+            authFetch(`${API_BASE}/evaluations/extraction-summary`, { cache: "no-store" })
                 .then(r => r.json()).then(setExtractionData)
                 .catch(console.warn).finally(() => setLoadingExtraction(false));
         }
         if (activeTab === "retrieval" && !retrievalData) {
             setLoadingRetrieval(true);
-            fetch(`${API_BASE}/evaluations/retrieval-summary`, { cache: "no-store" })
+            authFetch(`${API_BASE}/evaluations/retrieval-summary`, { cache: "no-store" })
                 .then(r => r.json()).then(setRetrievalData)
                 .catch(console.warn).finally(() => setLoadingRetrieval(false));
         }
         if (activeTab === "pipeline" && !pipelineData) {
             setLoadingPipeline(true);
-            fetch(`${API_BASE}/evaluations/pipeline-scorecard`, { cache: "no-store" })
+            authFetch(`${API_BASE}/evaluations/pipeline-scorecard`, { cache: "no-store" })
                 .then(r => r.json()).then(setPipelineData)
                 .catch(console.warn).finally(() => setLoadingPipeline(false));
         }
