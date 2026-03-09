@@ -16,7 +16,7 @@ use serde::Deserialize;
 use crate::routes::tenant::extract_tenant_id;
 
 /// Batch embed texts via Heimdall /v1/embeddings (OpenAI-compatible)
-async fn embed_texts(texts: &[String], model: &str) -> Result<Vec<Vec<f32>>, String> {
+pub async fn embed_texts(texts: &[String], model: &str) -> Result<Vec<Vec<f32>>, String> {
     let embed_base_url = std::env::var("HEIMDALL_API_URL")
         .ok()
         .filter(|s| !s.is_empty())
