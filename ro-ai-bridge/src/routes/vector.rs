@@ -17,9 +17,10 @@ use crate::routes::tenant::extract_tenant_id;
 
 /// Batch embed texts via Heimdall /v1/embeddings (OpenAI-compatible)
 pub async fn embed_texts(texts: &[String], model: &str) -> Result<Vec<Vec<f32>>, String> {
-    let embed_base_url = std::env::var("HEIMDALL_API_URL")
+    let embed_base_url = std::env::var("EMBEDDING_API_URL")
         .ok()
         .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("HEIMDALL_API_URL").ok().filter(|s| !s.is_empty()))
         .or_else(|| std::env::var("OLLAMA_URL").ok().filter(|s| !s.is_empty()).map(|u| format!("{}/v1", u)))
         .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
     let embed_url = format!("{}/embeddings", embed_base_url.trim_end_matches('/'));
