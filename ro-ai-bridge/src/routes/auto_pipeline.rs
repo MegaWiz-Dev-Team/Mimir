@@ -128,10 +128,9 @@ async fn run_auto_pipeline(
         log_step(&pool_clone, &run_id_clone, 1, "chunk_check", "running").await;
 
         let chunks: Vec<(i64, String, Option<i32>)> = sqlx::query_as(
-            "SELECT id, content, token_count FROM chunks WHERE source_id = ? AND tenant_id = ? LIMIT ?"
+            "SELECT id, content, token_count FROM chunks WHERE source_id = ? LIMIT ?"
         )
         .bind(source_id)
-        .bind(&tenant_clone)
         .bind(max_chunks as i64)
         .fetch_all(&pool_clone)
         .await
