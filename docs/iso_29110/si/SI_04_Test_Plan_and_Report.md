@@ -21,6 +21,7 @@
 | TC-011       | (Sprint 11) LLM Fallback & File Improvements    | LLM extraction, Console logs, File upload, CSV sync, Legacy Office   | 21/21 tests pass (100%), 16 unit tests          | Pass   | 2026-02-27  | AI        |
 | TC-012       | (Sprint 12) Web Hierarchy & LLM Observability   | Web BFS crawl, checkbox tree import, LLM usage logging, Analytics    | 25/25 tests pass (100%), 118 backend + 48 FE    | Pass   | 2026-02-28  | AI        |
 | TC-013       | (Sprint 13) Agent Studio & LLM Performance      | Agent CRUD/Chat, Conversations, A/B Eval, Budget/Alerts/Benchmark    | 31/31 tests pass (100%), 118 backend + 46/48 FE | Pass   | 2026-02-28  | AI        |
+| TC-014       | (Benchmark) Heimdall Model Comparison            | Auto-Pipeline KG+QA extraction on medical data source (34 chunks)    | 9B: 76 entities, 100 QA (70min) / 27B: 84 entities, 134 QA (112min) | Pass   | 2026-03-11  | AI        |
 
 ## 3. Historical Test Execution Records (ประวัติการทดสอบระบบก่อนหน้า)
 
