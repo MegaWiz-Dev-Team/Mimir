@@ -1,0 +1,7 @@
+target/
+.git/
+.env
+*.log
+*.sql
+test_hash.rs
+monitor_test.log
