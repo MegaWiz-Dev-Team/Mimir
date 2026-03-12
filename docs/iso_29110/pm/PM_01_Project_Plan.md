@@ -61,12 +61,18 @@
   - QA status column in Knowledge Base (QaStatusBadge), Auto-refresh polling (5s interval, auto-stop), Selective Chunk → QA Generation end-to-end
 - **Sprint 22: Antigravity Skills & E2E Analysis** [✅ Completed — 2026-03-06]
   - 8 Antigravity Skills (ISO Documentation, Testing Workflow, Rust Backend Patterns, TDD, Agile Scrum, Code Review, Next.js Frontend Patterns, UX Designer), E2E Flow Review (12-step user journey analysis), Product Backlog (15 items for Sprint 23-25)
-- **Sprint 23: Code Quality & Refactoring** [Planned]
-  - Refactor sources.rs (61KB → sub-modules), Extract Settings tabs to separate components, Split agents.rs (CRUD + Chat)
-- **Sprint 24: UX Flow & Navigation** [Planned]
-  - Reorganize Nav groups to match RAG pipeline, Pipeline status breadcrumb, Source wizard simplification, Getting Started onboarding
-- **Sprint 25: New Capabilities** [Planned]
-  - Auto-pipeline (Source → Chunk → QA → Vector one-click), Agent evaluation from Playground, Coverage gap detection, One-click Agent publish
+- **Sprint 23: Code Quality & Refactoring** [✅ Completed — 2026-03-06]
+  - Refactor sources.rs (1568 lines → 6 sub-modules), Extract Settings tabs (1500 → 340 lines, 8 components), Split agents.rs (876 lines → 4 sub-modules), 69 tests passing
+- **Sprint 24: Graph API Hotfix & KG Import** [✅ Completed — 2026-03-09]
+  - Fix 5 Graph API bugs (SQL syntax, FK queries, visualization), deduplicate KG entities (2682→1341), Vector Search switch Ollama→Heimdall (bge-m3), Coverage API detect KG data, bulk import 1,341 entities + 685 relations, 11 tests passing
+- **Sprint 25: Vector & Chat Fixes** [✅ Completed — 2026-03-09]
+  - QA bulk vector indexing + chunk embedding API (#234), Coverage API detect actual QA/vector data (#236), Chat RAG hybrid search tenant + embedding fix (#238), Medical reference data import (Sleep, ENT, Neurology, Drugs)
+- **Sprint 26: Multi-Provider Extraction & Prompt Management** [✅ Completed — 2026-03-10]
+  - Multi-provider extraction support (Ollama + Gemini + OpenAI + Heimdall), Versioned prompt management system, Provider-specific extraction pipelines
+- **Sprint 27: Evaluation Expansion** [✅ Completed — 2026-03-10]
+  - Evaluation expansion — extraction + retrieval tabs, Multi-dimensional evaluation scoring, Provider comparison analysis
+- **Sprint 28: Auto-Pipeline & E2E Scorecard** [✅ Completed — 2026-03-11]
+  - Auto-Pipeline 1-click endpoint (Source → Chunk → Embed → QA one-click), E2E Pipeline Scorecard + Dashboard Tab, QC scanning infinite loop fix + stop endpoint, Pipeline status bar cleanup, Batch pipeline runner script, Pipeline monitor script
 
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                                | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |

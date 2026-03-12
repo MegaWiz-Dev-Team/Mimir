@@ -28,15 +28,29 @@
 | 2026-03-06 | Sprint 22                                   | Completed | [ดูรายละเอียด PM_02_22_Sprint22_Report](PM_02_22_Sprint22_Report.md)     |
 | 2026-03-06 | Sprint 23                                   | Completed | [ดูรายละเอียด PM_02_23_Sprint23_Report](PM_02_23_Sprint23_Report.md)     |
 | 2026-03-09 | Sprint 24                                   | Completed | [ดูรายละเอียด PM_02_24_Sprint24_Report](PM_02_24_Sprint24_Report.md)     |
+| 2026-03-09 | Sprint 25 (Vector & Chat Fixes)             | Completed | QA bulk vector indexing, Coverage fix, Chat RAG fix, Medical data import |
+| 2026-03-10 | Sprint 26 (Multi-Provider Extraction)       | Completed | Multi-provider extraction, Versioned prompt management                   |
+| 2026-03-10 | Sprint 27 (Evaluation Expansion)            | Completed | Extraction + retrieval evaluation tabs, Provider comparison              |
+| 2026-03-11 | Sprint 28 (Auto-Pipeline & E2E)             | Completed | Auto-Pipeline 1-click, E2E Scorecard, QC infinite loop fix, Pipeline monitor |
 | 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
 | Date       | Issue / Change Request                                                                                 | Raised By | Status | Resolution                               |
 | ---------- | ------------------------------------------------------------------------------------------------------ | --------- | ------ | ---------------------------------------- |
-| 2026-03-09 | Issue #222: Bug: Graph API wrong SQL syntax and FK column schema (5 fixes)                             | System    | Open   | PR #226                                                    |
-| 2026-03-09 | Issue #223: Bug: Duplicate KG entities from double import (2682→1341)                                  | System    | Open   | PR #226                                                    |
-| 2026-03-09 | Issue #224: Bug: Vector search uses Ollama instead of Heimdall embedding                               | System    | Open   | PR #226                                                    |
-| 2026-03-09 | Issue #225: Enhancement: Coverage analytics doesn't detect imported KG data                            | System    | Open   | PR #226                                                    |
-| 2026-03-09 | PR #226: fix(#222-225): Graph API bugs, vector search, coverage, dedup migration                       | Auto      | Open   | fix/issue-222-225-graph-vector-coverage-bugs                |
+| 2026-03-11 | feat: Auto-Pipeline batch runner + monitor scripts                                                     | System    | Done   | main (2a5d4e3, b3b037b)                  |
+| 2026-03-11 | fix: QC scanning infinite loop + stop endpoint                                                         | System    | Done   | fix/qc-scanning-infinite-loop            |
+| 2026-03-11 | feat: E2E Pipeline Scorecard + Dashboard Tab (Sprint 28)                                               | System    | Done   | feat/sprint-28-e2e-pipeline-tab          |
+| 2026-03-11 | feat: Auto-Pipeline 1-click endpoint (Sprint 28)                                                       | System    | Done   | main (3c2629f)                           |
+| 2026-03-10 | feat: Evaluation expansion — extraction + retrieval tabs (Sprint 27)                                   | System    | Done   | main (f1cc864)                           |
+| 2026-03-10 | feat: Multi-provider extraction + prompt management (Sprint 26)                                        | System    | Done   | main (0fb26a4)                           |
+| 2026-03-09 | fix(#238): chat RAG hybrid search — tenant + embedding fix                                             | System    | Done   | main (0fd8199)                           |
+| 2026-03-09 | fix(#236): coverage API detects actual QA and vector data                                              | System    | Done   | main (87969b3)                           |
+| 2026-03-09 | feat(#234): QA bulk vector indexing + chunk embedding API                                               | System    | Done   | main (f367aab)                           |
+| 2026-03-09 | feat(#229): add medical reference data (Sleep, ENT, Neurology, Drugs)                                  | System    | Done   | main (f512475)                           |
+| 2026-03-09 | Issue #222: Bug: Graph API wrong SQL syntax and FK column schema (5 fixes)                             | System    | Done   | PR #226 Merged                           |
+| 2026-03-09 | Issue #223: Bug: Duplicate KG entities from double import (2682→1341)                                  | System    | Done   | PR #226 Merged                           |
+| 2026-03-09 | Issue #224: Bug: Vector search uses Ollama instead of Heimdall embedding                               | System    | Done   | PR #226 Merged                           |
+| 2026-03-09 | Issue #225: Enhancement: Coverage analytics doesn't detect imported KG data                            | System    | Done   | PR #226 Merged                           |
+| 2026-03-09 | PR #226: fix(#222-225): Graph API bugs, vector search, coverage, dedup migration                       | Auto      | Merged | fix/issue-222-225-graph-vector-coverage-bugs |
 | 2026-03-06 | PR #201: refactor(#200): Sprint 23 — Split sources.rs, agents.rs, settings/page.tsx                    | Auto      | Open   | refactor/issue-200-sprint23-code-quality |
 | 2026-03-05 | PR #198: feat(#191): Custom Roles + Editable ACL Matrix                                                | Auto      | Open   | feature/issue-191-custom-roles-acl       |
 | 2026-03-05 | Issue #194: Bug: Vault ใช้ Dev Mode (inmem) ทำให้ Secrets หายทุก Restart                                   | User      | Closed | feat/sprint-18-coverage-analytics        |
