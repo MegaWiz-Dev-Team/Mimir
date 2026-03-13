@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | PRIMARY_KEY | AUTO_INCREMENT",
+          "max_size": 20
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8a32514355018b76cd42ba942b5122c5238edcd2101f501c7cd5288d8e58bd39"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "d32e01cc81279b80c7dad4e07e54bbe71d27d1af957182c3c0e6f24802d21a26"
+}
