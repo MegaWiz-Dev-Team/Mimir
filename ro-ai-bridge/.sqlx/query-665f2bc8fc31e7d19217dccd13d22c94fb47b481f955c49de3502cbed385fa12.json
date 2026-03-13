@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT domain FROM tenants WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 80
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "665f2bc8fc31e7d19217dccd13d22c94fb47b481f955c49de3502cbed385fa12"
+}

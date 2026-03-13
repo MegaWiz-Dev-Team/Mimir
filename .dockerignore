@@ -1,0 +1,5 @@
+ro-ai-bridge/target/
+ro-ai-dashboard/
+.git/
+*.log
+*.sql

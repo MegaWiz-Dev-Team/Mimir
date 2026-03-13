@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM data_sources WHERE id = ? AND tenant_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "39246fa0a8a51be2d9604e5e7e63b32acfdaf39ffd7eb95be09ece57fb59c547"
+}

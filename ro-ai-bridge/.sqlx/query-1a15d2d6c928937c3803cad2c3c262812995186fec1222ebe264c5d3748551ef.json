@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO tenant_configs (tenant_id, is_dedicated_vector_db) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "1a15d2d6c928937c3803cad2c3c262812995186fec1222ebe264c5d3748551ef"
+}

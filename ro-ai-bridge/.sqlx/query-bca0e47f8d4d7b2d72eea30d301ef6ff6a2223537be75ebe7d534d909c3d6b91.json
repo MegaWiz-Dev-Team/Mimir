@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM tenant_users WHERE user_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "bca0e47f8d4d7b2d72eea30d301ef6ff6a2223537be75ebe7d534d909c3d6b91"
+}
