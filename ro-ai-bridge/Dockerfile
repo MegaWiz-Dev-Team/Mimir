@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /build/ro-ai-bridge
 
 # Copy workspace source (context = Mimir root)
+ARG CACHEBUST=1
 COPY ro-ai-bridge/Cargo.toml ro-ai-bridge/Cargo.lock ./
 COPY ro-ai-bridge/.sqlx .sqlx/
 COPY ro-ai-bridge/src src/

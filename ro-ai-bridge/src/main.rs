@@ -42,6 +42,7 @@ use ro_ai_bridge::routes::graph::graph_routes;
 use ro_ai_bridge::routes::coverage::coverage_routes;
 use ro_ai_bridge::routes::prompts::prompts_routes;
 use ro_ai_bridge::routes::auto_pipeline::auto_pipeline_routes;
+use ro_ai_bridge::routes::ask::ask_routes;
 
 #[tokio::main]
 async fn main() {
@@ -128,6 +129,8 @@ async fn main() {
         .nest("/api/v1/prompts", prompts_routes())
         // Sprint 28: Auto-Pipeline
         .nest("/api/v1/sources", auto_pipeline_routes())
+        // Sprint 29: Simple RAG Q&A
+        .merge(ask_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
