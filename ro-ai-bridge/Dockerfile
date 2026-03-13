@@ -5,7 +5,7 @@
 # Run:   docker run -p 3000:8080 mimir-api
 
 # ── Stage 1: Build ──
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev libmariadb-dev \
