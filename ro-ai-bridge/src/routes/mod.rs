@@ -26,3 +26,4 @@ pub mod graph;
 pub mod coverage;
 pub mod prompts;
 pub mod auto_pipeline;
+pub mod ask;
