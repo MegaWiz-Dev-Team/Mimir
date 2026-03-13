@@ -32,6 +32,7 @@
 | 2026-03-10 | Sprint 26 (Multi-Provider Extraction)       | Completed | Multi-provider extraction, Versioned prompt management                   |
 | 2026-03-10 | Sprint 27 (Evaluation Expansion)            | Completed | Extraction + retrieval evaluation tabs, Provider comparison              |
 | 2026-03-11 | Sprint 28 (Auto-Pipeline & E2E)             | Completed | Auto-Pipeline 1-click, E2E Scorecard, QC infinite loop fix, Pipeline monitor |
+| 2026-03-13 | Sprint 29 (Docker Build & Compose)           | Completed | [ดูรายละเอียด PM_02_25_Sprint29_Report](PM_02_25_Sprint29_Report.md)     |
 | 2026-02-25 | Issue #49: Sprint 5 Data Ingress Monitoring | User      | Closed                                                                 | PR #50 Merged |
 
 | Date       | Issue / Change Request                                                                                 | Raised By | Status | Resolution                               |
