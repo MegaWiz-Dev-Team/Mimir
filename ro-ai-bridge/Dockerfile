@@ -1,8 +1,8 @@
 # ══════════════════════════════════════
 # 🧠 Mimir API — Rust Multi-Stage Build
 # ══════════════════════════════════════
-# Build: docker build -t mimir-api .
-# Run:   docker run -p 3000:8080 mimir-api
+# Context: Mimir repo root (docker-compose.yml sets this)
+# Build: docker compose build mimir-api
 
 # ── Stage 1: Build ──
 FROM rust:1.88-slim-bookworm AS builder
@@ -11,30 +11,24 @@ RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev libmariadb-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Use /build/ro-ai-bridge as WORKDIR to match host structure
+# so include_str!("../../../docs/...") resolves to /build/docs/
+WORKDIR /build/ro-ai-bridge
 
-# Cache deps first (rarely change)
-COPY Cargo.toml Cargo.lock ./
-COPY mimir-core-ai/Cargo.toml mimir-core-ai/Cargo.toml
-COPY ro-ai-domain-game/Cargo.toml ro-ai-domain-game/Cargo.toml
-COPY ro-ai-domain-medical/Cargo.toml ro-ai-domain-medical/Cargo.toml
+# Copy workspace source (context = Mimir root)
+COPY ro-ai-bridge/Cargo.toml ro-ai-bridge/Cargo.lock ./
+COPY ro-ai-bridge/.sqlx .sqlx/
+COPY ro-ai-bridge/src src/
+COPY ro-ai-bridge/mimir-core-ai mimir-core-ai/
+COPY ro-ai-bridge/ro-ai-domain-game ro-ai-domain-game/
+COPY ro-ai-bridge/ro-ai-domain-medical ro-ai-domain-medical/
+COPY ro-ai-bridge/config config/
 
-# Create dummy src files for dependency caching
-RUN mkdir -p src mimir-core-ai/src ro-ai-domain-game/src ro-ai-domain-medical/src \
-    && echo "fn main() {}" > src/main.rs \
-    && echo "// dummy" > mimir-core-ai/src/lib.rs \
-    && echo "// dummy" > ro-ai-domain-game/src/lib.rs \
-    && echo "// dummy" > ro-ai-domain-medical/src/lib.rs \
-    && cargo build --release 2>/dev/null || true
+# Copy docs to /build/docs/ (openapi.yaml referenced via ../../../docs/api/)
+COPY docs /build/docs/
 
-# Copy real source
-COPY src src/
-COPY mimir-core-ai mimir-core-ai/
-COPY ro-ai-domain-game ro-ai-domain-game/
-COPY ro-ai-domain-medical ro-ai-domain-medical/
-COPY config config/
-
-# Build
+# Build release (offline — no DB needed at compile time)
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 # ── Stage 2: Runtime ──
@@ -44,8 +38,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/ro-ai-bridge /app/ro-ai-bridge
-COPY --from=builder /app/config /app/config
+COPY --from=builder /build/ro-ai-bridge/target/release/ro-ai-bridge /app/ro-ai-bridge
+COPY --from=builder /build/ro-ai-bridge/config /app/config
 
 ENV PORT=8080
 EXPOSE 8080
