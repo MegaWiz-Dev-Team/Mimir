@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM tenants WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "b3275013f7ed22a3e6cd1547489ebfcf4416db041b71965a5cedf5d4f9fd2a9d"
+}
