@@ -3,15 +3,15 @@
 import { useEffect, useState } from "react";
 
 /**
- * Mimir Dashboard Login — Zitadel OIDC Redirect
+ * Mimir Dashboard Login — Yggdrasil OIDC Redirect
  *
- * Hard cutover: replaces username/password with Zitadel SSO.
- * Redirects immediately to Zitadel authorize endpoint.
+ * Hard cutover: replaces username/password with Yggdrasil SSO.
+ * Redirects immediately to Yggdrasil authorize endpoint.
  */
 
-const ZITADEL_ISSUER = process.env.NEXT_PUBLIC_ZITADEL_ISSUER || "http://localhost:8085";
-const CLIENT_ID = process.env.NEXT_PUBLIC_ZITADEL_CLIENT_ID || "";
-const REDIRECT_URI = process.env.NEXT_PUBLIC_ZITADEL_REDIRECT_URI || "http://localhost:3001/login/callback";
+const YGGDRASIL_ISSUER = process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
+const CLIENT_ID = process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "";
+const REDIRECT_URI = process.env.NEXT_PUBLIC_YGGDRASIL_REDIRECT_URI || "http://localhost:3001/login/callback";
 
 function generateCodeVerifier(): string {
     const array = new Uint8Array(32);
@@ -50,7 +50,7 @@ export default function LoginPage() {
             return;
         }
 
-        // Redirect to Zitadel
+        // Redirect to Yggdrasil
         (async () => {
             try {
                 const codeVerifier = generateCodeVerifier();
@@ -61,11 +61,11 @@ export default function LoginPage() {
                 sessionStorage.setItem("oidc_code_verifier", codeVerifier);
                 sessionStorage.setItem("oidc_state", state);
 
-                const authUrl = new URL(`${ZITADEL_ISSUER}/oauth/v2/authorize`);
+                const authUrl = new URL(`${YGGDRASIL_ISSUER}/oauth/v2/authorize`);
                 authUrl.searchParams.set("client_id", CLIENT_ID);
                 authUrl.searchParams.set("redirect_uri", REDIRECT_URI);
                 authUrl.searchParams.set("response_type", "code");
-                authUrl.searchParams.set("scope", "openid profile email");
+                authUrl.searchParams.set("scope", "openid profile email offline_access");
                 authUrl.searchParams.set("state", state);
                 authUrl.searchParams.set("code_challenge", codeChallenge);
                 authUrl.searchParams.set("code_challenge_method", "S256");

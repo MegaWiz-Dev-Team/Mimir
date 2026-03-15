@@ -7,7 +7,7 @@ import Cookies from "js-cookie";
 /**
  * OIDC Callback — exchanges authorization code for tokens.
  *
- * Flow: Zitadel redirects here with ?code=...&state=...
+ * Flow: Yggdrasil redirects here with ?code=...&state=...
  *       → verify state matches
  *       → POST to /api/auth/callback (server-side token exchange)
  *       → store access_token in cookie
@@ -59,13 +59,18 @@ export default function CallbackPage() {
                     throw new Error(data.error || `Token exchange failed (${res.status})`);
                 }
 
-                const { access_token, id_token, expires_in } = await res.json();
+                const { access_token, id_token, refresh_token, expires_in } = await res.json();
 
                 // Store token in cookie (use id_token or access_token)
                 const token = access_token || id_token;
                 if (token) {
                     const days = expires_in ? expires_in / 86400 : 1;
                     Cookies.set("access_token", token, { expires: days });
+                }
+
+                // Store refresh_token for silent token refresh
+                if (refresh_token) {
+                    Cookies.set("refresh_token", refresh_token, { expires: 30 }); // 30 days
                 }
 
                 // Clean up PKCE values

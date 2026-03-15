@@ -14,7 +14,9 @@ function getAuthHeaders(): HeadersInit {
     return headers;
 }
 
-// Custom fetch wrapper to auto-add auth headers
+// Custom fetch wrapper to auto-add auth headers + silent token refresh
+let _isRefreshing = false; // Guard against concurrent refresh attempts
+
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const headers = {
         ...getAuthHeaders(),
@@ -23,12 +25,47 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
 
     const res = await fetch(url, { ...options, headers });
 
-    if (res.status === 401) {
-        // Handle unauthorized (clear cookies, maybe redirect to login via window.location if browser)
-        if (typeof window !== "undefined") {
-            Cookies.remove("access_token");
-            window.location.href = "/login";
+    // Only attempt refresh on 401 if we're in the browser and not already refreshing
+    if (res.status === 401 && typeof window !== "undefined" && !_isRefreshing) {
+        const refreshToken = Cookies.get("refresh_token");
+        if (refreshToken) {
+            _isRefreshing = true;
+            try {
+                const refreshRes = await fetch("/api/auth/refresh", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ refresh_token: refreshToken }),
+                });
+
+                if (refreshRes.ok) {
+                    const { access_token, refresh_token: newRefresh, expires_in } = await refreshRes.json();
+
+                    if (access_token) {
+                        const days = expires_in ? expires_in / 86400 : 1;
+                        Cookies.set("access_token", access_token, { expires: days });
+                    }
+                    if (newRefresh) {
+                        Cookies.set("refresh_token", newRefresh, { expires: 30 });
+                    }
+
+                    // Retry original request with new token
+                    const retryHeaders = {
+                        ...getAuthHeaders(),
+                        ...(options.headers || {}),
+                    };
+                    _isRefreshing = false;
+                    return fetch(url, { ...options, headers: retryHeaders });
+                }
+            } catch (e) {
+                console.warn("[authFetch] Token refresh failed:", e);
+            } finally {
+                _isRefreshing = false;
+            }
         }
+
+        // Refresh failed — DON'T auto-redirect to /login to avoid loop with SSO.
+        // Just return the 401 response; UI components handle auth errors gracefully.
+        console.warn("[authFetch] 401 received, token refresh unsuccessful.");
     }
 
     return res;
