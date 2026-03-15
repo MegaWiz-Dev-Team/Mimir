@@ -1,6 +1,6 @@
 # Release Notes — Mimir
 
-## Sprint 29 — Docker Build & Compose (2026-03-13)
+## v0.29.0 — Sprint 29: Docker Build & Compose (2026-03-13)
 
 ### 🐳 Infrastructure
 - Dockerfile rewritten: Mimir root context, `SQLX_OFFLINE=true`
