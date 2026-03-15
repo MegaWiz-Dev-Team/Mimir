@@ -106,21 +106,26 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
     }
 }
 
+const YGGDRASIL_ISSUER = process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
+const OIDC_CLIENT_ID = process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "";
+
 export function Navbar() {
     const pathname = usePathname();
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
     const [tenants, setTenants] = useState<Tenant[]>([]);
     const [userRole, setUserRole] = useState<string>("viewer");
+    const [userName, setUserName] = useState<string>("");
 
     useEffect(() => {
         setMounted(true);
         const token = Cookies.get("access_token");
         if (pathname !== "/login" && token) {
-            // Decode JWT to get user role
+            // Decode JWT to get user role and display name
             const claims = decodeJwtPayload(token);
             const role = claims?.role || "viewer";
             setUserRole(role);
+            setUserName(claims?.name || claims?.preferred_username || claims?.email || claims?.sub || "");
 
             // Admin sees all tenants, regular users see only their assigned tenants
             const isAdminRole = role === "admin" || role === "SuperAdmin";
@@ -139,8 +144,15 @@ export function Navbar() {
 
     const handleLogout = () => {
         Cookies.remove("access_token");
+        Cookies.remove("refresh_token");
         Cookies.remove("tenant_id");
-        router.push("/login");
+
+        // Redirect to Yggdrasil end_session to invalidate SSO session
+        const postLogoutUri = `${window.location.origin}/login`;
+        const endSessionUrl = new URL(`${YGGDRASIL_ISSUER}/oidc/v2/end_session`);
+        endSessionUrl.searchParams.set("client_id", OIDC_CLIENT_ID);
+        endSessionUrl.searchParams.set("post_logout_redirect_uri", postLogoutUri);
+        window.location.href = endSessionUrl.toString();
     };
 
     const handleTenantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -241,6 +253,12 @@ export function Navbar() {
                             ))}
                         </select>
                     </div>
+
+                    {userName && (
+                        <span className="text-sm text-gray-600 dark:text-zinc-400 truncate max-w-[140px]" title={userName}>
+                            {userName}
+                        </span>
+                    )}
 
                     <button
                         onClick={handleLogout}
