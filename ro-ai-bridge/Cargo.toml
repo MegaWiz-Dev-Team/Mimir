@@ -15,7 +15,6 @@ resolver = "2"
 anyhow = { workspace = true }
 chrono = { workspace = true }
 axum = { workspace = true }
-chromiumoxide = { workspace = true }
 dotenvy = { workspace = true }
 futures = { workspace = true }
 html2md = { workspace = true }
