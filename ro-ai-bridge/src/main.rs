@@ -43,6 +43,9 @@ use ro_ai_bridge::routes::coverage::coverage_routes;
 use ro_ai_bridge::routes::prompts::prompts_routes;
 use ro_ai_bridge::routes::auto_pipeline::auto_pipeline_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
+use ro_ai_bridge::routes::tenant::tenant_routes;
+use ro_ai_bridge::routes::ingest::ingest_routes;
+use ro_ai_bridge::routes::tenant_query::tenant_query_routes;
 
 #[tokio::main]
 async fn main() {
@@ -97,6 +100,7 @@ async fn main() {
     // build our application with routes
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/healthz", get(health_check))
         .merge(eval_routes())
         .nest("/api/v1/iam", iam_routes())
         .nest("/api/v1/auth", auth_routes())
@@ -131,6 +135,10 @@ async fn main() {
         .nest("/api/v1/sources", auto_pipeline_routes())
         // Sprint 29: Simple RAG Q&A
         .merge(ask_routes())
+        // Sprint 30: Tenant Management + PageIndex
+        .nest("/api/v1/tenants", tenant_routes())
+        .nest("/api/v1/tenants/{tenant_id}/ingest", ingest_routes())
+        .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
