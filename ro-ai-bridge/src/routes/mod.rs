@@ -22,6 +22,8 @@ pub mod docs;
 pub mod stats;
 pub mod chunks;
 pub mod tenant;
+pub mod ingest;
+pub mod tenant_query;
 pub mod graph;
 pub mod coverage;
 pub mod prompts;
