@@ -73,7 +73,12 @@
   - Evaluation expansion — extraction + retrieval tabs, Multi-dimensional evaluation scoring, Provider comparison analysis
 - **Sprint 28: Auto-Pipeline & E2E Scorecard** [✅ Completed — 2026-03-11]
   - Auto-Pipeline 1-click endpoint (Source → Chunk → Embed → QA one-click), E2E Pipeline Scorecard + Dashboard Tab, QC scanning infinite loop fix + stop endpoint, Pipeline status bar cleanup, Batch pipeline runner script, Pipeline monitor script
-
+- **Sprint 29: Simple RAG Q&A** [✅ Completed]
+  - Ask routes & basic Q&A integration
+- **Sprint 30: Tenant Management + PageIndex** [✅ Completed]
+  - Tenant provisioning and basic PageIndex sidecar
+- **Sprint 31: Hybrid RAG Search Architecture** [Planned]
+  - Backend: Implement True Vector Search, Async PageIndex Tree Search, Neo4j Graph Retrieval, and Cross-Encoder Reranker. Frontend: RAG Ensemble Playground, Graph Ingestion Status, Weighting Controls.
 ## 4. Risk Management (การจัดการความเสี่ยง)
 | Risk (ความเสี่ยง)                                                                | Impact (ผลกระทบ) | Mitigation Strategy (แผนรับมือ)                                                                  |
 | ------------------------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------- |
