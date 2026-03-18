@@ -47,3 +47,4 @@ ro-ai-bridge/monitor.log
 
 # Runtime PID files
 .pids/
+package-lock.json
