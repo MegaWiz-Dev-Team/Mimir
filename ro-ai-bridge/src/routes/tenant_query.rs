@@ -7,6 +7,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::retrieval::qdrant::{QdrantRetriever, VectorRetriever};
+use mimir_core_ai::services::qdrant::QdrantService;
+
 use mimir_core_ai::services::db::DbPool;
 
 // ── Models ────────────────────────────────────────────
@@ -92,66 +95,77 @@ async fn query_tenant(
     let mut all_sources = Vec::new();
     let mut all_answers = Vec::new();
 
-    // Strategy 1: Tree search via PageIndex sidecar
+    // Strategy 1: Tree search via PageIndex sidecar (PARALLEL — Sprint 31)
     if mode == "tree" || mode == "hybrid" {
         let pageindex_url = std::env::var("PAGEINDEX_URL")
             .unwrap_or_else(|_| "http://localhost:8600".to_string());
 
-        for (_, title, content, tree_index) in &docs {
-            if let (Some(content), Some(tree_json)) = (content, tree_index) {
-                match tree_search(
-                    &pageindex_url,
-                    tree_json,
-                    content,
-                    &req.question,
-                )
-                .await
-                {
-                    Ok(result) => {
-                        let sections = result
-                            .get("relevant_sections")
-                            .and_then(|s| s.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+        let retriever = crate::retrieval::tree::PageIndexRetriever::new(pageindex_url);
 
-                        if let Some(answer) = result.get("answer").and_then(|a| a.as_str()) {
-                            all_answers.push(answer.to_string());
-                        }
-
-                        all_sources.push(QuerySource {
-                            document_title: title.clone(),
-                            relevant_sections: sections,
-                            source_type: "tree".to_string(),
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!("Tree search failed for '{}': {}", title, e);
-                    }
+        // Collect docs that have both content and tree_index
+        let searchable_docs: Vec<(String, String, String)> = docs
+            .iter()
+            .filter_map(|(_, title, content, tree_index)| {
+                match (content, tree_index) {
+                    (Some(c), Some(t)) => Some((title.clone(), c.clone(), t.clone())),
+                    _ => None,
                 }
+            })
+            .collect();
+
+        if !searchable_docs.is_empty() {
+            use crate::retrieval::tree::TreeRetriever;
+            let tree_results = retriever
+                .search_parallel(&searchable_docs, &req.question)
+                .await;
+
+            for result in &tree_results {
+                if let Some(ref answer) = result.answer {
+                    all_answers.push(answer.clone());
+                }
+                all_sources.push(QuerySource {
+                    document_title: result.document_title.clone(),
+                    relevant_sections: result.relevant_sections.clone(),
+                    source_type: "tree".to_string(),
+                });
             }
         }
     }
 
-    // Strategy 2: Vector search via Qdrant (existing Mimir pipeline)
+    // Strategy 2: Vector search via Qdrant (real semantic search)
     if mode == "vector" || (mode == "hybrid" && all_answers.is_empty()) {
-        // Use existing Mimir vector search with tenant filter
-        match vector_search(&pool, &tenant_id, &req.question).await {
-            Ok(results) => {
-                for (title, snippet) in results {
-                    all_answers.push(snippet);
-                    all_sources.push(QuerySource {
-                        document_title: title,
-                        relevant_sections: vec![],
-                        source_type: "vector".to_string(),
-                    });
+        // Resolve embedding model from tenant config
+        let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
+        let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
+        let llm_config = tenant_config
+            .as_ref()
+            .and_then(|c| c.llm_config.as_ref())
+            .map(|c| c.0.clone())
+            .unwrap_or_default();
+        let embed_model = llm_config.resolve_slot("embedding", None, None).model;
+
+        // Search both wiki_qa and source_chunks collections
+        let collections = vec!["wiki_qa", "source_chunks"];
+        for collection in collections {
+            let retriever = QdrantRetriever::new(
+                QdrantService::new(),
+                embed_model.clone(),
+                collection.to_string(),
+            );
+            match retriever.search(&req.question, &tenant_id, 5).await {
+                Ok(results) => {
+                    for result in results {
+                        all_answers.push(result.content.clone());
+                        all_sources.push(QuerySource {
+                            document_title: result.title,
+                            relevant_sections: vec![result.content],
+                            source_type: "vector".to_string(),
+                        });
+                    }
                 }
-            }
-            Err(e) => {
-                tracing::warn!("Vector search failed: {}", e);
+                Err(e) => {
+                    tracing::warn!("Vector search failed on {}: {}", collection, e);
+                }
             }
         }
     }
@@ -184,52 +198,6 @@ async fn query_tenant(
     }))
 }
 
-// ── PageIndex Tree Search ─────────────────────────────
-
-async fn tree_search(
-    base_url: &str,
-    tree_json: &str,
-    content: &str,
-    question: &str,
-) -> Result<Value, String> {
-    let tree_index: Value =
-        serde_json::from_str(tree_json).map_err(|e| e.to_string())?;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/search", base_url))
-        .json(&json!({
-            "tree_index": tree_index,
-            "question": question,
-            "content": content,
-        }))
-        .timeout(std::time::Duration::from_secs(60))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.status().is_success() {
-        return Err(format!("PageIndex search returned {}", resp.status()));
-    }
-
-    resp.json().await.map_err(|e| e.to_string())
-}
-
-// ── Qdrant Vector Search (tenant-scoped) ──────────────
-
-async fn vector_search(
-    pool: &DbPool,
-    tenant_id: &str,
-    question: &str,
-) -> Result<Vec<(String, String)>, String> {
-    // Query tenant documents content directly as fallback
-    let docs: Vec<(String, String)> = sqlx::query_as(
-        "SELECT title, CAST(SUBSTRING(content, 1, 500) AS CHAR) FROM tenant_documents WHERE tenant_id = ? LIMIT 5",
-    )
-    .bind(tenant_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(docs)
-}
+// ── Sprint 31 Refactoring Notes ───────────────────────
+// - tree_search: Moved to retrieval::tree::PageIndexRetriever (parallel join_all)
+// - vector_search: Moved to retrieval::qdrant::QdrantRetriever (real Qdrant)
