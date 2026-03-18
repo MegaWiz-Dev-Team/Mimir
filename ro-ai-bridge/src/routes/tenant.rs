@@ -39,6 +39,30 @@ pub fn extract_tenant_id<'a>(headers: &'a HeaderMap) -> &'a str {
         .unwrap_or("default_tenant")
 }
 
+/// Middleware layer: reject requests missing X-Tenant-Id header.
+/// Returns 401 Unauthorized with a JSON error body.
+pub async fn require_tenant_id(
+    headers: HeaderMap,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
+    let tenant_header = headers
+        .get("X-Tenant-Id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty());
+
+    match tenant_header {
+        Some(_) => Ok(next.run(request).await),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": "Missing required X-Tenant-Id header",
+                "code": "TENANT_ID_REQUIRED",
+            })),
+        )),
+    }
+}
+
 async fn ensure_tenant_columns(pool: &DbPool) {
     let _ = sqlx::query("ALTER TABLE tenants ADD COLUMN service_type VARCHAR(64)")
         .execute(pool).await;
