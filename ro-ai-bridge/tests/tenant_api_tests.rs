@@ -172,6 +172,84 @@ mod tests {
         assert_eq!(resp.status(), 404, "Query unknown tenant → 404");
     }
 
+    // ── Sprint 31: Vector Search E2E ──────────────────
+
+    #[test]
+    fn t32_query_vector_mode() {
+        // Query using vector-only mode — should use QdrantRetriever
+        let resp = client()
+            .post(format!(
+                "{}/api/v1/tenants/default_tenant/query",
+                base_url()
+            ))
+            .json(&json!({
+                "question": "What is this system about?",
+                "mode": "vector"
+            }))
+            .send()
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body: Value = resp.json().unwrap();
+        assert!(body["answer"].as_str().is_some(), "Should have answer");
+        assert!(body["sources"].is_array(), "Should have sources array");
+        // mode_used should be "vector" (not tree or hybrid)
+        assert_eq!(
+            body["mode_used"], "vector",
+            "Vector mode should report mode_used=vector"
+        );
+    }
+
+    #[test]
+    fn t33_query_hybrid_mode_explicit() {
+        // Explicit hybrid mode
+        let resp = client()
+            .post(format!(
+                "{}/api/v1/tenants/default_tenant/query",
+                base_url()
+            ))
+            .json(&json!({
+                "question": "Tell me about the architecture",
+                "mode": "hybrid"
+            }))
+            .send()
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body: Value = resp.json().unwrap();
+        assert!(body["answer"].as_str().is_some(), "Should have answer");
+        // mode_used could be tree, vector, or hybrid depending on available data
+        let mode = body["mode_used"].as_str().unwrap();
+        assert!(
+            mode == "tree" || mode == "vector" || mode == "hybrid",
+            "mode_used should be tree/vector/hybrid, got: {}",
+            mode
+        );
+    }
+
+    #[test]
+    fn t34_query_vector_sources_have_type() {
+        // Verify vector sources include source_type = "vector"
+        let resp = client()
+            .post(format!(
+                "{}/api/v1/tenants/default_tenant/query",
+                base_url()
+            ))
+            .json(&json!({
+                "question": "What documents do we have?",
+                "mode": "vector"
+            }))
+            .send()
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body: Value = resp.json().unwrap();
+        let sources = body["sources"].as_array().unwrap_or(&vec![]);
+        for source in sources {
+            assert_eq!(
+                source["source_type"], "vector",
+                "All sources in vector mode should be type 'vector'"
+            );
+        }
+    }
+
     // ── Cleanup ────────────────────────────────────────
 
     #[test]
