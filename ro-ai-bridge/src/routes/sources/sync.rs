@@ -44,10 +44,10 @@ pub(crate) async fn sync_source(
     }
 
     // Update status to RUNNING
-    sqlx::query!(
-        "UPDATE data_sources SET last_sync_status = 'RUNNING' WHERE id = ?",
-        id
+    sqlx::query(
+        "UPDATE data_sources SET last_sync_status = 'RUNNING' WHERE id = ?"
     )
+    .bind(id)
     .execute(&pool)
     .await
     .map_err(|e| {
@@ -193,13 +193,13 @@ pub(crate) async fn sync_source(
                         .map_err(|e| error!("Failed to insert discovered link for source {}: {}", id, e));
                     }
                 }
-                let _ = sqlx::query!(
-                    "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    raw_text,
-                    mb_size,
-                    total_chunks,
-                    id
+                let _ = sqlx::query(
+                    "UPDATE data_sources SET last_sync_status = 'COMPLETED', raw_markdown = ?, mb_size = ?, total_chunks = ?, last_sync_at = CURRENT_TIMESTAMP WHERE id = ?"
                 )
+                .bind(&raw_text)
+                .bind(mb_size)
+                .bind(total_chunks)
+                .bind(id)
                 .execute(&pool_clone)
                 .await
                 .map_err(|e| error!("Failed to update source {} to COMPLETED: {}", id, e));
@@ -207,11 +207,11 @@ pub(crate) async fn sync_source(
             Err(e) => {
                 let error_msg = format!("{}", e);
                 error!("Sync failed for {} ({}): {}", source_clone.name, id, error_msg);
-                let _ = sqlx::query!(
-                    "UPDATE data_sources SET last_sync_status = 'FAILED', raw_markdown = ? WHERE id = ?",
-                    error_msg,
-                    id
+                let _ = sqlx::query(
+                    "UPDATE data_sources SET last_sync_status = 'FAILED', raw_markdown = ? WHERE id = ?"
                 )
+                .bind(&error_msg)
+                .bind(id)
                 .execute(&pool_clone)
                 .await
                 .map_err(|e| error!("Failed to update source {} to FAILED: {}", id, e));
