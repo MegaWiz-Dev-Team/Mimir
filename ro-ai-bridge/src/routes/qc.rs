@@ -125,7 +125,8 @@ async fn seed_qa_data(
     let _ = sqlx::query("INSERT INTO pipeline_steps (run_id, file_name, status, step_type) VALUES (?, 'mock_file.txt', 'COMPLETED', 'GENERATE')")
         .bind(&run_id).execute(&pool).await;
         
-    let step_record = sqlx::query!("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1", run_id).fetch_one(&pool).await;
+    let step_record: Result<(i64,), _> = sqlx::query_as("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1")
+        .bind(&run_id).fetch_one(&pool).await;
     
     if let Ok(step_record) = step_record {
         for item in payload {
@@ -134,7 +135,7 @@ async fn seed_qa_data(
                 INSERT INTO qa_results (step_id, question, answer, context, tenant_id)
                 VALUES (?, ?, ?, ?, ?)
                 "#)
-                .bind(step_record.id)
+                .bind(step_record.0)
                 .bind(item.question)
                 .bind(item.answer)
                 .bind(item.context)
