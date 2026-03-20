@@ -35,17 +35,14 @@ pub(crate) async fn create_source(
 ) -> Result<(StatusCode, Json<DataSource>), (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let result = sqlx::query!(
-        r#"
-        INSERT INTO data_sources (tenant_id, name, source_type, config_json, schedule)
-        VALUES (?, ?, ?, ?, ?)
-        "#,
-        tenant_id,
-        payload.name,
-        payload.source_type,
-        payload.config_json,
-        payload.schedule
+    let result = sqlx::query(
+        "INSERT INTO data_sources (tenant_id, name, source_type, config_json, schedule) VALUES (?, ?, ?, ?, ?)"
     )
+    .bind(&tenant_id)
+    .bind(&payload.name)
+    .bind(&payload.source_type)
+    .bind(&payload.config_json)
+    .bind(&payload.schedule)
     .execute(&pool)
     .await
     .map_err(|e| {
@@ -90,14 +87,14 @@ pub(crate) async fn update_source(
     let updated_config = payload.config_json.unwrap_or(current.config_json);
     let updated_schedule = payload.schedule.or(current.schedule);
 
-    sqlx::query!(
-        "UPDATE data_sources SET name = ?, config_json = ?, schedule = ? WHERE id = ? AND tenant_id = ?",
-        updated_name,
-        updated_config,
-        updated_schedule,
-        id,
-        tenant_id
+    sqlx::query(
+        "UPDATE data_sources SET name = ?, config_json = ?, schedule = ? WHERE id = ? AND tenant_id = ?"
     )
+    .bind(&updated_name)
+    .bind(&updated_config)
+    .bind(&updated_schedule)
+    .bind(id)
+    .bind(&tenant_id)
     .execute(&pool)
     .await
     .map_err(|e| {
@@ -124,11 +121,11 @@ pub(crate) async fn delete_source(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let result = sqlx::query!(
-        "DELETE FROM data_sources WHERE id = ? AND tenant_id = ?",
-        id,
-        tenant_id
+    let result = sqlx::query(
+        "DELETE FROM data_sources WHERE id = ? AND tenant_id = ?"
     )
+    .bind(id)
+    .bind(&tenant_id)
     .execute(&pool)
     .await
     .map_err(|e| {
