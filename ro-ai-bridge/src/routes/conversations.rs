@@ -95,8 +95,8 @@ async fn list_conversations(
             ac.agent_config_id,
             ag.name as agent_name,
             COUNT(*) as message_count,
-            MIN(ac.created_at) as first_message_at,
-            MAX(ac.created_at) as last_message_at
+            CAST(MIN(ac.created_at) AS DATETIME) as first_message_at,
+            CAST(MAX(ac.created_at) AS DATETIME) as last_message_at
         FROM agent_conversations ac
         LEFT JOIN agent_configs ag ON ac.agent_config_id = ag.id
         WHERE ac.tenant_id = ?"#
@@ -159,7 +159,7 @@ async fn get_conversation(
     let tenant_id = extract_tenant_id(&headers);
 
     let messages = sqlx::query_as::<_, ConversationMessage>(
-        "SELECT * FROM agent_conversations WHERE tenant_id = ? AND session_id = ? ORDER BY created_at ASC"
+        "SELECT id, tenant_id, agent_config_id, session_id, user_id, role, content, model_id, latency_ms, input_tokens, output_tokens, confidence_score, sources, tools_used, feedback, CAST(created_at AS DATETIME) as created_at FROM agent_conversations WHERE tenant_id = ? AND session_id = ? ORDER BY created_at ASC"
     )
     .bind(tenant_id)
     .bind(&session_id)

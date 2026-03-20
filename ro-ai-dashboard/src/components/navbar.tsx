@@ -126,10 +126,12 @@ export function Navbar() {
             const role = claims?.role || "viewer";
             setUserRole(role);
             setUserName(claims?.name || claims?.preferred_username || claims?.email || claims?.sub || "");
+        }
 
-            // Admin sees all tenants, regular users see only their assigned tenants
-            const isAdminRole = role === "admin" || role === "SuperAdmin";
-            const tenantFetcher = isAdminRole ? fetchTenants : fetchMyTenants;
+        // Always fetch tenants (dev mode works without SSO token)
+        if (pathname !== "/login") {
+            const isAdminRole = userRole === "admin" || userRole === "SuperAdmin";
+            const tenantFetcher = isAdminRole ? fetchTenants : fetchTenants;
             tenantFetcher()
                 .then(setTenants)
                 .catch(() => setTenants([]));

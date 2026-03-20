@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { fetchStats, fetchSources, syncAllSources, StatsResponse, DataSource, SourceHealth as SourceHealthType } from "@/lib/api";
+import { fetchStats, fetchSources, syncAllSources, fetchVectorStats, StatsResponse, DataSource, SourceHealth as SourceHealthType } from "@/lib/api";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { SourceHealth } from "@/components/dashboard/SourceHealth";
@@ -11,17 +11,26 @@ import { QuickActions } from "@/components/dashboard/QuickActions";
 export default function Dashboard() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [sources, setSources] = useState<DataSource[]>([]);
+  const [vectorStats, setVectorStats] = useState<{ total_qa: number; indexed_qa: number; qdrant_points: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
   const loadData = async () => {
     try {
-      const [statsData, sourcesData] = await Promise.all([
+      const [statsData, sourcesData, vecData] = await Promise.all([
         fetchStats().catch(() => null),
         fetchSources().catch(() => []),
+        fetchVectorStats().catch(() => null),
       ]);
       setStats(statsData);
       setSources(sourcesData);
+      if (vecData) {
+        setVectorStats({
+          total_qa: vecData?.database?.total_qa ?? 0,
+          indexed_qa: vecData?.database?.indexed_qa ?? 0,
+          qdrant_points: vecData?.qdrant?.result?.points_count ?? 0,
+        });
+      }
     } catch (error) {
       console.warn("[Dashboard] Failed to load data:", error);
     } finally {
@@ -59,14 +68,18 @@ export default function Dashboard() {
     const totalChunks = sources.reduce((sum, s) => sum + (s.total_chunks ?? 0), 0);
     const sourcesWithChunks = sources.filter((s) => (s.total_chunks ?? 0) > 0).length;
 
+    const qaCount = vectorStats?.total_qa ?? 0;
+    const qdrantPoints = vectorStats?.qdrant_points ?? 0;
+    const vectorCoverage = totalChunks > 0 ? Math.round((qdrantPoints / totalChunks) * 100) : 0;
+
     return {
       total_sources: sources.length,
       total_chunks: totalChunks,
-      qa_pairs: 0,
-      vector_coverage: 0, // Vectorization not implemented yet — will be computed from Qdrant stats
+      qa_pairs: qaCount,
+      vector_coverage: vectorCoverage,
       source_health: { healthy, failed, pending, running },
     };
-  }, [stats, sources]);
+  }, [stats, sources, vectorStats]);
 
   // Compute source health from sources data as fallback
   const effectiveHealth: SourceHealthType | null = useMemo(() => {
@@ -105,7 +118,7 @@ export default function Dashboard() {
       </div>
 
       {/* Pipeline Status Table */}
-      <PipelineStatusTable sources={sources} loading={loading} />
+      <PipelineStatusTable sources={sources} loading={loading} qaCount={vectorStats?.total_qa} qdrantPoints={vectorStats?.qdrant_points} />
 
       {/* Quick Actions */}
       <div className="rounded-xl border bg-card p-5 shadow-sm">

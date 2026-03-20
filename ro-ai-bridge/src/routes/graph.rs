@@ -482,20 +482,27 @@ async fn get_visualization(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
     let limit = params.limit.unwrap_or(200).min(1000) as i64;
+    info!(event = "graph_visualization", tenant_id = tenant_id, limit = limit, "Fetching visualization data");
 
     // Get entities
-    let mut entity_query = "SELECT id, name, entity_type, properties FROM kg_entities WHERE tenant_id = ?".to_string();
+    let mut entity_query = "SELECT id, name, entity_type, CAST(properties AS CHAR) as properties FROM kg_entities WHERE tenant_id = ?".to_string();
     if let Some(ref et) = params.entity_type {
         entity_query.push_str(&format!(" AND entity_type = '{}'", et.replace('\'', "''")));
     }
     entity_query.push_str(" LIMIT ?");
 
-    let entities: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(&entity_query)
+    let entities: Vec<(i64, String, String, Option<String>)> = match sqlx::query_as(&entity_query)
         .bind(tenant_id)
         .bind(limit)
         .fetch_all(&pool)
         .await
-        .unwrap_or_default();
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(error = %e, tenant_id = tenant_id, query = %entity_query, "Visualization entity query failed");
+            Vec::new()
+        }
+    };
 
     let nodes: Vec<Value> = entities.iter().map(|(id, name, et, _)| {
         json!({

@@ -26,6 +26,12 @@ export function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
+    // Dev mode bypass: skip auth when OIDC is not configured
+    const clientId = process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID;
+    if (!clientId) {
+        return NextResponse.next();
+    }
+
     // Check for access_token cookie
     const token = request.cookies.get("access_token")?.value;
 

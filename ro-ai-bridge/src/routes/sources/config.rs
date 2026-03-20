@@ -207,13 +207,23 @@ pub fn infer_api_base(provider: &str) -> String {
     match provider {
         "openai" => "https://api.openai.com/v1/".to_string(),
         "gemini" | "google" => "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
-        "ollama" => "http://localhost:11434/v1/".to_string(),
+        "ollama" => {
+            let base = std::env::var("OLLAMA_URL")
+                .or_else(|_| std::env::var("OLLAMA_API_URL"))
+                .unwrap_or_else(|_| "http://localhost:11434".to_string());
+            format!("{}/v1/", base.trim_end_matches('/'))
+        }
         "heimdall" => {
             std::env::var("HEIMDALL_API_URL")
                 .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string())
                 + "/"
         }
-        _ => "http://localhost:11434/v1/".to_string(),
+        _ => {
+            // Default: try OLLAMA_URL env, then localhost
+            let base = std::env::var("OLLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:11434".to_string());
+            format!("{}/v1/", base.trim_end_matches('/'))
+        }
     }
 }
 
@@ -273,7 +283,7 @@ pub async fn call_llm_api_with_logging(
     let client = reqwest::Client::new();
     let url = format!("{}chat/completions", api_base);
 
-    let body = json!({
+    let mut body = json!({
         "model": model,
         "messages": [
             {
@@ -288,6 +298,13 @@ pub async fn call_llm_api_with_logging(
         "max_tokens": 16000,
         "temperature": 0.1
     });
+
+    // Only add chat_template_kwargs for local models (Heimdall/Ollama)
+    // Gemini and OpenAI APIs reject unknown fields
+    let prov = provider.unwrap_or("unknown");
+    if prov != "gemini" && prov != "openai" {
+        body["chat_template_kwargs"] = json!({ "enable_thinking": false });
+    }
 
     info!("Calling LLM API: {} with model {}", url, model);
 
@@ -336,6 +353,16 @@ pub async fn call_llm_api_with_logging(
         .as_str()
         .unwrap_or("")
         .to_string();
+
+    // Qwen3.5 thinking mode: if content is empty, check the reasoning field
+    let content = if content.is_empty() {
+        resp_json["choices"][0]["message"]["reasoning"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    } else {
+        content
+    };
 
     let input_tokens = resp_json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as i32;
     let output_tokens = resp_json["usage"]["completion_tokens"].as_u64().unwrap_or(0) as i32;

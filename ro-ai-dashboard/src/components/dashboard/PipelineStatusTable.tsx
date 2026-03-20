@@ -7,6 +7,8 @@ import Link from "next/link";
 interface PipelineStatusTableProps {
     sources: DataSource[];
     loading: boolean;
+    qaCount?: number;
+    qdrantPoints?: number;
 }
 
 function getTypeBadge(type: string) {
@@ -66,8 +68,10 @@ function StatusIcon({ done, locked, tooltip }: { done: boolean; locked?: boolean
     );
 }
 
-export function PipelineStatusTable({ sources, loading }: PipelineStatusTableProps) {
+export function PipelineStatusTable({ sources, loading, qaCount = 0, qdrantPoints = 0 }: PipelineStatusTableProps) {
     const completedCount = sources.filter((s) => s.last_sync_status === "COMPLETED").length;
+    const hasQA = qaCount > 0;
+    const hasVector = qdrantPoints > 0;
 
     return (
         <div className="rounded-xl border bg-card shadow-sm">
@@ -89,10 +93,10 @@ export function PipelineStatusTable({ sources, loading }: PipelineStatusTablePro
                             <th className="px-3 py-3 text-center font-medium w-20">Chunks</th>
                             <th className="px-3 py-3 text-center font-medium w-20">Dedup</th>
                             <th className="px-3 py-3 text-center font-medium w-20">
-                                <span title="QA generation — coming in a future sprint">QA 🔒</span>
+                                <span title="QA pair generation">QA</span>
                             </th>
                             <th className="px-3 py-3 text-center font-medium w-20">
-                                <span title="Vector embedding — coming in a future sprint">Vector 🔒</span>
+                                <span title="Vector embedding to Qdrant">Vector</span>
                             </th>
                         </tr>
                     </thead>
@@ -136,10 +140,10 @@ export function PipelineStatusTable({ sources, loading }: PipelineStatusTablePro
                                         <StatusIcon done={s.last_sync_status === "COMPLETED"} />
                                     </td>
                                     <td className="px-3 py-3">
-                                        <StatusIcon locked tooltip="QA generation — coming in a future sprint" done={false} />
+                                        <StatusIcon done={hasQA} tooltip={hasQA ? `${qaCount} QA pairs generated` : "No QA pairs yet"} />
                                     </td>
                                     <td className="px-3 py-3">
-                                        <StatusIcon locked tooltip="Vector embedding — coming in a future sprint" done={false} />
+                                        <StatusIcon done={hasVector} tooltip={hasVector ? `${qdrantPoints} vectors indexed` : "Not indexed yet"} />
                                     </td>
                                 </tr>
                             ))
