@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { authFetch, API_BASE_URL } from "@/lib/api";
 
 interface GraphIngestionStatus {
   totalEntities: number;
@@ -12,14 +13,10 @@ interface GraphIngestionStatus {
 }
 
 interface GraphStatusProps {
-  apiBase?: string;
-  tenantId?: string;
   refreshInterval?: number; // ms
 }
 
 export function GraphStatus({
-  apiBase = "http://localhost:8080",
-  tenantId = "default_tenant",
   refreshInterval = 30000,
 }: GraphStatusProps) {
   const [status, setStatus] = useState<GraphIngestionStatus | null>(null);
@@ -29,9 +26,7 @@ export function GraphStatus({
   useEffect(() => {
     async function fetchStatus() {
       try {
-        const resp = await fetch(`${apiBase}/api/v1/graph/stats`, {
-          headers: { "X-Tenant-Id": tenantId },
-        });
+        const resp = await authFetch(`${API_BASE_URL}/graph/stats`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         setStatus({
@@ -52,7 +47,7 @@ export function GraphStatus({
     fetchStatus();
     const interval = setInterval(fetchStatus, refreshInterval);
     return () => clearInterval(interval);
-  }, [apiBase, tenantId, refreshInterval]);
+  }, [refreshInterval]);
 
   const getStatusBadge = () => {
     if (loading) return <StatusPill color="yellow" label="Checking..." />;

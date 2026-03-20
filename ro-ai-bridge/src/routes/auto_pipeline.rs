@@ -22,6 +22,38 @@ use crate::routes::tenant::extract_tenant_id;
 use crate::routes::vector::embed_texts;
 use crate::routes::sources::{call_llm_api_with_logging, infer_api_base, resolve_llm_credentials};
 
+/// Strip `<think>...</think>` blocks from Qwen-style reasoning responses,
+/// then extract the first JSON object or array from the remaining text.
+fn clean_llm_json(raw: &str) -> String {
+    // 1. Remove <think>...</think> blocks (greedy, handles multiline)
+    let mut text = raw.to_string();
+    while let Some(start) = text.find("<think>") {
+        if let Some(end) = text.find("</think>") {
+            text = format!("{}{}", &text[..start], &text[end + 8..]);
+        } else {
+            // Unclosed <think> — remove everything from <think> onwards
+            text = text[..start].to_string();
+            break;
+        }
+    }
+
+    // 2. Strip markdown code fences
+    let text = text.trim();
+    let text = text.strip_prefix("```json").unwrap_or(text);
+    let text = text.strip_prefix("```").unwrap_or(text);
+    let text = text.strip_suffix("```").unwrap_or(text);
+    let text = text.trim();
+
+    // 3. If it doesn't start with { or [, try to find the first JSON structure
+    if !text.starts_with('{') && !text.starts_with('[') {
+        if let Some(pos) = text.find('{').or_else(|| text.find('[')) {
+            return text[pos..].to_string();
+        }
+    }
+
+    text.to_string()
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -241,38 +273,53 @@ async fn run_auto_pipeline(
                 let latency = start.elapsed().as_millis() as i64;
 
                 if let Ok((response_text, _tokens)) = result {
-                    // Parse KG response
-                    let clean = response_text.trim().trim_start_matches("```json").trim_end_matches("```").trim();
-                    if let Ok(parsed) = serde_json::from_str::<Value>(clean) {
+                    // Parse KG response — strip <think> tags from Qwen-style models
+                    let clean = clean_llm_json(&response_text);
+                    match serde_json::from_str::<Value>(&clean) {
+                        Ok(parsed) => {
                         if let Some(entities) = parsed["entities"].as_array() {
                             for ent in entities {
                                 let _ = sqlx::query(
-                                    "INSERT INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties, provider, model, prompt_version, run_label, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                    "INSERT INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
                                 )
                                 .bind(&tenant_clone).bind(source_id).bind(chunk_id)
                                 .bind(ent["name"].as_str().unwrap_or(""))
-                                .bind(ent["type"].as_str().unwrap_or(""))
+                                .bind(ent["type"].as_str().unwrap_or("Concept"))
                                 .bind(ent["properties"].to_string())
-                                .bind(&provider).bind(&model).bind(&prompt_version)
-                                .bind(&run_label).bind(latency)
                                 .execute(&pool_clone).await;
                                 kg_entities += 1;
                             }
                         }
                         if let Some(relations) = parsed["relations"].as_array() {
                             for rel in relations {
-                                let _ = sqlx::query(
-                                    "INSERT INTO kg_relations (tenant_id, source_id, chunk_id, from_entity, to_entity, relation_type, provider, model, prompt_version, run_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                                )
-                                .bind(&tenant_clone).bind(source_id).bind(chunk_id)
-                                .bind(rel["from"].as_str().unwrap_or(""))
-                                .bind(rel["to"].as_str().unwrap_or(""))
-                                .bind(rel["type"].as_str().unwrap_or(""))
-                                .bind(&provider).bind(&model).bind(&prompt_version)
-                                .bind(&run_label)
-                                .execute(&pool_clone).await;
-                                kg_relations += 1;
+                                // Look up from/to entity IDs by name
+                                let from_name = rel["from"].as_str().unwrap_or("");
+                                let to_name = rel["to"].as_str().unwrap_or("");
+                                let from_id: Option<(i64,)> = sqlx::query_as(
+                                    "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
+                                ).bind(&tenant_clone).bind(from_name)
+                                .fetch_optional(&pool_clone).await.unwrap_or(None);
+                                let to_id: Option<(i64,)> = sqlx::query_as(
+                                    "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
+                                ).bind(&tenant_clone).bind(to_name)
+                                .fetch_optional(&pool_clone).await.unwrap_or(None);
+                                if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
+                                    let _ = sqlx::query(
+                                        "INSERT INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
+                                    )
+                                    .bind(&tenant_clone).bind(source_id)
+                                    .bind(fid).bind(tid)
+                                    .bind(rel["type"].as_str().unwrap_or(""))
+                                    .execute(&pool_clone).await;
+                                    kg_relations += 1;
+                                }
                             }
+                        }
+                        }
+                        Err(e) => {
+                            warn!("KG parse failed: {}. Raw(200): {:?} Clean(200): {:?}",
+                                e, &response_text[..response_text.len().min(200)],
+                                &clean[..clean.len().min(200)]);
                         }
                     }
                 }
@@ -292,18 +339,18 @@ async fn run_auto_pipeline(
             let api_key = resolve_api_key(&provider);
             let mut qa_count = 0i64;
 
-            // Create pipeline_steps for QA tracking
+            // Create pipeline_steps entry for QA tracking (needed as FK for qa_results)
             let _ = sqlx::query(
-                "INSERT INTO pipeline_steps (run_id, source_id, file_name, status, step_type, step_name) VALUES (?, ?, ?, 'COMPLETED', 'GENERATE', 'qa_generation')"
+                "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, tenant_id) VALUES (?, ?, 0, 'COMPLETED', 'GENERATE', ?)"
             )
             .bind(&run_id_clone)
-            .bind(source_id)
-            .bind(format!("auto_pipeline_{}", run_id_clone))
+            .bind(format!("auto_pipeline_qa_{}", run_id_clone))
+            .bind(&tenant_clone)
             .execute(&pool_clone)
             .await;
 
             let step_id: Option<(i64,)> = sqlx::query_as(
-                "SELECT id FROM pipeline_steps WHERE run_id = ? AND step_name = 'qa_generation' LIMIT 1"
+                "SELECT id FROM pipeline_steps WHERE run_id = ? AND step_type = 'GENERATE' ORDER BY id DESC LIMIT 1"
             )
             .bind(&run_id_clone)
             .fetch_optional(&pool_clone)
@@ -323,17 +370,16 @@ async fn run_auto_pipeline(
                 let latency = start.elapsed().as_millis() as i64;
 
                 if let Ok((response_text, _tokens)) = result {
-                    let clean = response_text.trim().trim_start_matches("```json").trim_end_matches("```").trim();
-                    if let Ok(qa_pairs) = serde_json::from_str::<Vec<Value>>(clean) {
+                    let clean = clean_llm_json(&response_text);
+                    if let Ok(qa_pairs) = serde_json::from_str::<Vec<Value>>(&clean) {
                         for qa in &qa_pairs {
                             let _ = sqlx::query(
-                                "INSERT INTO qa_results (tenant_id, step_id, chunk_id, question, answer, provider, model, prompt_version, run_label, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                "INSERT INTO qa_results (tenant_id, step_id, question, answer, context) VALUES (?, ?, ?, ?, ?)"
                             )
-                            .bind(&tenant_clone).bind(step_id).bind(chunk_id)
+                            .bind(&tenant_clone).bind(step_id)
                             .bind(qa["question"].as_str().unwrap_or(""))
                             .bind(qa["answer"].as_str().unwrap_or(""))
-                            .bind(&provider).bind(&model).bind(&prompt_version)
-                            .bind(&run_label).bind(latency)
+                            .bind(content.chars().take(500).collect::<String>())
                             .execute(&pool_clone).await;
                             qa_count += 1;
                         }

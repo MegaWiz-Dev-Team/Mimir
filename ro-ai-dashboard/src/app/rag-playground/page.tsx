@@ -11,6 +11,7 @@ import { SourceBadge, SourceBadgeGroup, SourceLegend } from "@/components/ui/sou
 import { WeightSlider } from "@/components/ui/weight-slider";
 import { GraphStatus } from "@/components/ui/graph-status";
 import { Send, Loader2, Search, Sparkles, Database, TreePine, Share2, BarChart3 } from "lucide-react";
+import { authFetch, API_BASE_URL } from "@/lib/api";
 
 interface RetrievalResult {
   content: string;
@@ -44,11 +45,11 @@ export default function RAGPlaygroundPage() {
     setError(null);
 
     try {
-      const resp = await fetch("http://localhost:8080/api/v1/query", {
+      const apiOrigin = API_BASE_URL.replace(/\/api\/v1$/, '');
+      const resp = await authFetch(`${apiOrigin}/api/ask`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Tenant-Id": "default_tenant",
         },
         body: JSON.stringify({
           question: question.trim(),

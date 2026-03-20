@@ -79,9 +79,8 @@ async fn ask_handler(
     let resolved = llm_config.resolve_slot("chat", default_p, default_m);
 
     let provider = payload.provider.as_deref()
-        .unwrap_or(&resolved.provider)
-        .parse::<LlmProvider>()
-        .unwrap_or(LlmProvider::Ollama);
+        .map(|p| p.parse::<LlmProvider>().unwrap_or_default())
+        .unwrap_or_default();
 
     let model = payload.model.clone()
         .unwrap_or(resolved.model);

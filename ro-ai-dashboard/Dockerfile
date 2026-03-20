@@ -19,6 +19,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Allow overriding OIDC client_id at build time (empty = dev mode, skip SSO)
+ARG NEXT_PUBLIC_YGGDRASIL_CLIENT_ID
+ENV NEXT_PUBLIC_YGGDRASIL_CLIENT_ID=${NEXT_PUBLIC_YGGDRASIL_CLIENT_ID}
+
 RUN npm run build
 
 # ── Stage 3: Runtime ──

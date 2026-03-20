@@ -629,7 +629,7 @@ export async function fetchUsers(): Promise<User[]> {
 }
 
 export async function fetchTenants(): Promise<Tenant[]> {
-    const res = await authFetch(`${API_BASE_URL}/iam/tenants`, { cache: "no-store" });
+    const res = await authFetch(`${API_BASE_URL}/tenants`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch tenants");
     return res.json();
 }
