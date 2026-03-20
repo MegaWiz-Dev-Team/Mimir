@@ -34,11 +34,11 @@ async fn main() -> Result<()> {
     let hash = IamService::hash_password(new_password)?;
 
     println!("Updating database record...");
-    let result = sqlx::query!(
-        "UPDATE users SET password_hash = ? WHERE username = ?",
-        hash,
-        username
+    let result = sqlx::query(
+        "UPDATE users SET password_hash = ? WHERE username = ?"
     )
+    .bind(&hash)
+    .bind(username)
     .execute(&pool)
     .await?;
 
