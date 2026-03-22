@@ -67,7 +67,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "mysql", "postgr
 tokio = { version = "1.49.0", features = ["full"] }
 tokio-stream = "0.1"
 tracing = "0.1.44"
-jsonwebtoken = "9.2.0"
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter", "time"] }
 tower = { version = "0.5", features = ["util"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
