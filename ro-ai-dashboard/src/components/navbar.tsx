@@ -123,7 +123,15 @@ export function Navbar() {
         if (pathname !== "/login" && token) {
             // Decode JWT to get user role and display name
             const claims = decodeJwtPayload(token);
-            const role = claims?.role || "viewer";
+            // Zitadel stores roles under urn:zitadel:iam:org:project:roles as { "admin": { "orgId": ... } }
+            const zitadelRoles = claims?.["urn:zitadel:iam:org:project:roles"];
+            let role = claims?.role || "viewer";
+            if (zitadelRoles && typeof zitadelRoles === "object") {
+                const roleKeys = Object.keys(zitadelRoles);
+                if (roleKeys.includes("admin") || roleKeys.includes("SuperAdmin")) {
+                    role = roleKeys.includes("SuperAdmin") ? "SuperAdmin" : "admin";
+                }
+            }
             setUserRole(role);
             setUserName(claims?.name || claims?.preferred_username || claims?.email || claims?.sub || "");
         }
