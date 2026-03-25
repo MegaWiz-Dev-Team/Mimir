@@ -157,25 +157,10 @@ export function Navbar() {
         Cookies.remove("refresh_token");
         Cookies.remove("tenant_id");
 
-        // Redirect to Yggdrasil end_session to invalidate SSO session
-        const postLogoutUri = `${window.location.origin}/login`;
-        
-        // If no OIDC Client ID is configured, we can't do a proper external logout redirect.
-        // Just redirect to the local login page directly.
-        if (!OIDC_CLIENT_ID) {
-            window.location.href = postLogoutUri;
-            return;
-        }
-        
-        let issuer = YGGDRASIL_ISSUER;
-        if (issuer.includes("localhost:8085")) {
-             issuer = `${window.location.protocol}//${window.location.hostname}:30085`;
-        }
-        
-        const endSessionUrl = new URL(`${issuer}/oidc/v2/end_session`);
-        endSessionUrl.searchParams.set("client_id", OIDC_CLIENT_ID);
-        endSessionUrl.searchParams.set("post_logout_redirect_uri", postLogoutUri);
-        window.location.href = endSessionUrl.toString();
+        // In K3s/dev mode: clear local cookies and redirect straight to login.
+        // Zitadel's end_session page shows a confirmation screen that doesn't
+        // auto-redirect in HTTP mode. Going directly to /login is cleaner.
+        window.location.href = `${window.location.origin}/login`;
     };
 
     const handleTenantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
