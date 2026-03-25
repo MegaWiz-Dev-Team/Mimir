@@ -151,7 +151,13 @@ export function Navbar() {
 
         // Redirect to Yggdrasil end_session to invalidate SSO session
         const postLogoutUri = `${window.location.origin}/login`;
-        const endSessionUrl = new URL(`${YGGDRASIL_ISSUER}/oidc/v2/end_session`);
+        
+        let issuer = YGGDRASIL_ISSUER;
+        if (issuer.includes("localhost:8085")) {
+             issuer = `${window.location.protocol}//${window.location.hostname}:30085`;
+        }
+        
+        const endSessionUrl = new URL(`${issuer}/oidc/v2/end_session`);
         endSessionUrl.searchParams.set("client_id", OIDC_CLIENT_ID);
         endSessionUrl.searchParams.set("post_logout_redirect_uri", postLogoutUri);
         window.location.href = endSessionUrl.toString();
@@ -181,7 +187,7 @@ export function Navbar() {
             label: "AI",
             icon: Brain,
             items: [
-                { name: "Playground", href: "/playground", icon: Bot },
+                // { name: "Playground", href: "/playground", icon: Bot },
                 { name: "RAG Playground", href: "/rag-playground", icon: FlaskConical },
                 { name: "Agents", href: "/agents", icon: Brain },
                 { name: "Graph", href: "/graph", icon: Share2 },
