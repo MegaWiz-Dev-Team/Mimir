@@ -85,7 +85,7 @@ export default function LoginPage() {
                 authUrl.searchParams.set("client_id", CLIENT_ID);
                 authUrl.searchParams.set("redirect_uri", redirectUri);
                 authUrl.searchParams.set("response_type", "code");
-                authUrl.searchParams.set("scope", "openid profile email offline_access");
+                authUrl.searchParams.set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:roles");
                 authUrl.searchParams.set("state", state);
                 authUrl.searchParams.set("code_challenge", codeChallenge);
                 authUrl.searchParams.set("code_challenge_method", method);
