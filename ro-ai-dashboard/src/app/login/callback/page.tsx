@@ -51,7 +51,7 @@ export default function CallbackPage() {
                 const res = await fetch("/api/auth/callback", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ code, code_verifier: codeVerifier }),
+                    body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: `${window.location.origin}/login/callback` }),
                 });
 
                 if (!res.ok) {

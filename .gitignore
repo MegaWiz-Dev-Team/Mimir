@@ -19,7 +19,6 @@ redis_data/
 
 # Rust (Should be covered by ro-ai-bridge/.gitignore, but good to have)
 target/
-Cargo.lock
 
 # Node.js (If any)
 node_modules/

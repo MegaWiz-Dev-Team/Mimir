@@ -152,6 +152,13 @@ export function Navbar() {
         // Redirect to Yggdrasil end_session to invalidate SSO session
         const postLogoutUri = `${window.location.origin}/login`;
         
+        // If no OIDC Client ID is configured, we can't do a proper external logout redirect.
+        // Just redirect to the local login page directly.
+        if (!OIDC_CLIENT_ID) {
+            window.location.href = postLogoutUri;
+            return;
+        }
+        
         let issuer = YGGDRASIL_ISSUER;
         if (issuer.includes("localhost:8085")) {
              issuer = `${window.location.protocol}//${window.location.hostname}:30085`;

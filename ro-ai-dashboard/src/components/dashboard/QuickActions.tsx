@@ -22,12 +22,12 @@ export function QuickActions({ onSyncAll, syncing }: QuickActionsProps) {
                 <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
                 {syncing ? "Syncing..." : "Sync All Sources"}
             </Button>
-            <Button variant="outline" asChild>
+            {/* <Button variant="outline" asChild>
                 <Link href="/playground">
                     <MessageSquare className="w-4 h-4 mr-2" />
                     Open Playground
                 </Link>
-            </Button>
+            </Button> */}
         </div>
     );
 }
