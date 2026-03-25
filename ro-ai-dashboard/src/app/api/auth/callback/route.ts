@@ -1,16 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
+import http from "node:http";
 
 /**
  * Server-side OIDC token exchange.
  *
- * Exchanges the authorization code for tokens using the client secret
- * (which is kept server-side for security).
+ * Uses Node.js http module instead of fetch because Zitadel requires
+ * the Host header to match its externalDomain (localhost:30085),
+ * and Node.js fetch strips custom Host headers for security.
  */
 
 const YGGDRASIL_ISSUER = process.env.YGGDRASIL_ISSUER || process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
 const CLIENT_ID = process.env.YGGDRASIL_CLIENT_ID || process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.YGGDRASIL_CLIENT_SECRET || "";
 const REDIRECT_URI = process.env.NEXT_PUBLIC_YGGDRASIL_REDIRECT_URI || "http://localhost:3001/login/callback";
+
+function httpPost(url: string, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+        const parsed = new URL(url);
+        const req = http.request(
+            {
+                hostname: parsed.hostname,
+                port: parsed.port || 80,
+                path: parsed.pathname + parsed.search,
+                method: "POST",
+                headers: {
+                    ...headers,
+                    "Content-Length": Buffer.byteLength(body),
+                },
+            },
+            (res) => {
+                let data = "";
+                res.on("data", (chunk) => (data += chunk));
+                res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
+            }
+        );
+        req.on("error", reject);
+        req.write(body);
+        req.end();
+    });
+}
 
 export async function POST(request: NextRequest) {
     try {
@@ -20,7 +48,6 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
         }
 
-        // Exchange code for tokens at Yggdrasil token endpoint
         const tokenUrl = `${YGGDRASIL_ISSUER}/oauth/v2/token`;
 
         const params = new URLSearchParams({
@@ -31,30 +58,28 @@ export async function POST(request: NextRequest) {
             client_secret: CLIENT_SECRET,
         });
 
-        // Add PKCE verifier if present
         if (code_verifier) {
             params.set("code_verifier", code_verifier);
         }
 
-        const tokenRes = await fetch(tokenUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Host": "localhost:30085",
-            },
-            body: params.toString(),
+        console.log(`[OIDC] Token exchange: url=${tokenUrl} client_id=${CLIENT_ID} redirect_uri=${redirect_uri || REDIRECT_URI}`);
+
+        const result = await httpPost(tokenUrl, params.toString(), {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Host": "localhost:30085",
         });
 
-        if (!tokenRes.ok) {
-            const errData = await tokenRes.json().catch(() => ({}));
-            console.error("[OIDC] Token exchange failed:", errData);
+        if (result.status >= 400) {
+            console.error(`[OIDC] Token exchange failed: status=${result.status} body=${result.body}`);
+            let errData: any = {};
+            try { errData = JSON.parse(result.body); } catch {}
             return NextResponse.json(
-                { error: errData.error_description || errData.error || "Token exchange failed" },
-                { status: tokenRes.status }
+                { error: errData.error_description || errData.error || `Token exchange failed (${result.status})` },
+                { status: result.status }
             );
         }
 
-        const tokens = await tokenRes.json();
+        const tokens = JSON.parse(result.body);
 
         return NextResponse.json({
             access_token: tokens.access_token,
