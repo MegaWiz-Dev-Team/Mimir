@@ -22,14 +22,19 @@ function generateCodeVerifier(): string {
         .replace(/=/g, "");
 }
 
-async function generateCodeChallenge(verifier: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    return btoa(String.fromCharCode(...new Uint8Array(digest)))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
+async function generateCodeChallenge(verifier: string): Promise<{ challenge: string, method: string }> {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(verifier);
+        const digest = await crypto.subtle.digest("SHA-256", data);
+        const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=/g, "");
+        return { challenge, method: "S256" };
+    }
+    // Fallback for insecure contexts (HTTP)
+    return { challenge: verifier, method: "plain" };
 }
 
 function generateState(): string {
@@ -54,21 +59,36 @@ export default function LoginPage() {
         (async () => {
             try {
                 const codeVerifier = generateCodeVerifier();
-                const codeChallenge = await generateCodeChallenge(codeVerifier);
+                const { challenge: codeChallenge, method } = await generateCodeChallenge(codeVerifier);
                 const state = generateState();
 
                 // Store PKCE verifier + state in sessionStorage
                 sessionStorage.setItem("oidc_code_verifier", codeVerifier);
                 sessionStorage.setItem("oidc_state", state);
+                
+                let issuer = YGGDRASIL_ISSUER;
+                if (issuer.includes("localhost:8085")) {
+                    issuer = `${window.location.protocol}//${window.location.hostname}:30085`;
+                }
 
-                const authUrl = new URL(`${YGGDRASIL_ISSUER}/oauth/v2/authorize`);
+                let redirectUri = REDIRECT_URI;
+                if (redirectUri.includes("localhost:3001")) {
+                    redirectUri = `${window.location.protocol}//${window.location.host}/login/callback`;
+                }
+
+                if (!CLIENT_ID) {
+                    setError("SSO is not configured for this environment (Missing Client ID).");
+                    return;
+                }
+
+                const authUrl = new URL(`${issuer}/oauth/v2/authorize`);
                 authUrl.searchParams.set("client_id", CLIENT_ID);
-                authUrl.searchParams.set("redirect_uri", REDIRECT_URI);
+                authUrl.searchParams.set("redirect_uri", redirectUri);
                 authUrl.searchParams.set("response_type", "code");
                 authUrl.searchParams.set("scope", "openid profile email offline_access");
                 authUrl.searchParams.set("state", state);
                 authUrl.searchParams.set("code_challenge", codeChallenge);
-                authUrl.searchParams.set("code_challenge_method", "S256");
+                authUrl.searchParams.set("code_challenge_method", method);
 
                 window.location.href = authUrl.toString();
             } catch (e: any) {
@@ -82,7 +102,7 @@ export default function LoginPage() {
             <div className="w-full max-w-md p-8 bg-white dark:bg-zinc-900 rounded-xl shadow-lg border border-gray-200 dark:border-zinc-800">
                 <div className="text-center mb-8">
                     <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                        Project-Mimir
+                        Asgard AI Platform
                     </h1>
                     <p className="text-gray-500 dark:text-zinc-400 mt-2">
                         {error ? "Login Error" : "Redirecting to Asgard SSO..."}
