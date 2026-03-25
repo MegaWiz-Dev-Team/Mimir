@@ -30,7 +30,10 @@ export async function POST(request: NextRequest) {
 
         const tokenRes = await fetch(tokenUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Host": "localhost:30085",
+            },
             body: params.toString(),
         });
 
