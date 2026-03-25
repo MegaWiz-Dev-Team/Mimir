@@ -14,7 +14,7 @@ const REDIRECT_URI = process.env.NEXT_PUBLIC_YGGDRASIL_REDIRECT_URI || "http://l
 
 export async function POST(request: NextRequest) {
     try {
-        const { code, code_verifier } = await request.json();
+        const { code, code_verifier, redirect_uri } = await request.json();
 
         if (!code) {
             return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
         const params = new URLSearchParams({
             grant_type: "authorization_code",
             code,
-            redirect_uri: REDIRECT_URI,
+            redirect_uri: redirect_uri || REDIRECT_URI,
             client_id: CLIENT_ID,
             client_secret: CLIENT_SECRET,
         });
