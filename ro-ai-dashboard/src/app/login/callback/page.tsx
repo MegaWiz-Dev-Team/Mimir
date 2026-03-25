@@ -61,8 +61,10 @@ export default function CallbackPage() {
 
                 const { access_token, id_token, refresh_token, expires_in } = await res.json();
 
-                // Store token in cookie (use id_token or access_token)
-                const token = access_token || id_token;
+                // Zitadel returns an opaque access_token (not JWT).
+                // Use id_token (which IS a JWT with user claims) for the cookie so
+                // the navbar can decode user role and display name.
+                const token = id_token || access_token;
                 if (token) {
                     const days = expires_in ? expires_in / 86400 : 1;
                     Cookies.set("access_token", token, { expires: days });
