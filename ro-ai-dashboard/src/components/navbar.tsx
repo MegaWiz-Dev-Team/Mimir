@@ -121,19 +121,10 @@ export function Navbar() {
         setMounted(true);
         const token = Cookies.get("access_token");
         if (pathname !== "/login" && token) {
-            // Decode JWT to get user role and display name
-            const claims = decodeJwtPayload(token);
-            // Zitadel stores roles under urn:zitadel:iam:org:project:roles as { "admin": { "orgId": ... } }
-            const zitadelRoles = claims?.["urn:zitadel:iam:org:project:roles"];
-            let role = claims?.role || "viewer";
-            if (zitadelRoles && typeof zitadelRoles === "object") {
-                const roleKeys = Object.keys(zitadelRoles);
-                if (roleKeys.includes("admin") || roleKeys.includes("SuperAdmin")) {
-                    role = roleKeys.includes("SuperAdmin") ? "SuperAdmin" : "admin";
-                }
-            }
+            // Read role and name from cookies (set by server during login callback)
+            const role = Cookies.get("user_role") || "viewer";
             setUserRole(role);
-            setUserName(claims?.name || claims?.preferred_username || claims?.email || claims?.sub || "");
+            setUserName(Cookies.get("user_name") || "");
         }
 
         // Always fetch tenants (dev mode works without SSO token)
@@ -156,6 +147,8 @@ export function Navbar() {
         Cookies.remove("access_token");
         Cookies.remove("refresh_token");
         Cookies.remove("tenant_id");
+        Cookies.remove("user_role");
+        Cookies.remove("user_name");
 
         // In K3s/dev mode: clear local cookies and redirect straight to login.
         // Zitadel's end_session page shows a confirmation screen that doesn't

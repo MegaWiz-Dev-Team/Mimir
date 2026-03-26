@@ -59,20 +59,26 @@ export default function CallbackPage() {
                     throw new Error(data.error || `Token exchange failed (${res.status})`);
                 }
 
-                const { access_token, id_token, refresh_token, expires_in } = await res.json();
+                const { access_token, id_token, refresh_token, expires_in, user_role, user_name } = await res.json();
 
-                // Zitadel returns an opaque access_token (not JWT).
-                // Use id_token (which IS a JWT with user claims) for the cookie so
-                // the navbar can decode user role and display name.
+                // Store token in cookie (prefer id_token as it's a JWT)
                 const token = id_token || access_token;
                 if (token) {
                     const days = expires_in ? expires_in / 86400 : 1;
                     Cookies.set("access_token", token, { expires: days });
                 }
 
+                // Store user role and name from server-side userinfo fetch
+                if (user_role) {
+                    Cookies.set("user_role", user_role, { expires: 7 });
+                }
+                if (user_name) {
+                    Cookies.set("user_name", user_name, { expires: 7 });
+                }
+
                 // Store refresh_token for silent token refresh
                 if (refresh_token) {
-                    Cookies.set("refresh_token", refresh_token, { expires: 30 }); // 30 days
+                    Cookies.set("refresh_token", refresh_token, { expires: 30 });
                 }
 
                 // Clean up PKCE values
