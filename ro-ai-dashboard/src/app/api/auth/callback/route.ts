@@ -24,7 +24,7 @@ function httpRequest(method: string, url: string, body: string | null, headers: 
             headers: { ...headers },
         };
         if (body) {
-            opts.headers!["Content-Length"] = String(Buffer.byteLength(body));
+            (opts.headers as Record<string, string>)["Content-Length"] = String(Buffer.byteLength(body));
         }
         const req = http.request(opts, (res) => {
             let data = "";
