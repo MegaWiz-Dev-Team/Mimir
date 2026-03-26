@@ -1,28 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Server-side logout: clear all auth cookies and redirect to /login.
- * Uses the Host header to construct the redirect URL so it works
- * correctly behind NodePort (container listens on 0.0.0.0:3000 but
- * browser accesses via localhost:30001).
+ * Server-side logout:
+ * 1. Clear all auth cookies
+ * 2. Redirect to Zitadel's end_session endpoint to kill the SSO session
+ * 3. Zitadel then redirects back to our /login page via post_logout_redirect_uri
+ *
+ * Without step 2, the user gets auto-re-authenticated by Zitadel's active session.
  */
 export async function GET(request: NextRequest) {
-    // Use Referer or Host header to get the browser-facing origin
+    // Build the post-logout redirect URL using browser-facing origin
     const referer = request.headers.get("referer");
-    let redirectUrl = "/login";
-
+    let origin = "http://localhost:30001";
     if (referer) {
-        try {
-            const origin = new URL(referer).origin;
-            redirectUrl = `${origin}/login`;
-        } catch {}
+        try { origin = new URL(referer).origin; } catch {}
     } else {
-        // Fallback: use Host header
-        const host = request.headers.get("host") || "localhost:30001";
-        redirectUrl = `http://${host}/login`;
+        const host = request.headers.get("host");
+        if (host) origin = `http://${host}`;
     }
 
-    const response = NextResponse.redirect(redirectUrl);
+    const response = NextResponse.redirect(
+        `http://localhost:30085/oidc/v2/end_session?` +
+        `client_id=365685875977339411&` +
+        `post_logout_redirect_uri=${encodeURIComponent(origin + "/login")}`
+    );
 
     // Clear all auth-related cookies
     response.cookies.delete("access_token");
