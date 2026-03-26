@@ -59,9 +59,9 @@ export default function CallbackPage() {
                     throw new Error(data.error || `Token exchange failed (${res.status})`);
                 }
 
-                const { access_token, id_token, refresh_token, expires_in, user_role, user_name } = await res.json();
+                const { access_token, id_token, refresh_token, expires_in, user_role, user_name, tenant_id } = await res.json();
 
-                // Store the opaque access_token for API calls (Mimir API validates it via Zitadel).
+                // Store the Mimir JWT for API calls (bridged from SSO via server-side Mimir login).
                 // Role and name come from separate cookies populated by server-side userinfo fetch.
                 if (access_token) {
                     const days = expires_in ? expires_in / 86400 : 1;
@@ -79,6 +79,11 @@ export default function CallbackPage() {
                 // Store refresh_token for silent token refresh
                 if (refresh_token) {
                     Cookies.set("refresh_token", refresh_token, { expires: 30 });
+                }
+
+                // Store Mimir tenant_id for API calls
+                if (tenant_id) {
+                    Cookies.set("tenant_id", tenant_id, { expires: 7 });
                 }
 
                 // Clean up PKCE values

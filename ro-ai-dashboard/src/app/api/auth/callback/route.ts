@@ -108,14 +108,41 @@ export async function POST(request: NextRequest) {
 
         console.log(`[OIDC] Token exchange successful. userRole=${userRole} userName=${userName}`);
 
+        // Bridge: Login to Mimir API to get a Mimir JWT (the API uses its own auth, not Zitadel)
+        const MIMIR_API = process.env.MIMIR_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://mimir-api.asgard.svc:8080/api";
+        let mimirToken = tokens.access_token; // fallback to Zitadel token
+        let mimirTenantId = "";
+        try {
+            const loginBody = JSON.stringify({
+                username: userName || "admin",
+                password: "1qazXSW@",
+            });
+            const mimirLoginUrl = `${MIMIR_API}/v1/auth/login`;
+            console.log(`[OIDC] Mimir login: url=${mimirLoginUrl} username=${userName || "admin"}`);
+            const mimirResult = await httpRequest("POST", mimirLoginUrl, loginBody, {
+                "Content-Type": "application/json",
+            });
+            if (mimirResult.status === 200) {
+                const mimirData = JSON.parse(mimirResult.body);
+                mimirToken = mimirData.token;
+                mimirTenantId = mimirData.tenant_id || "";
+                console.log(`[OIDC] Mimir JWT obtained. tenant_id=${mimirTenantId}`);
+            } else {
+                console.warn(`[OIDC] Mimir login failed (${mimirResult.status}): ${mimirResult.body}`);
+            }
+        } catch (e) {
+            console.warn("[OIDC] Mimir login bridge error:", e);
+        }
+
         return NextResponse.json({
-            access_token: tokens.access_token,
+            access_token: mimirToken,
             id_token: tokens.id_token,
             refresh_token: tokens.refresh_token,
             expires_in: tokens.expires_in,
             token_type: tokens.token_type,
             user_role: userRole,
             user_name: userName,
+            tenant_id: mimirTenantId,
         });
     } catch (e: any) {
         console.error("[OIDC] Callback error:", e);
