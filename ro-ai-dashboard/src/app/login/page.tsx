@@ -88,7 +88,6 @@ export default function LoginPage() {
                 authUrl.searchParams.set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:project:id:365685843395920403:aud");
                 authUrl.searchParams.set("state", state);
                 authUrl.searchParams.set("code_challenge", codeChallenge);
-                authUrl.searchParams.set("max_age", "0");
                 authUrl.searchParams.set("code_challenge_method", method);
 
                 window.location.href = authUrl.toString();
