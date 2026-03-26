@@ -262,15 +262,14 @@ export function Navbar() {
                         </span>
                     )}
 
-                    <button
-                        onClick={handleLogout}
-                        className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:text-zinc-400 dark:hover:text-red-400 dark:hover:bg-red-900/20 rounded-md transition-colors relative z-50 cursor-pointer"
+                    <a
+                        href="/api/auth/logout"
+                        className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:text-zinc-400 dark:hover:text-red-400 dark:hover:bg-red-900/20 rounded-md transition-colors"
                         title="Logout"
                         id="logout-btn"
-                        style={{ pointerEvents: "auto" }}
                     >
-                        <LogOut className="w-5 h-5 pointer-events-none" />
-                    </button>
+                        <LogOut className="w-5 h-5" />
+                    </a>
                 </div>
             </div>
         </nav>
