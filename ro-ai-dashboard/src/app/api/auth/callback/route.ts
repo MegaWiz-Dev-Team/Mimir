@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
         // Fetch userinfo to get project roles (id_token doesn't include them)
         let userRole = "viewer";
         let userName = "";
+        let userLogin = ""; // The actual login username (email) for Mimir API auth
         if (tokens.access_token) {
             try {
                 const userinfoUrl = `${YGGDRASIL_ISSUER}/oidc/v1/userinfo`;
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
                     const userinfo = JSON.parse(userinfoResult.body);
                     console.log("[OIDC] userinfo:", JSON.stringify(userinfo));
                     userName = userinfo.name || userinfo.preferred_username || userinfo.email || "";
+                    userLogin = userinfo.preferred_username || userinfo.email || userName;
                     
                     // Extract roles from Zitadel userinfo
                     const projectRoles = userinfo["urn:zitadel:iam:org:project:roles"];
@@ -114,11 +116,11 @@ export async function POST(request: NextRequest) {
         let mimirTenantId = "";
         try {
             const loginBody = JSON.stringify({
-                username: userName || "admin",
+                username: userLogin || "admin",
                 password: "1qazXSW@",
             });
             const mimirLoginUrl = `${MIMIR_API}/v1/auth/login`;
-            console.log(`[OIDC] Mimir login: url=${mimirLoginUrl} username=${userName || "admin"}`);
+            console.log(`[OIDC] Mimir login: url=${mimirLoginUrl} username=${userLogin || "admin"}`);
             const mimirResult = await httpRequest("POST", mimirLoginUrl, loginBody, {
                 "Content-Type": "application/json",
             });
