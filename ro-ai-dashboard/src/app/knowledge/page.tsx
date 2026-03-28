@@ -32,7 +32,7 @@ function isGarbageChunk(content: string): boolean {
     if (/^[\[{]/.test(trimmed) && /["\\{}[\]]{10,}/.test(trimmed.slice(0, 200))) return true;
     if ((trimmed.match(/\\"/g) || []).length > 10) return true;
     if (/\/_next\/static\/chunks\//.test(trimmed)) return true;
-    const nonWord = (trimmed.match(/[^a-zA-Z0-9\s.,!?;:\-()]/g) || []).length;
+    const nonWord = (trimmed.match(/[^a-zA-Z0-9\s.,!?;:\-()\u0E00-\u0E7F]/g) || []).length;
     if (nonWord / trimmed.length > 0.5 && trimmed.length > 50) return true;
     return false;
 }
