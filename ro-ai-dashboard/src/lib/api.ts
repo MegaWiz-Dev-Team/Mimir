@@ -823,6 +823,7 @@ export interface DataSource {
     raw_markdown?: string | null;
     mb_size?: number | null;
     total_chunks?: number | null;
+    pageindex_tree?: any | null;
     last_sync_at: string | null;
     created_at: string;
     updated_at: string;
@@ -877,6 +878,29 @@ export async function extractWithAi(
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Unknown error" }));
         throw new Error(err.error || "AI extraction failed");
+    }
+    return res.json();
+}
+
+export interface PageIndexResponse {
+    success: boolean;
+    message: string;
+    source_id: number;
+}
+
+export async function generatePageIndexTree(
+    sourceId: number,
+    provider: string = "gemini",
+    model: string = "gemini-3.1-flash-lite"
+): Promise<PageIndexResponse> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/extract-pageindex`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, model }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || "PageIndex generation failed");
     }
     return res.json();
 }
@@ -1750,6 +1774,31 @@ export async function fetchExtractionRuns(): Promise<{ runs: ExtractionRun[] }> 
     return res.json();
 }
 
+/** Convenience wrapper: trigger KG extraction for a specific source */
+export async function triggerGraphExtraction(sourceId: number): Promise<{ status: string; run_id: number; source_id: number; message: string }> {
+    return triggerKgExtraction({ source_id: sourceId });
+}
+
+/** POST /api/v1/sources/{id}/auto-pipeline — Run full 5-step pipeline */
+export async function runAutoPipeline(sourceId: number, options?: {
+    provider?: string;
+    model?: string;
+    enablePageIndex?: boolean;
+    skipKg?: boolean;
+}): Promise<{ pipeline_run_id: string; source_id: number; status: string; message: string }> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/auto-pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            provider: options?.provider || "gemini",
+            model: options?.model || "gemini-2.5-flash",
+            enable_pageindex: options?.enablePageIndex,
+            skip_kg: options?.skipKg,
+        }),
+    });
+    if (!res.ok) throw new Error("Failed to start auto-pipeline");
+    return res.json();
+}
 
 // ─── Sprint 18: Coverage Analytics API ──────────────────────────────────────
 
@@ -1818,3 +1867,9 @@ export async function fetchCoverageGaps(): Promise<CoverageGaps> {
     return res.json();
 }
 
+
+export async function fetchPipelineStatus(sourceId: number): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/pipeline-status`);
+    if (!res.ok) throw new Error("Failed to fetch pipeline status");
+    return res.json();
+}

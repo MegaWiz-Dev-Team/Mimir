@@ -14,6 +14,7 @@ pub struct DataSource {
     pub raw_markdown: Option<String>,
     pub mb_size: Option<f64>,
     pub total_chunks: Option<i32>,
+    pub pageindex_tree: Option<serde_json::Value>,
     pub last_sync_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,

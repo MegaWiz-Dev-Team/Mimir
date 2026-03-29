@@ -23,6 +23,7 @@ pub mod backup;
 pub mod llm_provider;
 pub mod neo4j;
 pub mod entity_extractor;
+pub mod bm25;
 
 #[cfg(test)]
 mod e2e_tests;

@@ -9,6 +9,7 @@ mod upload;
 mod connectors;
 mod config;
 pub mod extraction;
+pub mod pageindex;
 
 // Re-export public items to preserve existing import paths
 pub use config::{resolve_llm_credentials, infer_api_base, call_llm_api, call_llm_api_with_logging};
@@ -29,6 +30,7 @@ pub fn sources_routes() -> Router<DbPool> {
         .route("/{id}/sync", post(sync::sync_source))
         .route("/{id}/extract-ai", post(config::extract_with_ai))
         .route("/{id}/extract", post(extraction::extract_source))
+        .route("/{id}/extract-pageindex", post(pageindex::extract_pageindex_route))
         .route("/{id}/logs", get(sync::stream_logs))
         .route("/{id}/discover-hierarchy", post(connectors::discover_hierarchy))
         .route("/{id}/import-pages", post(connectors::import_pages))

@@ -65,25 +65,25 @@ export default function CallbackPage() {
                 // Role and name come from separate cookies populated by server-side userinfo fetch.
                 if (access_token) {
                     const days = expires_in ? expires_in / 86400 : 1;
-                    Cookies.set("access_token", access_token, { expires: days });
+                    Cookies.set("access_token", access_token, { expires: days, path: "/" });
                 }
 
                 // Store user role and name from server-side userinfo fetch
                 if (user_role) {
-                    Cookies.set("user_role", user_role, { expires: 7 });
+                    Cookies.set("user_role", user_role, { expires: 7, path: "/" });
                 }
                 if (user_name) {
-                    Cookies.set("user_name", user_name, { expires: 7 });
+                    Cookies.set("user_name", user_name, { expires: 7, path: "/" });
                 }
 
                 // Store refresh_token for silent token refresh
                 if (refresh_token) {
-                    Cookies.set("refresh_token", refresh_token, { expires: 30 });
+                    Cookies.set("refresh_token", refresh_token, { expires: 30, path: "/" });
                 }
 
                 // Store Mimir tenant_id for API calls
                 if (tenant_id) {
-                    Cookies.set("tenant_id", tenant_id, { expires: 7 });
+                    Cookies.set("tenant_id", tenant_id, { expires: 7, path: "/" });
                 }
 
                 // Clean up PKCE values

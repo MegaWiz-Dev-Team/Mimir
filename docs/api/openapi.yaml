@@ -221,6 +221,52 @@ paths:
         '200':
           description: Source deleted
 
+  /api/v1/sources/{id}/pageindex:
+    post:
+      summary: Extract hierarchical Page Index from source
+      tags: [Sources]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  example: gemini
+                model:
+                  type: string
+                  example: gemini-3.1-flash-lite
+      responses:
+        '200':
+          description: Page Index extraction triggered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  source_id:
+                    type: integer
+                  provider:
+                    type: string
+                  model:
+                    type: string
+        '400':
+          description: Bad request (e.g. no chunks found)
+        '404':
+          description: Source not found or access denied
+
   /api/v1/pipeline/ingest:
     post:
       summary: Trigger data ingestion

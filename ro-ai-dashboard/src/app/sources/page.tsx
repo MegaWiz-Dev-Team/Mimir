@@ -55,6 +55,7 @@ export default function SourcesPage() {
     const [pipelineSelectedProvider, setPipelineSelectedProvider] = useState("google");
     const [pipelineSelectedModel, setPipelineSelectedModel] = useState("");
     const [pipelineEnablePageIndex, setPipelineEnablePageIndex] = useState(false);
+    const [pipelineSkipKg, setPipelineSkipKg] = useState(false);
     const [pipelineStarting, setPipelineStarting] = useState(false);
     const [pipelineRunStatus, setPipelineRunStatus] = useState<any>(null);
 
@@ -1069,6 +1070,22 @@ export default function SourcesPage() {
                             </label>
                         </div>
 
+                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
+                            <label className="flex items-start space-x-3 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="form-checkbox mt-1" 
+                                    disabled={pipelineStarting}
+                                    checked={pipelineSkipKg} 
+                                    onChange={(e) => setPipelineSkipKg(e.target.checked)} 
+                                />
+                                <div>
+                                    <span className="font-medium text-sm">Skip KG Extraction</span>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Skip Knowledge Graph extraction. Use when KG data already exists from a previous run.</p>
+                                </div>
+                            </label>
+                        </div>
+
                         {pipelineStarting && (
                             <div className="mt-4 border rounded-md p-4 bg-muted/50">
                                 <h4 className="text-sm font-semibold mb-3 flex items-center">
@@ -1121,6 +1138,7 @@ export default function SourcesPage() {
                                                 provider: pipelineSelectedProvider,
                                                 model: pipelineSelectedModel,
                                                 enablePageIndex: pipelineEnablePageIndex,
+                                                skipKg: pipelineSkipKg,
                                             });
                                             // Start Polling
                                             const intervalId = setInterval(async () => {

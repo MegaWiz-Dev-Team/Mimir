@@ -98,7 +98,7 @@ pub fn vector_routes() -> Router<DbPool> {
 }
 
 async fn get_vector_stats(State(pool): State<DbPool>) -> impl IntoResponse {
-    let collection_name = "wiki_qa";
+    let collection_name = "source_chunks";
     let qdrant = QdrantService::new(); // Ideally instantiated once in AppState, but fine for now given monitor.rs does the same.
 
     // 1. Get Qdrant stats
@@ -225,9 +225,19 @@ async fn search_vectors(
     let target_tenant = payload.tenant_id.unwrap_or(tenant_id);
     let show_expired = payload.show_expired.unwrap_or(false);
 
-    match qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
+    // Generate BM25 sparse vector from query for hybrid search
+    let sparse = mimir_core_ai::services::bm25::text_to_sparse_vector(&payload.query);
+
+    // Try hybrid search first (source_chunks with named vectors)
+    match qdrant.search_hybrid("source_chunks", vector_f32.clone(), &sparse, payload.limit.unwrap_or(5), &target_tenant).await {
         Ok(results) => Json(results).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        Err(_) => {
+            // Fallback to legacy dense-only search
+            match qdrant.search("source_chunks", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
+                Ok(results) => Json(results).into_response(),
+                Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+            }
+        }
     }
 }
 
@@ -239,7 +249,7 @@ async fn delete_vector_handler(
     let qdrant = QdrantService::new();
     let _tenant_id = extract_tenant_id(&headers);
 
-    match qdrant.delete_point("wiki_qa", id).await {
+    match qdrant.delete_point("source_chunks", id).await {
         Ok(_) => (axum::http::StatusCode::OK, Json(serde_json::json!({"status": "success"}))).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
     }

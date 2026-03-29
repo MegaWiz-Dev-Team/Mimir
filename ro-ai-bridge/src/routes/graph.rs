@@ -422,19 +422,19 @@ async fn find_paths(
     })))
 }
 
-/// POST /api/v1/graph/extract — Trigger entity extraction
+/// POST /api/v1/graph/extract — Trigger entity extraction (real LLM-powered)
 #[instrument(skip(headers, pool))]
 async fn trigger_extraction(
     headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<ExtractRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = extract_tenant_id(&headers);
+    let tenant_id = extract_tenant_id(&headers).to_string();
     let max_entities = payload.max_entities.unwrap_or(20);
 
-    info!(event = "kg_extraction_triggered", tenant_id = tenant_id, source_id = ?payload.source_id, "Triggering KG extraction");
+    info!(event = "kg_extraction_triggered", tenant_id = %tenant_id, source_id = ?payload.source_id, "Triggering KG extraction");
 
-    // If text provided directly, extract from it
+    // If text provided directly, parse and return prompt (no background task)
     if let Some(ref text) = payload.text {
         let system_prompt = mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
         let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(text, max_entities);
@@ -444,29 +444,148 @@ async fn trigger_extraction(
             "system_prompt_length": system_prompt.len(),
             "user_prompt_length": user_prompt.len(),
             "message": "Extraction prompts generated. Submit to LLM for entity extraction.",
-            "hint": "Use the LLM provider to process these prompts and call parse_extraction_response() on the result.",
         })));
     }
 
-    // If source_id provided, create extraction run record
+    // If source_id provided, spawn real extraction
     if let Some(source_id) = payload.source_id {
         // Record extraction run in DB
         let run_result = sqlx::query(
             "INSERT INTO kg_extraction_runs (source_id, tenant_id, status, started_at) VALUES (?, ?, 'running', NOW())"
         )
         .bind(source_id)
-        .bind(tenant_id)
+        .bind(&tenant_id)
         .execute(&pool)
         .await
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
         })?;
 
+        let run_id = run_result.last_insert_id() as i64;
+
+        // Spawn background extraction
+        let pool_bg = pool.clone();
+        let tenant_bg = tenant_id.clone();
+        tokio::spawn(async move {
+            // Load chunks for this source
+            let chunks: Vec<(i64, String)> = sqlx::query_as(
+                "SELECT id, content FROM chunks WHERE source_id = ? LIMIT 500"
+            )
+            .bind(source_id)
+            .fetch_all(&pool_bg)
+            .await
+            .unwrap_or_default();
+
+            if chunks.is_empty() {
+                let _ = sqlx::query(
+                    "UPDATE kg_extraction_runs SET status = 'failed', error_message = 'No chunks found', finished_at = NOW() WHERE id = ?"
+                ).bind(run_id).execute(&pool_bg).await;
+                return;
+            }
+
+            // Resolve LLM credentials
+            let provider = "gemini";
+            let api_base = crate::routes::sources::infer_api_base(provider);
+            let api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+            let model = "gemini-2.5-flash";
+
+            // Connect to Neo4j for dual-write
+            let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
+            let neo4j_svc = mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
+
+            let mut total_entities = 0i64;
+            let mut total_relations = 0i64;
+            let mut chunks_processed = 0i64;
+
+            for (chunk_id, content) in &chunks {
+                let system_prompt = mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
+                let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(content, max_entities);
+                let combined = format!("{}\n\n{}", system_prompt, user_prompt);
+
+                let result = crate::routes::sources::call_llm_api_with_logging(
+                    &api_key, &api_base, model, &combined,
+                    Some(&pool_bg), Some(&tenant_bg), Some(provider), Some("kg_extraction"),
+                ).await;
+
+                if let Ok((response_text, _)) = result {
+                    let parsed = mimir_core_ai::services::entity_extractor::parse_extraction_response(&response_text);
+                    let entities = mimir_core_ai::services::entity_extractor::dedup_entities(parsed.entities);
+                    let relations = mimir_core_ai::services::entity_extractor::dedup_relations(parsed.relations);
+
+                    // Insert entities
+                    for ent in &entities {
+                        let props_str = ent.properties.as_ref().map(|p| p.to_string());
+                        let _ = sqlx::query(
+                            "INSERT IGNORE INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
+                        )
+                        .bind(&tenant_bg).bind(source_id).bind(chunk_id)
+                        .bind(&ent.name).bind(&ent.entity_type).bind(&props_str)
+                        .execute(&pool_bg).await;
+
+                        if let Some(ref neo4j) = neo4j_svc {
+                            let _ = neo4j.upsert_entity(
+                                &tenant_bg, &ent.name, &ent.entity_type,
+                                props_str.as_deref(), Some(source_id), Some(*chunk_id),
+                            ).await;
+                        }
+                        total_entities += 1;
+                    }
+
+                    // Insert relations
+                    for rel in &relations {
+                        let from_id: Option<(i64,)> = sqlx::query_as(
+                            "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
+                        ).bind(&tenant_bg).bind(&rel.from)
+                        .fetch_optional(&pool_bg).await.unwrap_or(None);
+
+                        let to_id: Option<(i64,)> = sqlx::query_as(
+                            "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
+                        ).bind(&tenant_bg).bind(&rel.to)
+                        .fetch_optional(&pool_bg).await.unwrap_or(None);
+
+                        if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
+                            let _ = sqlx::query(
+                                "INSERT IGNORE INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
+                            )
+                            .bind(&tenant_bg).bind(source_id)
+                            .bind(fid).bind(tid).bind(&rel.relation_type)
+                            .execute(&pool_bg).await;
+
+                            if let Some(ref neo4j) = neo4j_svc {
+                                let _ = neo4j.upsert_relation(
+                                    &tenant_bg, &rel.from, &rel.to, &rel.relation_type,
+                                    None, Some(source_id),
+                                ).await;
+                            }
+                            total_relations += 1;
+                        }
+                    }
+                }
+                chunks_processed += 1;
+
+                // Update progress every 5 chunks
+                if chunks_processed % 5 == 0 {
+                    let _ = sqlx::query(
+                        "UPDATE kg_extraction_runs SET entities_found = ?, relations_found = ?, chunks_processed = ? WHERE id = ?"
+                    ).bind(total_entities).bind(total_relations).bind(chunks_processed).bind(run_id)
+                    .execute(&pool_bg).await;
+                }
+            }
+
+            // Final update
+            let _ = sqlx::query(
+                "UPDATE kg_extraction_runs SET status = 'completed', entities_found = ?, relations_found = ?, chunks_processed = ?, finished_at = NOW() WHERE id = ?"
+            ).bind(total_entities).bind(total_relations).bind(chunks_processed).bind(run_id)
+            .execute(&pool_bg).await;
+
+            info!(event = "kg_extraction_completed", run_id = run_id, entities = total_entities, relations = total_relations, chunks = chunks_processed);
+        });
+
         return Ok(Json(json!({
             "status": "started",
-            "run_id": run_result.last_insert_id(),
+            "run_id": run_id,
             "source_id": source_id,
-            "message": "Extraction run started. Use GET /extraction-runs to check progress.",
+            "message": "KG extraction started in background. Use GET /extraction-runs to check progress.",
         })));
     }
 

@@ -295,6 +295,7 @@ pub(crate) async fn upload_file(
                 raw_markdown: None,
                 mb_size: None,
                 total_chunks: None,
+                pageindex_tree: None,
                 storage_mode: Some(st_mode),
                 s3_key: Some(s3_key_bg),
                 file_hash: None,

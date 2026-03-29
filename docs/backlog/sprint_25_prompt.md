@@ -98,6 +98,47 @@ Agent Studio → Publish → API Key Generated → Copy Embed Code
 
 ---
 
+## B-16: Auto-Pipeline Graph KM & PageIndex Gaps [P1, Size: M]
+
+### Concept
+อุดช่องโหว่ (Gaps) ของ Auto-Pipeline ให้รองรับ Graph KM และ PageIndex เต็มรูปแบบ:
+1. **Frontend LLM Selection:** เพิ่ม UI ให้เลือก LLM Provider และ Model ก่อนสั่ง Run Full Auto-Pipeline
+2. **Backend PageIndex Integration:** นำคำสั่ง `generate_tree` (PageIndex) แทรกเป็นหนึ่งในสเต็ปการรันของ Auto-Pipeline ด้าน Backend
+3. **Graph History Tracking:** แก้ไข `auto_pipeline.rs` ให้บันทึก State การสร้าง Knowledge Graph ลงตาราง `kg_extraction_runs` เพื่อให้ประวัติเชื่อมโยงไปแสดงที่หน้า Graph History (`/graph`) ให้ถูกต้อง
+
+### Files to Modify
+- `ro-ai-dashboard/src/app/sources/page.tsx` — เพิ่ม Modal/Selector เลือก LLM ก่อนรัน
+- `ro-ai-bridge/src/routes/auto_pipeline.rs` — เพิ่ม Step PageIndex และ Insert log ลง `kg_extraction_runs`
+
+### Acceptance Criteria
+- [ ] ผู้ใช้ปรับเปลี่ยน LLM Model สำหรับ Auto-Pipeline ในหน้า UI ได้
+- [ ] Auto-Pipeline เรียกใช้งาน PageIndex Tree extraction ด้วย 
+- [ ] เมื่อรัน Auto-Pipeline เสร็จ ข้อมูลประวัติ Graph ภายในต้องไปโชว์ในหน้า Dashboard Graph History 
+
+---
+
+## B-17: Zitadel Login UI Customization (Yggdrasil Concept) [P2, Size: S]
+
+### Concept
+หน้าเว็บ Login ปัจจุบันของ Zitadel เป็นเพียงหน้าจอ Default สีขาวล้วนและมีโลโก้แพลตฟอร์มภายนอก ซึ่งไม่เข้ากับประสบการณ์ใช้งานโดยรวมของระบบ
+ต้องการปรับเปลี่ยนหน้า Login Authentication (Yggdrasil) ให้สะท้อน Branding อัตลักษณ์ของ Mimir/Asgard:
+- เปลี่ยน Logo เป็นของโครงการ และปรับ Theme อิงจาก Yggdrasil Concept (โครงสร้างรากไม้แห่งข้อมูล / โทนสีหลักของระบบ)
+- ปรับแต่งสีพื้นหลัง (Background), โทนสีปุ่มกด (Primary/Secondary), และ Typography
+- ทำให้รองรับการแสดงผลทั้งรูปแบบ Light Mode และ Dark Mode อย่างกลมกลืน
+
+### Implementation Approach
+- ตั้งค่าผ่าน Zitadel Console (`/ui/console`) → Settings → Branding 
+- อัปโหลด Custom Assets (โลโก้, ไอคอน, รูปภาพพื้นหลังธีม Yggdrasil)
+- กำหนด Color palette Code ให้ตรงกับ Design System ที่ใช้บน Dashboard
+- (Optional) แทรก Custom CSS เพื่อเกลาเส้นสายและ Layout หาก Zitadel เปิดให้ override เพิ่มเติม
+
+### Acceptance Criteria
+- [ ] หน้า Auth Login ของระบบมีหน้าตาตรงตาม Yggdrasil concept
+- [ ] โทนสีและโลโก้กลมกลืนเป็นเนื้อเดียวกับ Mimir Dashboard ทั้งก่อนและหลัง Login
+- [ ] การแสดงผลสมบูรณ์ทั้งใน Light Mode และ Dark Mode
+
+---
+
 ## ISO Documentation
 - [ ] PM-02.25 Sprint Report
 - [ ] SI-04.25 Test Script

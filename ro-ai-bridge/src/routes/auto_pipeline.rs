@@ -73,6 +73,8 @@ pub struct AutoPipelineRequest {
     pub max_chunks: Option<usize>,
     /// Enable PageIndex Semantic Tree Generation 
     pub enable_pageindex: Option<bool>,
+    /// Skip KG extraction step (use existing KG data)
+    pub skip_kg: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,8 +111,9 @@ async fn run_auto_pipeline(
     let model = req.model.unwrap_or_else(|| "gemini-2.5-flash".into());
     let prompt_version = req.prompt_version.unwrap_or_else(|| "v1.0".into());
     let run_label = req.run_label.clone();
-    let max_chunks = req.max_chunks.unwrap_or(500);
+    let max_chunks = req.max_chunks.unwrap_or(10000);
     let enable_pageindex = req.enable_pageindex.unwrap_or(false);
+    let skip_kg = req.skip_kg.unwrap_or(false);
 
     // Verify source exists and belongs to tenant
     let source: Option<(i64, String)> = sqlx::query_as(
@@ -196,6 +199,10 @@ async fn run_auto_pipeline(
         let embed_model = llm_config.resolve_slot("embedding", None, None).model;
 
         let qdrant = QdrantService::new();
+        // Ensure collection exists with hybrid schema (dense + sparse)
+        if let Err(e) = qdrant.init_collection("source_chunks", 1024).await {
+            warn!("Collection init warning: {}", e);
+        }
         let batch_size = 64;
         let mut embedded = 0i64;
         let mut embed_error = false;
@@ -206,9 +213,16 @@ async fn run_auto_pipeline(
                 Ok(vectors) => {
                     let mut points = Vec::new();
                     for (i, (chunk_id, content, _)) in chunk_batch.iter().enumerate() {
+                        let sparse = mimir_core_ai::services::bm25::text_to_sparse_vector(content);
                         points.push(json!({
                             "id": *chunk_id as u64,
-                            "vector": vectors[i],
+                            "vector": {
+                                "dense": vectors[i],
+                                "bm25": {
+                                    "indices": sparse.indices,
+                                    "values": sparse.values,
+                                }
+                            },
                             "payload": {
                                 "content": content,
                                 "chunk_id": chunk_id,
@@ -283,7 +297,7 @@ async fn run_auto_pipeline(
         }
 
         // ─── Step 3: KG Extraction ───────────────────────────────────────
-        if pipeline_error.is_none() {
+        if pipeline_error.is_none() && !skip_kg {
             let step3_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 3, "kg_extraction", "running").await;
 
@@ -416,6 +430,11 @@ async fn run_auto_pipeline(
 
             total_steps_ok += 1;
             info!("  Step 3/5: ✅ {} entities, {} relations extracted (Neo4j={})", kg_entities, kg_relations, neo4j_svc.is_some());
+        } else if skip_kg && pipeline_error.is_none() {
+            log_step(&pool_clone, &run_id_clone, 3, "kg_extraction", "running").await;
+            log_step_result(&pool_clone, &run_id_clone, 3, "skipped", 0, 0, Some("Skipped by user")).await;
+            total_steps_ok += 1;
+            info!("  Step 3/5: ⏭️ KG extraction skipped by user");
         }
 
         // ─── Step 4: QA Extraction ───────────────────────────────────────

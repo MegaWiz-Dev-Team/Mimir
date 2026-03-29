@@ -10,10 +10,12 @@ import {
     searchGraphEntities,
     fetchEntityNeighbors,
     findGraphPaths,
+    fetchExtractionRuns,
     GraphStats,
     GraphEntity,
     VisualizationNode,
     VisualizationEdge,
+    ExtractionRun,
 } from "@/lib/api";
 import {
     Search,
@@ -50,6 +52,7 @@ export default function GraphPage() {
     const [edges, setEdges] = useState<VisualizationEdge[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [extractionRuns, setExtractionRuns] = useState<ExtractionRun[]>([]);
 
     // Search & filter
     const [searchQuery, setSearchQuery] = useState("");
@@ -75,13 +78,15 @@ export default function GraphPage() {
         setLoading(true);
         setError(null);
         try {
-            const [statsData, vizData] = await Promise.all([
+            const [statsData, vizData, runsData] = await Promise.all([
                 fetchGraphStats(),
                 fetchGraphVisualization({ limit: nodeLimit, type: filterType || undefined }),
+                fetchExtractionRuns().catch(() => ({ runs: [] })), // Graceful degradation if endpoint missing
             ]);
             setStats(statsData);
             setNodes(vizData.nodes);
             setEdges(vizData.edges);
+            setExtractionRuns(runsData.runs);
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -499,9 +504,12 @@ export default function GraphPage() {
                                 <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
                                     <Share2 className="w-16 h-16 mb-4 opacity-20" />
                                     <h3 className="text-lg font-medium mb-2">No Knowledge Graph Data</h3>
-                                    <p className="text-sm text-center max-w-md">
-                                        Your knowledge graph is empty. Trigger entity extraction from your data sources to populate it.
+                                    <p className="text-sm text-center max-w-md mb-6">
+                                        Your knowledge graph is currently empty. To populate it, you need to trigger entity extraction from your data sources.
                                     </p>
+                                    <Button onClick={() => window.location.href = '/sources'} variant="default">
+                                        Go to Sources to Extract
+                                    </Button>
                                 </div>
                             ) : loading ? (
                                 <div className="flex items-center justify-center py-24">
@@ -607,6 +615,54 @@ export default function GraphPage() {
                             </div>
                         </CardContent>
                     </Card>
+                    {/* Extraction Runs History */}
+                    {extractionRuns.length > 0 && (
+                        <Card className="mt-6">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-sm flex items-center gap-2">
+                                    <Database className="w-4 h-4" /> Extraction History
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left whitespace-nowrap">
+                                        <thead className="text-xs text-muted-foreground bg-muted/50 uppercase">
+                                            <tr>
+                                                <th className="px-4 py-2 rounded-tl-lg">ID</th>
+                                                <th className="px-4 py-2">Source ID</th>
+                                                <th className="px-4 py-2">Status</th>
+                                                <th className="px-4 py-2">Entities</th>
+                                                <th className="px-4 py-2">Relations</th>
+                                                <th className="px-4 py-2 rounded-tr-lg">Started</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {extractionRuns.map((run) => (
+                                                <tr key={run.id} className="border-b last:border-0 hover:bg-muted/50 border-gray-100 dark:border-zinc-800">
+                                                    <td className="px-4 py-2 font-medium">#{run.id}</td>
+                                                    <td className="px-4 py-2 text-muted-foreground">{run.source_id}</td>
+                                                    <td className="px-4 py-2">
+                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                            run.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                                                            run.status === "failed" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                                                            "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                                        }`}>
+                                                            {run.status} {run.status === "running" && <Loader2 className="w-3 h-3 inline ml-1 animate-spin" />}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-purple-600 dark:text-purple-400">+{run.entities_found}</td>
+                                                    <td className="px-4 py-2 text-blue-600 dark:text-blue-400">+{run.relations_found}</td>
+                                                    <td className="px-4 py-2 text-muted-foreground text-xs">
+                                                        {new Date(run.started_at).toLocaleString()}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             </div>
         </div>
