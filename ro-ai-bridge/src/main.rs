@@ -107,7 +107,7 @@ async fn main() {
         .nest("/api/v1/pipeline", pipeline_routes())
         .nest("/api/v1/qc", qc_routes())
         .nest("/api/v1/vector", vector_routes())
-        .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes())
+        .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes().merge(auto_pipeline_routes()))
         .nest("/api/v1/chunks", chunks_routes())
         .nest("/api/v1/llm-usage", llm_usage_routes())
         .nest("/api/v1/agents", agents_routes())
@@ -131,14 +131,14 @@ async fn main() {
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
         .nest("/api/v1/prompts", prompts_routes())
-        // Sprint 28: Auto-Pipeline
-        .nest("/api/v1/sources", auto_pipeline_routes())
         // Sprint 29: Simple RAG Q&A
         .merge(ask_routes())
         // Sprint 30: Tenant Management + PageIndex
         .nest("/api/v1/tenants", tenant_routes())
         .nest("/api/v1/tenants/{tenant_id}/ingest", ingest_routes())
         .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::models::models_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::features::features_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
