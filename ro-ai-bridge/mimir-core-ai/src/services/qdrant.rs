@@ -12,11 +12,20 @@ pub struct QdrantService {
 
 impl QdrantService {
     pub fn new() -> Self {
-        let host = env::var("QDRANT_HOST").unwrap_or_else(|_| "localhost".to_string());
-        let port = env::var("QDRANT_PORT").unwrap_or_else(|_| "6333".to_string());
+        let base_url = env::var("QDRANT_URL").unwrap_or_else(|_| {
+            let host = env::var("QDRANT_HOST").unwrap_or_else(|_| "localhost".to_string());
+            let port = env::var("QDRANT_PORT").unwrap_or_else(|_| "6333".to_string());
+            if port.starts_with("tcp://") {
+                // Handle Kubernetes automatic service port injection
+                format!("http://{}:6333", host)
+            } else {
+                format!("http://{}:{}", host, port)
+            }
+        });
+        
         Self {
             client: Client::new(),
-            base_url: format!("http://{}:{}", host, port),
+            base_url: base_url.trim_end_matches('/').to_string(),
         }
     }
 

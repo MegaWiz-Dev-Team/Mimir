@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2, Search, CheckSquare, Square, ChevronRight, ChevronDown } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, discoverHierarchy, importPages, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, discoverHierarchy, importPages, runAutoPipeline, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,14 @@ export default function SourcesPage() {
     // Configure Source State
     const [configuringSource, setConfiguringSource] = useState<DataSource | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    
+    // Auto-Pipeline States
+    const [pipelineConfigSource, setPipelineConfigSource] = useState<DataSource | null>(null);
+    const [pipelineSelectedProvider, setPipelineSelectedProvider] = useState("google");
+    const [pipelineSelectedModel, setPipelineSelectedModel] = useState("");
+    const [pipelineEnablePageIndex, setPipelineEnablePageIndex] = useState(false);
+    const [pipelineStarting, setPipelineStarting] = useState(false);
+    const [pipelineRunStatus, setPipelineRunStatus] = useState<any>(null);
 
     // Markdown Preview State
     const [previewingSource, setPreviewingSource] = useState<DataSource | null>(null);
@@ -85,6 +93,14 @@ export default function SourcesPage() {
     useEffect(() => {
         loadSources();
         loadFeatureFlags();
+        fetchModels()
+            .then(models => {
+                setAiModels(models);
+                if (models.length > 0) {
+                    setPipelineSelectedModel(models[0].model_id);
+                }
+            })
+            .catch(console.error);
     }, []);
 
     // B2: Group sources by type
@@ -946,11 +962,189 @@ export default function SourcesPage() {
                             </div>
                         </div>
                     )}
+                    {configuringSource && (
+                        <div className="pt-4 border-t mt-4 gap-2 grid">
+                            <Label className="text-[13px] font-medium text-purple-600 dark:text-purple-400">Agentic Automation</Label>
+                            <Button 
+                                variant="outline" 
+                                className="w-full sm:w-auto"
+                                onClick={() => {
+                                    const src = configuringSource;
+                                    setConfiguringSource(null);
+                                    setPipelineConfigSource(src);
+                                }}
+                            >
+                                <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
+                                Run Full Auto-Pipeline
+                            </Button>
+                        </div>
+                    )}
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setConfiguringSource(null)}>Cancel</Button>
                         <Button onClick={handleSaveConfig} disabled={isSaving}>
                             {isSaving ? "Saving..." : "Save Changes"}
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ═══ Configure Auto-Pipeline Dialog ═══ */}
+            <Dialog open={pipelineConfigSource !== null} onOpenChange={(open) => {
+                if (!open && !pipelineStarting) {
+                    setPipelineConfigSource(null);
+                    setPipelineRunStatus(null);
+                }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Configure Auto-Pipeline</DialogTitle>
+                        <DialogDescription>Review the pipeline settings before running on {pipelineConfigSource?.name}.</DialogDescription>
+                    </DialogHeader>
+                    
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-4">
+                            <div className="grid gap-2">
+                                <Label>Provider</Label>
+                                <select 
+                                    className="h-10 px-3 rounded-md border bg-background text-sm"
+                                    value={pipelineSelectedProvider}
+                                    disabled={pipelineStarting}
+                                    onChange={(e) => {
+                                        const p = e.target.value;
+                                        setPipelineSelectedProvider(p);
+                                        const modelsForProvider = aiModels.filter(m => m.provider === p);
+                                        if (modelsForProvider.length > 0) {
+                                            setPipelineSelectedModel(modelsForProvider[0].model_id);
+                                        } else {
+                                            setPipelineSelectedModel("");
+                                        }
+                                    }}
+                                >
+                                    {Array.from(new Set(aiModels.map(m => m.provider))).map(provider => (
+                                        <option key={provider} value={provider}>{provider}</option>
+                                    ))}
+                                    {aiModels.length === 0 && (
+                                        <>
+                                            <option value="google">google</option>
+                                            <option value="openai">openai</option>
+                                            <option value="ollama">ollama</option>
+                                            <option value="heimdall">heimdall</option>
+                                        </>
+                                    )}
+                                </select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Model ID</Label>
+                                <select 
+                                    className="h-10 px-3 rounded-md border bg-background text-sm"
+                                    value={pipelineSelectedModel} 
+                                    disabled={pipelineStarting}
+                                    onChange={(e) => setPipelineSelectedModel(e.target.value)} 
+                                >
+                                    {aiModels.length > 0 ? (
+                                        aiModels.filter(m => m.provider === pipelineSelectedProvider).map(m => (
+                                            <option key={m.model_id} value={m.model_id}>{m.model_id}</option>
+                                        ))
+                                    ) : (
+                                        <option value="">No models available from backend</option>
+                                    )}
+                                </select>
+                            </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground -mt-2">This AI Model will be used for both Knowledge Graph and QA Extractor steps.</p>
+
+                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
+                            <label className="flex items-start space-x-3 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="form-checkbox mt-1" 
+                                    disabled={pipelineStarting}
+                                    checked={pipelineEnablePageIndex} 
+                                    onChange={(e) => setPipelineEnablePageIndex(e.target.checked)} 
+                                />
+                                <div>
+                                    <span className="font-medium text-sm">Enable PageIndex Tree Generation</span>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Generates a hierarchical semantic tree. This will consume more LLM tokens.</p>
+                                </div>
+                            </label>
+                        </div>
+
+                        {pipelineStarting && (
+                            <div className="mt-4 border rounded-md p-4 bg-muted/50">
+                                <h4 className="text-sm font-semibold mb-3 flex items-center">
+                                    {pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed' ? (
+                                        pipelineRunStatus?.status === 'finished' ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> : <X className="w-4 h-4 mr-2 text-red-500" />
+                                    ) : (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin text-primary" /> 
+                                    )}
+                                    {pipelineRunStatus?.status === 'finished' ? 'Pipeline Completed' : pipelineRunStatus?.status === 'failed' ? 'Pipeline Failed' : 'Pipeline Running...'}
+                                </h4>
+                                {pipelineRunStatus ? (
+                                    <div className="space-y-2 text-sm max-h-[200px] overflow-y-auto">
+                                        {pipelineRunStatus.steps?.map((step: any) => (
+                                            <div key={step.step} className="flex items-center justify-between py-1">
+                                                <div className="flex items-center">
+                                                    {step.status === 'in_progress' ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-500" /> : 
+                                                     step.status === 'failed' ? <X className="w-4 h-4 mr-2 text-red-500" /> :
+                                                     step.status === 'finished' ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> :
+                                                     <Square className="w-4 h-4 mr-2 text-muted-foreground" />}
+                                                    <span className={step.status === 'pending' ? 'text-muted-foreground' : ''}>{step.name}</span>
+                                                </div>
+                                                {step.latency_ms > 0 && <span className="text-xs text-muted-foreground">{step.latency_ms}ms</span>}
+                                            </div>
+                                        ))}
+                                        {pipelineRunStatus.status === 'failed' && <p className="text-xs text-red-500 mt-2">{pipelineRunStatus.error}</p>}
+                                        {pipelineRunStatus.status === 'finished' && <p className="text-xs text-green-600 font-medium mt-2">All extraction processes finished successfully.</p>}
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground">Initializing run...</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <DialogFooter>
+                        {pipelineStarting && (pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed') ? (
+                            <Button onClick={() => { setPipelineConfigSource(null); setPipelineStarting(false); setPipelineRunStatus(null); loadSources(); }}>Close</Button>
+                        ) : pipelineStarting ? (
+                            <Button disabled><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Running...</Button>
+                        ) : (
+                            <>
+                                <Button variant="outline" onClick={() => setPipelineConfigSource(null)}>Cancel</Button>
+                                <Button 
+                                    onClick={async () => {
+                                        if (!pipelineConfigSource?.id) return;
+                                        setPipelineStarting(true);
+                                        setPipelineRunStatus(null);
+                                        try {
+                                            const res = await runAutoPipeline(pipelineConfigSource.id, {
+                                                provider: pipelineSelectedProvider,
+                                                model: pipelineSelectedModel,
+                                                enablePageIndex: pipelineEnablePageIndex,
+                                            });
+                                            // Start Polling
+                                            const intervalId = setInterval(async () => {
+                                                if (!pipelineConfigSource?.id) return;
+                                                try {
+                                                    const statusRes = await fetchPipelineStatus(pipelineConfigSource.id);
+                                                    setPipelineRunStatus(statusRes);
+                                                    if (statusRes.status === 'finished' || statusRes.status === 'failed') {
+                                                        clearInterval(intervalId);
+                                                        loadSources();
+                                                    }
+                                                } catch (e) { console.error(e); }
+                                            }, 2000);
+                                        } catch (err: any) {
+                                            alert(`Error: ${err.message}`);
+                                            setPipelineStarting(false);
+                                        }
+                                    }}
+                                    disabled={!pipelineSelectedModel}
+                                >
+                                    <Sparkles className="w-4 h-4 mr-2" /> Start Pipeline
+                                </Button>
+                            </>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
