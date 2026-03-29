@@ -1084,11 +1084,11 @@ export default function SourcesPage() {
                                         {pipelineRunStatus.steps?.map((step: any) => (
                                             <div key={step.step} className="flex items-center justify-between py-1">
                                                 <div className="flex items-center">
-                                                    {step.status === 'in_progress' ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-500" /> : 
+                                                    {step.status === 'running' ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-500" /> : 
                                                      step.status === 'failed' ? <X className="w-4 h-4 mr-2 text-red-500" /> :
-                                                     step.status === 'finished' ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> :
+                                                     (step.status === 'completed' || step.status === 'skipped') ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> :
                                                      <Square className="w-4 h-4 mr-2 text-muted-foreground" />}
-                                                    <span className={step.status === 'pending' ? 'text-muted-foreground' : ''}>{step.name}</span>
+                                                    <span className={step.status === 'pending' || step.status === 'skipped' ? 'text-muted-foreground' : ''}>{step.name}</span>
                                                 </div>
                                                 {step.latency_ms > 0 && <span className="text-xs text-muted-foreground">{step.latency_ms}ms</span>}
                                             </div>
