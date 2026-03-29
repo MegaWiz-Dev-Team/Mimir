@@ -300,9 +300,9 @@ pub async fn call_llm_api_with_logging(
     });
 
     // Only add chat_template_kwargs for local models (Heimdall/Ollama)
-    // Gemini and OpenAI APIs reject unknown fields
+    // Gemini/Google and OpenAI APIs reject unknown fields
     let prov = provider.unwrap_or("unknown");
-    if prov != "gemini" && prov != "openai" {
+    if prov != "gemini" && prov != "google" && prov != "openai" {
         body["chat_template_kwargs"] = json!({ "enable_thinking": false });
     }
 
