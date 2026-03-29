@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS pipeline_run_steps (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     run_id VARCHAR(36) NOT NULL,
-    step_number TINYINT UNSIGNED NOT NULL,
+    step_number TINYINT NOT NULL,
     step_name VARCHAR(255) NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'running',
     item_count BIGINT DEFAULT 0,
