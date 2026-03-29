@@ -7,7 +7,7 @@ import Cookies from "js-cookie";
 import {
     LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon,
     Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
-    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes
+    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree
 } from "lucide-react";
 import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
 
@@ -157,7 +157,7 @@ export function Navbar() {
     };
 
     const handleTenantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        Cookies.set("tenant_id", e.target.value);
+        Cookies.set("tenant_id", e.target.value, { path: "/", expires: 365 });
         window.location.reload();
     };
 
@@ -173,6 +173,8 @@ export function Navbar() {
                 { name: "Sources", href: "/sources", icon: LinkIcon },
                 { name: "Knowledge", href: "/knowledge", icon: BookOpen },
                 { name: "Vector", href: "/vector", icon: Search },
+                { name: "Graph", href: "/graph", icon: Share2 },
+                { name: "Page Index", href: "/pageindex", icon: ListTree },
                 { name: "Quality", href: "/quality_control", icon: ShieldCheck },
             ],
         },
@@ -183,7 +185,6 @@ export function Navbar() {
                 // { name: "Playground", href: "/playground", icon: Bot },
                 { name: "RAG Playground", href: "/rag-playground", icon: FlaskConical },
                 { name: "Agents", href: "/agents", icon: Brain },
-                { name: "Graph", href: "/graph", icon: Share2 },
             ],
         },
         {
@@ -262,14 +263,14 @@ export function Navbar() {
                         </span>
                     )}
 
-                    <a
-                        href="/api/auth/logout"
+                    <button
+                        onClick={handleLogout}
                         className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:text-zinc-400 dark:hover:text-red-400 dark:hover:bg-red-900/20 rounded-md transition-colors"
                         title="Logout"
                         id="logout-btn"
                     >
                         <LogOut className="w-5 h-5" />
-                    </a>
+                    </button>
                 </div>
             </div>
         </nav>

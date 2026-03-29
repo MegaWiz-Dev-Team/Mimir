@@ -1,5 +1,6 @@
 //! Agent chat and conversation listing.
 
+use crate::retrieval::graph::GraphRetriever;
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
     Json, Extension,
@@ -65,7 +66,31 @@ pub(crate) async fn agent_chat(
 
     let (api_key, api_base) = resolve_llm_credentials(&config, &model_config, &agent.model_id)?;
 
-    // 4. Build prompt with system prompt + user message
+    // 4. Knowledge Graph augmentation (if enabled)
+    let mut system_prompt = agent.system_prompt.clone();
+    if agent.use_knowledge_graph.unwrap_or(false) {
+        let graph_retriever = crate::retrieval::graph::SqlGraphRetriever::new(pool.clone());
+        match graph_retriever.search(&payload.message, tenant_id, 5).await {
+            Ok(graph_results) if !graph_results.is_empty() => {
+                let retrieval_results = crate::retrieval::graph::graph_to_retrieval_results(&graph_results);
+                let graph_context: Vec<String> = retrieval_results.iter()
+                    .map(|r| format!("• {}", r.content))
+                    .collect();
+                let kg_section = format!(
+                    "\n\n[Knowledge Graph Context]\nThe following entities and relationships are relevant:\n{}",
+                    graph_context.join("\n")
+                );
+                system_prompt.push_str(&kg_section);
+                info!(event = "kg_augmented", agent_id = id, entities = graph_results.len(), "KG context injected");
+            }
+            Ok(_) => { /* no relevant entities found, skip */ }
+            Err(e) => {
+                tracing::warn!(error = %e, "KG retrieval failed, continuing without graph context");
+            }
+        }
+    }
+
+    // 5. Build prompt with system prompt + user message
     let temperature = agent.temperature.unwrap_or(0.7);
     let max_tokens = agent.max_tokens.unwrap_or(2048);
 
@@ -75,7 +100,7 @@ pub(crate) async fn agent_chat(
 
     // Build messages array with conversation history
     let mut messages = vec![
-        json!({"role": "system", "content": agent.system_prompt}),
+        json!({"role": "system", "content": system_prompt}),
     ];
 
     // Load recent history for context (last 10 messages)

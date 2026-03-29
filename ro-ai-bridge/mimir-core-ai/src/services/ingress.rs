@@ -231,7 +231,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
@@ -258,7 +259,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
         let result2 = IngressManager::process_source(&bad_config_source).await;
         assert!(result2.is_err());
         assert_eq!(result2.unwrap_err().to_string(), "Missing or invalid 'url' in config_json for web source");
@@ -286,7 +288,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
@@ -315,7 +318,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let csv_data = b"Name,Score\nAlice,95\n";
         let result = IngressManager::process_extraction(&source, csv_data);
@@ -347,7 +351,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let result = IngressManager::process_fetch(&source).await;
         assert!(result.is_err());
@@ -376,7 +381,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
         let result = IngressManager::process_extraction(&source, csv_data);
@@ -409,7 +415,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = IngressManager::process_extraction_sql(&source, csv_data);
@@ -447,7 +454,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let txt_data = b"Hello, this is a test document for pipeline wiring.";
         let result = IngressManager::process_source_with_data(&source, txt_data);
@@ -478,7 +486,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = IngressManager::process_source_with_data(&source, csv_data);
@@ -510,7 +519,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let result = IngressManager::process_source_with_data(&source, b"");
         assert!(result.is_err(), "Empty file should return error");
@@ -539,7 +549,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
@@ -570,7 +581,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
         let result = IngressManager::process_source_with_data(&source, csv_data);
@@ -601,7 +613,8 @@ mod tests {
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
                 next_refresh_at: None,
-                refresh_status: None,        };
+                refresh_status: None,
+                pageindex_tree: None,        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err(), "File type without data should error");

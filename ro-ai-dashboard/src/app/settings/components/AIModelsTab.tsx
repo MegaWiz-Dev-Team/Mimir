@@ -31,6 +31,8 @@ const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
         { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
         { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
         { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+        { value: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)" },
+        { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite (Preview)" },
     ],
 };
 

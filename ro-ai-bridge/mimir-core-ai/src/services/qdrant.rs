@@ -4,6 +4,8 @@ use serde_json::json;
 use std::env;
 use tracing::info;
 
+use crate::services::bm25::SparseVector;
+
 #[derive(Clone)]
 pub struct QdrantService {
     client: Client,
@@ -60,18 +62,18 @@ impl QdrantService {
     }
 
     async fn create_collection(&self, collection_name: &str, vector_size: u64) -> Result<()> {
-        info!("🏗️ Creating Qdrant collection: {}", collection_name);
+        info!("🏗️ Creating Qdrant collection: {} (hybrid: dense={}d + sparse bm25)", collection_name, vector_size);
         let create_url = format!("{}/collections/{}", self.base_url, collection_name);
         let body = json!({
             "vectors": {
-                "size": vector_size,
-                "distance": "Cosine"
+                "dense": {
+                    "size": vector_size,
+                    "distance": "Cosine"
+                }
             },
             "sparse_vectors": {
-                "text-sparse": {
-                    "index": {
-                        "full_scan_threshold": 1000
-                    }
+                "bm25": {
+                    "modifier": "idf"
                 }
             }
         });
@@ -86,7 +88,7 @@ impl QdrantService {
             return Err(anyhow::anyhow!("Failed to create collection: {}", error));
         }
 
-        info!("✅ Collection {} created successfully", collection_name);
+        info!("✅ Collection {} created successfully (hybrid mode)", collection_name);
         Ok(())
     }
 
@@ -118,6 +120,7 @@ impl QdrantService {
         Ok(body)
     }
 
+    /// Dense-only search (legacy, used by wiki_qa)
     pub async fn search(&self, collection_name: &str, vector: Vec<f32>, limit: usize, tenant_id: &str, show_expired: bool) -> Result<serde_json::Value> {
         let url = format!("{}/collections/{}/points/search", self.base_url, collection_name);
         
@@ -146,6 +149,62 @@ impl QdrantService {
         if !resp.status().is_success() {
             let error = resp.text().await?;
             return Err(anyhow::anyhow!("Failed to search vectors: {}", error));
+        }
+
+        let res = resp.json().await?;
+        Ok(res)
+    }
+
+    /// Hybrid search using dense + sparse vectors with Reciprocal Rank Fusion (RRF).
+    /// Uses Qdrant's /points/query endpoint with prefetch + fusion.
+    pub async fn search_hybrid(
+        &self,
+        collection_name: &str,
+        dense_vector: Vec<f32>,
+        sparse_vector: &SparseVector,
+        limit: usize,
+        tenant_id: &str,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/collections/{}/points/query", self.base_url, collection_name);
+        
+        let filter = json!({
+            "must": [
+                { "key": "tenant_id", "match": { "value": tenant_id } },
+                { "key": "is_active", "match": { "value": true } }
+            ]
+        });
+
+        let body = json!({
+            "prefetch": [
+                {
+                    "query": dense_vector,
+                    "using": "dense",
+                    "limit": limit * 3,
+                    "filter": filter,
+                },
+                {
+                    "query": {
+                        "indices": sparse_vector.indices,
+                        "values": sparse_vector.values,
+                    },
+                    "using": "bm25",
+                    "limit": limit * 3,
+                    "filter": filter,
+                }
+            ],
+            "query": { "fusion": "rrf" },
+            "limit": limit,
+            "with_payload": true,
+        });
+
+        let resp = self.client.post(&url)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let error = resp.text().await?;
+            return Err(anyhow::anyhow!("Hybrid search failed: {}", error));
         }
 
         let res = resp.json().await?;
