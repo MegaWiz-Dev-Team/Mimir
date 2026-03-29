@@ -20,7 +20,8 @@ use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::qdrant::QdrantService;
 use crate::routes::tenant::extract_tenant_id;
 use crate::routes::vector::embed_texts;
-use crate::routes::sources::{call_llm_api_with_logging, infer_api_base, resolve_llm_credentials};
+use crate::routes::sources::{call_llm_api_with_logging, infer_api_base};
+use crate::routes::sources::pageindex::generate_tree;
 
 /// Strip `<think>...</think>` blocks from Qwen-style reasoning responses,
 /// then extract the first JSON object or array from the remaining text.
@@ -70,6 +71,8 @@ pub struct AutoPipelineRequest {
     pub skip_completed: Option<bool>,
     /// Max chunks to process (default: all)
     pub max_chunks: Option<usize>,
+    /// Enable PageIndex Semantic Tree Generation 
+    pub enable_pageindex: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +110,7 @@ async fn run_auto_pipeline(
     let prompt_version = req.prompt_version.unwrap_or_else(|| "v1.0".into());
     let run_label = req.run_label.clone();
     let max_chunks = req.max_chunks.unwrap_or(500);
+    let enable_pageindex = req.enable_pageindex.unwrap_or(false);
 
     // Verify source exists and belongs to tenant
     let source: Option<(i64, String)> = sqlx::query_as(
@@ -250,6 +254,34 @@ async fn run_auto_pipeline(
             .await;
         }
 
+        // ─── Step 2.5: PageIndex Generation (Optional) ────────────────────
+        if pipeline_error.is_none() && enable_pageindex {
+            let step25_start = std::time::Instant::now();
+            log_step(&pool_clone, &run_id_clone, 25, "pageindex_generation", "running").await;
+            
+            let mut full_text = String::new();
+            for (_id, content, chunk_index) in &chunks {
+                let idx = chunk_index.unwrap_or(0);
+                full_text.push_str(&format!("\n--- [Page/Chunk {}] ---\n{}\n", idx, content));
+            }
+            
+            let api_base = infer_api_base(&provider);
+            let api_key = resolve_api_key(&provider);
+
+            match generate_tree(&pool_clone, &tenant_clone, source_id, &full_text, &api_key, &api_base, &model, &provider).await {
+                Ok(_) => {
+                    log_step_result(&pool_clone, &run_id_clone, 25, "completed", 1, step25_start.elapsed().as_millis() as i64, None).await;
+                    total_steps_ok += 1;
+                    info!("  Step 2.5: ✅ PageIndex Semantic Tree generated");
+                }
+                Err(e) => {
+                    log_step_result(&pool_clone, &run_id_clone, 25, "failed", 0, step25_start.elapsed().as_millis() as i64, Some(&e.to_string())).await;
+                    // Don't fail the whole pipeline for this optional step
+                    warn!("  Step 2.5: ⚠️ PageIndex generation failed: {}", e);
+                }
+            }
+        }
+
         // ─── Step 3: KG Extraction ───────────────────────────────────────
         if pipeline_error.is_none() {
             let step3_start = std::time::Instant::now();
@@ -260,7 +292,27 @@ async fn run_auto_pipeline(
             let mut kg_entities = 0i64;
             let mut kg_relations = 0i64;
 
-            for (chunk_id, content, _) in &chunks {
+            // Log step in kg_extraction_runs to fix graph history UI
+            let kg_run_id = Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT IGNORE INTO kg_extraction_runs (id, source_id, tenant_id, status, started_at) VALUES (?, ?, ?, 'running', NOW())"
+            )
+            .bind(&kg_run_id)
+            .bind(source_id)
+            .bind(&tenant_clone)
+            .execute(&pool_clone)
+            .await;
+
+            // Connect to Neo4j for dual-write (graceful degradation)
+            let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
+            let neo4j_svc = mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
+            if neo4j_svc.is_some() {
+                info!("  Step 3: Neo4j connected — dual-write enabled");
+            } else {
+                warn!("  Step 3: Neo4j unavailable — SQL-only mode");
+            }
+
+            for (_chunk_id, content, _) in &chunks {
                 let system_prompt = mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
                 let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(content, 20);
                 let combined_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
@@ -270,7 +322,7 @@ async fn run_auto_pipeline(
                     &api_key, &api_base, &model, &combined_prompt,
                     Some(&pool_clone), Some(&tenant_clone), Some(&provider), Some("auto_pipeline_kg"),
                 ).await;
-                let latency = start.elapsed().as_millis() as i64;
+                let _latency = start.elapsed().as_millis() as i64;
 
                 if let Ok((response_text, _tokens)) = result {
                     // Parse KG response — strip <think> tags from Qwen-style models
@@ -279,14 +331,27 @@ async fn run_auto_pipeline(
                         Ok(parsed) => {
                         if let Some(entities) = parsed["entities"].as_array() {
                             for ent in entities {
+                                let ent_name = ent["name"].as_str().unwrap_or("");
+                                let ent_type = ent["type"].as_str().unwrap_or("Concept");
+                                let ent_props = ent.get("properties").map(|p| p.to_string());
+
+                                // MariaDB insert
                                 let _ = sqlx::query(
-                                    "INSERT INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
+                                    "INSERT IGNORE INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
                                 )
-                                .bind(&tenant_clone).bind(source_id).bind(chunk_id)
-                                .bind(ent["name"].as_str().unwrap_or(""))
-                                .bind(ent["type"].as_str().unwrap_or("Concept"))
-                                .bind(ent["properties"].to_string())
+                                .bind(&tenant_clone).bind(source_id).bind(_chunk_id)
+                                .bind(ent_name)
+                                .bind(ent_type)
+                                .bind(&ent_props)
                                 .execute(&pool_clone).await;
+
+                                // Neo4j dual-write
+                                if let Some(ref neo4j) = neo4j_svc {
+                                    let _ = neo4j.upsert_entity(
+                                        &tenant_clone, ent_name, ent_type,
+                                        ent_props.as_deref(), Some(source_id), Some(*_chunk_id),
+                                    ).await;
+                                }
                                 kg_entities += 1;
                             }
                         }
@@ -295,6 +360,8 @@ async fn run_auto_pipeline(
                                 // Look up from/to entity IDs by name
                                 let from_name = rel["from"].as_str().unwrap_or("");
                                 let to_name = rel["to"].as_str().unwrap_or("");
+                                let rel_type = rel["type"].as_str().unwrap_or("");
+
                                 let from_id: Option<(i64,)> = sqlx::query_as(
                                     "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
                                 ).bind(&tenant_clone).bind(from_name)
@@ -304,13 +371,22 @@ async fn run_auto_pipeline(
                                 ).bind(&tenant_clone).bind(to_name)
                                 .fetch_optional(&pool_clone).await.unwrap_or(None);
                                 if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
+                                    // MariaDB insert
                                     let _ = sqlx::query(
-                                        "INSERT INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
+                                        "INSERT IGNORE INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
                                     )
                                     .bind(&tenant_clone).bind(source_id)
                                     .bind(fid).bind(tid)
-                                    .bind(rel["type"].as_str().unwrap_or(""))
+                                    .bind(rel_type)
                                     .execute(&pool_clone).await;
+
+                                    // Neo4j dual-write
+                                    if let Some(ref neo4j) = neo4j_svc {
+                                        let _ = neo4j.upsert_relation(
+                                            &tenant_clone, from_name, to_name, rel_type,
+                                            None, Some(source_id),
+                                        ).await;
+                                    }
                                     kg_relations += 1;
                                 }
                             }
@@ -326,8 +402,20 @@ async fn run_auto_pipeline(
             }
 
             log_step_result(&pool_clone, &run_id_clone, 3, "completed", kg_entities, step3_start.elapsed().as_millis() as i64, None).await;
+            
+            // Update kg_run status
+            let _ = sqlx::query(
+                "UPDATE kg_extraction_runs SET status = 'completed', entities_found = ?, relations_found = ?, chunks_processed = ?, finished_at = NOW() WHERE id = ?"
+            )
+            .bind(kg_entities)
+            .bind(kg_relations)
+            .bind(chunks.len() as i64)
+            .bind(&kg_run_id)
+            .execute(&pool_clone)
+            .await;
+
             total_steps_ok += 1;
-            info!("  Step 3/5: ✅ {} entities, {} relations extracted", kg_entities, kg_relations);
+            info!("  Step 3/5: ✅ {} entities, {} relations extracted (Neo4j={})", kg_entities, kg_relations, neo4j_svc.is_some());
         }
 
         // ─── Step 4: QA Extraction ───────────────────────────────────────
@@ -546,7 +634,7 @@ async fn finish_run(pool: &DbPool, run_id: &str, status: &str, error: Option<&st
 /// Resolve API key from environment based on provider
 fn resolve_api_key(provider: &str) -> String {
     match provider {
-        "gemini" => std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+        "google" | "gemini" => std::env::var("GEMINI_API_KEY").unwrap_or_default(),
         "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
         "heimdall" => std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
         _ => std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
