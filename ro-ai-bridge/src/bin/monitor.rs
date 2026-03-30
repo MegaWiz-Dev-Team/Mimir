@@ -223,17 +223,10 @@ async fn trigger_run(
         .unwrap_or_else(|| payload.tenant_id.unwrap_or_else(|| "default_tenant".to_string()));
         
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
-    
-    let default_provider_str = tenant_config.as_ref()
-        .map(|c| c.default_provider.clone())
-        .unwrap_or_else(|| "ollama".to_string());
-    let default_model_str = tenant_config.as_ref()
-        .map(|c| c.default_model.clone());
-
-    let provider = payload.provider.unwrap_or(default_provider_str);
-    let model = payload.model.or(default_model_str).unwrap_or_else(|| {
-        if provider == "gemini" { "gemini-2.5-flash".to_string() } else { "llama3.2".to_string() }
-    });
+    let llm_config = tenant_config.and_then(|c| c.llm_config).map(|c| c.0).unwrap_or_default();
+    let slot = llm_config.resolve_slot("pipeline_generator", payload.provider.as_deref(), payload.model.as_deref());
+    let provider = slot.provider;
+    let model = slot.model;
     
     let is_test = payload.test_run.unwrap_or(false);
     
@@ -550,8 +543,7 @@ async fn trigger_indexing(State(state): State<Arc<AppState>>) -> impl IntoRespon
     let qdrant = QdrantService::new();
     
     tokio::spawn(async move {
-        let ollama_client = ollama::Client::new();
-        if let Err(e) = run_indexer(&db, &qdrant, &ollama_client, "wiki_qa").await {
+        if let Err(e) = run_indexer(&db, &qdrant, "wiki_qa").await {
             error!("Background indexing failed: {}", e);
         }
     });
@@ -564,25 +556,28 @@ async fn search_vectors(
     Extension(tenant): Extension<TenantContext>,
     Json(payload): Json<SearchRequest>,
 ) -> impl IntoResponse {
-    use rig::embeddings::EmbeddingModel;
-    
-    let ollama_client = ollama::Client::new();
-    let embed_model = ollama_client.embedding_model("nomic-embed-text");
-    
     let target_tenant = if tenant.role == "SuperAdmin" {
-        payload.tenant_id.unwrap_or(tenant.tenant_id)
+        payload.tenant_id.unwrap_or(tenant.tenant_id.clone())
     } else {
-        tenant.tenant_id
+        tenant.tenant_id.clone()
     };
 
     let show_expired = payload.show_expired.unwrap_or(false);
 
-    match embed_model.embed_text(&payload.query).await {
-        Ok(embedding) => {
-            let vector_f32: Vec<f32> = embedding.vec.into_iter().map(|f| f as f32).collect();
-            match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
-                Ok(results) => Json(results).into_response(),
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    let router = match mimir_core_ai::services::llm_router::LlmRouter::new(state.db.clone(), &target_tenant).await {
+        Ok(r) => r,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    };
+
+    match router.embed_texts_strict(&[payload.query.clone()]).await {
+        Ok(embeddings) => {
+            if let Some(vector_f32) = embeddings.into_iter().next() {
+                match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
+                    Ok(results) => Json(results).into_response(),
+                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+                }
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Empty embedding vector"}))).into_response()
             }
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
@@ -615,27 +610,10 @@ async fn chat_handler(
     
     let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
-    
-    let default_provider_str = tenant_config.as_ref()
-        .map(|c| c.default_provider.clone())
-        .unwrap_or_else(|| "ollama".to_string());
-    let default_model_str = tenant_config.as_ref()
-        .map(|c| c.default_model.clone());
-
-    let provider = payload.provider.as_deref()
-        .unwrap_or(&default_provider_str)
-        .parse::<LlmProvider>()
-        .unwrap_or(LlmProvider::Ollama);
-    
-    let model = payload.model.clone()
-        .or(default_model_str)
-        .unwrap_or_else(|| {
-            match provider {
-                LlmProvider::Ollama => "llama3.2".to_string(),
-                LlmProvider::Gemini => "gemini-2.5-flash".to_string(),
-                LlmProvider::Heimdall => "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
-            }
-        });
+    let llm_config = tenant_config.and_then(|c| c.llm_config).map(|c| c.0).unwrap_or_default();
+    let slot = llm_config.resolve_slot("chat", payload.provider.as_deref(), payload.model.as_deref());
+    let provider = slot.provider.parse::<LlmProvider>().unwrap_or(LlmProvider::Ollama);
+    let model = slot.model;
 
     info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
           payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
@@ -748,27 +726,10 @@ async fn chat_stream_handler(
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
     let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
-    
-    let default_provider_str = tenant_config.as_ref()
-        .map(|c| c.default_provider.clone())
-        .unwrap_or_else(|| "ollama".to_string());
-    let default_model_str = tenant_config.as_ref()
-        .map(|c| c.default_model.clone());
-
-    let provider = payload.provider.as_deref()
-        .unwrap_or(&default_provider_str)
-        .parse::<LlmProvider>()
-        .unwrap_or(LlmProvider::Ollama);
-    
-    let model = payload.model.clone()
-        .or(default_model_str)
-        .unwrap_or_else(|| {
-            match provider {
-                LlmProvider::Ollama => "llama3.2".to_string(),
-                LlmProvider::Gemini => "gemini-2.5-flash".to_string(),
-                LlmProvider::Heimdall => "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
-            }
-        });
+    let llm_config = tenant_config.and_then(|c| c.llm_config).map(|c| c.0).unwrap_or_default();
+    let slot = llm_config.resolve_slot("chat", payload.provider.as_deref(), payload.model.as_deref());
+    let provider = slot.provider.parse::<LlmProvider>().unwrap_or(LlmProvider::Ollama);
+    let model = slot.model;
     
     info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
           payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);

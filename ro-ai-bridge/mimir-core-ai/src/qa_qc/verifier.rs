@@ -1,25 +1,22 @@
-use rig::providers::gemini;
+use crate::services::llm_router::UniversalClient;
 use super::{WikiChunk, QAPair, AtomicFact, CoverageReport};
 use anyhow::Result;
-use rig::completion::Prompt;
 use tracing::info;
 
 pub struct CoverageVerifierAgent;
 
 pub async fn verify_coverage(
-    client: &gemini::Client, 
-    gemini_model: &str,
+    client: &UniversalClient, 
+    model: &str,
     _chunk: &WikiChunk,
     facts: &[AtomicFact],
     qa_pairs: &[QAPair]
 ) -> Result<CoverageReport> {
     info!("      Verifying Coverage (Agent approach)...");
 
-    let agent = client.agent(gemini_model)
-        .preamble("You are a strict QA Verifier. Analyze if the Q/A pairs cover the important Atomic Facts. \
+    let preamble = "You are a strict QA Verifier. Analyze if the Q/A pairs cover the important Atomic Facts. \
                    Return ONLY a valid JSON object matching the schema. \
-                   Do NOT include any markdown formatting or preamble.")
-        .build();
+                   Do NOT include any markdown formatting or preamble.";
 
     let facts_str = serde_json::to_string(facts)?;
     let qa_str = serde_json::to_string(qa_pairs)?;
@@ -43,7 +40,7 @@ pub async fn verify_coverage(
         facts_str, qa_str
     );
 
-    let raw_res = agent.prompt(prompt.as_str()).await?;
+    let raw_res = client.prompt(model, preamble, &prompt, 4096, 0.2).await?;
 
     // Clean markdown
     let clean_json = raw_res.trim()

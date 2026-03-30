@@ -11,7 +11,6 @@ use mimir_core_ai::{
     services::{db::DbPool, qdrant::QdrantService},
     qa_qc::indexer::run_indexer,
 };
-use rig::providers::ollama;
 use serde::Deserialize;
 use crate::routes::tenant::extract_tenant_id;
 
@@ -97,15 +96,50 @@ pub fn vector_routes() -> Router<DbPool> {
         .route("/{id}", delete(delete_vector_handler))
 }
 
-async fn get_vector_stats(State(pool): State<DbPool>) -> impl IntoResponse {
+async fn get_vector_stats(headers: HeaderMap, State(pool): State<DbPool>) -> impl IntoResponse {
     let collection_name = "source_chunks";
-    let qdrant = QdrantService::new(); // Ideally instantiated once in AppState, but fine for now given monitor.rs does the same.
+    let qdrant = QdrantService::new();
+    let tenant_id = extract_tenant_id(&headers).to_string();
 
     // 1. Get Qdrant stats
     let qdrant_info = qdrant.get_collection_info(collection_name).await.unwrap_or(serde_json::Value::Null);
+    let qdrant_points = qdrant_info["result"]["points_count"].as_i64().unwrap_or(0);
 
-    // 2. Get MariaDB stats
-    let total_qa = sqlx::query("SELECT count(*) as count FROM qa_results")
+    // 2. Count QA stats (tenant-scoped)
+    let total_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE tenant_id = ?")
+        .bind(&tenant_id)
+        .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get::<i64, _>("count") }).unwrap_or(0);
+
+    let indexed_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE tenant_id = ? AND indexed_at IS NOT NULL")
+        .bind(&tenant_id)
+        .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get::<i64, _>("count") }).unwrap_or(0);
+
+    let pending_results: i64 = sqlx::query(
+        "SELECT count(*) as count FROM qa_results \
+         WHERE tenant_id = ? AND qc_scanned = 1 \
+         AND id NOT IN (SELECT qa_id FROM qa_cluster_items) \
+         AND indexed_at IS NULL"
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get("count") }).unwrap_or(0);
+
+    let pending_clusters: i64 = sqlx::query(
+        "SELECT count(*) as count FROM qa_clusters \
+         WHERE tenant_id = ? AND status != 'PENDING' \
+         AND indexed_at IS NULL AND golden_answer IS NOT NULL"
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get("count") }).unwrap_or(0);
+
+    let pending_golden = pending_results + pending_clusters;
+
+    // 3. Get chunk stats (tenant-scoped via source ownership)
+    let total_chunks = sqlx::query(
+        "SELECT count(*) as count FROM chunks c \
+         JOIN data_sources ds ON c.source_id = ds.id \
+         WHERE ds.tenant_id = ?"
+    )
+        .bind(&tenant_id)
         .fetch_one(&pool)
         .await
         .map(|r| {
@@ -114,21 +148,21 @@ async fn get_vector_stats(State(pool): State<DbPool>) -> impl IntoResponse {
         })
         .unwrap_or(0);
 
-    let indexed_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE indexed_at IS NOT NULL")
-        .fetch_one(&pool)
-        .await
-        .map(|r| {
-            use sqlx::Row;
-            r.get::<i64, _>("count")
-        })
-        .unwrap_or(0);
+    let chunk_sync_pct = if total_chunks > 0 {
+        ((qdrant_points as f64 / total_chunks as f64) * 100.0).min(100.0)
+    } else {
+        0.0
+    };
 
     Json(serde_json::json!({
         "qdrant": qdrant_info,
         "database": {
             "total_qa": total_qa,
             "indexed_qa": indexed_qa,
-            "pending_qa": total_qa - indexed_qa
+            "pending_golden": pending_golden,
+            "total_chunks": total_chunks,
+            "qdrant_points": qdrant_points,
+            "chunk_sync_pct": chunk_sync_pct
         }
     }))
 }
@@ -137,8 +171,7 @@ async fn trigger_indexing(State(pool): State<DbPool>) -> impl IntoResponse {
     let qdrant = QdrantService::new();
 
     tokio::spawn(async move {
-        let ollama_client = ollama::Client::new();
-        if let Err(e) = run_indexer(&pool, &qdrant, &ollama_client, "wiki_qa").await {
+        if let Err(e) = run_indexer(&pool, &qdrant, "golden_qa").await {
             error!("Background indexing failed: {}", e);
         }
     });

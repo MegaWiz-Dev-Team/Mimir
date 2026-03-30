@@ -2,11 +2,12 @@ use anyhow::Result;
 use dotenvy::dotenv;
 use rig::providers::{ollama, gemini};
 use mimir_core_ai::qa_qc::{
-    generator::{generate_qa, GeneratorClient},
+    generator::generate_qa,
     extractor::extract_acus,
     verifier::verify_coverage,
     WikiChunk,
 };
+use mimir_core_ai::services::llm_router::UniversalClient;
 use mimir_core_ai::config::QAConfig;
 use std::env;
 use tokio::fs;
@@ -28,18 +29,18 @@ async fn main() -> Result<()> {
     let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
     
     info!("☁️ Configuring Native Gemini Client");
-    let gemini_client = gemini::Client::new(&api_key);
+    let gemini_client = UniversalClient::Gemini(gemini::Client::new(&api_key));
 
     // Generator Configuration
     let gen_provider = env::var("GENERATOR_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
     let (gen_client, gen_model) = match gen_provider.as_str() {
         "gemini" => {
             info!("⚙️ Generator Provider: GEMINI ({})", gemini_model);
-            (GeneratorClient::Gemini(gemini_client.clone()), gemini_model.clone())
+            (gemini_client.clone(), gemini_model.clone())
         },
         _ => {
             info!("⚙️ Generator Provider: OLLAMA ({})", local_model);
-            (GeneratorClient::Ollama(local_client.clone()), local_model.clone())
+            (UniversalClient::Ollama(local_client.clone()), local_model.clone())
         }
     };
 

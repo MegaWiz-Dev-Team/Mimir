@@ -21,6 +21,7 @@ pub mod mcp_server;
 pub mod performance;
 pub mod backup;
 pub mod llm_provider;
+pub mod llm_router;
 pub mod neo4j;
 pub mod entity_extractor;
 pub mod bm25;

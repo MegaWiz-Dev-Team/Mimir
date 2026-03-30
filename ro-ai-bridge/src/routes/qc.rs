@@ -51,7 +51,7 @@ async fn list_clusters(
 ) -> Json<Vec<ClusterDTO>> {
     let tenant_id = extract_tenant_id(&headers).to_string();
 
-    let status_filter = q.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("PENDING");
+    let status_filter = q.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("ALL");
     
     match ClusteringService::get_clusters(&pool, &tenant_id, Some(status_filter)).await {
         Ok(clusters) => Json(clusters),

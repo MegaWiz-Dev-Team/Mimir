@@ -334,8 +334,8 @@ impl IamService {
         let qdrant = crate::services::qdrant::QdrantService::new();
         if req.is_dedicated_vector_db {
             let collection_name = format!("{}_docs", tenant_id);
-            // Default Vector size 768 for nomic-embed-text or 1536 for others. We use 768 as base
-            qdrant.init_collection(&collection_name, 768).await.unwrap_or_else(|e| {
+            // Default Vector size 1024 for Heimdall bge-m3.
+            qdrant.init_collection(&collection_name, 1024).await.unwrap_or_else(|e| {
                 tracing::warn!("Failed to init Qdrant collection {}: {}", collection_name, e);
             });
         }

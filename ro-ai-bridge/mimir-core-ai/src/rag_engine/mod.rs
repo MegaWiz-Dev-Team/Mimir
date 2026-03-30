@@ -38,7 +38,7 @@ use crate::services::qdrant::QdrantService;
 const DEFAULT_MODEL: &str = "llama3.2";
 
 /// Default Gemini model
-const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-1.5-pro";
 
 /// Default Heimdall model
 const DEFAULT_HEIMDALL_MODEL: &str = "mlx-community/Qwen3.5-35B-A3B-4bit";
@@ -479,9 +479,9 @@ impl OracleRagAgent {
             }
             LlmProvider::Heimdall => {
                 let api_key = env::var("HEIMDALL_API_KEY")
-                    .unwrap_or_else(|_| "heimdall-default-key".to_string());
+                    .unwrap_or_default();
                 let endpoint = env::var("HEIMDALL_API_URL")
-                    .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+                    .unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
                 let model_name = model.unwrap_or(DEFAULT_HEIMDALL_MODEL).to_string();
                 let backend = AgentBackend::Heimdall {
                     client: reqwest::Client::new(),

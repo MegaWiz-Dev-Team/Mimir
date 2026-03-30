@@ -59,7 +59,7 @@ async fn ask_handler(
     tenant_ctx: Option<Extension<TenantContext>>,
     Json(payload): Json<AskRequest>,
 ) -> impl IntoResponse {
-    let start = std::time::Instant::now();
+    let _start = std::time::Instant::now();
     let tenant_id = tenant_ctx.as_ref()
         .map(|ctx| ctx.tenant_id.clone())
         .or_else(|| payload.tenant_id.clone())

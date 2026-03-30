@@ -73,7 +73,7 @@ async fn run_evaluation_task(
     pool: DbPool,
     run_id: String,
     params: EvaluatorParams,
-    config: EvalConfig,
+    _config: EvalConfig,
 ) -> Result<()> {
     info!("🚀 Started evaluation job {} for tenant {}", run_id, params.tenant_id);
     

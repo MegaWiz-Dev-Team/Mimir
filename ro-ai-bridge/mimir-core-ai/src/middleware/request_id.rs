@@ -5,10 +5,10 @@ use axum::{
     extract::Request,
     middleware::Next,
     response::Response,
-    http::{HeaderValue, header},
+    http::HeaderValue,
 };
 use std::time::Instant;
-use tracing::{info, Span, info_span};
+use tracing::{info, info_span};
 use uuid::Uuid;
 
 /// Header name for request correlation ID.

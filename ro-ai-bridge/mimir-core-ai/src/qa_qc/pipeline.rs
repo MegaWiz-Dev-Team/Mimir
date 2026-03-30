@@ -1,36 +1,15 @@
 use anyhow::Result;
-use rig::providers::{ollama, gemini};
 use super::{WikiChunk, QAPair};
-use super::generator::{generate_qa, generate_missing_qa, GeneratorClient};
+use super::generator::{generate_qa, generate_missing_qa};
 use super::extractor::extract_acus;
 use super::verifier::verify_coverage;
 use crate::services::db::DbPool;
-use crate::services::iam::IamService;
 use crate::config::QAConfig;
-use std::env;
 use tokio::fs;
 use tracing::{info, error};
 use chrono::Utc;
 use sqlx::Row;
-
-/// Resolve Heimdall URL/key from tenant config, falling back to env vars.
-async fn resolve_heimdall_config(db_pool: &DbPool, tenant_id: &str) -> (String, String) {
-    let iam = IamService::new_with_env(db_pool.clone());
-    if let Ok(tc) = iam.get_tenant_config(tenant_id).await {
-        let llm = tc.llm_config.as_ref().map(|c| &c.0);
-        let url = llm.and_then(|c| c.heimdall_url.clone())
-            .or_else(|| env::var("HEIMDALL_API_URL").ok())
-            .unwrap_or_else(|| "http://192.168.1.133:3000/v1".to_string());
-        let key = llm.and_then(|c| c.heimdall_api_key.clone())
-            .or_else(|| env::var("HEIMDALL_API_KEY").ok())
-            .unwrap_or_else(|| "heimdall-key".to_string());
-        (url, key)
-    } else {
-        let url = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
-        let key = env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "heimdall-key".to_string());
-        (url, key)
-    }
-}
+use crate::services::llm_router::{LlmRouter, UniversalClient};
 
 pub async fn run_pipeline(
     db_pool: &DbPool,
@@ -83,24 +62,10 @@ pub async fn run_pipeline_with_config(
     info!("📋 QA Config: default_count={}, {} size rules, {} file patterns", 
         qa_config.default_count, qa_config.rules.len(), qa_config.file_patterns.patterns.len());
 
-    // Clients
-    let local_client = ollama::Client::new();
-    let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let gemini_client = gemini::Client::new(&api_key);
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
-
-    let gen_client = match provider {
-        "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
-        "heimdall" => {
-            let (hd_endpoint, hd_api_key) = resolve_heimdall_config(db_pool, &tenant_id).await;
-            GeneratorClient::Heimdall {
-                client: reqwest::Client::new(),
-                endpoint: hd_endpoint,
-                api_key: hd_api_key,
-            }
-        }
-        _ => GeneratorClient::Ollama(local_client.clone()),
-    };
+    // Initialize dynamic routing instead of hardcoding Gemini/Ollama
+    let router = LlmRouter::new(db_pool.clone(), &tenant_id).await?;
+    let (gen_client, gen_model) = router.resolve_client("pipeline_generator")?;
+    let (eval_client, eval_model) = router.resolve_client("pipeline_evaluator")?;
 
     let mut all_qa = Vec::new();
     let mut total_steps = 0usize;
@@ -157,7 +122,7 @@ pub async fn run_pipeline_with_config(
                 .execute(db_pool).await?.last_insert_id();
 
                 // Process
-                match process_chunk(db_pool, step_id, &gen_client, model, &gemini_client, &gemini_model, &wiki_chunk, qa_count, &tenant_id).await {
+                match process_chunk(db_pool, step_id, &gen_client, &gen_model, &eval_client, &eval_model, &wiki_chunk, qa_count, &tenant_id).await {
                     Ok(qa_pairs) => {
                         all_qa.extend(qa_pairs);
                         sqlx::query(
@@ -250,8 +215,8 @@ pub async fn retry_step_with_config(
         .fetch_one(db_pool)
         .await?;
 
-    let provider: String = run.get("provider");
-    let model: String = run.get("model");
+    let _provider: String = run.get("provider");
+    let _model: String = run.get("model");
     
     // 3. Re-read Content (Assuming data/wiki)
     let input_dir = "data/wiki"; 
@@ -302,29 +267,15 @@ pub async fn retry_step_with_config(
         .bind(step_id)
         .execute(db_pool).await?;
 
-    // 5. Initialize Clients
-    let local_client = ollama::Client::new();
-    let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let gemini_client = gemini::Client::new(&api_key);
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
-
-    let gen_client = match provider.as_str() {
-        "gemini" | "google" => GeneratorClient::Gemini(gemini_client.clone()),
-        "heimdall" => {
-            let (hd_endpoint, hd_api_key) = resolve_heimdall_config(db_pool, &tenant_id).await;
-            GeneratorClient::Heimdall {
-                client: reqwest::Client::new(),
-                endpoint: hd_endpoint,
-                api_key: hd_api_key,
-            }
-        }
-        _ => GeneratorClient::Ollama(local_client.clone()),
-    };
+    // 5. Initialize dynamic routing instead of hardcoding Gemini/Ollama
+    let router = LlmRouter::new(db_pool.clone(), &tenant_id).await?;
+    let (gen_client, gen_model) = router.resolve_client("pipeline_generator")?;
+    let (eval_client, eval_model) = router.resolve_client("pipeline_evaluator")?;
 
     // 6. Process Chunk
     info!("🔄 Retrying Step #{} (File: {}, Chunk: {}) with {} Q/A pairs", step_id, file_name, chunk_index, qa_count);
     
-    match process_chunk(db_pool, step_id as u64, &gen_client, &model, &gemini_client, &gemini_model, &wiki_chunk, qa_count, &tenant_id).await {
+    match process_chunk(db_pool, step_id as u64, &gen_client, &gen_model, &eval_client, &eval_model, &wiki_chunk, qa_count, &tenant_id).await {
         Ok(_) => {
             sqlx::query("UPDATE pipeline_steps SET status = 'COMPLETED', finished_at = ? WHERE id = ?")
                 .bind(Utc::now())
@@ -460,10 +411,10 @@ pub async fn resume_pipeline_with_config(
 pub async fn process_chunk(
     db_pool: &DbPool,
     step_id: u64,
-    gen_client: &GeneratorClient,
+    gen_client: &UniversalClient,
     gen_model: &str,
-    gemini_client: &gemini::Client,
-    gemini_model: &str,
+    eval_client: &UniversalClient,
+    eval_model: &str,
     chunk: &WikiChunk,
     qa_count: usize,
     tenant_id: &str
@@ -484,10 +435,10 @@ pub async fn process_chunk(
     }
 
     // 2. Extract ACUs
-    let facts = extract_acus(gemini_client, gemini_model, chunk).await?;
+    let facts = extract_acus(eval_client, eval_model, chunk).await?;
 
     // 3. Verify Coverage
-    let report = verify_coverage(gemini_client, gemini_model, chunk, &facts, &qa_pairs).await?;
+    let report = verify_coverage(eval_client, eval_model, chunk, &facts, &qa_pairs).await?;
 
     // Save Report to DB
     let facts_json = serde_json::to_string(&facts)?;
@@ -532,8 +483,8 @@ pub async fn generate_missing_qa_for_step(
     let filename: String = step.get("file_name");
     let chunk_index: i64 = step.get("chunk_index");
     let tenant_id: String = step.get("tenant_id");
-    let provider: String = step.get("provider");
-    let model: String = step.get("model");
+    let _provider: String = step.get("provider");
+    let _model: String = step.get("model");
 
     let file_path = format!("data/wiki/{}", filename);
     let content = fs::read_to_string(&file_path).await?;
@@ -550,29 +501,10 @@ pub async fn generate_missing_qa_for_step(
         content: chunk_content.to_string(),
     };
 
-    // 3. Setup client
-    let gemini_api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
-    let gemini_client = gemini::Client::new(&gemini_api_key);
-    let db_model = "gemini-2.5-flash";
-
-    let (gen_client, gen_model) = match provider.as_str() {
-        "ollama" => {
-            let ollama_client = ollama::Client::new();
-            (GeneratorClient::Ollama(ollama_client), model)
-        },
-        "google" => {
-            (GeneratorClient::Gemini(gemini_client.clone()), model)
-        },
-        "heimdall" => {
-            let (hd_endpoint, hd_api_key) = resolve_heimdall_config(db_pool, &tenant_id).await;
-            (GeneratorClient::Heimdall {
-                client: reqwest::Client::new(),
-                endpoint: hd_endpoint,
-                api_key: hd_api_key,
-            }, model)
-        },
-        _ => return Err(anyhow::anyhow!("Unsupported provider: {}", provider)),
-    };
+    // 3. Setup client dynamically using TenantConfig
+    let router = LlmRouter::new(db_pool.clone(), &tenant_id).await?;
+    let (gen_client, gen_model) = router.resolve_client("pipeline_generator")?;
+    let (eval_client, eval_model) = router.resolve_client("pipeline_evaluator")?;
 
     loop {
         // Fetch current coverage and missing facts
@@ -666,7 +598,7 @@ pub async fn generate_missing_qa_for_step(
         };
 
         if !facts.is_empty() {
-            let report = verify_coverage(&gemini_client, db_model, &chunk, &facts, &all_qa_pairs).await?;
+            let report = verify_coverage(&eval_client, &eval_model, &chunk, &facts, &all_qa_pairs).await?;
 
             let missing_json = serde_json::to_string(&report.missing_facts)?;
             

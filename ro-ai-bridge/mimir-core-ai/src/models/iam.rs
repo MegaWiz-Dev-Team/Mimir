@@ -105,7 +105,7 @@ impl LlmConfig {
     /// Resolve a slot by name with 3-tier fallback:
     /// 1. Specific slot value (e.g., llm_config.chat)
     /// 2. Provided defaults (default_provider + default_model from TenantConfig)
-    /// 3. Hardcoded fallback (ollama + llama3.2, or ollama + nomic-embed-text for embedding)
+    /// 3. Hardcoded fallback (ollama + llama3.2, or heimdall + BAAI/bge-m3 for embedding)
     pub fn resolve_slot(&self, slot_name: &str, default_provider: Option<&str>, default_model: Option<&str>) -> LlmSlot {
         let slot = match slot_name {
             "chat" => self.chat.as_ref(),
@@ -133,7 +133,7 @@ impl LlmConfig {
 
         // Tier 3: Hardcoded fallback
         if slot_name == "embedding" {
-            LlmSlot { provider: "ollama".to_string(), model: "nomic-embed-text".to_string() }
+            LlmSlot { provider: "heimdall".to_string(), model: "BAAI/bge-m3".to_string() }
         } else {
             LlmSlot { provider: "ollama".to_string(), model: "llama3.2".to_string() }
         }
@@ -248,8 +248,8 @@ mod tests {
     fn test_resolve_slot_embedding_fallback() {
         let config = LlmConfig::default();
         let slot = config.resolve_slot("embedding", None, None);
-        assert_eq!(slot.provider, "ollama");
-        assert_eq!(slot.model, "nomic-embed-text");
+        assert_eq!(slot.provider, "heimdall");
+        assert_eq!(slot.model, "BAAI/bge-m3");
     }
 
     #[test]
@@ -279,7 +279,7 @@ mod tests {
             pipeline_generator: Some(LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
             pipeline_evaluator: Some(LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
             judge: Some(LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
-            embedding: Some(LlmSlot { provider: "ollama".into(), model: "nomic-embed-text".into() }),
+            embedding: Some(LlmSlot { provider: "heimdall".into(), model: "BAAI/bge-m3".into() }),
             heimdall_url: Some("https://example.ngrok.dev/v1".into()),
             heimdall_api_key: Some("test-key".into()),
         };

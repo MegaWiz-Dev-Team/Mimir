@@ -1,12 +1,10 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use sqlx::{MySqlPool, Row};
-use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use rig::providers::gemini;
-use rig::completion::Prompt;
-use std::env;
+
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // Global flag to prevent multiple clustering jobs executing concurrently
@@ -56,19 +54,29 @@ pub struct ResolveClusterRequest {
 pub struct ClusteringService;
 
 impl ClusteringService {
-    /// Fetch pending clusters for a tenant
     pub async fn get_clusters(pool: &MySqlPool, tenant_id: &str, status: Option<&str>) -> Result<Vec<ClusterDTO>> {
-        let status_filter = status.unwrap_or("PENDING");
+        let status_filter = status.unwrap_or("ALL");
         
-        let clusters = sqlx::query(
-            r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
-               FROM qa_clusters 
-               WHERE tenant_id = ? AND status = ?"#
-        )
-        .bind(tenant_id)
-        .bind(status_filter)
-        .fetch_all(pool)
-        .await?;
+        let clusters = if status_filter == "ALL" {
+            sqlx::query(
+                r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
+                   FROM qa_clusters 
+                   WHERE tenant_id = ?"#
+            )
+            .bind(tenant_id)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query(
+                r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
+                   FROM qa_clusters 
+                   WHERE tenant_id = ? AND status = ?"#
+            )
+            .bind(tenant_id)
+            .bind(status_filter)
+            .fetch_all(pool)
+            .await?
+        };
 
         let mut dtos = Vec::new();
         for c in clusters {
@@ -142,6 +150,7 @@ impl ClusteringService {
             r#"SELECT COUNT(*) 
                FROM qa_results 
                WHERE tenant_id = ? 
+               AND qc_scanned = FALSE
                AND id NOT IN (SELECT qa_id FROM qa_cluster_items)"#
         )
         .bind(tenant_id)
@@ -157,7 +166,6 @@ impl ClusteringService {
 
         let max_iterations = 100; // Safety cap
         let mut iteration = 0;
-        let mut last_batch_ids: Vec<i64> = Vec::new();
 
         loop {
             // Check for stop request
@@ -178,7 +186,9 @@ impl ClusteringService {
                 r#"SELECT id, question, answer 
                    FROM qa_results 
                    WHERE tenant_id = ? 
+                   AND qc_scanned = FALSE
                    AND id NOT IN (SELECT qa_id FROM qa_cluster_items)
+                   ORDER BY id ASC
                    LIMIT 10"#
             )
             .bind(tenant_id)
@@ -189,38 +199,33 @@ impl ClusteringService {
                 break;
             }
 
-            // Stall detection: if we got the exact same batch, no progress was made
             let current_ids: Vec<i64> = qas.iter().map(|q| q.get::<i64, _>("id")).collect();
-            if current_ids == last_batch_ids {
-                info!("Clustering stalled — same batch returned twice. Stopping to avoid infinite loop.");
-                break;
-            }
-            last_batch_ids = current_ids;
 
-            // Use Gemini to group and detect conflicts
-            let client = gemini::Client::new(&env::var("GEMINI_API_KEY").unwrap_or_default());
-            let agent = client.agent("gemini-2.5-flash")
-                .preamble("You are a Data Quality AI. Analyze the list of Q/A pairs. 
-Find 1 conflict (contradicting info) AND 1 duplicate (similar info) if possible.
-Return a STRICT JSON list: 
-[
-  {
-    \"type\": \"CONFLICT\" | \"DUPLICATE\",
-    \"topic\": \"The common topic\",
-    \"reasoning\": \"Why they conflict or duplicate\",
-    \"qa_id_1\": ID1,
-    \"qa_id_2\": ID2,
-    \"golden_answer\": \"(Provide a merged answer ONLY IF type is DUPLICATE, else act as if None)\"
-  }
-]")
-                .build();
+            // Use TenantConfig to resolve clustering model (using pipeline_evaluator slot)
+            let router = crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
+            let (client, model) = router.resolve_client("pipeline_evaluator")?;
+            
+            let preamble = "You are a Data Quality AI. Analyze the list of Q/A pairs. \
+Find 1 conflict (contradicting info) AND 1 duplicate (similar info) if possible.\n\
+Return a STRICT JSON list: \n\
+[\n\
+  {\n\
+    \"type\": \"CONFLICT\" | \"DUPLICATE\",\n\
+    \"topic\": \"The common topic\",\n\
+    \"reasoning\": \"Why they conflict or duplicate\",\n\
+    \"qa_id_1\": ID1,\n\
+    \"qa_id_2\": ID2,\n\
+    \"golden_answer\": \"(Provide a merged answer ONLY IF type is DUPLICATE, else act as if None)\"\n\
+  }\n\
+]";
 
             let mut input_text = String::from("QA Pairs:\n");
             for qa in &qas {
                 input_text.push_str(&format!("ID: {} | Q: {} | A: {}\n", qa.get::<i64, _>("id"), qa.get::<String, _>("question"), qa.get::<String, _>("answer")));
             }
 
-            let resp = agent.prompt(input_text).await;
+            let resp = client.prompt(&model, preamble, &input_text, 2048, 0.3).await;
+            
             match resp {
                 Ok(json_str) => {
                     if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
@@ -260,10 +265,23 @@ Return a STRICT JSON list:
                             }
                         }
                     } else {
-                        warn!("Failed to parse Gemini output as JSON: {}", json_str);
+                        warn!("Failed to parse LLM output as JSON: {}", json_str);
                     }
                 },
-                Err(e) => error!("Gemini prompt failed: {}", e)
+                Err(e) => error!("LLM prompt failed: {}", e)
+            }
+            
+            // Mark these IDs as scanned
+            if !current_ids.is_empty() {
+                let params = current_ids.iter().map(|_| "?").collect::<Vec<&str>>().join(",");
+                let query_str = format!("UPDATE qa_results SET qc_scanned = TRUE WHERE id IN ({})", params);
+                let mut db_query = sqlx::query(&query_str);
+                for id in &current_ids {
+                    db_query = db_query.bind(id);
+                }
+                if let Err(e) = db_query.execute(pool).await {
+                    error!("Failed to update qc_scanned flags: {}", e);
+                }
             }
             
             // Advance progress count, capped at total
@@ -282,25 +300,27 @@ Return a STRICT JSON list:
             return Ok(());
         }
 
-        let client = gemini::Client::new(&env::var("GEMINI_API_KEY").unwrap_or_default());
-        let agent = client.agent("gemini-2.5-flash")
-            .preamble("You are a QA Generator. Given the following text content, generate 2-3 high-quality question-answer pairs that test understanding of the material. Return STRICT JSON list:
-[
-  {\"question\": \"...\", \"answer\": \"...\"}
-]
-Keep answers concise and factual. Only generate questions that can be directly answered from the given text.")
-            .build();
+        let router = crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
+        let (client, model) = router.resolve_client("pipeline_generator")?;
+        
+        let preamble = "You are a QA Generator. Given the following text content, generate 2-3 high-quality question-answer pairs that test understanding of the material. Return STRICT JSON list:\n\
+[\n\
+  {\"question\": \"...\", \"answer\": \"...\"}\n\
+]\n\
+Keep answers concise and factual. Only generate questions that can be directly answered from the given text.";
 
-        let prompt = format!("Generate QA pairs from this content:\n\n{}", content);
+        let prompt_text = format!("Generate QA pairs from this content:\n\n{}", content);
 
-        match agent.prompt(prompt).await {
+        let resp = client.prompt(&model, preamble, &prompt_text, 2048, 0.7).await;
+
+        match resp {
             Ok(json_str) => {
                 let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();
                 if let Ok(qa_pairs) = serde_json::from_str::<Vec<serde_json::Value>>(cleaned) {
                     // Create a mock pipeline run/step for these QA results
                     let run_id = Uuid::new_v4().to_string();
-                    let _ = sqlx::query("INSERT INTO pipeline_runs (id, status, provider, model) VALUES (?, 'COMPLETED', 'gemini', 'gemini-2.5-flash')")
-                        .bind(&run_id).execute(pool).await;
+                    let _ = sqlx::query("INSERT INTO pipeline_runs (id, status, provider, model) VALUES (?, 'COMPLETED', ?, ?)")
+                        .bind(&run_id).bind(client.provider_name()).bind(&model).execute(pool).await;
                     let _ = sqlx::query("INSERT INTO pipeline_steps (run_id, file_name, status, step_type) VALUES (?, ?, 'COMPLETED', 'GENERATE')")
                         .bind(&run_id).bind(format!("chunk_{}", chunk_id)).execute(pool).await;
 
@@ -324,11 +344,11 @@ Keep answers concise and factual. Only generate questions that can be directly a
                     }
                     info!("Generated {} QA pairs for chunk {}", qa_pairs.len(), chunk_id);
                 } else {
-                    warn!("Failed to parse Gemini QA output for chunk {}: {}", chunk_id, json_str);
+                    warn!("Failed to parse LLM QA output for chunk {}: {}", chunk_id, json_str);
                 }
             }
             Err(e) => {
-                error!("Gemini QA generation failed for chunk {}: {}", chunk_id, e);
+                error!("LLM QA generation failed for chunk {}: {}", chunk_id, e);
                 return Err(e.into());
             }
         }
