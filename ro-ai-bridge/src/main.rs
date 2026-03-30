@@ -106,6 +106,7 @@ async fn main() {
         .nest("/api/v1/auth", auth_routes())
         .nest("/api/v1/pipeline", pipeline_routes())
         .nest("/api/v1/qc", qc_routes())
+        .nest("/api/v1/stats", ro_ai_bridge::routes::stats::stats_routes())
         .nest("/api/v1/vector", vector_routes())
         .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes().merge(auto_pipeline_routes()))
         .nest("/api/v1/chunks", chunks_routes())

@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
 use serde::{Deserialize, Serialize};

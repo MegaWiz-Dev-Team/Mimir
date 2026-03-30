@@ -66,6 +66,7 @@ impl EntityType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedEntity {
     pub name: String,
+    #[serde(rename = "type", alias = "entity_type")]
     pub entity_type: String,
     #[serde(default)]
     pub properties: Option<Value>,

@@ -106,9 +106,12 @@ async fn run_auto_pipeline(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers).to_string();
     let run_id = Uuid::new_v4().to_string();
-    let skip_completed = req.skip_completed.unwrap_or(true);
-    let provider = req.provider.unwrap_or_else(|| "gemini".into());
-    let model = req.model.unwrap_or_else(|| "gemini-2.5-flash".into());
+    let _skip_completed = req.skip_completed.unwrap_or(true);
+    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Router error: {}", e)}))))?;
+    let resolved_slot = router.config.resolve_slot("pipeline_generator", req.provider.as_deref(), req.model.as_deref());
+    let provider = resolved_slot.provider;
+    let model = resolved_slot.model;
     let prompt_version = req.prompt_version.unwrap_or_else(|| "v1.0".into());
     let run_label = req.run_label.clone();
     let max_chunks = req.max_chunks.unwrap_or(10000);
@@ -157,8 +160,8 @@ async fn run_auto_pipeline(
     tokio::spawn(async move {
         let provider = provider_clone;
         let model = model_clone;
-        let prompt_version = prompt_version_clone;
-        let run_label = run_label_clone;
+        let _prompt_version = prompt_version_clone;
+        let _run_label = run_label_clone;
         let mut total_steps_ok = 0;
         let mut pipeline_error: Option<String> = None;
 
@@ -282,7 +285,8 @@ async fn run_auto_pipeline(
             let api_base = infer_api_base(&provider);
             let api_key = resolve_api_key(&provider);
 
-            match generate_tree(&pool_clone, &tenant_clone, source_id, &full_text, &api_key, &api_base, &model, &provider).await {
+            let max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
+            match generate_tree(&pool_clone, &tenant_clone, source_id, &full_text, &api_key, &api_base, &model, &provider, max_index).await {
                 Ok(_) => {
                     log_step_result(&pool_clone, &run_id_clone, 25, "completed", 1, step25_start.elapsed().as_millis() as i64, None).await;
                     total_steps_ok += 1;
@@ -466,7 +470,20 @@ async fn run_auto_pipeline(
 
             let step_id = step_id.map(|s| s.0).unwrap_or(0);
 
+            // Fetch chunks already QA'd to skip them
+            let existing_qas: Vec<i64> = sqlx::query_scalar(
+                "SELECT DISTINCT chunk_id FROM qa_results WHERE source_id = ? AND chunk_id IS NOT NULL"
+            )
+            .bind(source_id)
+            .fetch_all(&pool_clone)
+            .await
+            .unwrap_or_default();
+
             for (chunk_id, content, _) in &chunks {
+                if existing_qas.contains(chunk_id) {
+                    continue;
+                }
+
                 let prompt = format!("You are a QA Generator. Generate 2-5 high-quality question-answer pairs from the given text.\n\nReturn STRICT JSON array:\n[\n  {{\"question\": \"...\", \"answer\": \"...\"}}\n]\n\nRules:\n1. Keep answers concise and factual\n2. Only generate questions answerable from the text\n3. Prefer why/how/what questions over yes/no\n4. Cover different aspects of the text\n5. Return ONLY the JSON array\n\nText:\n{}", content);
 
                 let start = std::time::Instant::now();
@@ -474,19 +491,21 @@ async fn run_auto_pipeline(
                     &api_key, &api_base, &model, &prompt,
                     Some(&pool_clone), Some(&tenant_clone), Some(&provider), Some("auto_pipeline_qa"),
                 ).await;
-                let latency = start.elapsed().as_millis() as i64;
+                let _latency = start.elapsed().as_millis() as i64;
 
                 if let Ok((response_text, _tokens)) = result {
                     let clean = clean_llm_json(&response_text);
                     if let Ok(qa_pairs) = serde_json::from_str::<Vec<Value>>(&clean) {
                         for qa in &qa_pairs {
                             let _ = sqlx::query(
-                                "INSERT INTO qa_results (tenant_id, step_id, question, answer, context) VALUES (?, ?, ?, ?, ?)"
+                                "INSERT INTO qa_results (tenant_id, step_id, question, answer, context, source_id, chunk_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
                             )
                             .bind(&tenant_clone).bind(step_id)
                             .bind(qa["question"].as_str().unwrap_or(""))
                             .bind(qa["answer"].as_str().unwrap_or(""))
                             .bind(content.chars().take(500).collect::<String>())
+                            .bind(source_id)
+                            .bind(chunk_id)
                             .execute(&pool_clone).await;
                             qa_count += 1;
                         }
@@ -505,10 +524,10 @@ async fn run_auto_pipeline(
             log_step(&pool_clone, &run_id_clone, 5, "qa_indexing", "running").await;
 
             let qa_rows: Vec<(i64, String, String)> = sqlx::query_as(
-                "SELECT id, question, answer FROM qa_results WHERE tenant_id = ? AND run_label = ? ORDER BY id"
+                "SELECT id, question, answer FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
             )
             .bind(&tenant_clone)
-            .bind(&run_label)
+            .bind(source_id)
             .fetch_all(&pool_clone)
             .await
             .unwrap_or_default();

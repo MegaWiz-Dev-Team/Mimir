@@ -126,9 +126,9 @@ impl SimpleNpcAgent {
             },
             "heimdall" => {
                 let api_key = std::env::var("HEIMDALL_API_KEY")
-                    .unwrap_or_else(|_| "heimdall-default-key".to_string());
+                    .unwrap_or_default();
                 let endpoint = std::env::var("HEIMDALL_API_URL")
-                    .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string());
+                    .unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
                 AgentImplementation::Heimdall {
                     client: reqwest::Client::new(),
                     endpoint,

@@ -1,5 +1,4 @@
-use rig::completion::Prompt;
-use rig::providers::gemini;
+use crate::services::llm_router::UniversalClient;
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use super::{WikiChunk, AtomicFact};
@@ -14,17 +13,15 @@ pub struct FactList {
 pub struct ACUExtractorAgent;
 
 pub async fn extract_acus(
-    client: &gemini::Client, 
+    client: &UniversalClient, 
     model: &str,
     chunk: &WikiChunk
 ) -> Result<Vec<AtomicFact>> {
     info!("      Extracting ACUs (Agent approach)...");
 
-    let agent = client.agent(model)
-        .preamble("You are an expert knowledge extractor. Extract atomic facts from the text. \
+    let preamble = "You are an expert knowledge extractor. Extract atomic facts from the text. \
                    Return ONLY a valid JSON object with a 'facts' key containing a list of objects. \
-                   Do NOT include any markdown formatting or preamble.")
-        .build();
+                   Do NOT include any markdown formatting or preamble.";
 
     let prompt = format!(
         "Extract every atomic fact from the following text as a list of objects. \
@@ -33,7 +30,7 @@ pub async fn extract_acus(
         chunk.content
     );
 
-    let raw_res = agent.prompt(prompt.as_str()).await?;
+    let raw_res = client.prompt(model, preamble, &prompt, 4096, 0.3).await?;
     
     // Clean markdown
     let clean_json = raw_res.trim()

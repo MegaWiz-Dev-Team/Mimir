@@ -215,7 +215,7 @@ pub fn infer_api_base(provider: &str) -> String {
         }
         "heimdall" => {
             std::env::var("HEIMDALL_API_URL")
-                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string())
+                .unwrap_or_else(|_| "http://localhost:3000/v1".to_string())
                 + "/"
         }
         _ => {
@@ -405,7 +405,7 @@ mod tests {
             gemini_base_url: "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
             gemini_api_key: Some("test-gemini-key".to_string()),
             gemini_model: String::new(),
-            heimdall_api_url: "http://192.168.1.133:3000/v1".to_string(),
+            heimdall_api_url: "http://localhost:3000/v1".to_string(),
             heimdall_api_key: Some("test-heimdall-key".to_string()),
             heimdall_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
             neo4j_uri: "bolt://localhost:7687".to_string(),
@@ -440,9 +440,9 @@ mod tests {
     #[test]
     fn test_infer_api_base_heimdall() {
         // Set env for test
-        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://192.168.1.133:3000/v1"); }
+        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://heimdall.example.com:3000/v1"); }
         let base = infer_api_base("heimdall");
-        assert!(base.contains("192.168.1.133"), "Heimdall base should contain gateway host, got: {}", base);
+        assert!(base.contains("heimdall.example.com"), "Heimdall base should contain gateway host, got: {}", base);
         assert!(base.ends_with('/'), "Base URL should end with /");
     }
 
@@ -480,7 +480,7 @@ mod tests {
         assert!(result.is_ok(), "Should resolve Heimdall credentials");
         let (key, base) = result.unwrap();
         assert_eq!(key, "test-heimdall-key");
-        assert!(base.contains("192.168.1.133"), "Base should be Heimdall URL, got: {}", base);
+        assert!(base.contains("localhost:3000"), "Base should be Heimdall URL, got: {}", base);
     }
 
     #[test]
@@ -491,7 +491,7 @@ mod tests {
         assert!(result.is_ok(), "Should infer Heimdall from mlx-community/ prefix");
         let (key, base) = result.unwrap();
         assert_eq!(key, "test-heimdall-key");
-        assert!(base.contains("192.168.1.133:3000"));
+        assert!(base.contains("localhost:3000"));
     }
 
     #[test]

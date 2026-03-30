@@ -31,8 +31,7 @@ fn resolve_api_key(provider: &str) -> String {
     match provider.to_lowercase().as_str() {
         "gemini" | "google" => std::env::var("GEMINI_API_KEY").unwrap_or_default(),
         "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-        "heimdall" => std::env::var("HEIMDALL_API_KEY")
-            .unwrap_or_else(|_| "hml-mimir-ffcad30d20ac3b2cbc0643c0874b738517edb4c6ec6c49698e7518ffad5123ff".to_string()),
+        "heimdall" => std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
         _ => "ollama".to_string(),
     }
 }
@@ -59,8 +58,11 @@ pub async fn extract_pageindex_route(
         (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found or access denied"})))
     })?;
 
-    let provider = payload.provider.unwrap_or_else(|| "gemini".to_string());
-    let model = payload.model.unwrap_or_else(|| "gemini-2.5-flash".to_string());
+    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Router error: {}", e)}))))?;
+    let resolved_slot = router.config.resolve_slot("pipeline_generator", payload.provider.as_deref(), payload.model.as_deref());
+    let provider = resolved_slot.provider;
+    let model = resolved_slot.model;
     
     let api_base = infer_api_base(&provider);
     let api_key = resolve_api_key(&provider);
@@ -89,11 +91,13 @@ pub async fn extract_pageindex_route(
         full_text.push_str(&format!("\n--- [Page/Chunk {}] ---\n{}\n", idx, content));
     }
 
+    let max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
+
     let provider_clone = provider.clone();
     let model_clone = model.clone();
 
     tokio::spawn(async move {
-        match generate_tree(&pool, &tenant_id, source_id, &full_text, &api_key, &api_base, &model_clone, &provider_clone).await {
+        match generate_tree(&pool, &tenant_id, source_id, &full_text, &api_key, &api_base, &model_clone, &provider_clone, max_index).await {
             Ok(_) => info!("PageIndex successfully generated for source {}", source_id),
             Err(e) => error!("PageIndex generation failed for source {}: {}", source_id, e),
         }
@@ -117,30 +121,36 @@ pub async fn generate_tree(
     api_base: &str,
     model: &str,
     provider: &str,
+    max_index: i32,
 ) -> anyhow::Result<()> {
-    let system_prompt = r#"You are a document structuring assistant. Analyze the provided document, which is divided into sections annotated with [Page/Chunk X]. 
+    let system_prompt = format!(r#"You are a document structuring assistant. Analyze the provided document, which is divided into sections annotated with [Page/Chunk X]. 
 Your objective is to generate a hierarchical "PageIndex" semantic tree that organizes the document's content logically based on its major headings and conceptual flow.
 
 Rules:
-1. Identify the logical structure (e.g., Chapters, Sections, Subsections).
+1. Identify the HIGH-LEVEL logical structure (e.g., Chapters, Major Sections).
 2. For each node, extract a clear `title`.
 3. Provide a concise `summary` (1-2 sentences) of what the node covers.
 4. Specify the `start_index` and `end_index` using the [Page/Chunk X] annotations.
 5. Generate a unique `node_id` strings (e.g., "0001", "0002") sequentially.
-6. Provide child nodes under `nodes` array if applicable. Max depth: 3 levels.
+6. Provide child nodes under `nodes` array if applicable. Max depth: 2 levels.
+7. CRITICAL: The root node's `start_index` MUST be 0 and `end_index` MUST be {}.
+8. CRITICAL: Every chunk index from 0 to {} MUST be covered by at least one node. Do not skip any sections.
+9. To fit within token limits, condense your output: do NOT create hundreds of nodes. Group vast ranges of chunks (e.g., 20-50 chunks per leaf node) into high-level concepts. Avoid creating a node for every small subsection.
+10. Child node ranges must be strictly within their parent's range and `start_index` must be <= `end_index`.
+11. CRITICAL: Write the `title` and `summary` in the exact same language as the original source text (e.g., Thai).
     
 Output EXCLUSIVELY a JSON object with this shape:
-{
+{{
   "node_id": "root",
   "title": "Document Root",
   "start_index": 0,
-  "end_index": 100,
+  "end_index": {},
   "summary": "Main document summary",
   "nodes": [
-     { "node_id": "0001", "title": "Chap 1", "start_index": 0, "end_index": 5, "summary": "...", "nodes": [] }
+     {{ "node_id": "0001", "title": "Chap 1", "start_index": 0, "end_index": 5, "summary": "...", "nodes": [] }}
   ]
-}
-Do not include markdown blocks or any other text before/after the JSON."#;
+}}
+Do not include markdown blocks or any other text before/after the JSON."#, max_index, max_index, max_index);
 
     let user_prompt = format!("{}\n\nDocument Context:\n{}", system_prompt, content);
 
@@ -159,14 +169,36 @@ Do not include markdown blocks or any other text before/after the JSON."#;
     let cleaned = response.trim_start_matches("```json").trim_end_matches("```").trim();
     
     // Validate JSON
-    let _parsed: Value = serde_json::from_str(cleaned)
+    let mut parsed: Value = serde_json::from_str(cleaned)
         .map_err(|e| anyhow::anyhow!("Failed to parse PageIndex JSON: {}", e))?;
+
+    // Fix inverted ranges (start_index > end_index) recursively
+    fn fix_ranges(node: &mut Value) {
+        if let (Some(start), Some(end)) = (
+            node["start_index"].as_i64(),
+            node["end_index"].as_i64(),
+        ) {
+            if start > end {
+                node["start_index"] = serde_json::json!(end);
+                node["end_index"] = serde_json::json!(start);
+            }
+        }
+        if let Some(children) = node["nodes"].as_array_mut() {
+            for child in children.iter_mut() {
+                fix_ranges(child);
+            }
+        }
+    }
+    fix_ranges(&mut parsed);
+
+    let fixed_json = serde_json::to_string(&parsed)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize fixed PageIndex: {}", e))?;
 
     // Store in database
     let _ = sqlx::query(
         "UPDATE data_sources SET pageindex_tree = ? WHERE id = ?"
     )
-    .bind(cleaned)
+    .bind(&fixed_json)
     .bind(source_id)
     .execute(pool)
     .await?;

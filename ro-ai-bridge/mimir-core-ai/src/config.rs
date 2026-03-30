@@ -139,7 +139,7 @@ impl Config {
             local_model: env::var("LOCAL_MODEL")
                 .unwrap_or_else(|_| "gemma:2b".to_string()),
             embed_model: env::var("EMBED_MODEL")
-                .unwrap_or_else(|_| "nomic-embed-text".to_string()),
+                .unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
             gemini_base_url: env::var("GEMINI_BASE_URL")
                 .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
@@ -148,7 +148,7 @@ impl Config {
 
             // Heimdall (Self-hosted LLM Gateway)
             heimdall_api_url: env::var("HEIMDALL_API_URL")
-                .unwrap_or_else(|_| "http://192.168.1.133:3000/v1".to_string()),
+                .unwrap_or_else(|_| "http://localhost:3000/v1".to_string()),
             heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),
             heimdall_model: env::var("HEIMDALL_MODEL")
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),

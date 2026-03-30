@@ -39,7 +39,20 @@ impl QdrantService {
         let resp = self.client.get(&url).send().await?;
 
         if resp.status().is_success() {
-            info!("✅ Collection {} already exists", collection_name);
+            let info: serde_json::Value = resp.json().await?;
+            let current_size = info.pointer("/result/config/params/vectors/dense/size")
+                .or_else(|| info.pointer("/result/config/params/vectors/size"))
+                .and_then(|v| v.as_u64());
+
+            if let Some(size) = current_size {
+                if size != vector_size {
+                    info!("⚠️ Dimension mismatch in {}: found {}d, need {}d. Recreating collection automatically...", collection_name, size, vector_size);
+                    self.delete_collection(collection_name).await?;
+                    return self.create_collection(collection_name, vector_size).await;
+                }
+            }
+
+            info!("✅ Collection {} already exists and matches dimensions ({}d)", collection_name, vector_size);
             return Ok(());
         }
 

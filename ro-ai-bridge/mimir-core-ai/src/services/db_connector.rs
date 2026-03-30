@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, Column};
-use tracing::{info, warn};
+use tracing::info;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Types & Models

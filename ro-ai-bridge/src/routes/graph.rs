@@ -57,6 +57,8 @@ pub struct ExtractRequest {
     pub source_id: Option<i64>,
     pub text: Option<String>,
     pub max_entities: Option<usize>,
+    /// Optional: only extract KG for these specific chunk IDs (incremental)
+    pub chunk_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,16 +184,18 @@ async fn search_entities(
         count_str.push_str(filter);
     }
     if let Some(ref et) = params.entity_type {
-        let filter = " AND entity_type = ?";
-        query_str.push_str(filter);
-        count_str.push_str(filter);
+        if !et.is_empty() {
+            let filter = " AND entity_type = ?";
+            query_str.push_str(filter);
+            count_str.push_str(filter);
+        }
     }
 
     query_str.push_str(" ORDER BY name LIMIT ? OFFSET ?");
 
     // Build dynamic query
     let mut query = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<i64>, Option<i64>, Option<String>)>(&query_str)
-        .bind(tenant_id);
+        .bind(tenant_id.clone());
 
     let mut count_query = sqlx::query_as::<_, (i64,)>(&count_str)
         .bind(tenant_id);
@@ -202,8 +206,10 @@ async fn search_entities(
         count_query = count_query.bind(pattern.clone()).bind(pattern.clone());
     }
     if let Some(ref et) = params.entity_type {
-        query = query.bind(et.as_str());
-        count_query = count_query.bind(et.as_str());
+        if !et.is_empty() {
+            query = query.bind(et.as_str());
+            count_query = count_query.bind(et.as_str());
+        }
     }
 
     query = query.bind(limit).bind(offset);
@@ -467,14 +473,25 @@ async fn trigger_extraction(
         let pool_bg = pool.clone();
         let tenant_bg = tenant_id.clone();
         tokio::spawn(async move {
-            // Load chunks for this source
-            let chunks: Vec<(i64, String)> = sqlx::query_as(
-                "SELECT id, content FROM chunks WHERE source_id = ? LIMIT 500"
-            )
-            .bind(source_id)
-            .fetch_all(&pool_bg)
-            .await
-            .unwrap_or_default();
+            // Load chunks for this source (optionally filtered by chunk_ids)
+            let chunks: Vec<(i64, String)> = if let Some(ref ids) = payload.chunk_ids {
+                // Incremental: only specified chunks
+                let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let query_str = format!("SELECT id, content FROM chunks WHERE source_id = ? AND id IN ({}) LIMIT 10000", placeholders);
+                let mut q = sqlx::query_as::<_, (i64, String)>(&query_str).bind(source_id);
+                for id in ids {
+                    q = q.bind(id);
+                }
+                q.fetch_all(&pool_bg).await.unwrap_or_default()
+            } else {
+                sqlx::query_as(
+                    "SELECT id, content FROM chunks WHERE source_id = ? LIMIT 10000"
+                )
+                .bind(source_id)
+                .fetch_all(&pool_bg)
+                .await
+                .unwrap_or_default()
+            };
 
             if chunks.is_empty() {
                 let _ = sqlx::query(
@@ -484,10 +501,29 @@ async fn trigger_extraction(
             }
 
             // Resolve LLM credentials
-            let provider = "gemini";
+            let router = match mimir_core_ai::services::llm_router::LlmRouter::new(pool_bg.clone(), &tenant_bg).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("LlmRouter init failed for tenant {}: {}", tenant_bg, e);
+                    let _ = sqlx::query(
+                        "UPDATE kg_extraction_runs SET status = 'failed', error_message = ?, finished_at = NOW() WHERE id = ?"
+                    ).bind(format!("LlmRouter init failed: {}", e)).bind(run_id).execute(&pool_bg).await;
+                    return;
+                }
+            };
+            let resolved_slot = router.config.resolve_slot("pipeline_generator", None, None);
+            let provider_str = resolved_slot.provider;
+            let model_str = resolved_slot.model;
+            
+            let provider = &provider_str;
+            let model = &model_str;
             let api_base = crate::routes::sources::infer_api_base(provider);
-            let api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-            let model = "gemini-2.5-flash";
+            let api_key = std::env::var(match provider.as_str() {
+                "gemini" | "google" => "GEMINI_API_KEY",
+                "openai" => "OPENAI_API_KEY",
+                "heimdall" => "HEIMDALL_API_KEY",
+                _ => "OLLAMA_API_KEY",
+            }).unwrap_or_default();
 
             // Connect to Neo4j for dual-write
             let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();

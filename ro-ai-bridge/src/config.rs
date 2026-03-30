@@ -80,7 +80,7 @@ impl Config {
             local_model: env::var("LOCAL_MODEL")
                 .unwrap_or_else(|_| "llama3.2".to_string()),
             embed_model: env::var("EMBED_MODEL")
-                .unwrap_or_else(|_| "nomic-embed-text".to_string()),
+                .unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
             gemini_base_url: env::var("GEMINI_BASE_URL")
                 .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),

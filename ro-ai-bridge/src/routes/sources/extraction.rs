@@ -107,14 +107,13 @@ pub async fn extract_source(
     })?;
 
     // Resolve provider + model
-    let provider = payload.provider.clone().unwrap_or_else(|| "heimdall".to_string());
-    let model = payload.model.clone().unwrap_or_else(|| {
-        match provider.as_str() {
-            "gemini" | "google" => "gemini-2.5-flash".to_string(),
-            "openai" => "gpt-4o-mini".to_string(),
-            _ => "mlx-community/Qwen3.5-9B-MLX-4bit".to_string(),
-        }
-    });
+    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Router error: {}", e)}))))?;
+    
+    let resolved_slot = router.config.resolve_slot("pipeline_generator", payload.provider.as_deref(), payload.model.as_deref());
+    let provider = resolved_slot.provider;
+    let model = resolved_slot.model;
+    
     let prompt_version = payload.prompt_version.clone().unwrap_or_else(|| "v1.0".to_string());
     let run_label = payload.run_label.clone();
 
@@ -395,8 +394,7 @@ fn resolve_api_key(provider: &str) -> String {
     match provider {
         "gemini" | "google" => std::env::var("GEMINI_API_KEY").unwrap_or_default(),
         "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-        "heimdall" => std::env::var("HEIMDALL_API_KEY")
-            .unwrap_or_else(|_| "hml-mimir-ffcad30d20ac3b2cbc0643c0874b738517edb4c6ec6c49698e7518ffad5123ff".to_string()),
+        "heimdall" => std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
         _ => "ollama".to_string(),
     }
 }

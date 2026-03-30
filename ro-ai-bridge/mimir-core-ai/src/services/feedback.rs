@@ -6,7 +6,7 @@
 use sqlx::MySqlPool;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
-use tracing::{info, error, warn};
+use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct FeedbackReport {
