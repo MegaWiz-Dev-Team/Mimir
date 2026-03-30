@@ -15,6 +15,9 @@ futures = { workspace = true }
 reqwest = { workspace = true }
 reqwest-eventsource = { workspace = true }
 rig-core = { workspace = true }
+adk-core = { workspace = true }
+adk-rag = { workspace = true }
+adk-gemini = { workspace = true }
 schemars = { workspace = true }
 scraper = { workspace = true }
 serde = { workspace = true }
