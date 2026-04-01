@@ -71,6 +71,13 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
     return res;
 }
 
+export async function fetchHealth(): Promise<{ status: string; version: string; service: string }> {
+    const rawApiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api").replace("/api/v1", "").replace("/api", "");
+    const res = await fetch(`${rawApiUrl}/health`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch health");
+    return await res.json();
+}
+
 // ─── Pipeline API ───────────────────────────────────────────────────────────
 
 export async function fetchRuns(): Promise<PipelineRun[]> {
@@ -159,6 +166,12 @@ export async function resolveQcCluster(clusterId: string, resolutionType: string
 export async function triggerQcGeneration() {
     const response = await authFetch(`${API_BASE_URL}/qc/generate`, { method: "POST" });
     if (!response.ok) throw new Error("Failed to trigger QC generation");
+    return await response.json();
+}
+
+export async function stopQcGeneration() {
+    const response = await authFetch(`${API_BASE_URL}/qc/stop`, { method: "POST" });
+    if (!response.ok) throw new Error("Failed to stop QC generation");
     return await response.json();
 }
 
@@ -356,6 +369,7 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
     // Define provider metadata
     const providerMeta: Record<string, { display_name: string; description: string; requires_api_key: boolean }> = {
         heimdall: { display_name: "Heimdall (Self-Hosted)", description: "Self-hosted LLM gateway with multiple models", requires_api_key: true },
+        flashmoe: { display_name: "Flash-MoE (Local SSD Streaming)", description: "Ultra-large MoE running from SSD", requires_api_key: false },
         ollama: { display_name: "Ollama (Local)", description: "Run models locally with Ollama", requires_api_key: false },
         google: { display_name: "Google Gemini (Cloud)", description: "Google's Gemini models via API", requires_api_key: true },
         openai: { display_name: "OpenAI (Cloud)", description: "OpenAI GPT models via API", requires_api_key: true },
@@ -594,12 +608,17 @@ export interface LlmConfig {
     embedding?: LlmSlot;
     heimdall_url?: string;
     heimdall_api_key?: string;
+    // Cloud provider API keys (migrated from dropped provider_api_keys column)
+    openai_api_key?: string;
+    google_api_key?: string;
+    azure_api_key?: string;
 }
 
 export interface TenantConfig {
     tenant_id: string;
     default_provider?: string;
     default_model?: string;
+    /** @deprecated Column dropped — keys now stored in llm_config */
     provider_api_keys?: Record<string, any>;
     qa_rules?: Record<string, any>;
     system_prompt?: string;
@@ -611,6 +630,12 @@ export interface TenantConfig {
         top_k?: number;
         similarity_threshold?: number;
         search_mode?: string;
+    };
+    pipeline_settings?: {
+        chunk_strategy?: string;
+        chunk_size?: number;
+        chunk_overlap?: number;
+        dedup_threshold?: number;
     };
     llm_config?: LlmConfig;
 }
@@ -891,7 +916,7 @@ export interface PageIndexResponse {
 export async function generatePageIndexTree(
     sourceId: number,
     provider: string = "gemini",
-    model: string = "gemini-3.1-flash-lite"
+    model: string = "gemini-2.5-flash"
 ): Promise<PageIndexResponse> {
     const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/extract-pageindex`, {
         method: "POST",
