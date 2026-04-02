@@ -44,6 +44,11 @@ async-stream = "0.3.6"
 rust-s3 = { workspace = true }
 sha2 = { workspace = true }
 axum-extra = { workspace = true }
+tracing-opentelemetry = "0.32.1"
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31.1", features = ["grpc-tonic"] }
+opentelemetry = "0.31.0"
+tonic = "0.14.5"
 
 [workspace.dependencies]
 anyhow = "1.0.101"

@@ -27,7 +27,6 @@ use mimir_core_ai::qa_qc::indexer::run_indexer;
 use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent};
 use mimir_core_ai::services::iam::IamService;
 use mimir_core_ai::services::qdrant::QdrantService;
-use rig::providers::ollama;
 use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 
 #[derive(Deserialize)]
