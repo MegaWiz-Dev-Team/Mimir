@@ -63,7 +63,15 @@ impl QdrantRetriever {
     pub fn parse_qdrant_response(response: &Value) -> Vec<RetrievalResult> {
         let results = response
             .get("result")
-            .and_then(|r| r.as_array())
+            .and_then(|r| {
+                // If it's an array (from /points/search)
+                if r.is_array() {
+                    r.as_array()
+                } else {
+                    // If it's an object with "points" (from /points/query)
+                    r.get("points").and_then(|p| p.as_array())
+                }
+            })
             .cloned()
             .unwrap_or_default();
 
@@ -108,7 +116,7 @@ impl VectorRetriever for QdrantRetriever {
         tenant_id: &str,
         limit: usize,
     ) -> Result<Vec<RetrievalResult>, String> {
-        // Step 1: Embed query via Heimdall/Ollama
+        // Step 1: Embed query via Heimdall/Ollama (Dense)
         let vectors =
             crate::routes::vector::embed_texts(&[query.to_string()], &self.embedding_model).await?;
 
@@ -121,10 +129,13 @@ impl VectorRetriever for QdrantRetriever {
             return Err("Empty embedding vector".to_string());
         }
 
-        // Step 2: Search Qdrant with tenant filter
+        // Step 1.5: Generate Sparse Vector (BM25)
+        let sparse_vector = mimir_core_ai::services::bm25::text_to_sparse_vector(query);
+
+        // Step 2: Search Qdrant with tenant filter using Hybrid Search (Dense + Sparse RRF)
         let response = self
             .qdrant
-            .search(&self.collection, vector, limit, tenant_id, false)
+            .search_hybrid(&self.collection, vector, &sparse_vector, limit, tenant_id)
             .await
             .map_err(|e| format!("Qdrant search failed: {}", e))?;
 
