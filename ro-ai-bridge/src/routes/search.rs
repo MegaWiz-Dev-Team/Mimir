@@ -49,6 +49,24 @@ pub struct SearchRequest {
     /// Qdrant collections to search. Default: ["golden_qa", "source_chunks"].
     #[serde(default)]
     pub collections: Option<Vec<String>>,
+    /// Source-level filters to narrow search scope.
+    #[serde(default)]
+    pub filters: Option<SearchFilters>,
+    /// Optional cross-encoder rerank configuration.
+    #[serde(default)]
+    pub rerank: Option<crate::routes::rag_eval::RerankConfig>,
+}
+
+/// Source-level filters for narrowing search scope.
+/// Per user requirement: filtering at source level (not chunk level).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SearchFilters {
+    /// Only search within these data source IDs.
+    #[serde(default)]
+    pub source_ids: Option<Vec<i64>>,
+    /// Only search within these source types (e.g., "pdf", "url", "manual").
+    #[serde(default)]
+    pub source_types: Option<Vec<String>>,
 }
 
 /// Response body for POST /api/search
@@ -153,8 +171,11 @@ async fn search_handler(
         tenant = %tenant_id,
         sources = ?active_sources,
         limit = limit,
+        filters = ?payload.filters,
         "🔍 /api/search parallel query"
     );
+
+    let filters = payload.filters.unwrap_or_default();
 
     // ── Fire all 3 sources in parallel via tokio::join! ──
 
@@ -166,7 +187,7 @@ async fn search_handler(
             }
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_vector(&query, &tenant_id, &embed_model, &collections, limit),
+                fetch_vector(&query, &tenant_id, &embed_model, &collections, limit, &filters),
             )
             .await
             {
@@ -187,7 +208,7 @@ async fn search_handler(
             }
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_graph(&query, &tenant_id, &pool, limit),
+                fetch_graph(&query, &tenant_id, &pool, limit, &filters),
             )
             .await
             {
@@ -208,7 +229,7 @@ async fn search_handler(
             }
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_tree(&query, &tenant_id, &pool),
+                fetch_tree(&query, &tenant_id, &pool, &filters),
             )
             .await
             {
@@ -236,8 +257,33 @@ async fn search_handler(
         "📦 Raw results before reranking"
     );
 
-    // Rerank with ensemble weights
-    let ranked = rerank_results(&all_results, &weights, limit);
+    // Apply reranking strategy
+    let ranked = if let Some(ref rc) = payload.rerank {
+        if rc.enabled && rc.strategy == "cross-encoder" {
+            // Pre-filter with RRF to limit the number of documents passed to Cross-Encoder
+            let pre_filtered = rerank_results(&all_results, &weights, (limit * 2).max(20));
+            // Try to resolve cross-encoder model
+            if let Ok(router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await {
+                if let Ok((reranker, model)) = router.resolve_reranker(rc.model.as_deref()) {
+                    crate::retrieval::ensemble::cross_encoder_rerank(&reranker, &model, &query, pre_filtered, limit)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!("Cross-encoder failed: {}. Falling back to RRF.", e);
+                            rerank_results(&all_results, &weights, limit)
+                        })
+                } else {
+                    rerank_results(&all_results, &weights, limit)
+                }
+            } else {
+                rerank_results(&all_results, &weights, limit)
+            }
+        } else {
+            rerank_results(&all_results, &weights, limit)
+        }
+    } else {
+        // Fallback to simple Reciprocal Rank Fusion
+        rerank_results(&all_results, &weights, limit)
+    };
 
     // Compute distribution and mode
     let distribution = source_distribution(&ranked);
@@ -295,12 +341,14 @@ fn resolve_active_sources(sources: &Option<Vec<String>>) -> ActiveSources {
 }
 
 /// Fetch results from Qdrant vector search across specified collections.
+/// Applies source_id filtering via Qdrant payload filter when filters are set.
 async fn fetch_vector(
     query: &str,
     tenant_id: &str,
     embed_model: &str,
     collections: &[String],
     limit: usize,
+    filters: &SearchFilters,
 ) -> Vec<RetrievalResult> {
     let mut results = Vec::new();
     let qdrant = QdrantService::new();
@@ -309,7 +357,22 @@ async fn fetch_vector(
         let retriever =
             QdrantRetriever::new(qdrant.clone(), embed_model.to_string(), collection.clone());
         match retriever.search(query, tenant_id, limit).await {
-            Ok(r) => results.extend(r),
+            Ok(r) => {
+                // Apply source_id filter post-retrieval (Qdrant payload has source_id)
+                let filtered: Vec<RetrievalResult> = if let Some(ref ids) = filters.source_ids {
+                    r.into_iter()
+                        .filter(|result| {
+                            result.metadata.get("source_id")
+                                .and_then(|v| v.as_i64())
+                                .map(|sid| ids.contains(&sid))
+                                .unwrap_or(false)
+                        })
+                        .collect()
+                } else {
+                    r
+                };
+                results.extend(filtered);
+            }
             Err(e) => warn!(collection = %collection, error = %e, "Vector search failed"),
         }
     }
@@ -318,15 +381,32 @@ async fn fetch_vector(
 }
 
 /// Fetch results from the SQL-backed Knowledge Graph.
+/// Applies source_id filtering via SQL WHERE clause.
 async fn fetch_graph(
     query: &str,
     tenant_id: &str,
     pool: &DbPool,
     limit: usize,
+    filters: &SearchFilters,
 ) -> Vec<RetrievalResult> {
     let retriever = SqlGraphRetriever::new(pool.clone());
     match retriever.search(query, tenant_id, limit).await {
-        Ok(graph_results) => graph_to_retrieval_results(&graph_results),
+        Ok(graph_results) => {
+            let all = graph_to_retrieval_results(&graph_results);
+            // Apply source_id filter post-retrieval
+            if let Some(ref ids) = filters.source_ids {
+                all.into_iter()
+                    .filter(|r| {
+                        r.metadata.get("source_id")
+                            .and_then(|v| v.as_i64())
+                            .map(|sid| ids.contains(&sid))
+                            .unwrap_or(true) // keep if no source_id in metadata
+                    })
+                    .collect()
+            } else {
+                all
+            }
+        }
         Err(e) => {
             warn!(error = %e, "Graph search failed");
             vec![]
@@ -335,7 +415,8 @@ async fn fetch_graph(
 }
 
 /// Fetch results from the Native tree search (LLM).
-async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool) -> Vec<RetrievalResult> {
+/// Applies source_id filtering by restricting which data_sources are queried.
+async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool, filters: &SearchFilters) -> Vec<RetrievalResult> {
     use mimir_core_ai::services::llm_router::LlmRouter;
     let router = match LlmRouter::new(pool.clone(), tenant_id).await {
         Ok(r) => r,
@@ -347,15 +428,33 @@ async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool) -> Vec<Retrieva
     
     let retriever = crate::retrieval::tree::NativeTreeRetriever::new();
 
-    // Load data sources with tree indexes (migrated from legacy tenant_documents)
-    let docs: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, name, CAST(raw_markdown AS CHAR), CAST(pageindex_tree AS CHAR) \
-         FROM data_sources WHERE tenant_id = ?",
-    )
-    .bind(tenant_id)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    // Load data sources with tree indexes, optionally filtered by source_ids
+    let docs: Vec<(i64, String, Option<String>, Option<String>)> = if let Some(ref ids) = filters.source_ids {
+        if ids.is_empty() {
+            return vec![];
+        }
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query_str = format!(
+            "SELECT id, name, CAST(raw_markdown AS CHAR), CAST(pageindex_tree AS CHAR) \
+             FROM data_sources WHERE tenant_id = ? AND id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(&query_str)
+            .bind(tenant_id);
+        for id in ids {
+            q = q.bind(id);
+        }
+        q.fetch_all(pool).await.unwrap_or_default()
+    } else {
+        sqlx::query_as(
+            "SELECT id, name, CAST(raw_markdown AS CHAR), CAST(pageindex_tree AS CHAR) \
+             FROM data_sources WHERE tenant_id = ?",
+        )
+        .bind(tenant_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    };
 
     let searchable: Vec<(String, String, String)> = docs
         .into_iter()
@@ -388,6 +487,19 @@ pub async fn run_parallel_search(
     weights: &EnsembleWeights,
     limit: usize,
 ) -> Vec<RetrievalResult> {
+    run_parallel_search_filtered(pool, query, tenant_id, weights, limit, &SearchFilters::default(), None).await
+}
+
+/// Run the parallel multi-source search with source-level filters.
+pub async fn run_parallel_search_filtered(
+    pool: &DbPool,
+    query: &str,
+    tenant_id: &str,
+    weights: &EnsembleWeights,
+    limit: usize,
+    filters: &SearchFilters,
+    rerank_config: Option<&crate::routes::rag_eval::RerankConfig>,
+) -> Vec<RetrievalResult> {
     // Resolve embedding model
     let iam = IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(tenant_id).await.ok();
@@ -405,7 +517,7 @@ pub async fn run_parallel_search(
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_vector(query, tenant_id, &embed_model, &collections, limit),
+                fetch_vector(query, tenant_id, &embed_model, &collections, limit, filters),
             )
             .await
             {
@@ -416,7 +528,7 @@ pub async fn run_parallel_search(
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_graph(query, tenant_id, pool, limit),
+                fetch_graph(query, tenant_id, pool, limit, filters),
             )
             .await
             {
@@ -427,7 +539,7 @@ pub async fn run_parallel_search(
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_tree(query, tenant_id, pool),
+                fetch_tree(query, tenant_id, pool, filters),
             )
             .await
             {
@@ -442,6 +554,23 @@ pub async fn run_parallel_search(
     all_results.extend(graph_results);
     all_results.extend(tree_results);
 
+    // Apply reranking strategy
+    if let Some(rc) = rerank_config {
+        if rc.enabled && rc.strategy == "cross-encoder" {
+            let pre_filtered = rerank_results(&all_results, weights, (limit * 2).max(20));
+            if let Ok(router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await {
+                if let Ok((reranker, model)) = router.resolve_reranker(rc.model.as_deref()) {
+                    return crate::retrieval::ensemble::cross_encoder_rerank(&reranker, &model, query, pre_filtered, limit)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!("Cross-encoder failed in parallel search: {}. Falling back to RRF.", e);
+                            rerank_results(&all_results, weights, limit)
+                        });
+                }
+            }
+        }
+    }
+    
     rerank_results(&all_results, weights, limit)
 }
 

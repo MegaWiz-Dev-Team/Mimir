@@ -47,6 +47,7 @@ use ro_ai_bridge::routes::search::search_routes;
 use ro_ai_bridge::routes::search_benchmark::search_benchmark_routes;
 use ro_ai_bridge::routes::search_optimize::search_optimize_routes;
 use ro_ai_bridge::routes::swarm::swarm_routes;
+use ro_ai_bridge::routes::rag_eval::rag_eval_routes;
 
 #[tokio::main]
 async fn main() {
@@ -156,6 +157,7 @@ async fn main() {
         .nest("/api/v1/agents", chat_routes())
         .nest("/api/v1/conversations", conversations_routes())
         .nest("/api/v1/evaluations", evaluations_ext_routes())
+        .nest("/api/v1/rag-eval", rag_eval_routes())
         .nest("/api/v1/settings", budget_settings_routes())
         .merge(budget_usage_routes())
         // Sprint 14: Cron schedule, feedback & OCR routes

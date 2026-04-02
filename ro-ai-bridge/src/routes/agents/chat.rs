@@ -85,34 +85,101 @@ pub(crate) async fn agent_chat(
 
     let (api_key, api_base) = resolve_llm_credentials(&config, &model_config, &agent.model_id)?;
 
-    // 4. Knowledge Graph augmentation (if enabled)
+    // 4. Ensemble RAG augmentation (Vector + Tree + Graph)
     let mut system_prompt = agent.system_prompt.clone();
-    if agent.use_knowledge_graph.unwrap_or(false) {
-        let graph_retriever = crate::retrieval::graph::SqlGraphRetriever::new(pool.clone());
-        match graph_retriever.search(&payload.message, tenant_id, 5).await {
-            Ok(graph_results) if !graph_results.is_empty() => {
-                let retrieval_results =
-                    crate::retrieval::graph::graph_to_retrieval_results(&graph_results);
-                let graph_context: Vec<String> = retrieval_results
-                    .iter()
-                    .map(|r| format!("• {}", r.content))
-                    .collect();
-                let kg_section = format!(
-                    "\n\n[Knowledge Graph Context]\nThe following entities and relationships are relevant:\n{}",
-                    graph_context.join("\n")
-                );
-                system_prompt.push_str(&kg_section);
-                info!(
-                    event = "kg_augmented",
-                    agent_id = id,
-                    entities = graph_results.len(),
-                    "KG context injected"
-                );
+    let use_rag = agent.use_rag.unwrap_or(true);
+    let use_kg = agent.use_knowledge_graph.unwrap_or(false);
+
+    if use_rag || use_kg {
+        use crate::retrieval::EnsembleWeights;
+        use crate::routes::search::run_parallel_search;
+
+        // Parse rag_params if available, otherwise use defaults
+        let rag_params = agent.rag_params.as_ref();
+        let weights = rag_params
+            .and_then(|p| p.get("weights"))
+            .and_then(|w| serde_json::from_value::<EnsembleWeights>(w.clone()).ok())
+            .unwrap_or_else(|| {
+                // Respect individual toggles: if use_rag is off, zero vector/tree
+                let mut w = EnsembleWeights::default();
+                if !use_rag {
+                    w.vector = 0.0;
+                    w.tree = 0.0;
+                }
+                if !use_kg {
+                    w.graph = 0.0;
+                }
+                let use_tree = agent.use_pageindex.unwrap_or(false);
+                if !use_tree {
+                    w.tree = 0.0;
+                }
+                w.normalize();
+                w
+            });
+
+        let top_k = agent.top_k.unwrap_or(5) as usize;
+
+        let rag_results = run_parallel_search(
+            &pool,
+            &payload.message,
+            tenant_id,
+            &weights,
+            top_k,
+        )
+        .await;
+
+        if !rag_results.is_empty() {
+            // Group results by source type for structured injection
+            let mut vector_ctx = Vec::new();
+            let mut tree_ctx = Vec::new();
+            let mut graph_ctx = Vec::new();
+
+            for r in &rag_results {
+                let entry = format!("• [{}] {}", r.title, r.content);
+                match r.source_type.as_str() {
+                    "vector" => vector_ctx.push(entry),
+                    "tree" => tree_ctx.push(entry),
+                    "graph" => graph_ctx.push(entry),
+                    _ => vector_ctx.push(entry),
+                }
             }
-            Ok(_) => { /* no relevant entities found, skip */ }
-            Err(e) => {
-                tracing::warn!(error = %e, "KG retrieval failed, continuing without graph context");
+
+            let mut context_sections = Vec::new();
+
+            if !vector_ctx.is_empty() {
+                context_sections.push(format!(
+                    "[Retrieved Context — Vector Search]\n{}",
+                    vector_ctx.join("\n")
+                ));
             }
+            if !tree_ctx.is_empty() {
+                context_sections.push(format!(
+                    "[Retrieved Context — Document Structure]\n{}",
+                    tree_ctx.join("\n")
+                ));
+            }
+            if !graph_ctx.is_empty() {
+                context_sections.push(format!(
+                    "[Knowledge Graph Context]\nThe following entities and relationships are relevant:\n{}",
+                    graph_ctx.join("\n")
+                ));
+            }
+
+            let rag_section = format!(
+                "\n\n{}\n\nUse the above context to answer the user's question. If the context does not contain relevant information, say so honestly.",
+                context_sections.join("\n\n")
+            );
+            system_prompt.push_str(&rag_section);
+
+            info!(
+                event = "rag_augmented",
+                agent_id = id,
+                total_chunks = rag_results.len(),
+                vector = vector_ctx.len(),
+                tree = tree_ctx.len(),
+                graph = graph_ctx.len(),
+                "Ensemble RAG context injected"
+            );
         }
     }
 
