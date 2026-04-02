@@ -166,8 +166,10 @@ impl QdrantService {
         }
 
         let body = json!({
-            "vector": vector,
-            "vector_name": "dense",
+            "vector": {
+                "name": "dense",
+                "vector": vector,
+            },
             "limit": limit,
             "with_payload": true,
             "filter": {

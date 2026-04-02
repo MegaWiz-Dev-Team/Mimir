@@ -753,9 +753,17 @@ async fn run_auto_pipeline(
                         Ok(vectors) => {
                             let mut points = Vec::new();
                             for (i, (qa_id, question, answer)) in batch.iter().enumerate() {
+                                let text_content = format!("{}\n{}", question, answer);
+                                let sparse = mimir_core_ai::services::bm25::text_to_sparse_vector(&text_content);
                                 points.push(json!({
                                     "id": *qa_id as u64,
-                                    "vector": { "dense": vectors[i] },
+                                    "vector": {
+                                        "dense": vectors[i].clone(),
+                                        "bm25": {
+                                            "indices": sparse.indices,
+                                            "values": sparse.values,
+                                        }
+                                    },
                                     "payload": {
                                         "question": question,
                                         "answer": answer,

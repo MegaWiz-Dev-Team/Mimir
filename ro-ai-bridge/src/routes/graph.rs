@@ -175,7 +175,7 @@ async fn search_entities(
     let page = params.page.unwrap_or(1).max(1) as i64;
     let offset = (page - 1) * limit;
 
-    let mut query_str = "SELECT id, name, entity_type, properties, source_id, chunk_id, neo4j_node_id FROM kg_entities WHERE tenant_id = ?".to_string();
+    let mut query_str = "SELECT id, name, entity_type, CAST(properties AS CHAR), source_id, chunk_id, neo4j_node_id FROM kg_entities WHERE tenant_id = ?".to_string();
     let mut count_str = "SELECT COUNT(*) FROM kg_entities WHERE tenant_id = ?".to_string();
 
     if let Some(ref q) = params.q {
