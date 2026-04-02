@@ -1,6 +1,6 @@
-use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
-use mimir_core_ai::models::persona::Persona;
 use dotenvy::dotenv;
+use mimir_core_ai::models::persona::Persona;
+use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -13,10 +13,11 @@ async fn main() -> anyhow::Result<()> {
         display_name: "Test NPC".to_string(),
         tier: 1,
         model_id: None,
-        system_prompt: "You are a test NPC. If someone says please heal me, use your heal tool.".to_string(),
+        system_prompt: "You are a test NPC. If someone says please heal me, use your heal tool."
+            .to_string(),
         greeting: Some("Hello!".to_string()),
         allowed_actions: vec![],
-        personality_traits: vec!["friendly".to_string()],    
+        personality_traits: vec!["friendly".to_string()],
     };
 
     let agent = SimpleNpcAgent::new(persona);

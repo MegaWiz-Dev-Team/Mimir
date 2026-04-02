@@ -22,7 +22,10 @@ mod tests {
 
     #[test]
     fn t01_health_check() {
-        let resp = client().get(format!("{}/health", base_url())).send().unwrap();
+        let resp = client()
+            .get(format!("{}/health", base_url()))
+            .send()
+            .unwrap();
         assert_eq!(resp.status(), 200, "GET /health should return 200");
         let body: Value = resp.json().unwrap();
         assert_eq!(body["status"], "ok");
@@ -30,15 +33,25 @@ mod tests {
 
     #[test]
     fn t02_healthz_alias() {
-        let resp = client().get(format!("{}/healthz", base_url())).send().unwrap();
-        assert_eq!(resp.status(), 200, "GET /healthz should return 200 (K8s probe)");
+        let resp = client()
+            .get(format!("{}/healthz", base_url()))
+            .send()
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "GET /healthz should return 200 (K8s probe)"
+        );
     }
 
     // ── Tenant CRUD ────────────────────────────────────
 
     #[test]
     fn t10_list_tenants() {
-        let resp = client().get(format!("{}/api/v1/tenants", base_url())).send().unwrap();
+        let resp = client()
+            .get(format!("{}/api/v1/tenants", base_url()))
+            .send()
+            .unwrap();
         assert_eq!(resp.status(), 200);
         let body: Vec<Value> = resp.json().unwrap();
         assert!(!body.is_empty(), "Should have at least default_tenant");
@@ -58,7 +71,11 @@ mod tests {
             }))
             .send()
             .unwrap();
-        assert_eq!(resp.status(), 201, "POST /api/v1/tenants should return 201 Created");
+        assert_eq!(
+            resp.status(),
+            201,
+            "POST /api/v1/tenants should return 201 Created"
+        );
 
         let body: Value = resp.json().unwrap();
         assert_eq!(body["id"], "test_tdd_agent");
@@ -79,7 +96,11 @@ mod tests {
             }))
             .send()
             .unwrap();
-        assert_eq!(resp.status(), 201, "Long domain name should work (fixes #251)");
+        assert_eq!(
+            resp.status(),
+            201,
+            "Long domain name should work (fixes #251)"
+        );
         let body: Value = resp.json().unwrap();
         assert_eq!(body["domain"], "heimdall_llm_gateway.asgard.local");
     }
@@ -112,7 +133,11 @@ mod tests {
             .json(&json!({"id": "muninn", "name": "Duplicate Muninn"}))
             .send()
             .unwrap();
-        assert_eq!(resp.status(), 409, "Duplicate tenant should return 409 Conflict");
+        assert_eq!(
+            resp.status(),
+            409,
+            "Duplicate tenant should return 409 Conflict"
+        );
     }
 
     // ── Document Ingestion ─────────────────────────────
@@ -132,13 +157,19 @@ mod tests {
         let body: Value = resp.json().unwrap();
         assert!(body["document_id"].as_i64().unwrap() > 0);
         assert_eq!(body["status"], "indexed");
-        assert!(body["tree_node_count"].as_i64().unwrap() >= 1, "Should have at least 1 tree node");
+        assert!(
+            body["tree_node_count"].as_i64().unwrap() >= 1,
+            "Should have at least 1 tree node"
+        );
     }
 
     #[test]
     fn t21_list_documents() {
         let resp = client()
-            .get(format!("{}/api/v1/tenants/test_tdd_agent/ingest/documents", base_url()))
+            .get(format!(
+                "{}/api/v1/tenants/test_tdd_agent/ingest/documents",
+                base_url()
+            ))
             .send()
             .unwrap();
         assert_eq!(resp.status(), 200);
@@ -152,7 +183,10 @@ mod tests {
     #[test]
     fn t30_query_tenant() {
         let resp = client()
-            .post(format!("{}/api/v1/tenants/test_tdd_agent/query", base_url()))
+            .post(format!(
+                "{}/api/v1/tenants/test_tdd_agent/query",
+                base_url()
+            ))
             .json(&json!({"question": "What API endpoints does TDD Agent have?"}))
             .send()
             .unwrap();
@@ -241,7 +275,8 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), 200);
         let body: Value = resp.json().unwrap();
-        let sources = body["sources"].as_array().unwrap_or(&vec![]);
+        let empty_vec = vec![];
+        let sources = body["sources"].as_array().unwrap_or(&empty_vec);
         for source in sources {
             assert_eq!(
                 source["source_type"], "vector",
@@ -266,7 +301,10 @@ mod tests {
     #[test]
     fn t91_delete_long_domain_tenant() {
         let resp = client()
-            .delete(format!("{}/api/v1/tenants/heimdall_llm_gateway", base_url()))
+            .delete(format!(
+                "{}/api/v1/tenants/heimdall_llm_gateway",
+                base_url()
+            ))
             .send()
             .unwrap();
         assert_eq!(resp.status(), 200);

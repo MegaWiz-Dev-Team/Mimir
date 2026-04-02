@@ -1,16 +1,15 @@
 use axum::{
-    extract::{State, Json},
-    routing::{post, Router},
+    extract::{Json, State},
+    routing::{Router, post},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use tracing::{info, error, warn};
+use serde_json::{Value, json};
+use tracing::{error, info, warn};
 
 use mimir_core_ai::services::db::DbPool;
 
 pub fn rathena_routes() -> Router<DbPool> {
-    Router::new()
-        .route("/chat", post(handle_chat))
+    Router::new().route("/chat", post(handle_chat))
 }
 
 #[derive(Deserialize)]
@@ -38,7 +37,7 @@ async fn handle_chat(
     Json(req): Json<ChatRequest>,
 ) -> Json<ChatResponse> {
     info!("Received chat from {}: {}", req.player_name, req.message);
-    
+
     // Load persona configuration
     let persona = match Persona::load_by_name_cached(&req.persona_name) {
         Ok(p) => p,

@@ -1,0 +1,6 @@
+{
+  "query": "AHI",
+  "weights": { "vector": 0.6, "graph": 0.3, "tree": 0.1 },
+  "limit": 5,
+  "tenant_id": "megacare"
+}

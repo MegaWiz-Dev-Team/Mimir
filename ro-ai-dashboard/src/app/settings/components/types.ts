@@ -16,6 +16,8 @@ export interface SettingsTabProps {
     tenantName: string;
     setTenantName: (name: string) => void;
     handleSave: (e: React.FormEvent) => void;
+    handleSaveAIModels: (e: React.FormEvent) => void;
+    handleSaveCredentials: (e: React.FormEvent) => void;
 
     // Pipeline state
     chunkStrategy: string;
@@ -29,8 +31,6 @@ export interface SettingsTabProps {
     updateTenantConfigFn: (tenantId: string, config: Partial<TenantConfig>) => Promise<void>;
 
     // Search state
-    embeddingModel: string;
-    setEmbeddingModel: (v: string) => void;
     topK: number;
     setTopK: (v: number) => void;
     similarityThreshold: number;

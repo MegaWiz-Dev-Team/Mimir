@@ -1,16 +1,16 @@
+use super::{AtomicFact, CoverageReport, QAPair, WikiChunk};
 use crate::services::llm_router::UniversalClient;
-use super::{WikiChunk, QAPair, AtomicFact, CoverageReport};
 use anyhow::Result;
 use tracing::info;
 
 pub struct CoverageVerifierAgent;
 
 pub async fn verify_coverage(
-    client: &UniversalClient, 
+    client: &UniversalClient,
     model: &str,
     _chunk: &WikiChunk,
     facts: &[AtomicFact],
-    qa_pairs: &[QAPair]
+    qa_pairs: &[QAPair],
 ) -> Result<CoverageReport> {
     info!("      Verifying Coverage (Agent approach)...");
 
@@ -43,7 +43,8 @@ pub async fn verify_coverage(
     let raw_res = client.prompt(model, preamble, &prompt, 4096, 0.2).await?;
 
     // Clean markdown
-    let clean_json = raw_res.trim()
+    let clean_json = raw_res
+        .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")

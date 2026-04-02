@@ -1,7 +1,7 @@
+use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use dotenvy::dotenv;
 use tracing::{info, warn};
 
 use crate::services::vault;
@@ -31,7 +31,10 @@ pub const VAULT_MANAGED_SECRETS: &[&str] = &[
 /// If Vault is not configured (`VAULT_ADDR` not set), this is a no-op.
 pub async fn inject_vault_secrets() {
     if !vault::is_vault_enabled() {
-        info!(event = "vault_skip", "Vault not configured — using env vars directly for secrets");
+        info!(
+            event = "vault_skip",
+            "Vault not configured — using env vars directly for secrets"
+        );
         return;
     }
 
@@ -43,7 +46,10 @@ pub async fn inject_vault_secrets() {
         }
     };
 
-    info!(event = "vault_inject_start", "Resolving secrets from Vault...");
+    info!(
+        event = "vault_inject_start",
+        "Resolving secrets from Vault..."
+    );
     let mut injected = 0u32;
 
     for key in VAULT_MANAGED_SECRETS {
@@ -51,7 +57,9 @@ pub async fn inject_vault_secrets() {
             Ok((value, source)) => {
                 if source == "vault" {
                     // SAFETY: set_var is safe here because we're single-threaded at startup
-                    unsafe { env::set_var(key, &value); }
+                    unsafe {
+                        env::set_var(key, &value);
+                    }
                     info!(event = "vault_injected", key = %key, "✅ Injected from Vault");
                     injected += 1;
                 }
@@ -63,7 +71,12 @@ pub async fn inject_vault_secrets() {
         }
     }
 
-    info!(event = "vault_inject_done", injected = injected, total = VAULT_MANAGED_SECRETS.len(), "Vault secret injection complete");
+    info!(
+        event = "vault_inject_done",
+        injected = injected,
+        total = VAULT_MANAGED_SECRETS.len(),
+        "Vault secret injection complete"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -114,8 +127,9 @@ impl Config {
                 .expect("PORT must be a number"),
 
             // Database
-            mariadb_url: env::var("MARIADB_URL")
-                .unwrap_or_else(|_| "mysql://mimir:mimir_password@localhost:3306/mimir".to_string()),
+            mariadb_url: env::var("MARIADB_URL").unwrap_or_else(|_| {
+                "mysql://mimir:mimir_password@localhost:3306/mimir".to_string()
+            }),
             qdrant_url: env::var("QDRANT_URL")
                 .unwrap_or_else(|_| "http://localhost:6333".to_string()),
             redis_url: env::var("REDIS_URL")
@@ -124,24 +138,19 @@ impl Config {
             // S3 / RustFS
             s3_endpoint: env::var("S3_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:9000".to_string()),
-            s3_bucket: env::var("S3_BUCKET")
-                .unwrap_or_else(|_| "mimir-tenant-uploads".to_string()),
-            s3_access_key: env::var("S3_ACCESS_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            s3_secret_key: env::var("S3_SECRET_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            s3_region: env::var("S3_REGION")
-                .unwrap_or_else(|_| "us-east-1".to_string()),
+            s3_bucket: env::var("S3_BUCKET").unwrap_or_else(|_| "mimir-tenant-uploads".to_string()),
+            s3_access_key: env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+            s3_secret_key: env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+            s3_region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
 
             // LLM
             ollama_url: env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            local_model: env::var("LOCAL_MODEL")
-                .unwrap_or_else(|_| "gemma:2b".to_string()),
-            embed_model: env::var("EMBED_MODEL")
-                .unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
-            gemini_base_url: env::var("GEMINI_BASE_URL")
-                .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
+            local_model: env::var("LOCAL_MODEL").unwrap_or_else(|_| "gemma:2b".to_string()),
+            embed_model: env::var("EMBED_MODEL").unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
+            gemini_base_url: env::var("GEMINI_BASE_URL").unwrap_or_else(|_| {
+                "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
+            }),
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
             gemini_model: env::var("GEMINI_MODEL")
                 .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
@@ -154,8 +163,7 @@ impl Config {
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
 
             // Auth
-            jwt_secret: env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "dev_secret_key".to_string()),
+            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string()),
         };
 
         info!("Configuration loaded successfully.");
@@ -214,7 +222,9 @@ impl Default for QAConfig {
                     count: 2,
                 },
                 SizeRule {
-                    comment: Some("Medium files (2000-10000 chars) - moderate Q/A pairs".to_string()),
+                    comment: Some(
+                        "Medium files (2000-10000 chars) - moderate Q/A pairs".to_string(),
+                    ),
                     min_size: 2000,
                     max_size: Some(10000),
                     count: 3,
@@ -248,7 +258,10 @@ impl QAConfig {
         match Self::from_file(path) {
             Ok(config) => config,
             Err(e) => {
-                warn!("⚠️ Failed to load QA config from {}: {}. Using defaults.", path, e);
+                warn!(
+                    "⚠️ Failed to load QA config from {}: {}. Using defaults.",
+                    path, e
+                );
                 Self::default()
             }
         }
@@ -271,7 +284,7 @@ impl QAConfig {
         for rule in &self.rules {
             let min_ok = content_size >= rule.min_size;
             let max_ok = rule.max_size.map_or(true, |max| content_size < max);
-            
+
             if min_ok && max_ok {
                 return rule.count;
             }
@@ -287,13 +300,13 @@ impl QAConfig {
         }
 
         if pattern.starts_with('*') && pattern.ends_with('*') {
-            let inner = &pattern[1..pattern.len()-1];
+            let inner = &pattern[1..pattern.len() - 1];
             text.contains(inner)
         } else if pattern.starts_with('*') {
             let suffix = &pattern[1..];
             text.ends_with(suffix)
         } else if pattern.ends_with('*') {
-            let prefix = &pattern[..pattern.len()-1];
+            let prefix = &pattern[..pattern.len() - 1];
             text.starts_with(prefix)
         } else {
             text == pattern

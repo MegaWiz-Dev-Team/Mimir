@@ -1,12 +1,12 @@
 use axum::{
-    routing::get,
-    Router, Json,
-    extract::{State, Query},
+    extract::{Query, State},
     http::StatusCode,
+    routing::get,
+    Json, Router,
 };
+use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use mimir_core_ai::services::db::DbPool;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -128,10 +128,12 @@ async fn get_llm_usage(
     for val in &bind_values {
         count_query = count_query.bind(val);
     }
-    let total: i64 = count_query
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let total: i64 = count_query.fetch_one(&pool).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     // Data query
     let data_sql = format!(
@@ -144,10 +146,12 @@ async fn get_llm_usage(
     }
     data_query = data_query.bind(per_page).bind(offset);
 
-    let logs: Vec<LlmUsageLog> = data_query
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let logs: Vec<LlmUsageLog> = data_query.fetch_all(&pool).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(PaginatedUsageLogs {
         logs,
@@ -190,10 +194,11 @@ async fn get_llm_usage_summary(
     for val in &bind_values {
         agg_query = agg_query.bind(val);
     }
-    let (total_calls, total_input_tokens, total_output_tokens, total_tokens, avg_latency_ms) = agg_query
-        .fetch_one(&pool)
-        .await
-        .unwrap_or((0, 0, 0, 0, 0.0));
+    let (total_calls, total_input_tokens, total_output_tokens, total_tokens, avg_latency_ms) =
+        agg_query
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0, 0, 0, 0, 0.0));
 
     // Per-model aggregation
     let model_sql = format!(
@@ -204,10 +209,7 @@ async fn get_llm_usage_summary(
     for val in &bind_values {
         model_query = model_query.bind(val);
     }
-    let model_rows = model_query
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
+    let model_rows = model_query.fetch_all(&pool).await.unwrap_or_default();
 
     let models: Vec<ModelUsageSummary> = model_rows
         .into_iter()

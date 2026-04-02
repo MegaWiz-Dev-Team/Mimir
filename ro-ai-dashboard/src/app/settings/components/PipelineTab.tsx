@@ -1,14 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Workflow, Save } from "lucide-react";
+import { Workflow, Save, Check } from "lucide-react";
 import { SettingsTabProps } from "./types";
 
 export function PipelineTab(props: SettingsTabProps) {
     const { config, setConfig, isSaving, currentTenantId, updateTenantConfigFn,
         chunkStrategy, setChunkStrategy, chunkSize, setChunkSize, chunkOverlap, setChunkOverlap, dedupThreshold, setDedupThreshold } = props;
+    const [saved, setSaved] = useState(false);
 
     return (
         <Card>
@@ -61,33 +63,41 @@ export function PipelineTab(props: SettingsTabProps) {
                     </div>
 
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Dedup Threshold</label>
+                        <label className="text-sm font-medium">Dedup Strategy</label>
                         <select value={dedupThreshold} onChange={e => setDedupThreshold(parseInt(e.target.value))}
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                            <option value={0}>Exact Match Only (SHA-256)</option>
-                            <option value={3}>High Similarity (SimHash ≤ 3 bits)</option>
-                            <option value={5}>Moderate Similarity (SimHash ≤ 5 bits)</option>
-                            <option value={10}>Loose Similarity (SimHash ≤ 10 bits)</option>
+                            <option value={0}>Exact Match (SHA-256)</option>
                         </select>
-                        <p className="text-xs text-muted-foreground">Controls how similar content must be to be considered a duplicate.</p>
+                        <p className="text-xs text-muted-foreground">Duplicate chunks with identical content hash are automatically skipped during sync.</p>
                     </div>
 
                     <div className="pt-4 flex justify-end">
                         <Button
-                            disabled={isSaving || !currentTenantId}
+                            disabled={isSaving || !currentTenantId || saved}
+                            className={saved ? "bg-green-600 hover:bg-green-700 text-white" : ""}
                             onClick={async () => {
                                 if (!currentTenantId || !config) return;
-                                try { await updateTenantConfigFn(currentTenantId, { max_crawl_pages: config.max_crawl_pages }); alert("Pipeline settings saved successfully."); }
+                                try { 
+                                    await updateTenantConfigFn(currentTenantId, { 
+                                        max_crawl_pages: config.max_crawl_pages,
+                                        pipeline_settings: {
+                                            ...(config.pipeline_settings || {}),
+                                            chunk_strategy: chunkStrategy,
+                                            chunk_size: chunkSize,
+                                            chunk_overlap: chunkOverlap,
+                                            dedup_threshold: dedupThreshold,
+                                        },
+                                    }); 
+                                    setSaved(true);
+                                    setTimeout(() => setSaved(false), 2000);
+                                }
                                 catch { alert("Failed to save pipeline settings."); }
                             }}
                         >
-                            <Save className="w-4 h-4 mr-2" />
-                            {isSaving ? "Saving..." : "Save Pipeline Settings"}
+                            {saved ? <Check className="w-4 h-4 mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                            {saved ? "Saved Successfully" : isSaving ? "Saving..." : "Save Pipeline Settings"}
                         </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground text-right">
-                        Chunking and dedup settings persistence will be wired in a future sprint.
-                    </p>
                 </div>
             </CardContent>
         </Card>

@@ -5,18 +5,16 @@
 //! - POST /api/v1/vault/rotate  — rotate a specific secret key
 
 use axum::{
-    Router,
-    routing::{get, post},
     extract::Json,
     http::StatusCode,
     response::IntoResponse,
+    routing::{get, post},
+    Router,
 };
-use sqlx::MySqlPool;
+use mimir_core_ai::services::vault::{self, RotateSecretRequest, VaultStatus};
 use serde_json::json;
-use tracing::{info, error};
-use mimir_core_ai::services::vault::{
-    self, RotateSecretRequest, VaultStatus,
-};
+use sqlx::MySqlPool;
+use tracing::{error, info};
 
 pub fn vault_routes() -> Router<MySqlPool> {
     Router::new()
@@ -28,10 +26,14 @@ pub fn vault_routes() -> Router<MySqlPool> {
 /// GET /vault/status — check if Vault is enabled and connected
 async fn vault_status() -> impl IntoResponse {
     if !vault::is_vault_enabled() {
-        return (StatusCode::OK, Json(json!({
-            "enabled": false,
-            "message": "Vault not configured (VAULT_ADDR not set). Using env vars for secrets."
-        }))).into_response();
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "enabled": false,
+                "message": "Vault not configured (VAULT_ADDR not set). Using env vars for secrets."
+            })),
+        )
+            .into_response();
     }
 
     match vault::parse_vault_config() {
@@ -41,11 +43,15 @@ async fn vault_status() -> impl IntoResponse {
         }
         Err(e) => {
             error!(error = %e, "Vault config error");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                "enabled": true,
-                "connected": false,
-                "error": format!("Config error: {}", e)
-            }))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "enabled": true,
+                    "connected": false,
+                    "error": format!("Config error: {}", e)
+                })),
+            )
+                .into_response()
         }
     }
 }
@@ -56,30 +62,40 @@ async fn vault_secrets() -> impl IntoResponse {
     let total = secrets.len();
     let present_count = secrets.iter().filter(|s| s.status == "present").count();
 
-    (StatusCode::OK, Json(json!({
-        "secrets": secrets,
-        "total": total,
-        "present_count": present_count,
-        "vault_enabled": vault::is_vault_enabled()
-    }))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({
+            "secrets": secrets,
+            "total": total,
+            "present_count": present_count,
+            "vault_enabled": vault::is_vault_enabled()
+        })),
+    )
+        .into_response()
 }
 
 /// POST /vault/rotate — rotate a secret key in Vault
-async fn rotate_secret(
-    Json(req): Json<RotateSecretRequest>,
-) -> impl IntoResponse {
+async fn rotate_secret(Json(req): Json<RotateSecretRequest>) -> impl IntoResponse {
     if !vault::is_vault_enabled() {
-        return (StatusCode::BAD_REQUEST, Json(json!({
-            "error": "Vault is not enabled. Set VAULT_ADDR to use secret rotation."
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Vault is not enabled. Set VAULT_ADDR to use secret rotation."
+            })),
+        )
+            .into_response();
     }
 
     let config = match vault::parse_vault_config() {
         Ok(c) => c,
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                "error": format!("Vault config error: {}", e)
-            }))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": format!("Vault config error: {}", e)
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -97,10 +113,14 @@ async fn rotate_secret(
         }
         Err(e) => {
             error!(error = %e, key = %req.key, "Secret rotation failed");
-            (StatusCode::BAD_GATEWAY, Json(json!({
-                "error": format!("Rotation failed: {}", e),
-                "key": req.key
-            }))).into_response()
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "error": format!("Rotation failed: {}", e),
+                    "key": req.key
+                })),
+            )
+                .into_response()
         }
     }
 }

@@ -35,7 +35,10 @@ pub fn is_ocr_capable(filename: &str) -> bool {
 /// Check if file is a pure image (not PDF).
 pub fn is_image_file(filename: &str) -> bool {
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
-    matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "tif")
+    matches!(
+        ext.as_str(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "tif"
+    )
 }
 
 // ─── Gemini Vision Request Builder ─────────────────────────────────────────────
@@ -105,7 +108,10 @@ pub async fn extract_text_from_image(
 
     info!(
         "OCR: Sending {} ({}, {} bytes) to Gemini vision (model={})",
-        filename, mime_type, data.len(), model
+        filename,
+        mime_type,
+        data.len(),
+        model
     );
 
     let prompt = if mime_type == "application/pdf" {
@@ -118,7 +124,8 @@ pub async fn extract_text_from_image(
     let url = format!("{}chat/completions", api_base);
 
     let client = reqwest::Client::new();
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -133,7 +140,9 @@ pub async fn extract_text_from_image(
         bail!("Gemini vision API returned {}: {}", status, error_body);
     }
 
-    let resp_json: serde_json::Value = response.json().await
+    let resp_json: serde_json::Value = response
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to parse Gemini vision response: {}", e))?;
 
     let content = resp_json["choices"][0]["message"]["content"]
@@ -145,7 +154,9 @@ pub async fn extract_text_from_image(
 
     info!(
         "OCR complete for {}: {} chars extracted, {} tokens used",
-        filename, content.len(), total_tokens
+        filename,
+        content.len(),
+        total_tokens
     );
 
     Ok((content, total_tokens))
@@ -260,7 +271,10 @@ mod tests {
         assert!(is_likely_scanned_pdf("a few words", 500_000));
 
         // Normal file with good text = not scanned
-        assert!(!is_likely_scanned_pdf("This is a normal PDF with lots of readable text content spread across multiple lines.", 50_000));
+        assert!(!is_likely_scanned_pdf(
+            "This is a normal PDF with lots of readable text content spread across multiple lines.",
+            50_000
+        ));
 
         // Small file = not scanned (could be a simple doc)
         assert!(!is_likely_scanned_pdf("", 500));

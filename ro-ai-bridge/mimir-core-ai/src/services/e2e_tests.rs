@@ -22,7 +22,10 @@ mod tests {
 
         // Step 2: Build URL path
         let url = build_secret_path(&config);
-        assert_eq!(url, "https://vault.prod.example.com/v1/secret/data/mimir/production");
+        assert_eq!(
+            url,
+            "https://vault.prod.example.com/v1/secret/data/mimir/production"
+        );
 
         // Step 3: Simulate Vault response and parse
         let vault_response = serde_json::json!({
@@ -62,7 +65,10 @@ mod tests {
         use crate::services::db_connector::*;
 
         // Step 1: Parse connection string
-        let info = parse_connection_string("mysql://analyst:secret@db.company.com:3306/analytics_db?ssl=true").unwrap();
+        let info = parse_connection_string(
+            "mysql://analyst:secret@db.company.com:3306/analytics_db?ssl=true",
+        )
+        .unwrap();
         assert_eq!(info.db_type, DbType::Mysql);
         assert_eq!(info.host, "db.company.com");
         assert_eq!(info.port, Some(3306));
@@ -82,9 +88,17 @@ mod tests {
         assert!(cols_q.contains("{TABLE_NAME}"));
 
         // Step 5: Convert data to markdown
-        let columns = vec!["Order".to_string(), "Customer".to_string(), "Amount".to_string()];
+        let columns = vec![
+            "Order".to_string(),
+            "Customer".to_string(),
+            "Amount".to_string(),
+        ];
         let rows = vec![
-            vec!["001".to_string(), "ACME Corp".to_string(), "5000".to_string()],
+            vec![
+                "001".to_string(),
+                "ACME Corp".to_string(),
+                "5000".to_string(),
+            ],
             vec!["002".to_string(), "Globex".to_string(), "3200".to_string()],
         ];
         let md = rows_to_markdown(&columns, &rows);
@@ -96,7 +110,8 @@ mod tests {
         let req = TestConnectionRequest {
             name: "Analytics DB".to_string(),
             db_type: DbType::Mysql,
-            connection_string: "mysql://analyst:secret@db.company.com:3306/analytics_db".to_string(),
+            connection_string: "mysql://analyst:secret@db.company.com:3306/analytics_db"
+                .to_string(),
         };
         assert!(validate_connection_config(&req).is_ok());
     }
@@ -112,7 +127,9 @@ mod tests {
         let req = CreateFeedbackRequest {
             report_type: "bug".to_string(),
             title: "OCR fails on Thai text".to_string(),
-            description: Some("When uploading a Thai document, OCR returns garbled text.".to_string()),
+            description: Some(
+                "When uploading a Thai document, OCR returns garbled text.".to_string(),
+            ),
             priority: Some("high".to_string()),
             page_url: Some("/dashboard/sources/42".to_string()),
             browser_info: Some(serde_json::json!({"browser": "Chrome 120", "os": "macOS 14.3"})),
@@ -120,16 +137,18 @@ mod tests {
         };
 
         // Step 2: Build GitHub issue body
-        let system_logs = "Last 5 LLM calls:\n- gemini-2.5-flash: 1200 tokens\n- Failed source id=42: timeout";
-        let body = build_github_issue_body(&req, Some(system_logs), 42, "tenant-abc", Some("user-123"));
+        let system_logs =
+            "Last 5 LLM calls:\n- gemini-2.5-flash: 1200 tokens\n- Failed source id=42: timeout";
+        let body =
+            build_github_issue_body(&req, Some(system_logs), 42, "tenant-abc", Some("user-123"));
 
         // Step 3: Verify issue body contains essential info
-        assert!(body.contains("bug"));                    // report_type
-        assert!(body.contains("High"));                   // priority badge
-        assert!(body.contains("tenant-abc"));             // tenant
-        assert!(body.contains("user-123"));               // user
-        assert!(body.contains("Thai document"));           // description content
-        assert!(body.contains("System Logs"));             // system logs section
+        assert!(body.contains("bug")); // report_type
+        assert!(body.contains("High")); // priority badge
+        assert!(body.contains("tenant-abc")); // tenant
+        assert!(body.contains("user-123")); // user
+        assert!(body.contains("Thai document")); // description content
+        assert!(body.contains("System Logs")); // system logs section
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -172,7 +191,7 @@ mod tests {
             &dummy_image,
             "image/jpeg",
             "gemini-2.5-flash",
-            "Extract all text from this image"
+            "Extract all text from this image",
         );
 
         // Verify request structure
@@ -183,7 +202,10 @@ mod tests {
 
         // Step 4: Test scanned PDF detection
         assert!(is_likely_scanned_pdf("ab", 100_000)); // tiny text + big file = scanned
-        assert!(!is_likely_scanned_pdf("This is a long document with lots of text content.", 1_000));
+        assert!(!is_likely_scanned_pdf(
+            "This is a long document with lots of text content.",
+            1_000
+        ));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -234,8 +256,8 @@ mod tests {
     // ═══════════════════════════════════════════════════════════════════════════
     #[test]
     fn e2e_multi_service_integration() {
-        use crate::services::vault::*;
         use crate::services::db_connector::*;
+        use crate::services::vault::*;
 
         // Scenario: Resolve DB connection string from Vault, then use it
 
@@ -252,7 +274,10 @@ mod tests {
 
         // Step 2: Extract MySQL connection from Vault
         let mysql_conn = parse_vault_response(&vault_response, "external_db_mysql").unwrap();
-        assert_eq!(mysql_conn, "mysql://reader:pass@analytics.internal:3306/warehouse");
+        assert_eq!(
+            mysql_conn,
+            "mysql://reader:pass@analytics.internal:3306/warehouse"
+        );
 
         // Step 3: Parse the extracted connection string with DB connector
         let info = parse_connection_string(&mysql_conn).unwrap();

@@ -6,16 +6,17 @@
 //! - GET    /api/v1/conversations/:session_id   — get full conversation by session
 //! - POST   /api/v1/conversations/:id/feedback  — submit thumbs up/down
 
-use crate::routes::tenant::extract_tenant_id;use axum::{
+use crate::routes::tenant::extract_tenant_id;
+use axum::{
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Router, Json,
-    extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use mimir_core_ai::services::db::DbPool;
 
@@ -63,7 +64,7 @@ pub struct ConversationSessionSummary {
 
 #[derive(Debug, Deserialize)]
 pub struct FeedbackRequest {
-    pub feedback: String,  // "thumbs_up" or "thumbs_down"
+    pub feedback: String, // "thumbs_up" or "thumbs_down"
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ async fn list_conversations(
             CAST(MAX(ac.created_at) AS DATETIME) as last_message_at
         FROM agent_conversations ac
         LEFT JOIN agent_configs ag ON ac.agent_config_id = ag.id
-        WHERE ac.tenant_id = ?"#
+        WHERE ac.tenant_id = ?"#,
     );
 
     let mut bind_values: Vec<String> = vec![tenant_id.to_string()];
@@ -130,12 +131,15 @@ async fn list_conversations(
         .await
         .map_err(|e| {
             error!("Failed to list conversations: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
         })?;
 
     // Get total count
     let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT session_id) FROM agent_conversations WHERE tenant_id = ?"
+        "SELECT COUNT(DISTINCT session_id) FROM agent_conversations WHERE tenant_id = ?",
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -168,7 +172,10 @@ async fn get_conversation(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
 
     if messages.is_empty() {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Session not found"})),
+        ));
     }
 
     Ok(Json(json!({
@@ -186,24 +193,38 @@ async fn submit_feedback(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     // Validate feedback value
     if payload.feedback != "thumbs_up" && payload.feedback != "thumbs_down" {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "feedback must be 'thumbs_up' or 'thumbs_down'"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "feedback must be 'thumbs_up' or 'thumbs_down'"})),
+        ));
     }
 
-    let result = sqlx::query(
-        "UPDATE agent_conversations SET feedback = ? WHERE id = ?"
-    )
-    .bind(&payload.feedback)
-    .bind(id)
-    .execute(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let result = sqlx::query("UPDATE agent_conversations SET feedback = ? WHERE id = ?")
+        .bind(&payload.feedback)
+        .bind(id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Message not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Message not found"})),
+        ));
     }
 
-    info!("Feedback '{}' submitted for message id={}", payload.feedback, id);
-    Ok(Json(json!({"status": "ok", "id": id, "feedback": payload.feedback})))
+    info!(
+        "Feedback '{}' submitted for message id={}",
+        payload.feedback, id
+    );
+    Ok(Json(
+        json!({"status": "ok", "id": id, "feedback": payload.feedback}),
+    ))
 }
 
 /// GET /api/v1/conversations/stats — Conversation statistics
@@ -213,16 +234,15 @@ async fn conversation_stats(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or((0,));
+    let total: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
 
     let total_sessions: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT session_id) FROM agent_conversations WHERE tenant_id = ?"
+        "SELECT COUNT(DISTINCT session_id) FROM agent_conversations WHERE tenant_id = ?",
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -233,7 +253,7 @@ async fn conversation_stats(
     let by_agent: Vec<(Option<i64>, i64, i64)> = sqlx::query_as(
         r#"SELECT agent_config_id, COUNT(*) as messages, COUNT(DISTINCT session_id) as sessions
         FROM agent_conversations WHERE tenant_id = ?
-        GROUP BY agent_config_id"#
+        GROUP BY agent_config_id"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -242,7 +262,7 @@ async fn conversation_stats(
 
     // Feedback stats
     let thumbs_up: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ? AND feedback = 'thumbs_up'"
+        "SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ? AND feedback = 'thumbs_up'",
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -250,7 +270,7 @@ async fn conversation_stats(
     .unwrap_or((0,));
 
     let thumbs_down: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ? AND feedback = 'thumbs_down'"
+        "SELECT COUNT(*) FROM agent_conversations WHERE tenant_id = ? AND feedback = 'thumbs_down'",
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -278,8 +298,12 @@ mod tests {
 
     #[test]
     fn test_feedback_validation() {
-        let valid_up = FeedbackRequest { feedback: "thumbs_up".into() };
-        let valid_down = FeedbackRequest { feedback: "thumbs_down".into() };
+        let valid_up = FeedbackRequest {
+            feedback: "thumbs_up".into(),
+        };
+        let valid_down = FeedbackRequest {
+            feedback: "thumbs_down".into(),
+        };
         assert_eq!(valid_up.feedback, "thumbs_up");
         assert_eq!(valid_down.feedback, "thumbs_down");
     }

@@ -1,11 +1,11 @@
-use anyhow::Result;
 use crate::services::db::DbPool;
-use crate::services::qdrant::QdrantService;
 use crate::services::llm_router::LlmRouter;
-use sqlx::Row;
+use crate::services::qdrant::QdrantService;
+use anyhow::Result;
 use serde_json::json;
-use tracing::{info, error};
+use sqlx::Row;
 use std::collections::HashMap;
+use tracing::{error, info};
 
 pub async fn run_indexer(
     db_pool: &DbPool,
@@ -25,12 +25,15 @@ pub async fn run_indexer(
          JOIN pipeline_steps ps ON qr.step_id = ps.id \
          WHERE qr.qc_scanned = 1 \
          AND qr.id NOT IN (SELECT qa_id FROM qa_cluster_items) \
-         AND qr.indexed_at IS NULL"
+         AND qr.indexed_at IS NULL",
     )
     .fetch_all(db_pool)
     .await?;
 
-    info!("📊 Found {} standalone golden Q/A pairs to index", unindexed_results.len());
+    info!(
+        "📊 Found {} standalone golden Q/A pairs to index",
+        unindexed_results.len()
+    );
 
     for row in unindexed_results {
         let id: i64 = row.get("id");
@@ -44,9 +47,14 @@ pub async fn run_indexer(
 
         if !routers.contains_key(&tenant_id) {
             match LlmRouter::new(db_pool.clone(), &tenant_id).await {
-                Ok(router) => { routers.insert(tenant_id.clone(), router); },
+                Ok(router) => {
+                    routers.insert(tenant_id.clone(), router);
+                }
                 Err(e) => {
-                    error!("❌ Failed to initialize LlmRouter for tenant {}: {}", tenant_id, e);
+                    error!(
+                        "❌ Failed to initialize LlmRouter for tenant {}: {}",
+                        tenant_id, e
+                    );
                     continue;
                 }
             }
@@ -61,30 +69,35 @@ pub async fn run_indexer(
                     "points": [
                         {
                             "id": id,
-                            "vector": vector,
+                            "vector": { "dense": vector },
                             "payload": {
                                 "question": question,
                                 "answer": answer,
                                 "source": file_name,
                                 "source_id": file_name,
                                 "chunk": chunk_index,
-                                "tenant_id": tenant_id
+                                "tenant_id": tenant_id,
+                                "is_active": true
                             }
                         }
                     ]
                 });
 
                 if let Err(e) = qdrant.upsert_points(collection_name, point).await {
-                    error!("❌ Failed to upsert standalone golden {} to Qdrant: {}", id, e);
+                    error!(
+                        "❌ Failed to upsert standalone golden {} to Qdrant: {}",
+                        id, e
+                    );
                     continue;
                 }
 
                 sqlx::query("UPDATE qa_results SET indexed_at = NOW() WHERE id = ?")
                     .bind(id)
-                    .execute(db_pool).await?;
-            },
+                    .execute(db_pool)
+                    .await?;
+            }
             Ok(_) => error!("❌ Heimdall returned empty embeddings for Q/A {}", id),
-            Err(e) => error!("❌ Failed to embed Q/A {}: {}", id, e)
+            Err(e) => error!("❌ Failed to embed Q/A {}: {}", id, e),
         }
     }
 
@@ -94,12 +107,15 @@ pub async fn run_indexer(
          FROM qa_clusters \
          WHERE status != 'PENDING' \
          AND indexed_at IS NULL \
-         AND golden_answer IS NOT NULL"
+         AND golden_answer IS NOT NULL",
     )
     .fetch_all(db_pool)
     .await?;
 
-    info!("📊 Found {} approved Q/A clusters to index", unindexed_clusters.len());
+    info!(
+        "📊 Found {} approved Q/A clusters to index",
+        unindexed_clusters.len()
+    );
 
     for row in unindexed_clusters {
         let id: String = row.get("id"); // UUID string
@@ -111,9 +127,14 @@ pub async fn run_indexer(
 
         if !routers.contains_key(&tenant_id) {
             match LlmRouter::new(db_pool.clone(), &tenant_id).await {
-                Ok(router) => { routers.insert(tenant_id.clone(), router); },
+                Ok(router) => {
+                    routers.insert(tenant_id.clone(), router);
+                }
                 Err(e) => {
-                    error!("❌ Failed to initialize LlmRouter for tenant {}: {}", tenant_id, e);
+                    error!(
+                        "❌ Failed to initialize LlmRouter for tenant {}: {}",
+                        tenant_id, e
+                    );
                     continue;
                 }
             }
@@ -128,30 +149,35 @@ pub async fn run_indexer(
                     "points": [
                         {
                             "id": id, // Qdrant accepts UUID string as ID
-                            "vector": vector,
+                            "vector": { "dense": vector },
                             "payload": {
                                 "question": topic,
                                 "answer": golden_answer,
                                 "source": "cluster-approved",
                                 "source_id": "cluster-approved",
                                 "chunk": 0,
-                                "tenant_id": tenant_id
+                                "tenant_id": tenant_id,
+                                "is_active": true
                             }
                         }
                     ]
                 });
 
                 if let Err(e) = qdrant.upsert_points(collection_name, point).await {
-                    error!("❌ Failed to upsert approved cluster {} to Qdrant: {}", id, e);
+                    error!(
+                        "❌ Failed to upsert approved cluster {} to Qdrant: {}",
+                        id, e
+                    );
                     continue;
                 }
 
                 sqlx::query("UPDATE qa_clusters SET indexed_at = NOW() WHERE id = ?")
                     .bind(&id)
-                    .execute(db_pool).await?;
-            },
+                    .execute(db_pool)
+                    .await?;
+            }
             Ok(_) => error!("❌ Heimdall returned empty embeddings for cluster {}", id),
-            Err(e) => error!("❌ Failed to embed cluster {}: {}", id, e)
+            Err(e) => error!("❌ Failed to embed cluster {}: {}", id, e),
         }
     }
 

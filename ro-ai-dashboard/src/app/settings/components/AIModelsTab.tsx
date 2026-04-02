@@ -1,77 +1,37 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Settings2, Save, Lock } from "lucide-react";
-import { LlmConfig, LlmSlot } from "@/lib/api";
+import { LlmConfig, LlmSlot, fetchModels, modelsToProviders, LlmProvider } from "@/lib/api";
 import { SettingsTabProps } from "./types";
-
-const PROVIDER_OPTIONS = [
-    { value: "ollama", label: "Ollama (Local)" },
-    { value: "heimdall", label: "Heimdall (Self-Hosted)" },
-    { value: "gemini", label: "Google Gemini" },
-] as const;
-
-const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
-    ollama: [
-        { value: "llama3.2", label: "llama3.2" },
-        { value: "llama3.1", label: "llama3.1" },
-        { value: "qwen2.5", label: "qwen2.5" },
-        { value: "qwen2.5:32b", label: "qwen2.5:32b" },
-    ],
-    heimdall: [
-        { value: "mlx-community/Qwen3.5-35B-A3B-4bit", label: "Qwen 3.5 35B MoE" },
-        { value: "mlx-community/Qwen3.5-27B-4bit", label: "Qwen 3.5 27B" },
-        { value: "mlx-community/Qwen3.5-9B-MLX-4bit", label: "Qwen 3.5 9B" },
-        { value: "mlx-community/Qwen3-0.6B-4bit", label: "Qwen 3 0.6B" },
-        { value: "lmstudio-community/medgemma-4b-it-MLX-4bit", label: "MedGemma 4B" },
-    ],
-    gemini: [
-        { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-        { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-        { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
-        { value: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)" },
-        { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite (Preview)" },
-    ],
-};
-
-const EMBEDDING_MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
-    ollama: [
-        { value: "nomic-embed-text", label: "nomic-embed-text" },
-        { value: "bge-m3", label: "bge-m3" },
-    ],
-    heimdall: [
-        { value: "BAAI/bge-m3", label: "BGE-M3 (MLX)" },
-    ],
-    openai: [
-        { value: "text-embedding-3-small", label: "text-embedding-3-small" },
-        { value: "text-embedding-3-large", label: "text-embedding-3-large" },
-    ],
-    google: [
-        { value: "text-embedding-004", label: "text-embedding-004" },
-    ],
-};
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-function SlotCard({ slotName, icon, title, desc, config, setConfig }: {
+function SlotCard({ slotName, icon, title, desc, config, setConfig, providers }: {
     slotName: keyof LlmConfig; icon: string; title: string; desc: string;
     config: NonNullable<SettingsTabProps["config"]>; setConfig: SettingsTabProps["setConfig"];
+    providers: LlmProvider[];
 }) {
     const slot = (config?.llm_config?.[slotName] as LlmSlot | undefined) || { provider: "", model: "" };
-    const isEmbedding = slotName === "embedding";
-    const providerModels = isEmbedding ? (EMBEDDING_MODEL_OPTIONS[slot.provider] || []) : (MODEL_OPTIONS[slot.provider] || []);
+    
+    // Find selected provider's models
+    const selectedProvider = providers.find(p => p.id === slot.provider);
+    const providerModels = selectedProvider?.models || [];
 
     const updateSlot = (field: "provider" | "model", value: string) => {
         if (!config) return;
         const current = config.llm_config || {};
         const currentSlot = (current[slotName] as LlmSlot | undefined) || { provider: "", model: "" };
         const updatedSlot = { ...currentSlot, [field]: value };
+        
         if (field === "provider") {
-            const models = isEmbedding ? (EMBEDDING_MODEL_OPTIONS[value] || []) : (MODEL_OPTIONS[value] || []);
-            updatedSlot.model = models[0]?.value || "";
+            const p = providers.find(p => p.id === value);
+            updatedSlot.model = p?.models[0]?.id || "";
         }
+        
         setConfig({ ...config, llm_config: { ...current, [slotName]: updatedSlot } });
     };
 
@@ -90,13 +50,8 @@ function SlotCard({ slotName, icon, title, desc, config, setConfig }: {
                     <select className={selectClass} value={slot.provider}
                         onChange={e => updateSlot("provider", e.target.value)}>
                         <option value="">Select...</option>
-                        {(isEmbedding ? [
-                            { value: "heimdall", label: "Heimdall (Self-Hosted)" },
-                            { value: "ollama", label: "Ollama" },
-                            { value: "openai", label: "OpenAI" },
-                            { value: "google", label: "Google" },
-                        ] : PROVIDER_OPTIONS).map(p => (
-                            <option key={p.value} value={p.value}>{p.label}</option>
+                        {providers.map(p => (
+                            <option key={p.id} value={p.id}>{p.display_name}</option>
                         ))}
                     </select>
                 </div>
@@ -106,7 +61,7 @@ function SlotCard({ slotName, icon, title, desc, config, setConfig }: {
                         onChange={e => updateSlot("model", e.target.value)}>
                         <option value="">Select...</option>
                         {providerModels.map(m => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
+                            <option key={m.id} value={m.id}>{m.display_name}</option>
                         ))}
                     </select>
                 </div>
@@ -115,8 +70,27 @@ function SlotCard({ slotName, icon, title, desc, config, setConfig }: {
     );
 }
 
-export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave }: SettingsTabProps) {
+export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSaveAIModels }: SettingsTabProps) {
+    const [providers, setProviders] = useState<LlmProvider[]>([]);
+    const [isLoadingModels, setIsLoadingModels] = useState(true);
+
+    useEffect(() => {
+        fetchModels()
+            .then(models => {
+                const uiProviders = modelsToProviders(models);
+                setProviders(uiProviders);
+                setIsLoadingModels(false);
+            })
+            .catch(err => {
+                console.error("Failed to load models:", err);
+                setIsLoadingModels(false);
+            });
+    }, []);
+
     if (!config) return <div className="py-4 text-center text-muted-foreground">No configuration loaded.</div>;
+
+    const defaultProviderData = providers.find(p => p.id === config.default_provider);
+    const defaultProviderModels = defaultProviderData?.models || [];
 
     return (
         <Card>
@@ -130,47 +104,54 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                {isLoading ? (
+                {isLoading || isLoadingModels ? (
                     <div className="py-4 text-center text-muted-foreground">Loading...</div>
                 ) : (
-                    <form onSubmit={handleSave} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <SlotCard slotName="chat" icon="💬" title="Chat & NPC" desc="Agent chat (Tier 1+2)" config={config} setConfig={setConfig} />
-                            <SlotCard slotName="rag" icon="📚" title="RAG (Oracle Agent)" desc="Knowledge retrieval queries" config={config} setConfig={setConfig} />
-                            <SlotCard slotName="pipeline_generator" icon="🔄" title="Pipeline Generator" desc="QA pair generation" config={config} setConfig={setConfig} />
-                            <SlotCard slotName="judge" icon="⚖️" title="Evaluation Judge" desc="LLM-as-Judge scoring" config={config} setConfig={setConfig} />
-                            <SlotCard slotName="embedding" icon="🧬" title="Embedding" desc="Vector embedding model" config={config} setConfig={setConfig} />
-                        </div>
-
-                        <div className="rounded-lg border bg-card p-4 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <span className="text-lg">🔗</span>
+                    <form onSubmit={handleSaveAIModels} className="space-y-6">
+                        <div className="rounded-lg border bg-slate-50 dark:bg-zinc-800/30 p-4 space-y-4">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xl">⭐</span>
                                 <div>
-                                    <h4 className="font-medium text-sm">Heimdall Gateway</h4>
-                                    <p className="text-xs text-muted-foreground">Self-hosted LLM gateway connection</p>
+                                    <h4 className="font-medium">Default Provider & Model</h4>
+                                    <p className="text-xs text-muted-foreground">Fallback configuration when a specific task slot is not assigned.</p>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1">
-                                    <label className="text-xs text-muted-foreground">URL</label>
-                                    <Input
-                                        placeholder="http://localhost:8080/v1"
-                                        value={config.llm_config?.heimdall_url || ""}
-                                        onChange={e => setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_url: e.target.value } })}
-                                    />
+                                    <label className="text-xs font-semibold text-muted-foreground">Provider</label>
+                                    <select className={selectClass} value={config.default_provider || ""} aria-label="Default Provider"
+                                        onChange={e => {
+                                            const providerId = e.target.value;
+                                            const pData = providers.find(p => p.id === providerId);
+                                            setConfig({ ...config, default_provider: providerId, default_model: pData?.models[0]?.id || "" });
+                                        }}>
+                                        <option value="">Select...</option>
+                                        {providers.map(p => (
+                                            <option key={p.id} value={p.id}>{p.display_name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                        <Lock className="w-3 h-3" /> API Key
-                                    </label>
-                                    <Input
-                                        type="password"
-                                        placeholder="sk-... (dev only, use Vault in production)"
-                                        value={config.llm_config?.heimdall_api_key || ""}
-                                        onChange={e => setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_api_key: e.target.value } })}
-                                    />
+                                    <label className="text-xs font-semibold text-muted-foreground">Model</label>
+                                    <select className={selectClass} value={config.default_model || ""} aria-label="Default Model"
+                                        onChange={e => setConfig({ ...config, default_model: e.target.value })}>
+                                        <option value="">Select...</option>
+                                        {defaultProviderModels.map(m => (
+                                            <option key={m.id} value={m.id}>{m.display_name}</option>
+                                        ))}
+                                    </select>
                                 </div>
-                                <p className="text-xs text-muted-foreground col-span-full mt-1">💡 For production, manage API keys via <strong>Security → Vault</strong> instead of storing here.</p>
+                            </div>
+                        </div>
+
+                        <div className="pt-2">
+                            <h3 className="text-sm font-semibold mb-3">Task Assignments</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <SlotCard slotName="chat" icon="💬" title="Chat & NPC" desc="Agent chat (Tier 1+2)" config={config} setConfig={setConfig} providers={providers} />
+                                <SlotCard slotName="rag" icon="📚" title="RAG (Oracle Agent)" desc="Knowledge retrieval queries" config={config} setConfig={setConfig} providers={providers} />
+                                <SlotCard slotName="pipeline_generator" icon="🔄" title="Pipeline Generator" desc="QA pair generation" config={config} setConfig={setConfig} providers={providers} />
+                                <SlotCard slotName="pipeline_evaluator" icon="📊" title="Pipeline Evaluator" desc="Coverage & ACU extraction" config={config} setConfig={setConfig} providers={providers} />
+                                <SlotCard slotName="judge" icon="⚖️" title="Evaluation Judge" desc="LLM-as-Judge scoring" config={config} setConfig={setConfig} providers={providers} />
                             </div>
                         </div>
 

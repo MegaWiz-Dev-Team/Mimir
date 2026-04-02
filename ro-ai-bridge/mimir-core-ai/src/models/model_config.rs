@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ModelConfig {
@@ -17,7 +17,8 @@ pub struct ModelConfig {
 impl ModelConfig {
     /// Helper to check if model supports specific capability
     pub fn has_capability(&self, cap: &str) -> bool {
-        self.capabilities.as_ref()
+        self.capabilities
+            .as_ref()
             .and_then(|c| c.get(cap))
             .and_then(|v| v.as_bool())
             .unwrap_or(false)

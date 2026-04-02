@@ -3,9 +3,9 @@
 //! CRUD operations for feedback_reports table.
 //! Auto-creates GitHub issues when feedback is submitted.
 
-use sqlx::MySqlPool;
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use sqlx::MySqlPool;
 use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -65,7 +65,9 @@ pub async fn create_feedback(
     req: &CreateFeedbackRequest,
     system_logs: Option<&str>,
 ) -> Result<i64> {
-    let client_logs_str = req.client_logs.as_ref()
+    let client_logs_str = req
+        .client_logs
+        .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
     let result = sqlx::query(
@@ -104,7 +106,7 @@ pub async fn update_github_issue(
     issue_number: i32,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE feedback_reports SET github_issue_url = ?, github_issue_number = ? WHERE id = ?"
+        "UPDATE feedback_reports SET github_issue_url = ?, github_issue_number = ? WHERE id = ?",
     )
     .bind(issue_url)
     .bind(issue_number)
@@ -112,7 +114,10 @@ pub async fn update_github_issue(
     .execute(pool)
     .await?;
 
-    info!(feedback_id, issue_number, "🔗 Linked feedback to GitHub issue");
+    info!(
+        feedback_id,
+        issue_number, "🔗 Linked feedback to GitHub issue"
+    );
     Ok(())
 }
 
@@ -169,8 +174,14 @@ pub async fn collect_system_logs(pool: &MySqlPool, tenant_id: &str) -> String {
     }
 
     // System info
-    logs.insert("backend_version".to_string(), serde_json::json!(env!("CARGO_PKG_VERSION")));
-    logs.insert("timestamp".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339()));
+    logs.insert(
+        "backend_version".to_string(),
+        serde_json::json!(env!("CARGO_PKG_VERSION")),
+    );
+    logs.insert(
+        "timestamp".to_string(),
+        serde_json::json!(chrono::Utc::now().to_rfc3339()),
+    );
 
     serde_json::to_string_pretty(&logs).unwrap_or_default()
 }
@@ -193,7 +204,10 @@ pub fn build_github_issue_body(
         _ => "📝",
     };
 
-    body.push_str(&format!("## {} {} Report (ID: #{})\n\n", type_emoji, req.report_type, feedback_id));
+    body.push_str(&format!(
+        "## {} {} Report (ID: #{})\n\n",
+        type_emoji, req.report_type, feedback_id
+    ));
 
     // Tenant & User info
     body.push_str(&format!("**Tenant:** `{}`\n", tenant_id));
@@ -266,9 +280,7 @@ pub async fn list_feedback(
     let per_page = filter.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    let mut query = String::from(
-        "SELECT * FROM feedback_reports WHERE tenant_id = ?"
-    );
+    let mut query = String::from("SELECT * FROM feedback_reports WHERE tenant_id = ?");
     let mut params: Vec<String> = vec![tenant_id.to_string()];
 
     if let Some(ref rt) = filter.report_type {
@@ -414,7 +426,13 @@ mod tests {
             client_logs: Some(serde_json::json!({"errors": ["500 error"]})),
         };
 
-        let body = build_github_issue_body(&req, Some("{\"version\": \"0.1.0\"}"), 42, "tenant_abc", Some("user@example.com"));
+        let body = build_github_issue_body(
+            &req,
+            Some("{\"version\": \"0.1.0\"}"),
+            42,
+            "tenant_abc",
+            Some("user@example.com"),
+        );
 
         assert!(body.contains("🐛"));
         assert!(body.contains("bug Report"));
