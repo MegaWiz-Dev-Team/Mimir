@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Settings2, Save, Lock } from "lucide-react";
+import { Settings2, Save, Plus, Loader2, Download } from "lucide-react";
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { LlmConfig, LlmSlot, fetchModels, modelsToProviders, LlmProvider } from "@/lib/api";
 import { SettingsTabProps } from "./types";
 
@@ -74,6 +75,38 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
     const [providers, setProviders] = useState<LlmProvider[]>([]);
     const [isLoadingModels, setIsLoadingModels] = useState(true);
 
+    // Dialog state
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [addProvider, setAddProvider] = useState<string>("ollama");
+    const [addModelId, setAddModelId] = useState<string>("");
+    const [isPulling, setIsPulling] = useState(false);
+    const [pullError, setPullError] = useState<string | null>(null);
+
+    const handlePullModel = async () => {
+        if (!addModelId.trim()) return;
+        setIsPulling(true);
+        setPullError(null);
+        try {
+            // Note: UI integrated, backend will intercept in subsequent task
+            const res = await fetch("/api/v1/config/models/pull", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ provider: addProvider, model_id: addModelId })
+            });
+            if (!res.ok) throw new Error((await res.json()).error || "Failed to pull model");
+            
+            // Reload models
+            const models = await fetchModels();
+            setProviders(modelsToProviders(models));
+            setIsAddModalOpen(false);
+            setAddModelId("");
+        } catch (err: any) {
+            setPullError(err.message);
+        } finally {
+            setIsPulling(false);
+        }
+    };
+
     useEffect(() => {
         fetchModels()
             .then(models => {
@@ -94,14 +127,73 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
 
     return (
         <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <Settings2 className="w-5 h-5 text-primary" />
-                    AI Model Configuration
-                </CardTitle>
-                <CardDescription>
-                    Configure models for each purpose. Each slot can use a different provider and model.
-                </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <Settings2 className="w-5 h-5 text-primary" />
+                        AI Model Configuration
+                    </CardTitle>
+                    <CardDescription className="mt-1.5">
+                        Configure models for each purpose. Each slot can use a different provider and model.
+                    </CardDescription>
+                </div>
+                <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+                    <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="gap-2 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary">
+                            <Download className="w-4 h-4" /> Add Model
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Pull New Model</DialogTitle>
+                            <DialogDescription>
+                                Download models directly to the host machine via Ollama or Heimdall.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Provider Network</label>
+                                <select 
+                                    value={addProvider} 
+                                    onChange={e => setAddProvider(e.target.value)}
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                    <option value="ollama">Ollama</option>
+                                    <option value="heimdall">Heimdall (MLX via Host)</option>
+                                </select>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Model ID / HuggingFace Path</label>
+                                <Input 
+                                    placeholder={addProvider === 'ollama' ? "e.g., qwen2.5:1.5b" : "e.g., mlx-community/Qwen3.5-27B-4bit"}
+                                    value={addModelId}
+                                    onChange={e => setAddModelId(e.target.value)}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    {addProvider === 'heimdall' && 'Models will be written to External SSD cache via RustFS.'}
+                                </p>
+                            </div>
+                            {pullError && (
+                                <div className="text-xs text-red-500 bg-red-500/10 p-2 rounded-md">
+                                    Error: {pullError}
+                                </div>
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button 
+                                onClick={handlePullModel} 
+                                disabled={!addModelId.trim() || isPulling}
+                                className="w-full sm:w-auto"
+                            >
+                                {isPulling ? (
+                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Pulling...</>
+                                ) : (
+                                    <><Download className="w-4 h-4 mr-2" /> Pull & Register</>
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </CardHeader>
             <CardContent>
                 {isLoading || isLoadingModels ? (
