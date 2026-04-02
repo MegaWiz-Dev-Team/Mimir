@@ -125,10 +125,30 @@ export default function AgentStudioPage() {
         // Merge DB models with static PROVIDERS (ensures Heimdall always appears)
         fetchModels().then(m => {
             const dbProviders = modelsToProviders(m);
-            // Add any PROVIDERS not already in dbProviders
+            // Merge DB models with static PROVIDERS
             const mergedMap = new Map<string, LlmProvider>();
-            for (const p of PROVIDERS) mergedMap.set(p.id, p);
-            for (const p of dbProviders) mergedMap.set(p.id, p); // DB overrides if exists
+            for (const p of PROVIDERS) {
+                mergedMap.set(p.id, { ...p, models: [...p.models] });
+            }
+            for (const p of dbProviders) {
+                const existing = mergedMap.get(p.id);
+                if (existing) {
+                    const staticModelsMap = new Map(existing.models.map(m => [m.id, m]));
+                    const mergedModels = p.models.map(dbModel => {
+                        const staticModel = staticModelsMap.get(dbModel.id);
+                        return staticModel ? { ...dbModel, display_name: staticModel.display_name, description: staticModel.description } : dbModel;
+                    });
+                    // Append any static models not returned by DB
+                    for (const m of existing.models) {
+                        if (!mergedModels.some(x => x.id === m.id)) {
+                            mergedModels.push(m);
+                        }
+                    }
+                    mergedMap.set(p.id, { ...p, models: mergedModels, display_name: existing.display_name });
+                } else {
+                    mergedMap.set(p.id, p);
+                }
+            }
             setProviders(Array.from(mergedMap.values()));
         }).catch(() => setProviders(PROVIDERS)); // fallback to static list
     }, []);
