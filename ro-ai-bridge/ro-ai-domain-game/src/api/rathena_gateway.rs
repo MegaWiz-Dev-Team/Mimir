@@ -3,8 +3,8 @@ use axum::{
     routing::{Router, post},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use tracing::{error, info, warn};
+use serde_json::Value;
+use tracing::{error, info};
 
 use mimir_core_ai::services::db::DbPool;
 

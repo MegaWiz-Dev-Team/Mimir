@@ -13,9 +13,11 @@ import { GraphStatus } from "@/components/ui/graph-status";
 import {
   Send, Loader2, Search, Sparkles, Database, TreePine, Share2,
   BarChart3, Wand2, Zap, Target, TrendingUp, CheckCircle2, XCircle,
-  Clock, FlaskConical, ChevronDown, ChevronUp, FileJson, Play
+  Clock, FlaskConical, ChevronDown, ChevronUp, FileJson, Play,
+  Activity
 } from "lucide-react";
 import { authFetch, API_BASE_URL } from "@/lib/api";
+import { RagEvalDashboard } from "@/components/evaluations/rag-eval-dashboard";
 
 // ── Types ──────────────────────────────────────────
 
@@ -112,7 +114,7 @@ export default function RAGPlaygroundPage() {
   const [optimizeModel, setOptimizeModel] = useState("");
 
   // Benchmark state
-  const [activeTab, setActiveTab] = useState<"search" | "benchmark">("search");
+  const [activeTab, setActiveTab] = useState<"search" | "benchmark" | "evaluation">("search");
   const [benchmarkItems, setBenchmarkItems] = useState<string>("");
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResponse | null>(null);
@@ -269,6 +271,17 @@ export default function RAGPlaygroundPage() {
             >
               <FlaskConical className="h-4 w-4 inline mr-1.5" />
               Benchmark
+            </button>
+            <button
+              onClick={() => setActiveTab("evaluation")}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === "evaluation"
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted"
+              }`}
+            >
+              <Activity className="h-4 w-4 inline mr-1.5" />
+              Evaluation Matrix
             </button>
           </div>
         </div>
@@ -588,7 +601,7 @@ export default function RAGPlaygroundPage() {
                 </Card>
               )}
             </>
-          ) : (
+          ) : activeTab === "benchmark" ? (
             /* ── Benchmark Tab ────────────────────── */
             <>
               <Card>
@@ -813,7 +826,9 @@ export default function RAGPlaygroundPage() {
                 </Card>
               )}
             </>
-          )}
+          ) : activeTab === "evaluation" ? (
+            <RagEvalDashboard />
+          ) : null}
         </div>
       </div>
     </div>
