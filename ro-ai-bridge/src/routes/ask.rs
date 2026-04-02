@@ -2,19 +2,20 @@
 //!
 //! - POST /api/ask — Ask a question, get an answer with sources
 
-use axum::{
-    routing::post,
-    Router, Json, extract::{State, Extension},
-    response::IntoResponse,
-    http::{StatusCode, HeaderMap},
-};
 use crate::routes::tenant::extract_tenant_id;
+use axum::{
+    extract::{Extension, State},
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::post,
+    Json, Router,
+};
 use mimir_core_ai::middleware::tenant::TenantContext;
-use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::services::qdrant::QdrantService;
-use mimir_core_ai::services::iam::IamService;
-use mimir_core_ai::rag_engine::{OracleRagAgent, LlmProvider};
 use mimir_core_ai::models::persona::Persona;
+use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent};
+use mimir_core_ai::services::db::DbPool;
+use mimir_core_ai::services::iam::IamService;
+use mimir_core_ai::services::qdrant::QdrantService;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -47,8 +48,7 @@ pub struct AskResponse {
 // ─── Route Registration ────────────────────────────────────────────────────
 
 pub fn ask_routes() -> Router<DbPool> {
-    Router::new()
-        .route("/api/ask", post(ask_handler))
+    Router::new().route("/api/ask", post(ask_handler))
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -60,7 +60,8 @@ async fn ask_handler(
     Json(payload): Json<AskRequest>,
 ) -> impl IntoResponse {
     let _start = std::time::Instant::now();
-    let tenant_id = tenant_ctx.as_ref()
+    let tenant_id = tenant_ctx
+        .as_ref()
         .map(|ctx| ctx.tenant_id.clone())
         .or_else(|| payload.tenant_id.clone())
         .unwrap_or_else(|| extract_tenant_id(&headers).to_string());
@@ -69,7 +70,8 @@ async fn ask_handler(
     let iam = IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
 
-    let llm_config = tenant_config.as_ref()
+    let llm_config = tenant_config
+        .as_ref()
         .and_then(|c| c.llm_config.as_ref())
         .map(|c| c.0.clone())
         .unwrap_or_default();
@@ -78,12 +80,13 @@ async fn ask_handler(
     let default_m = tenant_config.as_ref().map(|c| c.default_model.as_str());
     let resolved = llm_config.resolve_slot("chat", default_p, default_m);
 
-    let provider = payload.provider.as_deref()
+    let provider = payload
+        .provider
+        .as_deref()
         .map(|p| p.parse::<LlmProvider>().unwrap_or_default())
-        .unwrap_or_default();
+        .unwrap_or_else(|| resolved.provider.parse::<LlmProvider>().unwrap_or_default());
 
-    let model = payload.model.clone()
-        .unwrap_or(resolved.model);
+    let model = payload.model.clone().unwrap_or(resolved.model);
 
     info!(
         event = "ask",
@@ -119,37 +122,57 @@ async fn ask_handler(
     let plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
 
     let agent = OracleRagAgent::with_provider(
-        persona, qdrant, plugins,
-        provider.clone(), Some(&model), None,
+        persona,
+        qdrant,
+        plugins,
+        provider.clone(),
+        Some(&model),
+        None,
         tenant_id,
     );
 
     match agent.chat(&payload.question).await {
         Ok(response) => {
-            let sources: Vec<serde_json::Value> = response.sources.iter().map(|s| {
-                serde_json::json!({
-                    "source_type": s.source_type,
-                    "source_id": s.source_id,
-                    "relevance": s.relevance,
-                    "snippet": s.snippet
+            let sources: Vec<serde_json::Value> = response
+                .sources
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "source_type": s.source_type,
+                        "source_id": s.source_id,
+                        "relevance": s.relevance,
+                        "snippet": s.snippet
+                    })
                 })
-            }).collect();
+                .collect();
 
-            (StatusCode::OK, Json(AskResponse {
-                answer: response.content,
-                confidence: response.confidence_score,
-                latency_ms: response.latency_ms,
-                provider: provider.to_string(),
-                model,
-                sources: if sources.is_empty() { None } else { Some(sources) },
-            })).into_response()
+            (
+                StatusCode::OK,
+                Json(AskResponse {
+                    answer: response.content,
+                    confidence: response.confidence_score,
+                    latency_ms: response.latency_ms,
+                    provider: provider.to_string(),
+                    model,
+                    sources: if sources.is_empty() {
+                        None
+                    } else {
+                        Some(sources)
+                    },
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "❌ /api/ask failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                "error": format!("RAG query failed: {}", e),
-                "question": payload.question,
-            }))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("RAG query failed: {}", e),
+                    "question": payload.question,
+                })),
+            )
+                .into_response()
         }
     }
 }

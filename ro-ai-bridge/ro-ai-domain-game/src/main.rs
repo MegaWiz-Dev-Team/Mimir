@@ -1,9 +1,5 @@
-use axum::{
-    routing::get,
-    Router,
-    Json,
-};
-use serde_json::{json, Value};
+use axum::{Json, Router, routing::get};
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -17,7 +13,7 @@ use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
-    
+
     // Load configuration
     let config = Config::from_env();
 
@@ -33,10 +29,10 @@ async fn main() -> anyhow::Result<()> {
     // run it
     let addr = format!("0.0.0.0:{}", config.port);
     info!("🚀 listening on {}", addr);
-    
+
     let listener = TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
-    
+
     Ok(())
 }
 

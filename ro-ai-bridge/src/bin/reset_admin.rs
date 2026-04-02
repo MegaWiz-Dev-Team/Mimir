@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use std::env;
-use sqlx::MySqlPool;
 use dotenvy::dotenv;
+use sqlx::MySqlPool;
+use std::env;
 
 use mimir_core_ai::services::iam::IamService;
 
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     let new_password = &args[2];
 
     let db_url = env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
-    
+
     println!("Connecting to database...");
     let pool = MySqlPool::connect(&db_url).await?;
 
@@ -34,13 +34,11 @@ async fn main() -> Result<()> {
     let hash = IamService::hash_password(new_password)?;
 
     println!("Updating database record...");
-    let result = sqlx::query(
-        "UPDATE users SET password_hash = ? WHERE username = ?"
-    )
-    .bind(&hash)
-    .bind(username)
-    .execute(&pool)
-    .await?;
+    let result = sqlx::query("UPDATE users SET password_hash = ? WHERE username = ?")
+        .bind(&hash)
+        .bind(username)
+        .execute(&pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         eprintln!("Error: User '{}' not found in the database.", username);

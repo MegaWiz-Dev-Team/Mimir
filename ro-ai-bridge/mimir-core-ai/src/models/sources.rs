@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct DataSource {
@@ -18,9 +18,9 @@ pub struct DataSource {
     pub last_sync_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
-    pub storage_mode: Option<String>,   // "markdown" | "sql"
-    pub s3_key: Option<String>,         // RustFS object path
-    pub file_hash: Option<String>,      // SHA-256 for dedup
+    pub storage_mode: Option<String>, // "markdown" | "sql"
+    pub s3_key: Option<String>,       // RustFS object path
+    pub file_hash: Option<String>,    // SHA-256 for dedup
     // Sprint 14: Cron scheduling fields
     pub refresh_interval_hours: Option<i32>,
     pub last_refreshed_at: Option<DateTime<Utc>>,

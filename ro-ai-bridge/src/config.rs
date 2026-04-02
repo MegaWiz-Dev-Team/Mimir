@@ -1,7 +1,7 @@
-use std::env;
-use std::fs;
 use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
+use std::env;
+use std::fs;
 use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
@@ -55,8 +55,9 @@ impl Config {
                 .expect("PORT must be a number"),
 
             // Database
-            mariadb_url: env::var("MARIADB_URL")
-                .unwrap_or_else(|_| "mysql://mimir:REDACTED-PW@localhost:3306/mimir".to_string()),
+            mariadb_url: env::var("MARIADB_URL").unwrap_or_else(|_| {
+                "mysql://mimir:REDACTED-PW@localhost:3306/mimir".to_string()
+            }),
             qdrant_url: env::var("QDRANT_URL")
                 .unwrap_or_else(|_| "http://localhost:6333".to_string()),
             redis_url: env::var("REDIS_URL")
@@ -65,31 +66,27 @@ impl Config {
             // S3 / RustFS
             s3_endpoint: env::var("S3_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:9000".to_string()),
-            s3_bucket: env::var("S3_BUCKET")
-                .unwrap_or_else(|_| "mimir-tenant-uploads".to_string()),
-            s3_access_key: env::var("S3_ACCESS_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            s3_secret_key: env::var("S3_SECRET_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            s3_region: env::var("S3_REGION")
-                .unwrap_or_else(|_| "us-east-1".to_string()),
+            s3_bucket: env::var("S3_BUCKET").unwrap_or_else(|_| "mimir-tenant-uploads".to_string()),
+            s3_access_key: env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+            s3_secret_key: env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+            s3_region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
 
             // LLM
             ollama_url: env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            local_model: env::var("LOCAL_MODEL")
-                .unwrap_or_else(|_| "llama3.2".to_string()),
-            embed_model: env::var("EMBED_MODEL")
-                .unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
-            gemini_base_url: env::var("GEMINI_BASE_URL")
-                .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
+            local_model: env::var("LOCAL_MODEL").unwrap_or_else(|_| "llama3.2".to_string()),
+            embed_model: env::var("EMBED_MODEL").unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
+            gemini_base_url: env::var("GEMINI_BASE_URL").unwrap_or_else(|_| {
+                "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
+            }),
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
             gemini_model: env::var("GEMINI_MODEL")
                 .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
 
             // Heimdall (Self-hosted LLM Gateway)
-            heimdall_api_url: env::var("HEIMDALL_API_URL")
-                .unwrap_or_else(|_| "https://stroppy-nonsensorial-lakita.ngrok-free.dev/v1".to_string()),
+            heimdall_api_url: env::var("HEIMDALL_API_URL").unwrap_or_else(|_| {
+                "https://stroppy-nonsensorial-lakita.ngrok-free.dev/v1".to_string()
+            }),
             heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),
             heimdall_model: env::var("HEIMDALL_MODEL")
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
@@ -97,14 +94,12 @@ impl Config {
             // Neo4j (Knowledge Graph) — Sprint 17
             neo4j_uri: env::var("NEO4J_URI")
                 .unwrap_or_else(|_| "bolt://localhost:7687".to_string()),
-            neo4j_user: env::var("NEO4J_USER")
-                .unwrap_or_else(|_| "neo4j".to_string()),
+            neo4j_user: env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_string()),
             neo4j_password: env::var("NEO4J_PASSWORD")
                 .unwrap_or_else(|_| "mimir_neo4j_password".to_string()),
 
             // Auth
-            jwt_secret: env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "dev_secret_key".to_string()),
+            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string()),
         };
 
         info!("Configuration loaded successfully.");
@@ -167,7 +162,9 @@ impl Default for QAConfig {
                     count: 2,
                 },
                 SizeRule {
-                    comment: Some("Medium files (2000-10000 chars) - moderate Q/A pairs".to_string()),
+                    comment: Some(
+                        "Medium files (2000-10000 chars) - moderate Q/A pairs".to_string(),
+                    ),
                     min_size: 2000,
                     max_size: Some(10000),
                     count: 3,
@@ -201,7 +198,10 @@ impl QAConfig {
         match Self::from_file(path) {
             Ok(config) => config,
             Err(e) => {
-                warn!("⚠️ Failed to load QA config from {}: {}. Using defaults.", path, e);
+                warn!(
+                    "⚠️ Failed to load QA config from {}: {}. Using defaults.",
+                    path, e
+                );
                 Self::default()
             }
         }
@@ -218,8 +218,10 @@ impl QAConfig {
         // 1. Check file patterns first (highest priority)
         for pattern_rule in &self.file_patterns.patterns {
             if self.matches_pattern(file_name, &pattern_rule.pattern) {
-                info!("🎯 File pattern '{}' matched for '{}': {} Q/A pairs", 
-                    pattern_rule.pattern, file_name, pattern_rule.count);
+                info!(
+                    "🎯 File pattern '{}' matched for '{}': {} Q/A pairs",
+                    pattern_rule.pattern, file_name, pattern_rule.count
+                );
                 return pattern_rule.count;
             }
         }
@@ -228,16 +230,21 @@ impl QAConfig {
         for rule in &self.rules {
             let min_ok = content_size >= rule.min_size;
             let max_ok = rule.max_size.map_or(true, |max| content_size < max);
-            
+
             if min_ok && max_ok {
-                info!("📏 Size rule matched for '{}' ({} chars): {} Q/A pairs", 
-                    file_name, content_size, rule.count);
+                info!(
+                    "📏 Size rule matched for '{}' ({} chars): {} Q/A pairs",
+                    file_name, content_size, rule.count
+                );
                 return rule.count;
             }
         }
 
         // 3. Fall back to default
-        info!("📋 Using default count for '{}': {} Q/A pairs", file_name, self.default_count);
+        info!(
+            "📋 Using default count for '{}': {} Q/A pairs",
+            file_name, self.default_count
+        );
         self.default_count
     }
 
@@ -249,7 +256,7 @@ impl QAConfig {
 
         if pattern.starts_with('*') && pattern.ends_with('*') {
             // *something* - contains
-            let inner = &pattern[1..pattern.len()-1];
+            let inner = &pattern[1..pattern.len() - 1];
             text.contains(inner)
         } else if pattern.starts_with('*') {
             // *something - ends with
@@ -257,7 +264,7 @@ impl QAConfig {
             text.ends_with(suffix)
         } else if pattern.ends_with('*') {
             // something* - starts with
-            let prefix = &pattern[..pattern.len()-1];
+            let prefix = &pattern[..pattern.len() - 1];
             text.starts_with(prefix)
         } else {
             // exact match
@@ -280,13 +287,13 @@ mod tests {
     #[test]
     fn test_size_rules() {
         let config = QAConfig::default();
-        
+
         // Small file
         assert_eq!(config.get_qa_count("test.md", 500), 2);
-        
+
         // Medium file
         assert_eq!(config.get_qa_count("test.md", 5000), 3);
-        
+
         // Large file
         assert_eq!(config.get_qa_count("test.md", 15000), 5);
     }
@@ -294,16 +301,16 @@ mod tests {
     #[test]
     fn test_pattern_matching() {
         let config = QAConfig::default();
-        
+
         // Test contains pattern
         assert!(config.matches_pattern("boss_monster.md", "*boss*"));
         assert!(config.matches_pattern("the_boss_fight.md", "*boss*"));
         assert!(!config.matches_pattern("monster.md", "*boss*"));
-        
+
         // Test starts with
         assert!(config.matches_pattern("quest_guide.md", "quest*"));
         assert!(!config.matches_pattern("my_quest.md", "quest*"));
-        
+
         // Test ends with
         assert!(config.matches_pattern("item_sword.md", "*sword.md"));
         assert!(!config.matches_pattern("sword_item.md", "*sword.md"));

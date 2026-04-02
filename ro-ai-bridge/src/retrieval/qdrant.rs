@@ -71,10 +71,7 @@ impl QdrantRetriever {
             .iter()
             .map(|hit| {
                 let payload = hit.get("payload").cloned().unwrap_or(Value::Null);
-                let score = hit
-                    .get("score")
-                    .and_then(|s| s.as_f64())
-                    .unwrap_or(0.0) as f32;
+                let score = hit.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) as f32;
 
                 // Try to extract content from various payload fields
                 let content = payload
@@ -113,8 +110,7 @@ impl VectorRetriever for QdrantRetriever {
     ) -> Result<Vec<RetrievalResult>, String> {
         // Step 1: Embed query via Heimdall/Ollama
         let vectors =
-            crate::routes::vector::embed_texts(&[query.to_string()], &self.embedding_model)
-                .await?;
+            crate::routes::vector::embed_texts(&[query.to_string()], &self.embedding_model).await?;
 
         let vector = vectors
             .into_iter()
@@ -255,7 +251,10 @@ mod tests {
         let results = QdrantRetriever::parse_qdrant_response(&qdrant_response);
 
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].content, "Patient records must be stored securely.");
+        assert_eq!(
+            results[0].content,
+            "Patient records must be stored securely."
+        );
         assert_eq!(results[0].title, "Security Policy v2");
         assert_eq!(results[0].score, 0.88);
     }

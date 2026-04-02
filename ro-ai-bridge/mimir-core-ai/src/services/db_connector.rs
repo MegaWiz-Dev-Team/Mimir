@@ -5,7 +5,7 @@
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, Column};
+use sqlx::{Column, Row};
 use tracing::info;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -97,12 +97,21 @@ pub struct ImportResult {
 
 /// Dangerous SQL keywords that indicate DDL or DML write operations
 const DANGEROUS_KEYWORDS: &[&str] = &[
-    "DROP", "ALTER", "CREATE", "TRUNCATE",
-    "INSERT", "UPDATE", "DELETE",
-    "GRANT", "REVOKE",
-    "EXEC", "EXECUTE",
+    "DROP",
+    "ALTER",
+    "CREATE",
+    "TRUNCATE",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "GRANT",
+    "REVOKE",
+    "EXEC",
+    "EXECUTE",
     "CALL",
-    "LOAD", "INTO OUTFILE", "INTO DUMPFILE",
+    "LOAD",
+    "INTO OUTFILE",
+    "INTO DUMPFILE",
 ];
 
 /// Validate that a SQL query is safe (read-only SELECT).
@@ -143,7 +152,10 @@ pub fn validate_query(query: &str) -> Result<()> {
     // Must start with SELECT or WITH (CTEs)
     let first_word = upper.split_whitespace().next().unwrap_or("");
     if first_word != "SELECT" && first_word != "WITH" && first_word != "EXPLAIN" {
-        bail!("Only SELECT, WITH (CTE), and EXPLAIN queries are allowed. Found: {}", first_word);
+        bail!(
+            "Only SELECT, WITH (CTE), and EXPLAIN queries are allowed. Found: {}",
+            first_word
+        );
     }
 
     // Check for dangerous keywords anywhere in the query
@@ -180,10 +192,18 @@ pub fn parse_connection_string(conn_str: &str) -> Result<ConnectionInfo> {
 
     // Detect DB type from scheme
     let (db_type, rest) = if trimmed.starts_with("mysql://") || trimmed.starts_with("mariadb://") {
-        let skip = if trimmed.starts_with("mariadb://") { 10 } else { 8 };
+        let skip = if trimmed.starts_with("mariadb://") {
+            10
+        } else {
+            8
+        };
         (DbType::Mysql, &trimmed[skip..])
     } else if trimmed.starts_with("postgres://") || trimmed.starts_with("postgresql://") {
-        let skip = if trimmed.starts_with("postgresql://") { 13 } else { 11 };
+        let skip = if trimmed.starts_with("postgresql://") {
+            13
+        } else {
+            11
+        };
         (DbType::Postgres, &trimmed[skip..])
     } else if trimmed.starts_with("sqlite://") {
         return Ok(ConnectionInfo {
@@ -252,7 +272,8 @@ pub fn validate_connection_config(req: &TestConnectionRequest) -> Result<()> {
     if info.db_type != req.db_type {
         bail!(
             "Connection string scheme ({}) doesn't match specified db_type ({})",
-            info.db_type, req.db_type
+            info.db_type,
+            req.db_type
         );
     }
 
@@ -313,7 +334,13 @@ pub fn rows_to_markdown(columns: &[String], rows: &[Vec<String>]) -> String {
 
     // Alignment row
     md.push_str("| ");
-    md.push_str(&columns.iter().map(|_| "---").collect::<Vec<_>>().join(" | "));
+    md.push_str(
+        &columns
+            .iter()
+            .map(|_| "---")
+            .collect::<Vec<_>>()
+            .join(" | "),
+    );
     md.push_str(" |\n");
 
     // Data rows (max 100 for preview)
@@ -321,11 +348,17 @@ pub fn rows_to_markdown(columns: &[String], rows: &[Vec<String>]) -> String {
     for row in rows.iter().take(max_rows) {
         md.push_str("| ");
         // Ensure row has same number of columns, pad with empty if needed
-        let cells: Vec<String> = columns.iter().enumerate().map(|(i, _)| {
-            row.get(i).cloned().unwrap_or_default()
-                .replace('|', "\\|")  // escape pipes in values
-                .replace('\n', " ")   // remove newlines
-        }).collect();
+        let cells: Vec<String> = columns
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                row.get(i)
+                    .cloned()
+                    .unwrap_or_default()
+                    .replace('|', "\\|") // escape pipes in values
+                    .replace('\n', " ") // remove newlines
+            })
+            .collect();
         md.push_str(&cells.join(" | "));
         md.push_str(" |\n");
     }
@@ -344,7 +377,7 @@ pub fn rows_to_markdown(columns: &[String], rows: &[Vec<String>]) -> String {
 /// Test a database connection by connecting and running a simple query.
 pub async fn test_connection(conn_str: &str, db_type: &DbType) -> Result<String> {
     let pool = create_pool(conn_str, db_type).await?;
-    
+
     let version_query = match db_type {
         DbType::Mysql => "SELECT VERSION() AS version",
         DbType::Postgres => "SELECT version() AS version",
@@ -376,20 +409,21 @@ pub async fn discover_schema(conn_str: &str, db_type: &DbType) -> Result<Vec<Tab
 
     for (table_name, row_count) in &table_rows {
         let col_query = columns_template.replace("{TABLE_NAME}", table_name);
-        
+
         let col_rows: Vec<(String, String, String, String)> = sqlx::query_as(&col_query)
             .fetch_all(&pool)
             .await
             .unwrap_or_default();
 
-        let columns: Vec<ColumnInfo> = col_rows.iter().map(|(name, dtype, nullable, key)| {
-            ColumnInfo {
+        let columns: Vec<ColumnInfo> = col_rows
+            .iter()
+            .map(|(name, dtype, nullable, key)| ColumnInfo {
                 name: name.clone(),
                 data_type: dtype.clone(),
                 is_nullable: nullable.to_uppercase() == "YES",
                 is_primary_key: key.to_uppercase() == "PRI",
-            }
-        }).collect();
+            })
+            .collect();
 
         schemas.push(TableSchema {
             table_name: table_name.clone(),
@@ -431,28 +465,41 @@ pub async fn execute_import_query(
     }
 
     // Extract column names from first row
-    let columns: Vec<String> = rows[0].columns().iter()
+    let columns: Vec<String> = rows[0]
+        .columns()
+        .iter()
         .map(|c| c.name().to_string())
         .collect();
 
     // Convert rows to string vectors
-    let string_rows: Vec<Vec<String>> = rows.iter().map(|row| {
-        columns.iter().enumerate().map(|(i, _)| {
-            // Try to get value as string; fallback to debug repr
-            row.try_get::<String, _>(i)
-                .or_else(|_| row.try_get::<i64, _>(i).map(|v| v.to_string()))
-                .or_else(|_| row.try_get::<f64, _>(i).map(|v| v.to_string()))
-                .or_else(|_| row.try_get::<bool, _>(i).map(|v| v.to_string()))
-                .unwrap_or_else(|_| "NULL".to_string())
-        }).collect()
-    }).collect();
+    let string_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            columns
+                .iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    // Try to get value as string; fallback to debug repr
+                    row.try_get::<String, _>(i)
+                        .or_else(|_| row.try_get::<i64, _>(i).map(|v| v.to_string()))
+                        .or_else(|_| row.try_get::<f64, _>(i).map(|v| v.to_string()))
+                        .or_else(|_| row.try_get::<bool, _>(i).map(|v| v.to_string()))
+                        .unwrap_or_else(|_| "NULL".to_string())
+                })
+                .collect()
+        })
+        .collect();
 
     let markdown = rows_to_markdown(&columns, &string_rows);
     let total_chars = markdown.len();
     let row_count = string_rows.len();
 
     pool.close().await;
-    info!(rows = row_count, columns = columns.len(), "Import query executed");
+    info!(
+        rows = row_count,
+        columns = columns.len(),
+        "Import query executed"
+    );
 
     Ok(ImportResult {
         rows_imported: row_count,
@@ -490,7 +537,7 @@ pub async fn save_connection(
            ON DUPLICATE KEY UPDATE 
            connection_string = VALUES(connection_string),
            last_tested_at = NOW(),
-           last_test_status = VALUES(last_test_status)"#
+           last_test_status = VALUES(last_test_status)"#,
     )
     .bind(tenant_id)
     .bind(&req.name)
@@ -621,7 +668,8 @@ mod tests {
 
     #[test]
     fn test_parse_postgres_connection() {
-        let info = parse_connection_string("postgres://user:pass@localhost:5432/analytics").unwrap();
+        let info =
+            parse_connection_string("postgres://user:pass@localhost:5432/analytics").unwrap();
         assert_eq!(info.db_type, DbType::Postgres);
         assert_eq!(info.host, "localhost");
         assert_eq!(info.port, Some(5432));
@@ -783,7 +831,8 @@ mod tests {
     // ========================================
     #[test]
     fn test_parse_mariadb_connection() {
-        let info = parse_connection_string("mariadb://admin:pass@db.example.com:3306/mydb").unwrap();
+        let info =
+            parse_connection_string("mariadb://admin:pass@db.example.com:3306/mydb").unwrap();
         assert_eq!(info.db_type, DbType::Mysql);
         assert_eq!(info.host, "db.example.com");
         assert_eq!(info.port, Some(3306));

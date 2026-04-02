@@ -1,9 +1,8 @@
 use anyhow::Result;
-use sqlx::{MySqlPool, Row};
-use tracing::{info, warn, error};
 use serde::{Deserialize, Serialize};
+use sqlx::{MySqlPool, Row};
+use tracing::{error, info, warn};
 use uuid::Uuid;
-
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -47,21 +46,25 @@ pub struct ClusterDTO {
 
 #[derive(Debug, Deserialize)]
 pub struct ResolveClusterRequest {
-    pub resolution_type: String, // "ACCEPT_A", "ACCEPT_B", "MERGE"
+    pub resolution_type: String,       // "ACCEPT_A", "ACCEPT_B", "MERGE"
     pub golden_answer: Option<String>, // Required if MERGE
 }
 
 pub struct ClusteringService;
 
 impl ClusteringService {
-    pub async fn get_clusters(pool: &MySqlPool, tenant_id: &str, status: Option<&str>) -> Result<Vec<ClusterDTO>> {
+    pub async fn get_clusters(
+        pool: &MySqlPool,
+        tenant_id: &str,
+        status: Option<&str>,
+    ) -> Result<Vec<ClusterDTO>> {
         let status_filter = status.unwrap_or("ALL");
-        
+
         let clusters = if status_filter == "ALL" {
             sqlx::query(
                 r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
                    FROM qa_clusters 
-                   WHERE tenant_id = ?"#
+                   WHERE tenant_id = ?"#,
             )
             .bind(tenant_id)
             .fetch_all(pool)
@@ -70,7 +73,7 @@ impl ClusteringService {
             sqlx::query(
                 r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
                    FROM qa_clusters 
-                   WHERE tenant_id = ? AND status = ?"#
+                   WHERE tenant_id = ? AND status = ?"#,
             )
             .bind(tenant_id)
             .bind(status_filter)
@@ -84,19 +87,22 @@ impl ClusteringService {
                 r#"SELECT ci.qa_id, ci.source_label, qr.question, qr.answer, qr.context
                    FROM qa_cluster_items ci
                    JOIN qa_results qr ON ci.qa_id = qr.id
-                   WHERE ci.cluster_id = ?"#
+                   WHERE ci.cluster_id = ?"#,
             )
             .bind(&c.get::<String, _>("id"))
             .fetch_all(pool)
             .await?;
 
-            let item_dtos = items.into_iter().map(|i| ClusterItemDTO {
-                qa_id: i.get("qa_id"),
-                source_label: i.get("source_label"),
-                question: i.get("question"),
-                answer: i.get("answer"),
-                context: i.get("context"),
-            }).collect();
+            let item_dtos = items
+                .into_iter()
+                .map(|i| ClusterItemDTO {
+                    qa_id: i.get("qa_id"),
+                    source_label: i.get("source_label"),
+                    question: i.get("question"),
+                    answer: i.get("answer"),
+                    context: i.get("context"),
+                })
+                .collect();
 
             dtos.push(ClusterDTO {
                 id: c.get("id"),
@@ -114,35 +120,40 @@ impl ClusteringService {
     }
 
     /// Resolve a cluster and mark it as completed
-    pub async fn resolve_cluster(pool: &MySqlPool, cluster_id: &str, req: ResolveClusterRequest) -> Result<()> {
+    pub async fn resolve_cluster(
+        pool: &MySqlPool,
+        cluster_id: &str,
+        req: ResolveClusterRequest,
+    ) -> Result<()> {
         let status = match req.resolution_type.as_str() {
             "ACCEPT_A" => "RESOLVED_A",
             "ACCEPT_B" => "RESOLVED_B",
-            _ => "MERGED"
+            _ => "MERGED",
         };
 
-        sqlx::query(
-            "UPDATE qa_clusters SET status = ?, golden_answer = ? WHERE id = ?"
-        )
-        .bind(status)
-        .bind(req.golden_answer)
-        .bind(cluster_id)
-        .execute(pool)
-        .await?;
+        sqlx::query("UPDATE qa_clusters SET status = ?, golden_answer = ? WHERE id = ?")
+            .bind(status)
+            .bind(req.golden_answer)
+            .bind(cluster_id)
+            .execute(pool)
+            .await?;
 
         Ok(())
     }
 
     /// Generate clusters and detect conflicts using Gemini (Mock HDBSCAN for Phase 7 MVP)
     pub async fn trigger_clustering(pool: &MySqlPool, tenant_id: &str) -> Result<()> {
-        if IS_CLUSTERING_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        if IS_CLUSTERING_RUNNING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             info!("Clustering job is already running, skipping trigger.");
             return Ok(());
         }
-        
+
         let _guard = ClusteringGuard;
         PROCESSED_COUNT.store(0, Ordering::SeqCst);
-        
+
         info!("Starting Clustering Job for tenant: {}", tenant_id);
 
         // Fetch total unclustered QA count for tracking
@@ -151,14 +162,14 @@ impl ClusteringService {
                FROM qa_results 
                WHERE tenant_id = ? 
                AND qc_scanned = FALSE
-               AND id NOT IN (SELECT qa_id FROM qa_cluster_items)"#
+               AND id NOT IN (SELECT qa_id FROM qa_cluster_items)"#,
         )
         .bind(tenant_id)
         .fetch_one(pool)
         .await?;
-        
+
         TOTAL_COUNT.store(total_row.0 as usize, Ordering::SeqCst);
-        
+
         if total_row.0 < 2 {
             info!("Not enough unclustered QA pairs to form conflicts/duplicates.");
             return Ok(());
@@ -177,7 +188,10 @@ impl ClusteringService {
             // Safety: max iterations
             iteration += 1;
             if iteration > max_iterations {
-                warn!("Clustering hit max iteration limit ({}), stopping.", max_iterations);
+                warn!(
+                    "Clustering hit max iteration limit ({}), stopping.",
+                    max_iterations
+                );
                 break;
             }
 
@@ -189,10 +203,11 @@ impl ClusteringService {
                    AND qc_scanned = FALSE
                    AND id NOT IN (SELECT qa_id FROM qa_cluster_items)
                    ORDER BY id ASC
-                   LIMIT 10"#
+                   LIMIT 10"#,
             )
             .bind(tenant_id)
-            .fetch_all(pool).await?;
+            .fetch_all(pool)
+            .await?;
 
             if qas.len() < 2 {
                 info!("Finished clustering loop: Not enough unclustered QA pairs remaining.");
@@ -202,9 +217,10 @@ impl ClusteringService {
             let current_ids: Vec<i64> = qas.iter().map(|q| q.get::<i64, _>("id")).collect();
 
             // Use TenantConfig to resolve clustering model (using pipeline_evaluator slot)
-            let router = crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
+            let router =
+                crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
             let (client, model) = router.resolve_client("pipeline_evaluator")?;
-            
+
             let preamble = "You are a Data Quality AI. Analyze the list of Q/A pairs. \
 Find 1 conflict (contradicting info) AND 1 duplicate (similar info) if possible.\n\
 Return a STRICT JSON list: \n\
@@ -221,11 +237,18 @@ Return a STRICT JSON list: \n\
 
             let mut input_text = String::from("QA Pairs:\n");
             for qa in &qas {
-                input_text.push_str(&format!("ID: {} | Q: {} | A: {}\n", qa.get::<i64, _>("id"), qa.get::<String, _>("question"), qa.get::<String, _>("answer")));
+                input_text.push_str(&format!(
+                    "ID: {} | Q: {} | A: {}\n",
+                    qa.get::<i64, _>("id"),
+                    qa.get::<String, _>("question"),
+                    qa.get::<String, _>("answer")
+                ));
             }
 
-            let resp = client.prompt(&model, preamble, &input_text, 2048, 0.3).await;
-            
+            let resp = client
+                .prompt(&model, preamble, &input_text, 2048, 0.3)
+                .await;
+
             match resp {
                 Ok(json_str) => {
                     if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
@@ -260,21 +283,28 @@ Return a STRICT JSON list: \n\
                                     .bind(id2)
                                     .execute(pool)
                                     .await?;
-                                
+
                                 info!("Created Cluster: {}", cluster_id);
                             }
                         }
                     } else {
                         warn!("Failed to parse LLM output as JSON: {}", json_str);
                     }
-                },
-                Err(e) => error!("LLM prompt failed: {}", e)
+                }
+                Err(e) => error!("LLM prompt failed: {}", e),
             }
-            
+
             // Mark these IDs as scanned
             if !current_ids.is_empty() {
-                let params = current_ids.iter().map(|_| "?").collect::<Vec<&str>>().join(",");
-                let query_str = format!("UPDATE qa_results SET qc_scanned = TRUE WHERE id IN ({})", params);
+                let params = current_ids
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<&str>>()
+                    .join(",");
+                let query_str = format!(
+                    "UPDATE qa_results SET qc_scanned = TRUE WHERE id IN ({})",
+                    params
+                );
                 let mut db_query = sqlx::query(&query_str);
                 for id in &current_ids {
                     db_query = db_query.bind(id);
@@ -283,7 +313,7 @@ Return a STRICT JSON list: \n\
                     error!("Failed to update qc_scanned flags: {}", e);
                 }
             }
-            
+
             // Advance progress count, capped at total
             let new_processed = PROCESSED_COUNT.load(Ordering::SeqCst) + qas.len();
             let total = TOTAL_COUNT.load(Ordering::SeqCst);
@@ -294,15 +324,23 @@ Return a STRICT JSON list: \n\
     }
 
     /// Generate QA pairs for a specific chunk's content using Gemini
-    pub async fn generate_qa_for_content(pool: &MySqlPool, tenant_id: &str, chunk_id: i64, content: &str) -> Result<()> {
+    pub async fn generate_qa_for_content(
+        pool: &MySqlPool,
+        tenant_id: &str,
+        chunk_id: i64,
+        content: &str,
+    ) -> Result<()> {
         if content.trim().len() < 50 {
-            info!("Chunk {} content too short for QA generation, skipping", chunk_id);
+            info!(
+                "Chunk {} content too short for QA generation, skipping",
+                chunk_id
+            );
             return Ok(());
         }
 
         let router = crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
         let (client, model) = router.resolve_client("pipeline_generator")?;
-        
+
         let preamble = "You are a QA Generator. Given the following text content, generate 2-3 high-quality question-answer pairs that test understanding of the material. Return STRICT JSON list:\n\
 [\n\
   {\"question\": \"...\", \"answer\": \"...\"}\n\
@@ -311,11 +349,16 @@ Keep answers concise and factual. Only generate questions that can be directly a
 
         let prompt_text = format!("Generate QA pairs from this content:\n\n{}", content);
 
-        let resp = client.prompt(&model, preamble, &prompt_text, 2048, 0.7).await;
+        let resp = client
+            .prompt(&model, preamble, &prompt_text, 2048, 0.7)
+            .await;
 
         match resp {
             Ok(json_str) => {
-                let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();
+                let cleaned = json_str
+                    .trim_start_matches("```json")
+                    .trim_end_matches("```")
+                    .trim();
                 if let Ok(qa_pairs) = serde_json::from_str::<Vec<serde_json::Value>>(cleaned) {
                     // Create a mock pipeline run/step for these QA results
                     let run_id = Uuid::new_v4().to_string();
@@ -324,8 +367,12 @@ Keep answers concise and factual. Only generate questions that can be directly a
                     let _ = sqlx::query("INSERT INTO pipeline_steps (run_id, file_name, status, step_type) VALUES (?, ?, 'COMPLETED', 'GENERATE')")
                         .bind(&run_id).bind(format!("chunk_{}", chunk_id)).execute(pool).await;
 
-                    let step_record = sqlx::query!("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1", run_id)
-                        .fetch_one(pool).await?;
+                    let step_record = sqlx::query!(
+                        "SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1",
+                        run_id
+                    )
+                    .fetch_one(pool)
+                    .await?;
 
                     for qa in &qa_pairs {
                         let question = qa["question"].as_str().unwrap_or("");
@@ -342,9 +389,16 @@ Keep answers concise and factual. Only generate questions that can be directly a
                             .execute(pool).await;
                         }
                     }
-                    info!("Generated {} QA pairs for chunk {}", qa_pairs.len(), chunk_id);
+                    info!(
+                        "Generated {} QA pairs for chunk {}",
+                        qa_pairs.len(),
+                        chunk_id
+                    );
                 } else {
-                    warn!("Failed to parse LLM QA output for chunk {}: {}", chunk_id, json_str);
+                    warn!(
+                        "Failed to parse LLM QA output for chunk {}: {}",
+                        chunk_id, json_str
+                    );
                 }
             }
             Err(e) => {
@@ -357,8 +411,13 @@ Keep answers concise and factual. Only generate questions that can be directly a
     }
 
     /// Extracted helper to parse Gemini JSON output
-    pub fn parse_gemini_clustering_output(json_str: &str) -> std::result::Result<Vec<serde_json::Value>, serde_json::Error> {
-        let cleaned = json_str.trim_start_matches("```json").trim_end_matches("```").trim();
+    pub fn parse_gemini_clustering_output(
+        json_str: &str,
+    ) -> std::result::Result<Vec<serde_json::Value>, serde_json::Error> {
+        let cleaned = json_str
+            .trim_start_matches("```json")
+            .trim_end_matches("```")
+            .trim();
         serde_json::from_str::<Vec<serde_json::Value>>(cleaned)
     }
 }

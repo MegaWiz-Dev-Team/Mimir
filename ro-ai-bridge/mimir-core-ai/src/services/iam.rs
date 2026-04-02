@@ -1,12 +1,9 @@
 use anyhow::{Result, anyhow};
 use argon2::{
-    password_hash::{
-        rand_core::OsRng,
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
-    },
-    Argon2
+    Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 use sqlx::MySqlPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -28,7 +25,8 @@ impl IamService {
 
     /// Create with JWT secret from environment variable (for CLI binaries)
     pub fn new_with_env(db: MySqlPool) -> Self {
-        let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
+        let jwt_secret =
+            std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
         Self { db, jwt_secret }
     }
 
@@ -36,7 +34,8 @@ impl IamService {
     pub fn hash_password(password: &str) -> Result<String> {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
-        let password_hash = argon2.hash_password(password.as_bytes(), &salt)
+        let password_hash = argon2
+            .hash_password(password.as_bytes(), &salt)
             .map_err(|e| anyhow!("Failed to hash password: {}", e))?
             .to_string();
         Ok(password_hash)
@@ -44,9 +43,11 @@ impl IamService {
 
     /// Verify a plaintext password against a hash
     pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
-        let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| anyhow!("Invalid password hash format: {}", e))?;
-        let is_valid = Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok();
+        let parsed_hash =
+            PasswordHash::new(hash).map_err(|e| anyhow!("Invalid password hash format: {}", e))?;
+        let is_valid = Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok();
         Ok(is_valid)
     }
 
@@ -57,7 +58,8 @@ impl IamService {
             "SELECT id, password_hash FROM users WHERE username = ?",
             username
         )
-        .fetch_optional(&self.db).await?;
+        .fetch_optional(&self.db)
+        .await?;
 
         let user = user_row.ok_or_else(|| anyhow!("Invalid credentials"))?;
 
@@ -70,7 +72,8 @@ impl IamService {
             "SELECT tenant_id, role FROM tenant_users WHERE user_id = ? LIMIT 1",
             user.id
         )
-        .fetch_optional(&self.db).await?;
+        .fetch_optional(&self.db)
+        .await?;
 
         let tenant = tenant_row.ok_or_else(|| anyhow!("User has no assigned tenant"))?;
 
@@ -81,9 +84,8 @@ impl IamService {
 
     /// Generate JWT Access Token
     fn generate_jwt(&self, user_id: &str, tenant_id: &str, role: &str) -> Result<String> {
-        let expiration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_secs() as usize + (24 * 60 * 60); // 24 hours exp
+        let expiration =
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize + (24 * 60 * 60); // 24 hours exp
 
         // In a full implementation, `role` would be added to the claims.
         // For now, we reuse `TenantClaims` from the existing middleware.
@@ -99,7 +101,7 @@ impl IamService {
         let token = encode(
             &Header::default(),
             &claims,
-            &EncodingKey::from_secret(self.jwt_secret.as_bytes())
+            &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
         )?;
 
         Ok(token)
@@ -119,8 +121,9 @@ impl IamService {
             LEFT JOIN tenant_users tu ON u.id = tu.user_id
             "#
         )
-        .fetch_all(&self.db).await?;
-        
+        .fetch_all(&self.db)
+        .await?;
+
         Ok(users)
     }
 
@@ -129,7 +132,8 @@ impl IamService {
             Tenant,
             "SELECT id, name, domain, created_at, updated_at FROM tenants"
         )
-        .fetch_all(&self.db).await?;
+        .fetch_all(&self.db)
+        .await?;
         Ok(tenants)
     }
 
@@ -143,13 +147,14 @@ impl IamService {
             WHERE tu.user_id = ?"#,
             user_id
         )
-        .fetch_all(&self.db).await?;
+        .fetch_all(&self.db)
+        .await?;
         Ok(tenants)
     }
 
     pub async fn create_user(&self, req: CreateUserRequest) -> Result<User> {
         let user_id = Uuid::new_v4().to_string();
-        
+
         // Use provided password or generate random temp one
         let password = req.password.unwrap_or_else(|| "temp123!".to_string());
         let hash = Self::hash_password(&password)?;
@@ -162,7 +167,8 @@ impl IamService {
             req.username,
             hash
         )
-        .execute(&mut *tx).await?;
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!(
             "INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (?, ?, ?)",
@@ -170,7 +176,8 @@ impl IamService {
             user_id,
             req.role
         )
-        .execute(&mut *tx).await?;
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
 
@@ -179,7 +186,8 @@ impl IamService {
             "SELECT id, username, created_at, updated_at FROM users WHERE id = ?",
             user_id
         )
-        .fetch_one(&self.db).await?;
+        .fetch_one(&self.db)
+        .await?;
 
         Ok(user)
     }
@@ -191,77 +199,124 @@ impl IamService {
             req.tenant_id,
             user_id
         )
-        .execute(&self.db).await?;
+        .execute(&self.db)
+        .await?;
         Ok(())
     }
 
-    pub async fn update_user_password(&self, user_id: &str, req: UpdateUserPasswordRequest) -> Result<()> {
+    pub async fn update_user_password(
+        &self,
+        user_id: &str,
+        req: UpdateUserPasswordRequest,
+    ) -> Result<()> {
         let hash = Self::hash_password(&req.password)?;
         sqlx::query!(
             "UPDATE users SET password_hash = ? WHERE id = ?",
             hash,
             user_id
         )
-        .execute(&self.db).await?;
+        .execute(&self.db)
+        .await?;
         Ok(())
     }
 
     pub async fn delete_user(&self, user_id: &str) -> Result<()> {
         let mut tx = self.db.begin().await?;
         sqlx::query!("DELETE FROM tenant_users WHERE user_id = ?", user_id)
-            .execute(&mut *tx).await?;
+            .execute(&mut *tx)
+            .await?;
         sqlx::query!("DELETE FROM users WHERE id = ?", user_id)
-            .execute(&mut *tx).await?;
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
 
-    pub async fn update_tenant(&self, tenant_id: &str, req: crate::models::iam::UpdateTenantRequest) -> Result<()> {
+    pub async fn update_tenant(
+        &self,
+        tenant_id: &str,
+        req: crate::models::iam::UpdateTenantRequest,
+    ) -> Result<()> {
         sqlx::query!(
             "UPDATE tenants SET name = ? WHERE id = ?",
             req.name,
             tenant_id
         )
-        .execute(&self.db).await?;
+        .execute(&self.db)
+        .await?;
         Ok(())
     }
 
-    pub async fn get_tenant_config(&self, tenant_id: &str) -> Result<crate::models::iam::TenantConfig> {
-        let config = sqlx::query_as::<_, crate::models::iam::TenantConfig>(
+    pub async fn get_tenant_config(
+        &self,
+        tenant_id: &str,
+    ) -> Result<crate::models::iam::TenantConfig> {
+        let mut config = sqlx::query_as::<_, crate::models::iam::TenantConfig>(
             r#"SELECT 
                 tenant_id, 
                 default_provider, 
                 default_model, 
-                provider_api_keys, 
                 qa_rules, 
                 system_prompt, 
                 max_daily_tokens, 
                 is_dedicated_vector_db,
                 max_crawl_pages,
                 search_settings,
+                pipeline_settings,
                 llm_config,
                 created_at, 
                 updated_at
             FROM tenant_configs 
-            WHERE tenant_id = ?"#
+            WHERE tenant_id = ?"#,
         )
         .bind(tenant_id)
-        .fetch_one(&self.db).await?;
+        .fetch_one(&self.db)
+        .await?;
+
+        // --- VAULT INTEGRATION ---
+        match crate::services::vault::get_tenant_secrets(tenant_id).await {
+            Ok(secrets) => {
+                let null_json = serde_json::json!({});
+                if secrets != null_json {
+                    config.provider_api_keys = Some(sqlx::types::Json(secrets));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(tenant_id = %tenant_id, error = %e, "Failed to resolve tenant secrets from Vault");
+            }
+        }
+
         Ok(config)
     }
 
-    pub async fn update_tenant_config(&self, tenant_id: &str, req: crate::models::iam::UpdateTenantConfigRequest) -> Result<()> {
+    pub async fn update_tenant_config(
+        &self,
+        tenant_id: &str,
+        req: crate::models::iam::UpdateTenantConfigRequest,
+    ) -> Result<()> {
         let config = self.get_tenant_config(tenant_id).await?;
 
-        let default_provider = req.default_provider.unwrap_or(config.default_provider.clone());
+        // --- VAULT INTEGRATION ---
+        if let Some(keys) = &req.provider_api_keys {
+            if let Err(e) = crate::services::vault::write_tenant_secrets(tenant_id, &keys.0).await {
+                tracing::warn!(tenant_id = %tenant_id, error = %e, "Failed to write secrets to Vault");
+                // Don't fail the rest of the config update if dev vault is missing
+            }
+        }
+
+        let default_provider = req
+            .default_provider
+            .unwrap_or(config.default_provider.clone());
         let default_model = req.default_model.unwrap_or(config.default_model.clone());
-        let provider_api_keys = req.provider_api_keys.or(config.provider_api_keys);
         let qa_rules = req.qa_rules.or(config.qa_rules);
         let system_prompt = req.system_prompt.or(config.system_prompt);
         let max_daily_tokens = req.max_daily_tokens.unwrap_or(config.max_daily_tokens);
-        let is_dedicated_vector_db = req.is_dedicated_vector_db.unwrap_or(config.is_dedicated_vector_db);
+        let is_dedicated_vector_db = req
+            .is_dedicated_vector_db
+            .unwrap_or(config.is_dedicated_vector_db);
         let max_crawl_pages = req.max_crawl_pages.unwrap_or(config.max_crawl_pages);
         let search_settings = req.search_settings.or(config.search_settings);
+        let pipeline_settings = req.pipeline_settings.or(config.pipeline_settings);
         let llm_config = req.llm_config.or(config.llm_config);
 
         // Serialize llm_config to JSON string for runtime query binding
@@ -273,40 +328,51 @@ impl IamService {
 
         sqlx::query(
             r#"UPDATE tenant_configs 
-            SET default_provider = ?, default_model = ?, provider_api_keys = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, max_crawl_pages = ?, search_settings = ?, llm_config = ?
+            SET default_provider = ?, default_model = ?, qa_rules = ?, system_prompt = ?, max_daily_tokens = ?, is_dedicated_vector_db = ?, max_crawl_pages = ?, search_settings = ?, pipeline_settings = ?, llm_config = ?
             WHERE tenant_id = ?"#
         )
         .bind(&default_provider)
         .bind(&default_model)
-        .bind(&provider_api_keys)
         .bind(&qa_rules)
         .bind(&system_prompt)
         .bind(max_daily_tokens)
         .bind(is_dedicated_vector_db)
         .bind(max_crawl_pages)
         .bind(&search_settings)
+        .bind(&pipeline_settings)
         .bind(&llm_config_json)
         .bind(tenant_id)
         .execute(&self.db).await?;
         Ok(())
     }
 
-    pub async fn create_tenant(&self, req: crate::models::iam::CreateTenantRequest) -> Result<crate::models::iam::Tenant> {
+    pub async fn create_tenant(
+        &self,
+        req: crate::models::iam::CreateTenantRequest,
+    ) -> Result<crate::models::iam::Tenant> {
         let tenant_id = uuid::Uuid::new_v4().to_string();
         let mut tx = self.db.begin().await?;
 
         let domain = req.domain.unwrap_or_else(|| "general".to_string());
 
         // 1. Core Tenant Record
-        sqlx::query!("INSERT INTO tenants (id, name, domain) VALUES (?, ?, ?)", tenant_id, req.name, domain)
-            .execute(&mut *tx).await?;
+        sqlx::query!(
+            "INSERT INTO tenants (id, name, domain) VALUES (?, ?, ?)",
+            tenant_id,
+            req.name,
+            domain
+        )
+        .execute(&mut *tx)
+        .await?;
 
         // 2. Initialize Configs
         sqlx::query!(
             "INSERT INTO tenant_configs (tenant_id, is_dedicated_vector_db) VALUES (?, ?)",
             tenant_id,
             req.is_dedicated_vector_db
-        ).execute(&mut *tx).await?;
+        )
+        .execute(&mut *tx)
+        .await?;
 
         // 3. Admin User Creation
         let user_id = uuid::Uuid::new_v4().to_string();
@@ -314,13 +380,20 @@ impl IamService {
         let hash = Self::hash_password(&password)?;
         sqlx::query!(
             "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
-            user_id, req.admin_email, hash
-        ).execute(&mut *tx).await?;
+            user_id,
+            req.admin_email,
+            hash
+        )
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!(
             "INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (?, ?, 'admin')",
-            tenant_id, user_id
-        ).execute(&mut *tx).await?;
+            tenant_id,
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         // Commit DB transaction
         tx.commit().await?;
@@ -335,32 +408,40 @@ impl IamService {
         if req.is_dedicated_vector_db {
             let collection_name = format!("{}_docs", tenant_id);
             // Default Vector size 1024 for Heimdall bge-m3.
-            qdrant.init_collection(&collection_name, 1024).await.unwrap_or_else(|e| {
-                tracing::warn!("Failed to init Qdrant collection {}: {}", collection_name, e);
-            });
+            qdrant
+                .init_collection(&collection_name, 1024)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        "Failed to init Qdrant collection {}: {}",
+                        collection_name,
+                        e
+                    );
+                });
         }
 
         let tenant = sqlx::query_as!(
             crate::models::iam::Tenant,
             "SELECT id, name, domain, created_at, updated_at FROM tenants WHERE id = ?",
             tenant_id
-        ).fetch_one(&self.db).await?;
+        )
+        .fetch_one(&self.db)
+        .await?;
 
         Ok(tenant)
     }
 
     /// Get the domain string for a tenant by ID.
     pub async fn get_tenant_domain(&self, tenant_id: &str) -> Result<String> {
-        let row = sqlx::query!(
-            "SELECT domain FROM tenants WHERE id = ?",
-            tenant_id
-        )
-        .fetch_one(&self.db).await?;
+        let row = sqlx::query!("SELECT domain FROM tenants WHERE id = ?", tenant_id)
+            .fetch_one(&self.db)
+            .await?;
         Ok(row.domain)
     }
 
     pub async fn delete_tenant(&self, tenant_id: &str) -> Result<()> {
-        let config = self.get_tenant_config(tenant_id).await.unwrap_or_else(|_| crate::models::iam::TenantConfig {
+        let config = self.get_tenant_config(tenant_id).await.unwrap_or_else(|_| {
+            crate::models::iam::TenantConfig {
                 tenant_id: tenant_id.to_string(),
                 default_provider: "ollama".to_string(),
                 default_model: "llama3.2".to_string(),
@@ -371,11 +452,13 @@ impl IamService {
                 is_dedicated_vector_db: false,
                 max_crawl_pages: 100,
                 search_settings: None,
+                pipeline_settings: None,
                 llm_config: None,
                 created_at: None,
                 updated_at: None,
-            });
-        
+            }
+        });
+
         // 1. Qdrant Cleanup
         let qdrant = crate::services::qdrant::QdrantService::new();
         if config.is_dedicated_vector_db {
@@ -386,8 +469,8 @@ impl IamService {
         // 2. DB Cleanup (tenants has CASCADE for tenant_configs, tenant_users, pipeline_runs, etc)
         // Wait, users are not cascade deleted just because tenant_users is. We need to delete orphaned users.
         let mut tx = self.db.begin().await?;
-        
-        // Get all users who belong entirely to this tenant to delete them. 
+
+        // Get all users who belong entirely to this tenant to delete them.
         // For simplicity, we just delete users whose ONLY tenant is this one.
         sqlx::query!(
             r#"
@@ -396,9 +479,13 @@ impl IamService {
             )
             "#,
             tenant_id
-        ).execute(&mut *tx).await?;
+        )
+        .execute(&mut *tx)
+        .await?;
 
-        sqlx::query!("DELETE FROM tenants WHERE id = ?", tenant_id).execute(&mut *tx).await?;
+        sqlx::query!("DELETE FROM tenants WHERE id = ?", tenant_id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok(())
@@ -453,7 +540,9 @@ impl IamService {
         for tenant in &tenants {
             match self.seed_builtin_roles(&tenant.id).await {
                 Ok(n) => total += n,
-                Err(e) => tracing::warn!(tenant_id = %tenant.id, error = %e, "Failed to seed roles"),
+                Err(e) => {
+                    tracing::warn!(tenant_id = %tenant.id, error = %e, "Failed to seed roles")
+                }
             }
         }
         if total > 0 {
@@ -475,12 +564,17 @@ impl IamService {
     }
 
     /// Create a custom role (validates unique name per tenant)
-    pub async fn create_role(&self, tenant_id: &str, req: crate::models::iam::CreateRoleRequest) -> Result<crate::models::iam::Role> {
+    pub async fn create_role(
+        &self,
+        tenant_id: &str,
+        req: crate::models::iam::CreateRoleRequest,
+    ) -> Result<crate::models::iam::Role> {
         // Check for duplicate name
         let row = sqlx::query("SELECT COUNT(*) as cnt FROM roles WHERE tenant_id = ? AND name = ?")
             .bind(tenant_id)
             .bind(&req.name)
-            .fetch_one(&self.db).await?;
+            .fetch_one(&self.db)
+            .await?;
         let cnt: i64 = sqlx::Row::get(&row, "cnt");
         if cnt > 0 {
             return Err(anyhow!("Role '{}' already exists in this tenant", req.name));
@@ -505,7 +599,11 @@ impl IamService {
     }
 
     /// Update a custom role's permissions (rejects built-in roles)
-    pub async fn update_role(&self, role_id: &str, req: crate::models::iam::UpdateRoleRequest) -> Result<crate::models::iam::Role> {
+    pub async fn update_role(
+        &self,
+        role_id: &str,
+        req: crate::models::iam::UpdateRoleRequest,
+    ) -> Result<crate::models::iam::Role> {
         let role = sqlx::query_as::<_, crate::models::iam::Role>(
             "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE id = ?"
         )
@@ -521,7 +619,8 @@ impl IamService {
         sqlx::query("UPDATE roles SET permissions = ? WHERE id = ?")
             .bind(&permissions_json)
             .bind(role_id)
-            .execute(&self.db).await?;
+            .execute(&self.db)
+            .await?;
 
         let updated = sqlx::query_as::<_, crate::models::iam::Role>(
             "SELECT id, tenant_id, name, is_builtin, permissions, created_at, updated_at FROM roles WHERE id = ?"
@@ -547,15 +646,21 @@ impl IamService {
         // Check if any users have this role assigned
         let row = sqlx::query("SELECT COUNT(*) as cnt FROM tenant_users WHERE role = ?")
             .bind(&role.name)
-            .fetch_one(&self.db).await?;
+            .fetch_one(&self.db)
+            .await?;
         let cnt: i64 = sqlx::Row::get(&row, "cnt");
         if cnt > 0 {
-            return Err(anyhow!("Cannot delete role '{}' — it is assigned to {} user(s)", role.name, cnt));
+            return Err(anyhow!(
+                "Cannot delete role '{}' — it is assigned to {} user(s)",
+                role.name,
+                cnt
+            ));
         }
 
         sqlx::query("DELETE FROM roles WHERE id = ?")
             .bind(role_id)
-            .execute(&self.db).await?;
+            .execute(&self.db)
+            .await?;
         Ok(())
     }
 }
@@ -569,27 +674,36 @@ mod tests {
     fn test_verify_password_valid() {
         let password = "mysecretpassword123";
         let hash = IamService::hash_password(password).unwrap();
-        
+
         let is_valid = IamService::verify_password(password, &hash).unwrap();
-        assert!(is_valid, "Password should be verified against its valid hash");
+        assert!(
+            is_valid,
+            "Password should be verified against its valid hash"
+        );
     }
 
     #[test]
     fn test_verify_password_invalid() {
         let password = "wrongpassword999";
         let hash = IamService::hash_password("mysecretpassword123").unwrap();
-        
+
         let is_valid = IamService::verify_password(password, &hash).unwrap();
-        assert!(!is_valid, "Password should not be verified against another password's hash");
+        assert!(
+            !is_valid,
+            "Password should not be verified against another password's hash"
+        );
     }
 
     #[test]
     fn test_verify_password_malformed_hash() {
         let password = "mysecretpassword123";
         let invalid_hash = "not_an_argon_hash_at_all";
-        
+
         let result = IamService::verify_password(password, invalid_hash);
-        assert!(result.is_err(), "verify_password should return Err on invalid hash string format");
+        assert!(
+            result.is_err(),
+            "verify_password should return Err on invalid hash string format"
+        );
     }
 
     // ─── Custom Roles Tests — Issue #191 ─────────────────────────────────────

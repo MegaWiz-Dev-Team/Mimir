@@ -1,5 +1,5 @@
 use scraper::{Html, Selector};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,7 +26,8 @@ impl Table {
             // Iterate over all rows (tr)
             for tr in table_node.select(&tr_selector) {
                 // Check if this row is a header row (has 'th')
-                let ths: Vec<String> = tr.select(&th_selector)
+                let ths: Vec<String> = tr
+                    .select(&th_selector)
                     .map(|th| th.text().collect::<Vec<_>>().join(" ").trim().to_string())
                     .collect();
 
@@ -40,13 +41,14 @@ impl Table {
                         // Actually, some tables put th in tbody. Let's stick to first th set as headers.
                         // Or just append to rows if headers are already set?
                         // Let's treat subsequent th-only rows as regular rows for now to avoid data loss.
-                         rows.push(ths);
+                        rows.push(ths);
                     }
                     continue;
                 }
 
                 // Regular cells (td)
-                let tds: Vec<String> = tr.select(&td_selector)
+                let tds: Vec<String> = tr
+                    .select(&td_selector)
                     .map(|td| td.text().collect::<Vec<_>>().join(" ").trim().to_string())
                     .collect();
 
@@ -56,8 +58,10 @@ impl Table {
             }
 
             // Normalize row lengths (Markdown tables need matching columns)
-            let max_cols = headers.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
-            
+            let max_cols = headers
+                .len()
+                .max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
+
             // Pad headers if missing
             while headers.len() < max_cols {
                 headers.push("".to_string());
@@ -90,27 +94,29 @@ impl Table {
         // If headers are empty but rows exist, generate dummy headers or empty space?
         // Markdown tables require a header line.
         let display_headers = if self.headers.is_empty() {
-             // Generate empty headers based on first row length
-             match self.rows.first() {
-                 Some(row) => vec!["".to_string(); row.len()],
-                 None => return String::new(),
-             }
+            // Generate empty headers based on first row length
+            match self.rows.first() {
+                Some(row) => vec!["".to_string(); row.len()],
+                None => return String::new(),
+            }
         } else {
             self.headers.clone()
         };
 
         if !display_headers.is_empty() {
             write!(&mut md, "| {} |\n", display_headers.join(" | ")).unwrap();
-            
+
             // 2. Separator
-            let separator: Vec<String> = display_headers.iter().map(|_| "---".to_string()).collect();
+            let separator: Vec<String> =
+                display_headers.iter().map(|_| "---".to_string()).collect();
             write!(&mut md, "| {} |\n", separator.join(" | ")).unwrap();
         }
 
         // 3. Rows
         for row in &self.rows {
             // Clean newlines in cells to prevent breaking markdown table
-            let clean_row: Vec<String> = row.iter()
+            let clean_row: Vec<String> = row
+                .iter()
                 .map(|cell| cell.replace("\n", "<br>").replace("|", "\\|"))
                 .collect();
             write!(&mut md, "| {} |\n", clean_row.join(" | ")).unwrap();
@@ -146,7 +152,7 @@ mod tests {
         let tables = Table::from_html(html);
         assert_eq!(tables.len(), 1);
         let table = &tables[0];
-        
+
         assert_eq!(table.headers, vec!["Name", "Age"]);
         assert_eq!(table.rows.len(), 2);
         assert_eq!(table.rows[0], vec!["Alice", "24"]);
@@ -183,7 +189,7 @@ mod tests {
         let markdown = table.to_markdown();
         println!("{}", markdown);
         // Should generate empty headers
-        assert!(markdown.contains("|  |  |")); 
+        assert!(markdown.contains("|  |  |"));
         assert!(markdown.contains("| --- | --- |"));
         assert!(markdown.contains("| Item A | 100 Zeny |"));
     }

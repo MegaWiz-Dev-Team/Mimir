@@ -6,17 +6,17 @@
 //!
 //! REQ-012: ACU per source, Blind-spot Detection, Closed-loop Actions
 
+use crate::routes::tenant::extract_tenant_id;
 use axum::{
-    routing::get,
-    Router, Json,
     extract::State,
-    http::{StatusCode, HeaderMap},
+    http::{HeaderMap, StatusCode},
+    routing::get,
+    Json, Router,
 };
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{info, instrument};
-use crate::routes::tenant::extract_tenant_id;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Response structs
@@ -87,10 +87,18 @@ pub fn calculate_coverage_score(
     kg_count: i64,
 ) -> f64 {
     let mut score = 0.0;
-    if chunk_count > 0 { score += 25.0; }
-    if qa_count > 0 { score += 25.0; }
-    if vector_count > 0 { score += 25.0; }
-    if kg_count > 0 { score += 25.0; }
+    if chunk_count > 0 {
+        score += 25.0;
+    }
+    if qa_count > 0 {
+        score += 25.0;
+    }
+    if vector_count > 0 {
+        score += 25.0;
+    }
+    if kg_count > 0 {
+        score += 25.0;
+    }
     score
 }
 
@@ -123,7 +131,8 @@ pub fn detect_blindspots(
 
     // Check staleness (no sync in 7 days)
     if let Some(sync_str) = last_sync_at {
-        if let Ok(sync_time) = chrono::NaiveDateTime::parse_from_str(sync_str, "%Y-%m-%d %H:%M:%S") {
+        if let Ok(sync_time) = chrono::NaiveDateTime::parse_from_str(sync_str, "%Y-%m-%d %H:%M:%S")
+        {
             let now = chrono::Utc::now().naive_utc();
             let days_since = (now - sync_time).num_days();
             if days_since > 7 {
@@ -176,24 +185,30 @@ async fn get_overview(
     State(pool): State<DbPool>,
 ) -> Result<Json<CoverageOverview>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
-    info!(event = "coverage_overview", tenant_id = tenant_id, "Fetching coverage overview");
+    info!(
+        event = "coverage_overview",
+        tenant_id = tenant_id,
+        "Fetching coverage overview"
+    );
 
     let err_map = |e: sqlx::Error| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
     };
 
     // Total sources
-    let total_sources: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM data_sources WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .map_err(err_map)?;
+    let total_sources: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM data_sources WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(err_map)?;
 
     // Sources with chunks (total_chunks > 0)
     let sources_with_chunks: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM data_sources WHERE tenant_id = ? AND total_chunks > 0"
+        "SELECT COUNT(*) FROM data_sources WHERE tenant_id = ? AND total_chunks > 0",
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -215,19 +230,24 @@ async fn get_overview(
     // Sources with vectors: if ANY Qdrant collection has points, count all sources with chunks as vectorized
     // (In this architecture, vectors are stored per-tenant in Qdrant, not tracked per-source in DB)
     let qdrant = mimir_core_ai::services::qdrant::QdrantService::new();
-    let has_vectors = qdrant.get_collection_info("source_chunks").await
+    let has_vectors = qdrant
+        .get_collection_info("source_chunks")
+        .await
         .map(|info| info["result"]["points_count"].as_u64().unwrap_or(0) > 0)
         .unwrap_or(false);
-    let sources_with_vectors = if has_vectors { sources_with_chunks } else { (0i64,) };
+    let sources_with_vectors = if has_vectors {
+        sources_with_chunks
+    } else {
+        (0i64,)
+    };
 
     // Sources with KG entities
-    let sources_with_kg: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT source_id) FROM kg_entities WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or((0,));
+    let sources_with_kg: (i64,) =
+        sqlx::query_as("SELECT COUNT(DISTINCT source_id) FROM kg_entities WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
 
     // KG extracted count (from extraction runs)
     let kg_extracted: (i64,) = sqlx::query_as(
@@ -270,18 +290,34 @@ async fn get_sources(
     State(pool): State<DbPool>,
 ) -> Result<Json<Vec<SourceCoverage>>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
-    info!(event = "coverage_sources", tenant_id = tenant_id, "Fetching per-source coverage");
+    info!(
+        event = "coverage_sources",
+        tenant_id = tenant_id,
+        "Fetching per-source coverage"
+    );
 
     // Get all sources for this tenant
-    let sources: Vec<(i64, String, String, Option<String>, Option<i64>, Option<String>)> = sqlx::query_as(
+    let sources: Vec<(
+        i64,
+        String,
+        String,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+    )> = sqlx::query_as(
         "SELECT id, name, source_type, last_sync_status, total_chunks, \
          DATE_FORMAT(last_sync_at, '%Y-%m-%d %H:%M:%S') as last_sync_at \
-         FROM data_sources WHERE tenant_id = ? ORDER BY name"
+         FROM data_sources WHERE tenant_id = ? ORDER BY name",
     )
     .bind(tenant_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     let mut result = Vec::new();
 
@@ -309,7 +345,7 @@ async fn get_sources(
 
         // KG entity count
         let kg_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM kg_entities WHERE source_id = ? AND tenant_id = ?"
+            "SELECT COUNT(*) FROM kg_entities WHERE source_id = ? AND tenant_id = ?",
         )
         .bind(id)
         .bind(tenant_id)
@@ -318,13 +354,12 @@ async fn get_sources(
         .unwrap_or((0,));
 
         // Dedup ratio
-        let total_fingerprints: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM content_fingerprints WHERE source_id = ?"
-        )
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or((0,));
+        let total_fingerprints: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM content_fingerprints WHERE source_id = ?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap_or((0,));
 
         let dedup_ratio = if chunk_count > 0 && total_fingerprints.0 > 0 {
             1.0 - (total_fingerprints.0 as f64 / chunk_count as f64).min(1.0)
@@ -341,12 +376,8 @@ async fn get_sources(
             &last_sync_at,
         );
 
-        let coverage_score = calculate_coverage_score(
-            chunk_count,
-            qa_count.0,
-            vector_step.0,
-            kg_count.0,
-        );
+        let coverage_score =
+            calculate_coverage_score(chunk_count, qa_count.0, vector_step.0, kg_count.0);
 
         result.push(SourceCoverage {
             source_id: id,
@@ -374,7 +405,11 @@ async fn get_gaps(
     State(pool): State<DbPool>,
 ) -> Result<Json<CoverageGaps>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
-    info!(event = "coverage_gaps", tenant_id = tenant_id, "Fetching coverage gaps");
+    info!(
+        event = "coverage_gaps",
+        tenant_id = tenant_id,
+        "Fetching coverage gaps"
+    );
 
     // Sources missing chunks
     let missing_chunks: Vec<(i64, String)> = sqlx::query_as(
@@ -408,7 +443,7 @@ async fn get_gaps(
     // Sources missing KG
     let missing_kg: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, name FROM data_sources WHERE tenant_id = ? AND id NOT IN \
-         (SELECT DISTINCT source_id FROM kg_entities WHERE tenant_id = ?)"
+         (SELECT DISTINCT source_id FROM kg_entities WHERE tenant_id = ?)",
     )
     .bind(tenant_id)
     .bind(tenant_id)
@@ -439,7 +474,12 @@ async fn get_gaps(
     .unwrap_or_default();
 
     let to_gap = |rows: Vec<(i64, String)>| -> Vec<GapSource> {
-        rows.into_iter().map(|(id, name)| GapSource { source_id: id, name }).collect()
+        rows.into_iter()
+            .map(|(id, name)| GapSource {
+                source_id: id,
+                name,
+            })
+            .collect()
     };
 
     Ok(Json(CoverageGaps {
@@ -501,8 +541,19 @@ mod tests {
 
     #[test]
     fn test_detect_blindspots_all_healthy() {
-        let spots = detect_blindspots(10, 5, 85.0, 3, 0.01, &Some("2099-01-01 00:00:00".to_string()));
-        assert!(spots.is_empty(), "No blindspots for fully healthy source, got: {:?}", spots);
+        let spots = detect_blindspots(
+            10,
+            5,
+            85.0,
+            3,
+            0.01,
+            &Some("2099-01-01 00:00:00".to_string()),
+        );
+        assert!(
+            spots.is_empty(),
+            "No blindspots for fully healthy source, got: {:?}",
+            spots
+        );
     }
 
     #[test]
@@ -516,14 +567,28 @@ mod tests {
 
     #[test]
     fn test_detect_blindspots_high_dedup() {
-        let spots = detect_blindspots(10, 5, 90.0, 2, 0.5, &Some("2099-01-01 00:00:00".to_string()));
+        let spots = detect_blindspots(
+            10,
+            5,
+            90.0,
+            2,
+            0.5,
+            &Some("2099-01-01 00:00:00".to_string()),
+        );
         assert!(spots.contains(&"high_dedup_ratio".to_string()));
         assert_eq!(spots.len(), 1);
     }
 
     #[test]
     fn test_detect_blindspots_low_vector() {
-        let spots = detect_blindspots(10, 5, 30.0, 2, 0.0, &Some("2099-01-01 00:00:00".to_string()));
+        let spots = detect_blindspots(
+            10,
+            5,
+            30.0,
+            2,
+            0.0,
+            &Some("2099-01-01 00:00:00".to_string()),
+        );
         assert!(spots.contains(&"low_vector_coverage".to_string()));
     }
 
@@ -599,7 +664,10 @@ mod tests {
     #[test]
     fn test_coverage_gaps_serialize() {
         let gaps = CoverageGaps {
-            sources_missing_chunks: vec![GapSource { source_id: 1, name: "Source A".to_string() }],
+            sources_missing_chunks: vec![GapSource {
+                source_id: 1,
+                name: "Source A".to_string(),
+            }],
             sources_missing_qa: vec![],
             sources_missing_vectors: vec![],
             sources_missing_kg: vec![],

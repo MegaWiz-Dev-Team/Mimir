@@ -1,6 +1,6 @@
-use rig::providers::ollama;
-use rig::completion::Prompt;
 use anyhow::Result;
+use rig::completion::Prompt;
+use rig::providers::ollama;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -1,11 +1,11 @@
-use rig::providers::{ollama, gemini};
-use rig::completion::Prompt;
+use crate::tools::actions::{BuffTool, HealTool};
 use mimir_core_ai::models::persona::Persona;
-use std::time::Duration;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use rig::completion::Prompt;
+use rig::providers::{gemini, ollama};
 use serde_json::Value;
-use crate::tools::actions::{HealTool, BuffTool};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
 
 /// Default provider to use if not specified
 const DEFAULT_PROVIDER: &str = "ollama";
@@ -31,22 +31,22 @@ pub mod fast_models {
 }
 
 /// SimpleNpcAgent - Tier 1 NPC Chat Agent optimized for < 2s latency
-/// 
+///
 /// This agent is designed for fast, simple NPC conversations without RAG.
 /// It uses a completion-based approach with the persona's system prompt as preamble.
-/// 
+///
 /// ## Latency Optimization
 /// - No RAG/vector search calls
 /// - Cached persona loading
 /// - Fast default model (llama3.2)
 /// - Configurable timeout to prevent hanging
-/// 
+///
 /// ## Usage
 /// ```ignore
 /// // Basic usage
 /// let agent = SimpleNpcAgent::new(persona);
 /// let response = agent.chat("Hello!").await?;
-/// 
+///
 /// // With custom model for speed
 /// let agent = SimpleNpcAgent::with_model(persona, "llama3.2:1b"); // Smaller, faster model
 /// ```
@@ -79,12 +79,12 @@ impl SimpleNpcAgent {
     }
 
     /// Create a SimpleNpcAgent with custom model and/or timeout
-    /// 
+    ///
     /// # Arguments
     /// * `persona` - The persona configuration
     /// * `model` - Optional model name (e.g., "llama3.2", "mistral"). Defaults to DEFAULT_MODEL
     /// * `timeout` - Optional timeout duration. Defaults to 30 seconds
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// let agent = SimpleNpcAgent::with_options(
@@ -93,9 +93,14 @@ impl SimpleNpcAgent {
     ///     Some(Duration::from_secs(60))
     /// );
     /// ```
-    pub fn with_options(persona: Persona, provider: Option<&str>, model: Option<&str>, timeout: Option<Duration>) -> Self {
+    pub fn with_options(
+        persona: Persona,
+        provider: Option<&str>,
+        model: Option<&str>,
+        timeout: Option<Duration>,
+    ) -> Self {
         let model_name = model.unwrap_or(DEFAULT_MODEL).to_string();
-        
+
         let provider_name = provider.map(|p| p.to_string()).unwrap_or_else(|| {
             if model_name.starts_with("gemini") || model_name.starts_with("google") {
                 "google".to_string()
@@ -105,28 +110,25 @@ impl SimpleNpcAgent {
         });
 
         let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
-        
+
         let action_capture = Arc::new(Mutex::new(None));
-        
+
         // Enforce the language constraint and ReAct tool fallback instructions
         let preamble = format!(
             "{}\n\
             Always reply in the same language as the user's input.\n\
             If you need to heal the player, you MUST output this exact block in your response:\n\
-            [ACTION: {{\"command\": \"heal\", \"params\": {{\"amount\": 100}}}}]", 
+            [ACTION: {{\"command\": \"heal\", \"params\": {{\"amount\": 100}}}}]",
             persona.system_prompt
         );
 
         let agent_impl = match provider_name.as_str() {
             "google" => {
                 let client = gemini::Client::from_env();
-                AgentImplementation::Gemini(client.agent(&model_name)
-                    .preamble(&preamble)
-                    .build())
-            },
+                AgentImplementation::Gemini(client.agent(&model_name).preamble(&preamble).build())
+            }
             "heimdall" => {
-                let api_key = std::env::var("HEIMDALL_API_KEY")
-                    .unwrap_or_default();
+                let api_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
                 let endpoint = std::env::var("HEIMDALL_API_URL")
                     .unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
                 AgentImplementation::Heimdall {
@@ -136,17 +138,22 @@ impl SimpleNpcAgent {
                     api_key,
                     system_prompt: preamble,
                 }
-            },
+            }
             _ => {
                 // Default to Ollama
                 let client = ollama::Client::new();
-                AgentImplementation::Ollama(client.agent(&model_name)
-                    .preamble(&preamble)
-                    .build())
+                AgentImplementation::Ollama(client.agent(&model_name).preamble(&preamble).build())
             }
         };
-            
-        Self { persona, provider_name, model_name, timeout, action_capture, agent_impl }
+
+        Self {
+            persona,
+            provider_name,
+            model_name,
+            timeout,
+            action_capture,
+            agent_impl,
+        }
     }
 
     /// Create a SimpleNpcAgent with a specific model (provider defaults to ollama)
@@ -160,7 +167,7 @@ impl SimpleNpcAgent {
     }
 
     /// Simple chat function that takes a message and returns the completion
-    /// 
+    ///
     /// # Errors
     /// Returns an error if:
     /// - The provider server is unreachable
@@ -171,14 +178,24 @@ impl SimpleNpcAgent {
             "{}\n\nIMPORTANT: You must reply in the EXACT SAME LANGUAGE as the user message above.",
             message
         );
-        
+
         let prompt_future = async {
             match &self.agent_impl {
-                AgentImplementation::Ollama(agent) => agent.prompt(enhanced_message.as_str()).await
+                AgentImplementation::Ollama(agent) => agent
+                    .prompt(enhanced_message.as_str())
+                    .await
                     .map_err(|e| anyhow::anyhow!("{}", e)),
-                AgentImplementation::Gemini(agent) => agent.prompt(enhanced_message.as_str()).await
+                AgentImplementation::Gemini(agent) => agent
+                    .prompt(enhanced_message.as_str())
+                    .await
                     .map_err(|e| anyhow::anyhow!("{}", e)),
-                AgentImplementation::Heimdall { client, endpoint, model, api_key, system_prompt } => {
+                AgentImplementation::Heimdall {
+                    client,
+                    endpoint,
+                    model,
+                    api_key,
+                    system_prompt,
+                } => {
                     let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
                     let body = serde_json::json!({
                         "model": model,
@@ -190,7 +207,8 @@ impl SimpleNpcAgent {
                         "temperature": 0.7,
                         "stream": false
                     });
-                    let resp = client.post(&url)
+                    let resp = client
+                        .post(&url)
                         .header("Authorization", format!("Bearer {}", api_key))
                         .header("Content-Type", "application/json")
                         .header("ngrok-skip-browser-warning", "true")
@@ -205,7 +223,9 @@ impl SimpleNpcAgent {
                         return Err(anyhow::anyhow!("Heimdall error {}: {}", status, err));
                     }
 
-                    let json: serde_json::Value = resp.json().await
+                    let json: serde_json::Value = resp
+                        .json()
+                        .await
                         .map_err(|e| anyhow::anyhow!("Heimdall parse error: {}", e))?;
 
                     json.get("choices")
@@ -220,12 +240,12 @@ impl SimpleNpcAgent {
         };
 
         let response = tokio::time::timeout(self.timeout, prompt_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Request timeout after {}s", self.timeout.as_secs()))?
-        .map_err(|e| anyhow::anyhow!("Agent prompt failed: {}", e))?;
-            
+            .await
+            .map_err(|_| anyhow::anyhow!("Request timeout after {}s", self.timeout.as_secs()))?
+            .map_err(|e| anyhow::anyhow!("Agent prompt failed: {}", e))?;
+
         let mut final_response = response.clone();
-        
+
         // Fallback: Check for ReAct-style action output
         if let Some(start_idx) = response.find("[ACTION:") {
             if let Some(end_idx) = response[start_idx..].find(']') {
@@ -237,10 +257,11 @@ impl SimpleNpcAgent {
                     tracing::error!("Failed to parse ReAct JSON: {}", action_str);
                 }
                 // Strip the action block from the response sent to the user
-                final_response = response[..start_idx].to_string() + &response[start_idx + end_idx + 1..];
+                final_response =
+                    response[..start_idx].to_string() + &response[start_idx + end_idx + 1..];
             }
         }
-        
+
         Ok(final_response.trim().to_string())
     }
 }

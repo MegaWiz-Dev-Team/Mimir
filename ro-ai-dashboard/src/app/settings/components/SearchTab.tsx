@@ -8,7 +8,7 @@ import { SettingsTabProps } from "./types";
 
 export function SearchTab(props: SettingsTabProps) {
     const { isSaving, currentTenantId, updateTenantConfigFn,
-        embeddingModel, setEmbeddingModel, topK, setTopK,
+        config, setConfig, topK, setTopK,
         similarityThreshold, setSimilarityThreshold, searchMode, setSearchMode } = props;
 
     return (
@@ -19,16 +19,62 @@ export function SearchTab(props: SettingsTabProps) {
             </CardHeader>
             <CardContent className="space-y-6">
                 <div className="grid gap-2">
-                    <label className="text-sm font-medium">Embedding Model</label>
-                    <select value={embeddingModel} onChange={(e) => setEmbeddingModel(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                        <option value="nomic-embed-text">nomic-embed-text (Ollama — local)</option>
-                        <option value="text-embedding-3-small">text-embedding-3-small (OpenAI)</option>
-                        <option value="text-embedding-3-large">text-embedding-3-large (OpenAI)</option>
-                        <option value="text-embedding-004">text-embedding-004 (Google)</option>
-                        <option value="bge-m3">bge-m3 (Ollama — multilingual)</option>
-                    </select>
-                    <p className="text-xs text-muted-foreground">Changing the model requires re-embedding all existing chunks</p>
+                    <label className="text-sm font-medium">Embedding Provider & Model</label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <select 
+                            value={config?.llm_config?.embedding?.provider || ""} 
+                            onChange={(e) => {
+                                const provider = e.target.value;
+                                const defaultModel =
+                                    provider === "openai" ? "text-embedding-3-small" :
+                                    provider === "google" ? "text-embedding-004" :
+                                    provider === "heimdall" ? "BAAI/bge-m3" : "nomic-embed-text";
+                                const currentConfig = config || {} as any;
+                                setConfig({
+                                    ...currentConfig,
+                                    llm_config: { ...(currentConfig.llm_config || {}), embedding: { provider, model: defaultModel } }
+                                } as any);
+                            }}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                            <option value="">Select Provider...</option>
+                            <option value="heimdall">Heimdall (Self-Hosted)</option>
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="google">Google</option>
+                        </select>
+
+                        <select 
+                            value={config?.llm_config?.embedding?.model || ""} 
+                            onChange={(e) => {
+                                const currentConfig = config || {} as any;
+                                setConfig({
+                                    ...currentConfig,
+                                    llm_config: { ...(currentConfig.llm_config || {}), embedding: { provider: currentConfig.llm_config?.embedding?.provider || "", model: e.target.value } }
+                                });
+                            }}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                            <option value="">Select Model...</option>
+                            {config?.llm_config?.embedding?.provider === "openai" && (
+                                <>
+                                    <option value="text-embedding-3-small">text-embedding-3-small</option>
+                                    <option value="text-embedding-3-large">text-embedding-3-large</option>
+                                </>
+                            )}
+                            {config?.llm_config?.embedding?.provider === "google" && (
+                                <option value="text-embedding-004">text-embedding-004</option>
+                            )}
+                            {config?.llm_config?.embedding?.provider === "heimdall" && (
+                                <option value="BAAI/bge-m3">BGE-M3 (MLX)</option>
+                            )}
+                            {config?.llm_config?.embedding?.provider === "ollama" && (
+                                <>
+                                    <option value="nomic-embed-text">nomic-embed-text</option>
+                                    <option value="bge-m3">bge-m3</option>
+                                </>
+                            )}
+                        </select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Changing the vector model requires re-embedding all existing chunks.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                     <div className="grid gap-2">
@@ -70,7 +116,11 @@ export function SearchTab(props: SettingsTabProps) {
                         if (!currentTenantId) return;
                         try {
                             await updateTenantConfigFn(currentTenantId, {
-                                search_settings: { embedding_model: embeddingModel, top_k: topK, similarity_threshold: similarityThreshold, search_mode: searchMode },
+                                search_settings: { 
+                                    ...(config?.search_settings || {}),
+                                    top_k: topK, similarity_threshold: similarityThreshold, search_mode: searchMode,
+                                },
+                                llm_config: { ...(config?.llm_config || {}), embedding: config?.llm_config?.embedding },
                             } as any);
                             alert("Search settings saved successfully.");
                         } catch { alert("Failed to save search settings."); }

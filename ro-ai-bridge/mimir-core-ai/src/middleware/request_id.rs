@@ -1,12 +1,7 @@
 //! Request ID middleware — generates UUID per request, logs request/response,
 //! and returns `X-Request-Id` header.
 
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-    http::HeaderValue,
-};
+use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use std::time::Instant;
 use tracing::{info, info_span};
 use uuid::Uuid;
@@ -19,17 +14,15 @@ pub const X_REQUEST_ID: &str = "x-request-id";
 /// 2. Creates a tracing span with request metadata
 /// 3. Logs request entry and response exit with latency
 /// 4. Sets `X-Request-Id` response header
-pub async fn request_id_middleware(
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn request_id_middleware(req: Request, next: Next) -> Response {
     let request_id = Uuid::new_v4().to_string();
     let method = req.method().clone();
     let uri = req.uri().path().to_string();
 
     // Extract tenant_id if available from extensions (set by tenant_auth_middleware)
     // We can't access it here before it's set, so we log it as "anonymous"
-    let tenant_id = req.extensions()
+    let tenant_id = req
+        .extensions()
         .get::<crate::middleware::tenant::TenantContext>()
         .map(|ctx| ctx.tenant_id.clone())
         .unwrap_or_else(|| "-".to_string());
@@ -79,7 +72,7 @@ pub async fn request_id_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{Router, routing::get, body::Body, middleware};
+    use axum::{Router, body::Body, middleware, routing::get};
     use http::Request as HttpRequest;
     use tower::ServiceExt;
 
@@ -114,7 +107,10 @@ mod tests {
 
         // Verify X-Request-Id header exists and is a valid UUID
         let request_id = response.headers().get(X_REQUEST_ID);
-        assert!(request_id.is_some(), "X-Request-Id header should be present");
+        assert!(
+            request_id.is_some(),
+            "X-Request-Id header should be present"
+        );
         let id_str = request_id.unwrap().to_str().unwrap();
         assert!(
             Uuid::parse_str(id_str).is_ok(),
@@ -130,18 +126,41 @@ mod tests {
     async fn test_response_header_x_request_id() {
         let app = build_test_app();
 
-        let resp1 = app.clone()
-            .oneshot(HttpRequest::builder().uri("/test").body(Body::empty()).unwrap())
+        let resp1 = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
         let resp2 = app
-            .oneshot(HttpRequest::builder().uri("/test").body(Body::empty()).unwrap())
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
-        let id1 = resp1.headers().get(X_REQUEST_ID).unwrap().to_str().unwrap().to_string();
-        let id2 = resp2.headers().get(X_REQUEST_ID).unwrap().to_str().unwrap().to_string();
+        let id1 = resp1
+            .headers()
+            .get(X_REQUEST_ID)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let id2 = resp2
+            .headers()
+            .get(X_REQUEST_ID)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
 
         // Each request gets a unique ID
         assert_ne!(id1, id2, "Each request should get a unique request_id");

@@ -77,17 +77,16 @@ async fn ingest_document(
     })?;
 
     // Verify tenant exists
-    let tenant_exists: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM tenants WHERE id = ?")
-            .bind(&tenant_id)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": e.to_string()})),
-                )
-            })?;
+    let tenant_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM tenants WHERE id = ?")
+        .bind(&tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     if tenant_exists.is_none() {
         return Err((
@@ -97,8 +96,8 @@ async fn ingest_document(
     }
 
     // Call PageIndex sidecar to build tree
-    let pageindex_url = std::env::var("PAGEINDEX_URL")
-        .unwrap_or_else(|_| "http://localhost:8600".to_string());
+    let pageindex_url =
+        std::env::var("PAGEINDEX_URL").unwrap_or_else(|_| "http://localhost:8600".to_string());
 
     let tree_index = match build_tree_index(&pageindex_url, &req.title, &req.content).await {
         Ok(tree) => tree,
@@ -211,11 +210,7 @@ async fn delete_document(
 
 // ── PageIndex Sidecar Client ──────────────────────────
 
-async fn build_tree_index(
-    base_url: &str,
-    title: &str,
-    content: &str,
-) -> Result<Value, String> {
+async fn build_tree_index(base_url: &str, title: &str, content: &str) -> Result<Value, String> {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/build-tree", base_url))

@@ -1,26 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchVectorStats, triggerIndexing, searchVectors } from "@/lib/api";
+import { fetchVectorStats, searchVectors } from "@/lib/api";
+import Cookies from "js-cookie";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Database, Search, RefreshCw, Zap, ArrowLeft, CheckCircle2, AlertCircle, Filter, FileText } from "lucide-react";
+import { Database, Search, RefreshCw, ArrowLeft, CheckCircle2, AlertCircle, Filter, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 
 export default function VectorPage() {
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [indexing, setIndexing] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<any>(null);
     const [searching, setSearching] = useState(false);
 
-    // New Filters
-    const [filterTenant, setFilterTenant] = useState("all");
+    // Filters
     const [showExpired, setShowExpired] = useState(false);
 
     const loadStats = async () => {
@@ -41,17 +39,7 @@ export default function VectorPage() {
         return () => clearInterval(interval);
     }, []);
 
-    const handleIndex = async () => {
-        setIndexing(true);
-        try {
-            await triggerIndexing();
-            setTimeout(loadStats, 2000);
-        } catch (error) {
-            alert("Failed to trigger indexing");
-        } finally {
-            setIndexing(false);
-        }
-    };
+
 
     const handleSearch = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -86,10 +74,7 @@ export default function VectorPage() {
                             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                             Refresh
                         </Button>
-                        <Button size="sm" onClick={handleIndex} disabled={indexing || (stats?.database?.pending_qa === 0)}>
-                            <Zap className="mr-2 h-4 w-4" />
-                            {indexing ? "Indexing..." : "Index Pending Data"}
-                        </Button>
+
                     </div>
                 </div>
             </div>
@@ -101,39 +86,42 @@ export default function VectorPage() {
                         <Database className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats?.qdrant?.result?.points_count ?? "-"}</div>
+                        <div className="text-2xl font-bold">{stats?.database?.qdrant_points ?? stats?.qdrant?.result?.points_count ?? "-"}</div>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">MariaDB Q/A</CardTitle>
+                        <CardTitle className="text-sm font-medium">Total Chunks</CardTitle>
                         <Database className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats?.database?.total_qa ?? "-"}</div>
+                        <div className="text-2xl font-bold">{stats?.database?.total_chunks ?? "-"}</div>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Indexed</CardTitle>
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CardTitle className="text-sm font-medium">Chunk Sync</CardTitle>
+                        <CheckCircle2 className={`h-4 w-4 ${(stats?.database?.chunk_sync_pct ?? 0) >= 100 ? 'text-green-500' : 'text-yellow-500'}`} />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats?.database?.indexed_qa ?? "-"}</div>
+                        <div className="text-2xl font-bold">
+                            {stats?.database?.chunk_sync_pct != null ? `${Math.round(stats.database.chunk_sync_pct)}%` : "-"}
+                        </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                            {stats?.database?.total_qa > 0
-                                ? Math.round((stats.database.indexed_qa / stats.database.total_qa) * 100)
-                                : 0}% Sync Rate
+                            {stats?.database?.qdrant_points ?? 0} / {stats?.database?.total_chunks ?? 0} indexed
                         </p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Index</CardTitle>
-                        <AlertCircle className={`h-4 w-4 ${stats?.database?.pending_qa > 0 ? 'text-yellow-500' : 'text-muted-foreground'}`} />
+                        <CardTitle className="text-sm font-medium">Q/A Pairs</CardTitle>
+                        <AlertCircle className={`h-4 w-4 ${stats?.database?.pending_golden > 0 ? 'text-yellow-500' : 'text-muted-foreground'}`} />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats?.database?.pending_qa ?? "-"}</div>
+                        <div className="text-2xl font-bold">{stats?.database?.total_qa ?? "-"}</div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            {stats?.database?.indexed_qa ?? 0} indexed, {stats?.database?.pending_golden ?? 0} golden pending
+                        </p>
                     </CardContent>
                 </Card>
             </div>
@@ -147,18 +135,9 @@ export default function VectorPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="flex gap-4 mb-4">
-                                <div className="flex-1">
-                                    <Select value={filterTenant} onValueChange={setFilterTenant}>
-                                        <SelectTrigger className="w-[200px]">
-                                            <SelectValue placeholder="Filter by Tenant" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">All Tenants</SelectItem>
-                                            <SelectItem value="default_tenant">Default Tenant</SelectItem>
-                                            <SelectItem value="ragnarok_th">Ragnarok TH</SelectItem>
-                                            <SelectItem value="med_clinic_a">Medical Clinic A</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Filter className="h-3 w-3" />
+                                    Searching as tenant: <span className="font-mono font-medium text-foreground">{Cookies.get("tenant_id") || "default"}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <input
@@ -173,7 +152,7 @@ export default function VectorPage() {
                             </div>
                             <form onSubmit={handleSearch} className="flex gap-2 mb-6">
                                 <Input
-                                    placeholder="Type a game question (e.g., What is Moonstone?)"
+                                    placeholder="Search your knowledge base (e.g., What is sleep apnea?)"
                                     value={searchQuery}
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                                 />
@@ -191,40 +170,43 @@ export default function VectorPage() {
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead className="w-[80px]">Score</TableHead>
-                                                    <TableHead>Potential Context (Q/A)</TableHead>
+                                                    <TableHead>Retrieved Content</TableHead>
                                                     <TableHead className="w-[150px]">Source</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {searchResults.result?.map((res: any) => (
+                                                {(searchResults.result?.points ?? searchResults.result ?? []).map((res: any) => (
                                                     <TableRow key={res.id}>
                                                         <TableCell className="font-mono text-xs">
                                                             {(res.score * 100).toFixed(1)}%
                                                         </TableCell>
                                                         <TableCell>
-                                                            <div className="text-sm font-medium mb-1">Q: {res.payload.question}</div>
-                                                            <div className="text-xs text-muted-foreground line-clamp-2 mb-2">A: {res.payload.answer}</div>
+                                                            {res.payload.question ? (
+                                                                <>
+                                                                    <div className="text-sm font-medium mb-1">Q: {res.payload.question}</div>
+                                                                    <div className="text-xs text-muted-foreground line-clamp-2 mb-2">A: {res.payload.answer}</div>
+                                                                </>
+                                                            ) : (
+                                                                <div className="text-sm text-muted-foreground line-clamp-4">{res.payload.content}</div>
+                                                            )}
                                                             <div className="flex flex-wrap items-center gap-2 mt-2">
-                                                                <Badge
-                                                                    variant="outline"
-                                                                    className="text-[10px] bg-blue-50/50 text-blue-700 hover:bg-blue-100 cursor-pointer transition-colors"
-                                                                    onClick={() => window.open(`http://localhost:8080/api/wiki/${res.payload.source}`, '_blank')}
-                                                                    title="View Source Document"
-                                                                >
-                                                                    <FileText className="w-3 h-3 mr-1" /> {res.payload.source}
+                                                                <Badge variant="outline" className="text-[10px] bg-blue-50/50 text-blue-700">
+                                                                    <FileText className="w-3 h-3 mr-1" /> Source #{res.payload.source_id ?? res.payload.source ?? '?'}
                                                                 </Badge>
-                                                                <Badge variant="outline" className="text-[10px] bg-green-50/50 text-green-700" title="Approval Status">
-                                                                    <CheckCircle2 className="w-3 h-3 mr-1" /> System Approved
-                                                                </Badge>
+                                                                {res.payload.is_active !== false && (
+                                                                    <Badge variant="outline" className="text-[10px] bg-green-50/50 text-green-700">
+                                                                        <CheckCircle2 className="w-3 h-3 mr-1" /> Active
+                                                                    </Badge>
+                                                                )}
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className="align-top">
-                                                            <div className="text-xs font-mono">{res.payload.source}</div>
-                                                            <div className="text-[10px] text-muted-foreground">Chunk #{res.payload.chunk}</div>
+                                                            <div className="text-xs font-mono">ID: {res.id}</div>
+                                                            <div className="text-[10px] text-muted-foreground">Chunk #{res.payload.chunk_id ?? res.payload.chunk ?? '?'}</div>
                                                         </TableCell>
                                                     </TableRow>
                                                 ))}
-                                                {searchResults.result?.length === 0 && (
+                                                {(searchResults.result?.points ?? searchResults.result ?? []).length === 0 && (
                                                     <TableRow>
                                                         <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
                                                             No matches found for your query.
@@ -250,7 +232,14 @@ export default function VectorPage() {
                     <Card className="h-full">
                         <CardHeader>
                             <CardTitle>Collection Config</CardTitle>
-                            <CardDescription>Target: nomic-embed-text (768 dims)</CardDescription>
+                            <CardDescription>
+                                {(() => {
+                                    const vectors = stats?.qdrant?.result?.config?.params?.vectors;
+                                    const dims = vectors?.dense?.size ?? vectors?.size ?? '?';
+                                    const hasSparse = !!stats?.qdrant?.result?.config?.params?.sparse_vectors?.bm25;
+                                    return `Dense: ${dims} dims${hasSparse ? ' + BM25 Sparse' : ''}`;
+                                })()}
+                            </CardDescription>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">

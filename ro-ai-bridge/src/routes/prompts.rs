@@ -6,17 +6,17 @@
 //! GET    /api/v1/prompts/:name/active   — get active prompt for a name
 
 use axum::{
-    routing::{get, post, put},
-    Router, Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    routing::{get, post, put},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::info;
 
-use mimir_core_ai::services::db::DbPool;
 use crate::routes::tenant::extract_tenant_id;
+use mimir_core_ai::services::db::DbPool;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct ExtractionPrompt {
@@ -57,12 +57,17 @@ async fn list_prompts(
         "SELECT id, name, version, prompt_text, is_active, tenant_id, notes, created_at 
          FROM extraction_prompts 
          WHERE tenant_id IS NULL OR tenant_id = ? 
-         ORDER BY name, version DESC"
+         ORDER BY name, version DESC",
     )
     .bind(tenant_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(prompts))
 }
@@ -106,7 +111,10 @@ async fn create_prompt(
             .await;
     }
 
-    info!("Created prompt: {} {} (id: {})", req.name, req.version, new_id);
+    info!(
+        "Created prompt: {} {} (id: {})",
+        req.name, req.version, new_id
+    );
 
     Ok(Json(json!({
         "id": new_id,
@@ -125,16 +133,23 @@ async fn activate_prompt(
     let tenant_id = extract_tenant_id(&headers).to_string();
 
     // Get the prompt to find its name
-    let prompt: Option<(String,)> = sqlx::query_as(
-        "SELECT name FROM extraction_prompts WHERE id = ?"
-    )
-    .bind(id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let prompt: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM extraction_prompts WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
 
     let (name,) = prompt.ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Prompt not found"})))
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Prompt not found"})),
+        )
     })?;
 
     // Deactivate all with same name, then activate this one
@@ -170,13 +185,18 @@ async fn get_active_prompt(
          FROM extraction_prompts 
          WHERE name = ? AND is_active = TRUE AND (tenant_id = ? OR tenant_id IS NULL)
          ORDER BY tenant_id DESC 
-         LIMIT 1"
+         LIMIT 1",
     )
     .bind(&name)
     .bind(tenant_id)
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     match prompt {
         Some(p) => Ok(Json(json!({
@@ -186,6 +206,9 @@ async fn get_active_prompt(
             "prompt_text": p.prompt_text,
             "tenant_id": p.tenant_id,
         }))),
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": format!("No active prompt found for '{}'", name)})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("No active prompt found for '{}'", name)})),
+        )),
     }
 }

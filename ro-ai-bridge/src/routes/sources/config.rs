@@ -5,26 +5,27 @@
 //! - `infer_api_base` — used by agents.rs
 //! - `call_llm_api` / `call_llm_api_with_logging` — used by ocr.rs
 
-use axum::{
-    Json, Extension, extract::{Path, State},
-    http::{StatusCode, HeaderMap},
-};
-use std::sync::Arc;
 use crate::config::Config;
-use mimir_core_ai::services::db::DbPool;
+use crate::routes::tenant::extract_tenant_id;
+use axum::{
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    Extension, Json,
+};
 use mimir_core_ai::models::sources::DataSource;
 use mimir_core_ai::services::db;
-use serde_json::{json, Value};
+use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
-use tracing::{info, error};
-use crate::routes::tenant::extract_tenant_id;
+use serde_json::{json, Value};
+use std::sync::Arc;
+use tracing::{error, info};
 
 // ─── LLM Fallback Extraction ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct AiExtractRequest {
     model: String,
-    output_format: String,  // "markdown" | "table"
+    output_format: String, // "markdown" | "table"
 }
 
 #[derive(Debug, Serialize)]
@@ -49,35 +50,60 @@ pub(crate) async fn extract_with_ai(
     let tenant_id = extract_tenant_id(&headers);
 
     // 1. Fetch source from DB
-    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
-        .bind(id)
-        .bind(tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let source = sqlx::query_as::<_, DataSource>(
+        "SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?",
+    )
+    .bind(id)
+    .bind(tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     let source = source.ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"})))
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found"})),
+        )
     })?;
 
     // 2. Download file from S3
     let s3_key = source.s3_key.as_deref().ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Source has no S3 file — nothing to extract"})))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Source has no S3 file — nothing to extract"})),
+        )
     })?;
 
-    let file_data = super::upload::download_from_s3(&config, s3_key).await
+    let file_data = super::upload::download_from_s3(&config, s3_key)
+        .await
         .map_err(|e| {
             error!("S3 download failed for AI extraction: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to download file: {}", e)})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to download file: {}", e)})),
+            )
         })?;
 
-    info!("Downloaded {} bytes from S3 for AI extraction (source_id={})", file_data.len(), id);
+    info!(
+        "Downloaded {} bytes from S3 for AI extraction (source_id={})",
+        file_data.len(),
+        id
+    );
 
     // 3. Look up model configuration from DB
-    let model_config = db::get_model_by_id(&pool, &payload.model).await
+    let model_config = db::get_model_by_id(&pool, &payload.model)
+        .await
         .map_err(|e| {
             error!("Failed to look up model {}: {}", payload.model, e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Model lookup failed: {}", e)})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Model lookup failed: {}", e)})),
+            )
         })?;
 
     // 4. Determine API key and endpoint from model config or env
@@ -98,17 +124,35 @@ pub(crate) async fn extract_with_ai(
     );
 
     // 6. Call the LLM API (with usage logging)
-    let provider_str = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("unknown");
+    let provider_str = model_config
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or("unknown");
     let (content, tokens_used) = call_llm_api_with_logging(
-        &api_key, &api_base, &payload.model, &prompt,
-        Some(&pool), Some(&tenant_id), Some(provider_str), Some("extract_with_ai"),
-    ).await
-        .map_err(|e| {
-            error!("LLM API call failed: {}", e);
-            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("LLM extraction failed: {}", e)})))
-        })?;
+        &api_key,
+        &api_base,
+        &payload.model,
+        &prompt,
+        Some(&pool),
+        Some(&tenant_id),
+        Some(provider_str),
+        Some("extract_with_ai"),
+    )
+    .await
+    .map_err(|e| {
+        error!("LLM API call failed: {}", e);
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("LLM extraction failed: {}", e)})),
+        )
+    })?;
 
-    info!("AI extraction completed for source {}: {} chars, {} tokens used", id, content.len(), tokens_used);
+    info!(
+        "AI extraction completed for source {}: {} chars, {} tokens used",
+        id,
+        content.len(),
+        tokens_used
+    );
 
     Ok(Json(AiExtractResponse {
         content,
@@ -127,12 +171,16 @@ pub fn resolve_llm_credentials(
 ) -> Result<(String, String), (StatusCode, Json<Value>)> {
     // Try to get API key from model metadata first
     if let Some(mc) = model_config {
-        let api_key = mc.metadata.as_ref()
+        let api_key = mc
+            .metadata
+            .as_ref()
             .and_then(|m| m.get("api_key"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let api_base = mc.metadata.as_ref()
+        let api_base = mc
+            .metadata
+            .as_ref()
             .and_then(|m| m.get("api_base"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
@@ -144,7 +192,10 @@ pub fn resolve_llm_credentials(
     }
 
     // Fall back to env-based credentials
-    let provider = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("");
+    let provider = model_config
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or("");
     match provider {
         "gemini" | "google" => {
             let key = config.gemini_api_key.clone().ok_or_else(|| {
@@ -177,20 +228,34 @@ pub fn resolve_llm_credentials(
         }
         _ => {
             // Try model_id to infer provider
-            if model_id.starts_with("gpt-") || model_id.starts_with("o1-") || model_id.starts_with("o3-") {
+            if model_id.starts_with("gpt-")
+                || model_id.starts_with("o1-")
+                || model_id.starts_with("o3-")
+            {
                 let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-                    (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for OpenAI model"})))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": "No API key for OpenAI model"})),
+                    )
                 })?;
                 Ok((key, "https://api.openai.com/v1/".to_string()))
             } else if model_id.starts_with("gemini-") {
                 let key = config.gemini_api_key.clone().ok_or_else(|| {
-                    (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for Gemini model"})))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": "No API key for Gemini model"})),
+                    )
                 })?;
                 Ok((key, config.gemini_base_url.clone()))
-            } else if model_id.starts_with("mlx-community/") || model_id.starts_with("lmstudio-community/") {
+            } else if model_id.starts_with("mlx-community/")
+                || model_id.starts_with("lmstudio-community/")
+            {
                 // MLX/lmstudio models → Heimdall gateway
                 let key = config.heimdall_api_key.clone().ok_or_else(|| {
-                    (StatusCode::BAD_REQUEST, Json(json!({"error": "No API key for Heimdall (inferred from mlx model)"})))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": "No API key for Heimdall (inferred from mlx model)"})),
+                    )
                 })?;
                 let base = format!("{}/", config.heimdall_api_url.trim_end_matches('/'));
                 Ok((key, base))
@@ -206,7 +271,9 @@ pub fn resolve_llm_credentials(
 pub fn infer_api_base(provider: &str) -> String {
     match provider {
         "openai" => "https://api.openai.com/v1/".to_string(),
-        "gemini" | "google" => "https://generativelanguage.googleapis.com/v1beta/openai/".to_string(),
+        "gemini" | "google" => {
+            "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
+        }
         "ollama" => {
             let base = std::env::var("OLLAMA_URL")
                 .or_else(|_| std::env::var("OLLAMA_API_URL"))
@@ -251,13 +318,12 @@ pub async fn call_llm_api_with_logging(
 ) -> anyhow::Result<(String, u32)> {
     // ─── Daily Token Limit Check ────────────────────────────────────────
     if let (Some(p), Some(tid)) = (pool, tenant_id) {
-        let limit: Option<(i64,)> = sqlx::query_as(
-            "SELECT max_daily_tokens FROM tenant_configs WHERE tenant_id = ?"
-        )
-        .bind(tid)
-        .fetch_optional(p)
-        .await
-        .unwrap_or(None);
+        let limit: Option<(i64,)> =
+            sqlx::query_as("SELECT max_daily_tokens FROM tenant_configs WHERE tenant_id = ?")
+                .bind(tid)
+                .fetch_optional(p)
+                .await
+                .unwrap_or(None);
 
         if let Some((max_tokens,)) = limit {
             if max_tokens > 0 {
@@ -272,7 +338,8 @@ pub async fn call_llm_api_with_logging(
                 if today_usage.0 >= max_tokens {
                     return Err(anyhow::anyhow!(
                         "Daily token limit exceeded: used {}/{} tokens today",
-                        today_usage.0, max_tokens
+                        today_usage.0,
+                        max_tokens
                     ));
                 }
             }
@@ -308,7 +375,8 @@ pub async fn call_llm_api_with_logging(
 
     info!("Calling LLM API: {} with model {}", url, model);
 
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -325,9 +393,20 @@ pub async fn call_llm_api_with_logging(
             // Log error if pool is available
             if let (Some(p), Some(tid)) = (pool, tenant_id) {
                 let _ = crate::routes::llm_usage::insert_llm_usage_log(
-                    p, tid, model, provider.unwrap_or("unknown"), Some(&url), caller,
-                    0, 0, 0, latency_ms, "error", Some(&e.to_string()),
-                ).await;
+                    p,
+                    tid,
+                    model,
+                    provider.unwrap_or("unknown"),
+                    Some(&url),
+                    caller,
+                    0,
+                    0,
+                    0,
+                    latency_ms,
+                    "error",
+                    Some(&e.to_string()),
+                )
+                .await;
             }
             return Err(e);
         }
@@ -339,14 +418,31 @@ pub async fn call_llm_api_with_logging(
         // Log error
         if let (Some(p), Some(tid)) = (pool, tenant_id) {
             let _ = crate::routes::llm_usage::insert_llm_usage_log(
-                p, tid, model, provider.unwrap_or("unknown"), Some(&url), caller,
-                0, 0, 0, latency_ms, "error", Some(&error_body),
-            ).await;
+                p,
+                tid,
+                model,
+                provider.unwrap_or("unknown"),
+                Some(&url),
+                caller,
+                0,
+                0,
+                0,
+                latency_ms,
+                "error",
+                Some(&error_body),
+            )
+            .await;
         }
-        return Err(anyhow::anyhow!("LLM API returned {}: {}", status, error_body));
+        return Err(anyhow::anyhow!(
+            "LLM API returned {}: {}",
+            status,
+            error_body
+        ));
     }
 
-    let resp_json: Value = response.json().await
+    let resp_json: Value = response
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to parse LLM response: {}", e))?;
 
     let content = resp_json["choices"][0]["message"]["content"]
@@ -365,15 +461,28 @@ pub async fn call_llm_api_with_logging(
     };
 
     let input_tokens = resp_json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as i32;
-    let output_tokens = resp_json["usage"]["completion_tokens"].as_u64().unwrap_or(0) as i32;
+    let output_tokens = resp_json["usage"]["completion_tokens"]
+        .as_u64()
+        .unwrap_or(0) as i32;
     let total_tokens = resp_json["usage"]["total_tokens"].as_u64().unwrap_or(0) as i32;
 
     // Log success
     if let (Some(p), Some(tid)) = (pool, tenant_id) {
         let _ = crate::routes::llm_usage::insert_llm_usage_log(
-            p, tid, model, provider.unwrap_or("unknown"), Some(&url), caller,
-            input_tokens, output_tokens, total_tokens, latency_ms, "success", None,
-        ).await;
+            p,
+            tid,
+            model,
+            provider.unwrap_or("unknown"),
+            Some(&url),
+            caller,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            latency_ms,
+            "success",
+            None,
+        )
+        .await;
     }
 
     Ok((content, total_tokens as u32))
@@ -440,9 +549,15 @@ mod tests {
     #[test]
     fn test_infer_api_base_heimdall() {
         // Set env for test
-        unsafe { std::env::set_var("HEIMDALL_API_URL", "http://heimdall.example.com:3000/v1"); }
+        unsafe {
+            std::env::set_var("HEIMDALL_API_URL", "http://heimdall.example.com:3000/v1");
+        }
         let base = infer_api_base("heimdall");
-        assert!(base.contains("heimdall.example.com"), "Heimdall base should contain gateway host, got: {}", base);
+        assert!(
+            base.contains("heimdall.example.com"),
+            "Heimdall base should contain gateway host, got: {}",
+            base
+        );
         assert!(base.ends_with('/'), "Base URL should end with /");
     }
 
@@ -480,7 +595,11 @@ mod tests {
         assert!(result.is_ok(), "Should resolve Heimdall credentials");
         let (key, base) = result.unwrap();
         assert_eq!(key, "test-heimdall-key");
-        assert!(base.contains("localhost:3000"), "Base should be Heimdall URL, got: {}", base);
+        assert!(
+            base.contains("localhost:3000"),
+            "Base should be Heimdall URL, got: {}",
+            base
+        );
     }
 
     #[test]
@@ -488,7 +607,10 @@ mod tests {
         let config = test_config_with_heimdall();
         // No model_config (None) — should infer from model_id prefix
         let result = resolve_llm_credentials(&config, &None, "mlx-community/Qwen3.5-35B-A3B-4bit");
-        assert!(result.is_ok(), "Should infer Heimdall from mlx-community/ prefix");
+        assert!(
+            result.is_ok(),
+            "Should infer Heimdall from mlx-community/ prefix"
+        );
         let (key, base) = result.unwrap();
         assert_eq!(key, "test-heimdall-key");
         assert!(base.contains("localhost:3000"));
@@ -497,8 +619,12 @@ mod tests {
     #[test]
     fn test_resolve_heimdall_via_lmstudio_prefix() {
         let config = test_config_with_heimdall();
-        let result = resolve_llm_credentials(&config, &None, "lmstudio-community/medgemma-4b-it-MLX-4bit");
-        assert!(result.is_ok(), "Should infer Heimdall from lmstudio-community/ prefix");
+        let result =
+            resolve_llm_credentials(&config, &None, "lmstudio-community/medgemma-4b-it-MLX-4bit");
+        assert!(
+            result.is_ok(),
+            "Should infer Heimdall from lmstudio-community/ prefix"
+        );
         let (key, _) = result.unwrap();
         assert_eq!(key, "test-heimdall-key");
     }
@@ -508,7 +634,10 @@ mod tests {
         let config = test_config_no_heimdall_key();
         let mc = make_model_config("heimdall");
         let result = resolve_llm_credentials(&config, &mc, "some-model");
-        assert!(result.is_err(), "Should return error when Heimdall API key is missing");
+        assert!(
+            result.is_err(),
+            "Should return error when Heimdall API key is missing"
+        );
     }
 
     #[test]

@@ -3,21 +3,24 @@
 use crate::retrieval::graph::GraphRetriever;
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
-    Json, Extension,
-    extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    Extension, Json,
 };
 use serde_json::{json, Value};
-use tracing::{info, error};
-use uuid::Uuid;
 use std::sync::Arc;
+use tracing::{error, info};
+use uuid::Uuid;
 
 use crate::config::Config;
-use mimir_core_ai::services::db::DbPool;
-use crate::routes::sources::{resolve_llm_credentials, infer_api_base};
 use crate::routes::llm_usage::insert_llm_usage_log;
+use crate::routes::sources::{infer_api_base, resolve_llm_credentials};
+use mimir_core_ai::services::db::DbPool;
 
-use super::crud::{AgentConfig, AgentChatRequest, AgentChatResponse, ConversationListQuery, ConversationSession, AGENT_SELECT_COLS};
+use super::crud::{
+    AgentChatRequest, AgentChatResponse, AgentConfig, ConversationListQuery, ConversationSession,
+    AGENT_SELECT_COLS,
+};
 
 /// POST /api/v1/agents/:id/chat — Chat with agent using its config
 pub(crate) async fn agent_chat(
@@ -30,23 +33,36 @@ pub(crate) async fn agent_chat(
     let tenant_id = extract_tenant_id(&headers);
 
     // 1. Load agent config
-    let agent = sqlx::query_as::<_, AgentConfig>(
-        &format!("SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?", AGENT_SELECT_COLS)
-    )
+    let agent = sqlx::query_as::<_, AgentConfig>(&format!(
+        "SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?",
+        AGENT_SELECT_COLS
+    ))
     .bind(id)
     .bind(tenant_id)
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Agent not found"})),
+        )
+    })?;
 
-    let session_id = payload.session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let session_id = payload
+        .session_id
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     // 2. Log user message
     let _ = sqlx::query(
         r#"INSERT INTO agent_conversations
             (tenant_id, agent_config_id, session_id, role, content, model_id)
-        VALUES (?, ?, ?, 'user', ?, ?)"#
+        VALUES (?, ?, ?, 'user', ?, ?)"#,
     )
     .bind(tenant_id)
     .bind(id)
@@ -61,7 +77,10 @@ pub(crate) async fn agent_chat(
         .await
         .map_err(|e| {
             error!("Failed to look up model {}: {}", agent.model_id, e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Model lookup failed: {}", e)})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Model lookup failed: {}", e)})),
+            )
         })?;
 
     let (api_key, api_base) = resolve_llm_credentials(&config, &model_config, &agent.model_id)?;
@@ -72,8 +91,10 @@ pub(crate) async fn agent_chat(
         let graph_retriever = crate::retrieval::graph::SqlGraphRetriever::new(pool.clone());
         match graph_retriever.search(&payload.message, tenant_id, 5).await {
             Ok(graph_results) if !graph_results.is_empty() => {
-                let retrieval_results = crate::retrieval::graph::graph_to_retrieval_results(&graph_results);
-                let graph_context: Vec<String> = retrieval_results.iter()
+                let retrieval_results =
+                    crate::retrieval::graph::graph_to_retrieval_results(&graph_results);
+                let graph_context: Vec<String> = retrieval_results
+                    .iter()
                     .map(|r| format!("• {}", r.content))
                     .collect();
                 let kg_section = format!(
@@ -81,7 +102,12 @@ pub(crate) async fn agent_chat(
                     graph_context.join("\n")
                 );
                 system_prompt.push_str(&kg_section);
-                info!(event = "kg_augmented", agent_id = id, entities = graph_results.len(), "KG context injected");
+                info!(
+                    event = "kg_augmented",
+                    agent_id = id,
+                    entities = graph_results.len(),
+                    "KG context injected"
+                );
             }
             Ok(_) => { /* no relevant entities found, skip */ }
             Err(e) => {
@@ -99,15 +125,13 @@ pub(crate) async fn agent_chat(
     let url = format!("{}chat/completions", api_base);
 
     // Build messages array with conversation history
-    let mut messages = vec![
-        json!({"role": "system", "content": system_prompt}),
-    ];
+    let mut messages = vec![json!({"role": "system", "content": system_prompt})];
 
     // Load recent history for context (last 10 messages)
     let history: Vec<(String, String)> = sqlx::query_as(
         r#"SELECT role, content FROM agent_conversations
         WHERE session_id = ? AND agent_config_id = ?
-        ORDER BY created_at DESC LIMIT 10"#
+        ORDER BY created_at DESC LIMIT 10"#,
     )
     .bind(&session_id)
     .bind(id)
@@ -130,7 +154,8 @@ pub(crate) async fn agent_chat(
         "temperature": temperature
     });
 
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -138,7 +163,10 @@ pub(crate) async fn agent_chat(
         .await
         .map_err(|e| {
             error!("Agent chat HTTP error: {}", e);
-            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("LLM call failed: {}", e)})))
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("LLM call failed: {}", e)})),
+            )
         })?;
 
     let latency_ms = start.elapsed().as_millis() as i32;
@@ -148,18 +176,38 @@ pub(crate) async fn agent_chat(
         error!("Agent chat LLM error: {}", error_body);
 
         // Log error usage
-        let provider_str = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or("unknown");
+        let provider_str = model_config
+            .as_ref()
+            .map(|m| m.provider.as_str())
+            .unwrap_or("unknown");
         let _ = insert_llm_usage_log(
-            &pool, tenant_id, &agent.model_id, provider_str,
-            Some(&url), Some("agent_chat"),
-            0, 0, 0, latency_ms, "error", Some(&error_body),
-        ).await;
+            &pool,
+            tenant_id,
+            &agent.model_id,
+            provider_str,
+            Some(&url),
+            Some("agent_chat"),
+            0,
+            0,
+            0,
+            latency_ms,
+            "error",
+            Some(&error_body),
+        )
+        .await;
 
-        return Err((StatusCode::BAD_GATEWAY, Json(json!({"error": format!("LLM error: {}", error_body)}))));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("LLM error: {}", error_body)})),
+        ));
     }
 
-    let resp_json: Value = response.json().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Parse failed: {}", e)}))))?;
+    let resp_json: Value = response.json().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Parse failed: {}", e)})),
+        )
+    })?;
 
     let content = resp_json["choices"][0]["message"]["content"]
         .as_str()
@@ -167,16 +215,31 @@ pub(crate) async fn agent_chat(
         .to_string();
 
     let input_tokens = resp_json["usage"]["prompt_tokens"].as_i64().unwrap_or(0) as i32;
-    let output_tokens = resp_json["usage"]["completion_tokens"].as_i64().unwrap_or(0) as i32;
+    let output_tokens = resp_json["usage"]["completion_tokens"]
+        .as_i64()
+        .unwrap_or(0) as i32;
     let total_tokens = resp_json["usage"]["total_tokens"].as_i64().unwrap_or(0) as i32;
 
     // 5. Log usage
-    let provider_str = model_config.as_ref().map(|m| m.provider.as_str()).unwrap_or(&agent.provider);
+    let provider_str = model_config
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or(&agent.provider);
     let _ = insert_llm_usage_log(
-        &pool, tenant_id, &agent.model_id, provider_str,
-        Some(&url), Some("agent_chat"),
-        input_tokens, output_tokens, total_tokens, latency_ms, "success", None,
-    ).await;
+        &pool,
+        tenant_id,
+        &agent.model_id,
+        provider_str,
+        Some(&url),
+        Some("agent_chat"),
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        latency_ms,
+        "success",
+        None,
+    )
+    .await;
 
     // 6. Log assistant message to conversation
     let _ = sqlx::query(
@@ -195,7 +258,10 @@ pub(crate) async fn agent_chat(
     .execute(&pool)
     .await;
 
-    info!("Agent chat id={} session={} latency={}ms tokens={}", id, session_id, latency_ms, total_tokens);
+    info!(
+        "Agent chat id={} session={} latency={}ms tokens={}",
+        id, session_id, latency_ms, total_tokens
+    );
 
     Ok(Json(AgentChatResponse {
         content,
@@ -232,7 +298,7 @@ pub(crate) async fn list_agent_conversations(
         WHERE tenant_id = ? AND agent_config_id = ?
         GROUP BY session_id, agent_config_id
         ORDER BY last_message_at DESC
-        LIMIT ? OFFSET ?"#
+        LIMIT ? OFFSET ?"#,
     )
     .bind(tenant_id)
     .bind(id)
@@ -240,7 +306,12 @@ pub(crate) async fn list_agent_conversations(
     .bind(offset)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(json!({
         "sessions": sessions,

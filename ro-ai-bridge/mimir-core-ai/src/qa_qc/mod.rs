@@ -1,9 +1,9 @@
-pub mod generator;
+pub mod clustering;
 pub mod extractor;
-pub mod verifier;
+pub mod generator;
 pub mod indexer;
 pub mod pipeline;
-pub mod clustering;
+pub mod verifier;
 
 use anyhow::Result;
 use schemars::JsonSchema;
@@ -40,24 +40,28 @@ where
     D: serde::Deserializer<'de>,
 {
     let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
-    
+
     match v {
         serde_json::Value::Array(arr) => {
             let mut facts = Vec::new();
             for item in arr {
                 if let Some(s) = item.as_str() {
-                    facts.push(AtomicFact { fact: s.to_string() });
+                    facts.push(AtomicFact {
+                        fact: s.to_string(),
+                    });
                 } else if let Ok(f) = serde_json::from_value::<AtomicFact>(item.clone()) {
                     facts.push(f);
                 } else if let Some(obj) = item.as_object() {
-                     // Fallback for "fact" field if strict parsing fails
-                     if let Some(f) = obj.get("fact").and_then(|val| val.as_str()) {
-                         facts.push(AtomicFact { fact: f.to_string() });
-                     }
+                    // Fallback for "fact" field if strict parsing fails
+                    if let Some(f) = obj.get("fact").and_then(|val| val.as_str()) {
+                        facts.push(AtomicFact {
+                            fact: f.to_string(),
+                        });
+                    }
                 }
             }
             Ok(facts)
-        },
+        }
         _ => Ok(vec![]),
     }
 }

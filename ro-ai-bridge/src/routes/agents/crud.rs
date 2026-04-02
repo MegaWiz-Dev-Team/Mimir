@@ -2,14 +2,14 @@
 
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     Json,
-    extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use tracing::{info, error};
+use tracing::{error, info};
 use uuid::Uuid;
 
 use mimir_core_ai::services::db::DbPool;
@@ -161,13 +161,11 @@ pub(crate) async fn list_agents(
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
     })?;
 
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM agent_configs WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or((0,));
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_configs WHERE tenant_id = ?")
+        .bind(tenant_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0,));
 
     Ok(Json(json!({
         "agents": agents,
@@ -200,7 +198,7 @@ pub(crate) async fn create_agent(
             (tenant_id, name, display_name, description, system_prompt, model_id, provider,
              temperature, max_tokens, top_k, use_rag, use_knowledge_graph,
              tools, personality_traits, greeting, avatar_url, template_id, tier, response_mode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
     )
     .bind(tenant_id)
     .bind(&payload.name)
@@ -226,20 +224,34 @@ pub(crate) async fn create_agent(
     .map_err(|e| {
         error!("Failed to create agent: {}", e);
         if e.to_string().contains("Duplicate entry") {
-            (StatusCode::CONFLICT, Json(json!({"error": format!("Agent name '{}' already exists", payload.name)})))
+            (
+                StatusCode::CONFLICT,
+                Json(json!({"error": format!("Agent name '{}' already exists", payload.name)})),
+            )
         } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
         }
     })?;
 
     let id = result.last_insert_id() as i64;
     info!("Created agent config id={} name={}", id, payload.name);
 
-    let agent = sqlx::query_as::<_, AgentConfig>(&format!("SELECT {} FROM agent_configs WHERE id = ?", AGENT_SELECT_COLS))
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let agent = sqlx::query_as::<_, AgentConfig>(&format!(
+        "SELECT {} FROM agent_configs WHERE id = ?",
+        AGENT_SELECT_COLS
+    ))
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(agent)))
 }
@@ -252,17 +264,26 @@ pub(crate) async fn get_agent(
 ) -> Result<Json<AgentConfig>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let agent = sqlx::query_as::<_, AgentConfig>(
-        &format!("SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?", AGENT_SELECT_COLS)
-    )
+    let agent = sqlx::query_as::<_, AgentConfig>(&format!(
+        "SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?",
+        AGENT_SELECT_COLS
+    ))
     .bind(id)
     .bind(tenant_id)
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     agent.map(Json).ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"})))
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Agent not found"})),
+        )
     })
 }
 
@@ -276,34 +297,57 @@ pub(crate) async fn update_agent(
     let tenant_id = extract_tenant_id(&headers);
 
     // Verify agent exists
-    let existing = sqlx::query_as::<_, AgentConfig>(
-        &format!("SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?", AGENT_SELECT_COLS)
-    )
+    let existing = sqlx::query_as::<_, AgentConfig>(&format!(
+        "SELECT {} FROM agent_configs WHERE id = ? AND tenant_id = ?",
+        AGENT_SELECT_COLS
+    ))
     .bind(id)
     .bind(tenant_id)
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     if existing.is_none() {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Agent not found"})),
+        ));
     }
 
     let existing = existing.unwrap();
-    let display_name = payload.display_name.unwrap_or(existing.display_name.unwrap_or_default());
+    let display_name = payload
+        .display_name
+        .unwrap_or(existing.display_name.unwrap_or_default());
     let description = payload.description.or(existing.description);
     let system_prompt = payload.system_prompt.unwrap_or(existing.system_prompt);
     let model_id = payload.model_id.unwrap_or(existing.model_id);
     let provider = payload.provider.unwrap_or(existing.provider);
     let temperature = payload.temperature.unwrap_or(0.7);
-    let max_tokens = payload.max_tokens.unwrap_or(existing.max_tokens.unwrap_or(2048));
+    let max_tokens = payload
+        .max_tokens
+        .unwrap_or(existing.max_tokens.unwrap_or(2048));
     let top_k = payload.top_k.unwrap_or(existing.top_k.unwrap_or(5));
     let tier = payload.tier.unwrap_or(existing.tier.unwrap_or(2));
-    let response_mode = payload.response_mode.clone().unwrap_or_else(|| existing.response_mode.clone().unwrap_or_else(|| "streaming".into()));
+    let response_mode = payload.response_mode.clone().unwrap_or_else(|| {
+        existing
+            .response_mode
+            .clone()
+            .unwrap_or_else(|| "streaming".into())
+    });
     let use_rag = payload.use_rag.unwrap_or(existing.use_rag.unwrap_or(true));
-    let use_kg = payload.use_knowledge_graph.unwrap_or(existing.use_knowledge_graph.unwrap_or(false));
+    let use_kg = payload
+        .use_knowledge_graph
+        .unwrap_or(existing.use_knowledge_graph.unwrap_or(false));
     let tools_json = payload.tools.map(|t| json!(t)).or(existing.tools);
-    let traits_json = payload.personality_traits.map(|t| json!(t)).or(existing.personality_traits);
+    let traits_json = payload
+        .personality_traits
+        .map(|t| json!(t))
+        .or(existing.personality_traits);
     let greeting = payload.greeting.or(existing.greeting);
     let avatar_url = payload.avatar_url.or(existing.avatar_url);
 
@@ -313,7 +357,7 @@ pub(crate) async fn update_agent(
             temperature = ?, max_tokens = ?, top_k = ?, use_rag = ?, use_knowledge_graph = ?,
             tools = ?, personality_traits = ?, greeting = ?, avatar_url = ?,
             tier = ?, response_mode = ?
-        WHERE id = ? AND tenant_id = ?"#
+        WHERE id = ? AND tenant_id = ?"#,
     )
     .bind(&display_name)
     .bind(&description)
@@ -335,13 +379,26 @@ pub(crate) async fn update_agent(
     .bind(tenant_id)
     .execute(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
-    let updated = sqlx::query_as::<_, AgentConfig>(&format!("SELECT {} FROM agent_configs WHERE id = ?", AGENT_SELECT_COLS))
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let updated = sqlx::query_as::<_, AgentConfig>(&format!(
+        "SELECT {} FROM agent_configs WHERE id = ?",
+        AGENT_SELECT_COLS
+    ))
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     info!("Updated agent config id={}", id);
     Ok(Json(updated))
@@ -360,10 +417,18 @@ pub(crate) async fn delete_agent(
         .bind(tenant_id)
         .execute(&pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Agent not found"})),
+        ));
     }
 
     info!("Deleted agent config id={}", id);
@@ -380,17 +445,25 @@ pub(crate) async fn publish_agent(
     let api_key = format!("ak_{}", Uuid::new_v4().to_string().replace("-", ""));
 
     let result = sqlx::query(
-        "UPDATE agent_configs SET is_published = TRUE, api_key = ? WHERE id = ? AND tenant_id = ?"
+        "UPDATE agent_configs SET is_published = TRUE, api_key = ? WHERE id = ? AND tenant_id = ?",
     )
     .bind(&api_key)
     .bind(id)
     .bind(tenant_id)
     .execute(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Agent not found"})),
+        ));
     }
 
     info!("Published agent id={}, api_key generated", id);
@@ -451,12 +524,21 @@ mod tests {
     /// TC_MIG_09: CreateAgentRequest defaults for tier and response_mode
     #[test]
     fn test_create_request_defaults() {
-        let req: CreateAgentRequest = serde_json::from_str(r#"{
+        let req: CreateAgentRequest = serde_json::from_str(
+            r#"{
             "name": "test",
             "system_prompt": "test prompt",
             "model_id": "test-model"
-        }"#).unwrap();
-        assert_eq!(req.tier, None, "Tier should default to None (resolved to 2 in handler)");
-        assert_eq!(req.response_mode, None, "Response mode should default to None");
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            req.tier, None,
+            "Tier should default to None (resolved to 2 in handler)"
+        );
+        assert_eq!(
+            req.response_mode, None,
+            "Response mode should default to None"
+        );
     }
 }

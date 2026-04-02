@@ -51,17 +51,16 @@ async fn query_tenant(
     let mode = req.mode.as_deref().unwrap_or("hybrid");
 
     // Verify tenant exists
-    let tenant_exists: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM tenants WHERE id = ?")
-            .bind(&tenant_id)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": e.to_string()})),
-                )
-            })?;
+    let tenant_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM tenants WHERE id = ?")
+        .bind(&tenant_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     if tenant_exists.is_none() {
         return Err((
@@ -70,9 +69,9 @@ async fn query_tenant(
         ));
     }
 
-    // Fetch all tenant documents with tree indexes
+    // Fetch all tenant data sources with tree indexes
     let docs: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, title, CAST(content AS CHAR), CAST(tree_index AS CHAR) FROM tenant_documents WHERE tenant_id = ?",
+        "SELECT id, name, CAST(raw_markdown AS CHAR), CAST(pageindex_tree AS CHAR) FROM data_sources WHERE tenant_id = ?",
     )
     .bind(&tenant_id)
     .fetch_all(&pool)
@@ -97,20 +96,20 @@ async fn query_tenant(
 
     // Strategy 1: Tree search via PageIndex sidecar (PARALLEL — Sprint 31)
     if mode == "tree" || mode == "hybrid" {
-        let pageindex_url = std::env::var("PAGEINDEX_URL")
-            .unwrap_or_else(|_| "http://localhost:8600".to_string());
+        let pageindex_url =
+            std::env::var("PAGEINDEX_URL").unwrap_or_else(|_| "http://localhost:8600".to_string());
 
         let retriever = crate::retrieval::tree::PageIndexRetriever::new(pageindex_url);
 
         // Collect docs that have both content and tree_index
         let searchable_docs: Vec<(String, String, String)> = docs
             .iter()
-            .filter_map(|(_, title, content, tree_index)| {
-                match (content, tree_index) {
+            .filter_map(
+                |(_, title, content, tree_index)| match (content, tree_index) {
                     (Some(c), Some(t)) => Some((title.clone(), c.clone(), t.clone())),
                     _ => None,
-                }
-            })
+                },
+            )
             .collect();
 
         if !searchable_docs.is_empty() {
@@ -144,8 +143,8 @@ async fn query_tenant(
             .unwrap_or_default();
         let embed_model = llm_config.resolve_slot("embedding", None, None).model;
 
-        // Search both wiki_qa and source_chunks collections
-        let collections = vec!["wiki_qa", "source_chunks"];
+        // Search both golden_qa and source_chunks collections
+        let collections = vec!["golden_qa", "source_chunks"];
         for collection in collections {
             let retriever = QdrantRetriever::new(
                 QdrantService::new(),

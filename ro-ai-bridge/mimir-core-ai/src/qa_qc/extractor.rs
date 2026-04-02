@@ -1,8 +1,8 @@
+use super::{AtomicFact, WikiChunk};
 use crate::services::llm_router::UniversalClient;
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use super::{WikiChunk, AtomicFact};
 use anyhow::Result;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug)]
@@ -13,9 +13,9 @@ pub struct FactList {
 pub struct ACUExtractorAgent;
 
 pub async fn extract_acus(
-    client: &UniversalClient, 
+    client: &UniversalClient,
     model: &str,
-    chunk: &WikiChunk
+    chunk: &WikiChunk,
 ) -> Result<Vec<AtomicFact>> {
     info!("      Extracting ACUs (Agent approach)...");
 
@@ -31,9 +31,10 @@ pub async fn extract_acus(
     );
 
     let raw_res = client.prompt(model, preamble, &prompt, 4096, 0.3).await?;
-    
+
     // Clean markdown
-    let clean_json = raw_res.trim()
+    let clean_json = raw_res
+        .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")

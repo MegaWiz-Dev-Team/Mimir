@@ -96,7 +96,7 @@ pub struct PlayerDailyLimit {
 /// Get a persona by its unique name
 pub async fn get_persona(db: &DbPool, name: &str) -> anyhow::Result<Option<NpcPersona>> {
     let persona = sqlx::query_as::<_, NpcPersona>(
-        "SELECT * FROM ai_npc_persona WHERE name = ? AND is_active = TRUE"
+        "SELECT * FROM ai_npc_persona WHERE name = ? AND is_active = TRUE",
     )
     .bind(name)
     .fetch_optional(db)
@@ -107,7 +107,7 @@ pub async fn get_persona(db: &DbPool, name: &str) -> anyhow::Result<Option<NpcPe
 /// List all active personas
 pub async fn list_personas(db: &DbPool) -> anyhow::Result<Vec<NpcPersona>> {
     let personas = sqlx::query_as::<_, NpcPersona>(
-        "SELECT * FROM ai_npc_persona WHERE is_active = TRUE ORDER BY tier, name"
+        "SELECT * FROM ai_npc_persona WHERE is_active = TRUE ORDER BY tier, name",
     )
     .fetch_all(db)
     .await?;
@@ -124,7 +124,7 @@ pub async fn get_or_create_session(
 ) -> anyhow::Result<ChatSession> {
     // Try to find existing active session
     let existing = sqlx::query_as::<_, ChatSession>(
-        "SELECT * FROM ai_chat_session WHERE session_id = ? AND is_active = TRUE"
+        "SELECT * FROM ai_chat_session WHERE session_id = ? AND is_active = TRUE",
     )
     .bind(session_id)
     .fetch_optional(db)
@@ -145,12 +145,11 @@ pub async fn get_or_create_session(
     .execute(db)
     .await?;
 
-    let session = sqlx::query_as::<_, ChatSession>(
-        "SELECT * FROM ai_chat_session WHERE session_id = ?"
-    )
-    .bind(session_id)
-    .fetch_one(db)
-    .await?;
+    let session =
+        sqlx::query_as::<_, ChatSession>("SELECT * FROM ai_chat_session WHERE session_id = ?")
+            .bind(session_id)
+            .fetch_one(db)
+            .await?;
 
     Ok(session)
 }
@@ -177,7 +176,7 @@ pub async fn append_message(
 
     // Update session message count
     sqlx::query(
-        "UPDATE ai_chat_session SET message_count = message_count + 1 WHERE session_id = ?"
+        "UPDATE ai_chat_session SET message_count = message_count + 1 WHERE session_id = ?",
     )
     .bind(session_id)
     .execute(db)
@@ -195,7 +194,7 @@ pub async fn get_recent_messages(
     let messages = sqlx::query_as::<_, ChatMessage>(
         "SELECT * FROM (
             SELECT * FROM ai_chat_message WHERE session_id = ? ORDER BY id DESC LIMIT ?
-        ) sub ORDER BY id ASC"
+        ) sub ORDER BY id ASC",
     )
     .bind(session_id)
     .bind(limit)
@@ -241,12 +240,10 @@ pub async fn check_economy_limit(db: &DbPool, action_type: &str) -> anyhow::Resu
         .execute(db)
         .await?;
 
-    let row = sqlx::query_as::<_, EconomyDaily>(
-        "SELECT * FROM ai_economy_daily WHERE date = ?"
-    )
-    .bind(today)
-    .fetch_one(db)
-    .await?;
+    let row = sqlx::query_as::<_, EconomyDaily>("SELECT * FROM ai_economy_daily WHERE date = ?")
+        .bind(today)
+        .fetch_one(db)
+        .await?;
 
     let allowed = match action_type {
         "give_item" => row.total_items_given < row.max_items_limit,
@@ -298,7 +295,7 @@ pub async fn check_player_limit(
         .await?;
 
     let row = sqlx::query_as::<_, PlayerDailyLimit>(
-        "SELECT * FROM ai_player_daily_limits WHERE player_char_id = ? AND date = ?"
+        "SELECT * FROM ai_player_daily_limits WHERE player_char_id = ? AND date = ?",
     )
     .bind(player_char_id)
     .bind(today)

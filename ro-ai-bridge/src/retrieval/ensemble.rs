@@ -82,7 +82,11 @@ pub fn rerank_results(
         .collect();
 
     // Sort by weighted score descending
-    weighted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    weighted.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Deduplicate by title (keep highest scored)
     let mut seen = std::collections::HashSet::new();
@@ -162,27 +166,43 @@ mod tests {
 
     #[test]
     fn test_weights_validation_ok() {
-        let w = EnsembleWeights { vector: 0.4, tree: 0.4, graph: 0.2 };
+        let w = EnsembleWeights {
+            vector: 0.4,
+            tree: 0.4,
+            graph: 0.2,
+        };
         assert!(w.validate().is_ok());
     }
 
     #[test]
     fn test_weights_validation_negative() {
-        let w = EnsembleWeights { vector: -0.1, tree: 0.6, graph: 0.5 };
+        let w = EnsembleWeights {
+            vector: -0.1,
+            tree: 0.6,
+            graph: 0.5,
+        };
         assert!(w.validate().is_err());
         assert!(w.validate().unwrap_err().contains("non-negative"));
     }
 
     #[test]
     fn test_weights_validation_wrong_sum() {
-        let w = EnsembleWeights { vector: 0.5, tree: 0.5, graph: 0.5 };
+        let w = EnsembleWeights {
+            vector: 0.5,
+            tree: 0.5,
+            graph: 0.5,
+        };
         assert!(w.validate().is_err());
         assert!(w.validate().unwrap_err().contains("1.0"));
     }
 
     #[test]
     fn test_weights_normalize() {
-        let mut w = EnsembleWeights { vector: 1.0, tree: 1.0, graph: 1.0 };
+        let mut w = EnsembleWeights {
+            vector: 1.0,
+            tree: 1.0,
+            graph: 1.0,
+        };
         w.normalize();
         assert!((w.vector - 0.333).abs() < 0.01);
         assert!((w.tree - 0.333).abs() < 0.01);
@@ -261,7 +281,11 @@ mod tests {
             make_result("GraphDoc", 0.9, "graph"),
         ];
         // Graph-heavy weights
-        let weights = EnsembleWeights { vector: 0.1, tree: 0.1, graph: 0.8 };
+        let weights = EnsembleWeights {
+            vector: 0.1,
+            tree: 0.1,
+            graph: 0.8,
+        };
 
         let ranked = rerank_results(&results, &weights, 10);
         // Graph should be first now (0.9 * 0.8 = 0.72 vs 0.9 * 0.1 = 0.09)
