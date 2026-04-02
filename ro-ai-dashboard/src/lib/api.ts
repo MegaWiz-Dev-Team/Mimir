@@ -1254,6 +1254,50 @@ export interface BenchmarkEntry {
 
 // Agent CRUD (fetchAgents is defined above near AgentConfigResponse)
 
+// ─── Agent Generative Builder ────────────────────────────────────────────────
+
+export interface GenerateAgentRequest {
+    prompt: string;
+    provider: string;
+    model_id: string;
+}
+
+export interface GeneratedAgentDraft {
+    name: string;
+    display_name: string;
+    description: string;
+    system_prompt: string;
+    model_id: string;
+    provider: string;
+    temperature: number;
+    max_tokens: number;
+    use_rag: boolean;
+    use_knowledge_graph: boolean;
+    tools: string[];
+    personality_traits: string[];
+    greeting: string;
+    tier: number;
+}
+
+export interface GenerateAgentResponse {
+    draft: GeneratedAgentDraft;
+    generation_model: string;
+    generation_provider: string;
+    latency_ms: number;
+}
+
+export async function generateAgent(data: GenerateAgentRequest): Promise<GenerateAgentResponse> {
+    const res = await authFetch(`${API_BASE_URL}/agents/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to generate agent");
+    }
+    return res.json();
+}
 
 export async function createAgent(data: CreateAgentRequest): Promise<AgentConfig> {
     const res = await authFetch(`${API_BASE_URL}/agents`, {

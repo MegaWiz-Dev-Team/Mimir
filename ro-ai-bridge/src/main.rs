@@ -6,6 +6,8 @@ use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use opentelemetry::global;
+use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
 
 use mimir_core_ai::middleware::request_id::request_id_middleware;
 use mimir_core_ai::services::cron;
@@ -44,21 +46,59 @@ use ro_ai_bridge::routes::vector::vector_routes;
 use ro_ai_bridge::routes::search::search_routes;
 use ro_ai_bridge::routes::search_benchmark::search_benchmark_routes;
 use ro_ai_bridge::routes::search_optimize::search_optimize_routes;
+use ro_ai_bridge::routes::swarm::swarm_routes;
 
 #[tokio::main]
 async fn main() {
     // Initialize structured JSON logging with env-filter support
     // Usage: RUST_LOG=info (default), RUST_LOG=debug, RUST_LOG=ro_ai_bridge=debug,mimir_core_ai=info
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .json()
-                .with_target(true)
-                .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
-                .with_current_span(true),
-        )
-        .init();
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_target(true)
+        .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
+        .with_current_span(true);
+
+    if let Ok(otlp_endpoint) = std::env::var("OTLP_ENDPOINT") {
+        let mut exporter_builder = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(otlp_endpoint);
+
+        if let Ok(auth_token) = std::env::var("VARDR_AUTH_TOKEN") {
+            let mut metadata = tonic::metadata::MetadataMap::new();
+            if let Ok(header_value) = format!("Bearer {}", auth_token).parse() {
+                metadata.insert("authorization", header_value);
+                exporter_builder = exporter_builder.with_metadata(metadata);
+                tracing::info!("🔒 VARDR_AUTH_TOKEN successfully injected into OTLP exporter headers.");
+            } else {
+                tracing::warn!("⚠️ Failed to parse VARDR_AUTH_TOKEN as an authorization metadata value.");
+            }
+        }
+
+        let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            .with_batch_exporter(
+                exporter_builder.build().expect("Failed to build OTLP SpanExporter"),
+            )
+            .build();
+
+        global::set_tracer_provider(tracer_provider.clone());
+        let tracer = global::tracer("ro-ai-bridge");
+
+        let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .with(telemetry_layer)
+            .init();
+        
+        info!("🚀 OpenTelemetry tracing active. Exporting Spans to OTLP Endpoint.");
+    } else {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .init();
+    }
 
     // Inject Vault secrets into env vars (before Config reads them)
     mimir_core_ai::config::inject_vault_secrets().await;
@@ -145,6 +185,8 @@ async fn main() {
         .merge(search_routes())
         .merge(search_optimize_routes())
         .merge(search_benchmark_routes())
+        // Sprint 18: Swarm Multi Agent
+        .nest("/api/v1/tenants/:tenant_id", swarm_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
