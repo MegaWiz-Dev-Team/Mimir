@@ -427,7 +427,6 @@ export const PROVIDERS: LlmProvider[] = [
         description: "Self-hosted LLM gateway with multiple models",
         requires_api_key: true,
         models: [
-            { id: "mlx-community/Qwen3.5-397B-Opus-Reasoning-4bit", display_name: "Qwen 397B Opus-Reasoning (Flash-MoE)", description: "Ultimate clinical reasoning / inference engine" },
             { id: "mlx-community/Qwen3.5-27B-Opus-Reasoning-MLX-4bit", display_name: "Qwen 27B Opus-Reasoning", description: "Efficient clinical reasoning" },
             { id: "mlx-community/Qwen3.5-35B-A3B-4bit", display_name: "Qwen 3.5 35B MoE", description: "Primary — RAG, Chat, QA generation" },
             { id: "mlx-community/Qwen3.5-27B-4bit", display_name: "Qwen 3.5 27B", description: "Complex reasoning tasks" },
