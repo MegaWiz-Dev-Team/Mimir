@@ -691,9 +691,14 @@ export default function AgentStudioPage() {
                     </Button>
                     <h1 className="text-2xl font-bold">{editingAgent ? "Edit Agent" : "New Agent"}</h1>
                     {!editingAgent && (
-                        <Button variant="outline" size="sm" onClick={() => setShowTemplates(!showTemplates)}>
-                            <Sparkles className="w-4 h-4 mr-1" /> Templates
-                        </Button>
+                        <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setShowTemplates(!showTemplates)}>
+                                <Sparkles className="w-4 h-4 mr-1" /> Templates
+                            </Button>
+                            <Button size="sm" variant="outline" className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-indigo-200 dark:border-indigo-800 hover:border-indigo-400" onClick={() => { setShowGenerator(true); setGenDraft(null); setGenError(null); setGenPrompt(""); }}>
+                                <Wand2 className="w-4 h-4 mr-1 text-indigo-600" /> Generate with AI
+                            </Button>
+                        </div>
                     )}
                 </div>
 
