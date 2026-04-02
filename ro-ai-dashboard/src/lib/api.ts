@@ -422,8 +422,19 @@ export async function fetchPlaygroundAgents(): Promise<{ personas: Persona[]; ag
 /// Fallback providers when database is not available
 export const PROVIDERS: LlmProvider[] = [
     {
+        id: "sakura",
+        display_name: "Sakura Cloud (H100/B200 Clusters)",
+        description: "Enterprise-grade GPU clusters for Massive LLMs",
+        requires_api_key: true,
+        models: [
+            { id: "sakura/Llama-3-400B-Instruct", display_name: "Llama 3 400B (Sakura Cluster)", description: "Ultra-heavy reasoning for complex clinical logic" },
+            { id: "sakura/Nemotron-4-340B-Instruct", display_name: "Nemotron 4 340B (Sakura Cluster)", description: "Nvidia optimized enterprise model" },
+            { id: "sakura/Qwen2.5-72B-Instruct", display_name: "Qwen 2.5 72B (Sakura Cluster)", description: "High-throughput model for RAG" },
+        ],
+    },
+    {
         id: "heimdall",
-        display_name: "Heimdall (Self-Hosted)",
+        display_name: "Heimdall (Self-Hosted Apple Silicon)",
         description: "Self-hosted LLM gateway with multiple models",
         requires_api_key: true,
         models: [
