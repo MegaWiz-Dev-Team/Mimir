@@ -2,6 +2,7 @@
 //!
 //! Endpoints:
 //! - POST   /api/v1/evaluations/run              — run evaluation batch
+//! - POST   /api/v1/evaluations/generate-set      — AI-generate evaluation set
 //! - GET    /api/v1/evaluations/results           — get evaluation results
 //! - GET    /api/v1/evaluations/compare           — A/B model comparison
 //! - GET    /api/v1/evaluations/feedback-summary  — user feedback aggregation
@@ -77,6 +78,7 @@ pub struct CompareQuery {
 pub fn evaluations_ext_routes() -> Router<DbPool> {
     Router::new()
         .route("/run", post(run_evaluation_batch))
+        .route("/generate-set", post(generate_eval_set))
         .route("/results", get(get_eval_results))
         .route("/compare", get(compare_models))
         .route("/feedback-summary", get(feedback_summary))
@@ -217,6 +219,171 @@ async fn run_evaluation_batch(
         "total_evaluations": results.len(),
         "total_scored": total_scored,
         "results": results
+    })))
+}
+
+// ─── AI Evaluation Set Generator ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateEvalSetRequest {
+    pub prompt: String,
+    pub count: Option<usize>,
+    pub source_ids: Option<Vec<i64>>,
+    pub provider: Option<String>,
+    pub model_id: Option<String>,
+}
+
+/// POST /api/v1/evaluations/generate-set — AI-generate evaluation set
+///
+/// Fetches real document titles from data_sources, then prompts an LLM
+/// to generate evaluation questions grounded in those titles for valid
+/// Hit Rate and MRR benchmarking.
+async fn generate_eval_set(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(payload): Json<GenerateEvalSetRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+    let count = payload.count.unwrap_or(5).min(20);
+
+    // 1. Fetch available source titles (filtered if source_ids specified)
+    let sources: Vec<(i64, String)> = if let Some(ref ids) = payload.source_ids {
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!(
+            "SELECT id, name FROM data_sources WHERE tenant_id = ? AND id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query_as::<_, (i64, String)>(&query).bind(tenant_id);
+        for id in ids {
+            q = q.bind(id);
+        }
+        q.fetch_all(&pool).await.unwrap_or_default()
+    } else {
+        sqlx::query_as("SELECT id, name FROM data_sources WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default()
+    };
+
+    if sources.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "No data sources found for this tenant"})),
+        ));
+    }
+
+    let titles: Vec<String> = sources.iter().map(|(_, name)| name.clone()).collect();
+    let titles_list = titles.join(", ");
+
+    // 2. Resolve LLM provider/model for generation
+    let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
+    let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
+    let llm_config = tenant_config
+        .as_ref()
+        .and_then(|c| c.llm_config.as_ref())
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+    let default_p = tenant_config.as_ref().map(|c| c.default_provider.as_str());
+    let default_m = tenant_config.as_ref().map(|c| c.default_model.as_str());
+    let slot = llm_config.resolve_slot("judge", default_p, default_m);
+
+    let model_id = payload.model_id.unwrap_or(slot.model.clone());
+    let provider_name = payload.provider.unwrap_or(slot.provider.clone());
+
+    // Resolve credentials from tenant config using the same pattern as agent chat
+    let api_base = crate::routes::sources::infer_api_base(&provider_name);
+    let api_key = llm_config
+        .heimdall_api_key
+        .clone()
+        .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".to_string()));
+
+    // 3. Build the generation prompt
+    let system_prompt = format!(
+        r#"You are an evaluation set generator for a RAG system.
+You MUST generate exactly {count} evaluation questions as a JSON array.
+
+Available document titles in the knowledge base:
+{titles_list}
+
+Each question must follow this EXACT JSON structure:
+{{
+  "query": "A natural question that a user might ask",
+  "expected_titles": ["Exact document title from the list above"]
+}}
+
+Rules:
+1. Every "expected_titles" value MUST be an exact match from the document titles listed above.
+2. Questions should be diverse and test different retrieval strategies.
+3. Output ONLY the JSON array, no markdown, no explanation.
+4. The user's additional instructions: {prompt}"#,
+        count = count,
+        titles_list = titles_list,
+        prompt = payload.prompt,
+    );
+
+    // 4. Call the LLM
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}chat/completions", api_base))
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": "You output only valid JSON arrays."},
+                {"role": "user", "content": system_prompt}
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.3
+        }))
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Generate eval set LLM call failed: {}", e);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("LLM call failed: {}", e)})),
+            )
+        })?;
+
+    let resp_json: Value = resp.json().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Parse failed: {}", e)})),
+        )
+    })?;
+
+    let content = resp_json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("[]")
+        .to_string();
+
+    // 5. Try to parse the response as JSON array
+    let eval_set: Value = serde_json::from_str(&content).unwrap_or_else(|_| {
+        // Try extracting JSON from markdown code blocks
+        let cleaned = content
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+        serde_json::from_str(cleaned).unwrap_or(json!([]))
+    });
+
+    info!(
+        event = "eval_set_generated",
+        count = count,
+        model = %model_id,
+        titles = titles.len(),
+        "AI evaluation set generated"
+    );
+
+    Ok(Json(json!({
+        "eval_set": eval_set,
+        "model_used": model_id,
+        "available_titles": titles,
+        "count_requested": count
     })))
 }
 

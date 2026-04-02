@@ -438,7 +438,7 @@ export const PROVIDERS: LlmProvider[] = [
         description: "Self-hosted LLM gateway with multiple models",
         requires_api_key: true,
         models: [
-            { id: "paripolt/Qwen3.5-27B-Opus-Reasoning-MLX-4bit", display_name: "Qwen 27B Opus-Reasoning", description: "Efficient clinical reasoning" },
+            { id: "MegawizCo/Qwen3.5-27B-Opus-Reasoning-MLX-4bit", display_name: "Qwen 27B Opus-Reasoning", description: "Efficient clinical reasoning" },
             { id: "mlx-community/Qwen3.5-35B-A3B-4bit", display_name: "Qwen 3.5 35B MoE", description: "Primary — RAG, Chat, QA generation" },
             { id: "mlx-community/Qwen3.5-27B-4bit", display_name: "Qwen 3.5 27B", description: "Complex reasoning tasks" },
             { id: "mlx-community/Qwen3.5-9B-MLX-4bit", display_name: "Qwen 3.5 9B", description: "Fast / low latency" },
@@ -1174,6 +1174,29 @@ export interface CreateAgentRequest {
     top_k?: number;
     use_rag?: boolean;
     use_knowledge_graph?: boolean;
+    use_pageindex?: boolean;
+    rag_params?: {
+        weights?: { vector: number; tree: number; graph: number };
+        advanced?: {
+            top_k_per_source?: number;
+            vector_alpha?: number;
+            vector_threshold?: number;
+            graph_hops?: number;
+        };
+        filters?: {
+            source_ids?: number[];
+            source_types?: string[];
+            date_from?: string;
+            date_to?: string;
+            tags?: string[];
+        };
+    };
+    rerank_config?: {
+        enabled: boolean;
+        strategy?: string;
+        model?: string;
+        final_top_k?: number;
+    };
     tools?: string[];
     personality_traits?: string[];
     greeting?: string;
