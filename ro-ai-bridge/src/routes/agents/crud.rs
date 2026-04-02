@@ -19,7 +19,8 @@ use mimir_core_ai::services::db::DbPool;
 pub const AGENT_SELECT_COLS: &str = r#"
     id, tenant_id, name, display_name, description, system_prompt, model_id, provider,
     CAST(temperature AS DOUBLE) as temperature, max_tokens, top_k,
-    use_rag, use_knowledge_graph, tools, personality_traits, greeting, avatar_url,
+    use_rag, use_knowledge_graph, use_pageindex, rag_params, rerank_config,
+    tools, personality_traits, greeting, avatar_url,
     template_id, is_published, api_key, tier, response_mode,
     CAST(created_at AS DATETIME) as created_at, CAST(updated_at AS DATETIME) as updated_at
 "#;
@@ -41,6 +42,9 @@ pub struct AgentConfig {
     pub top_k: Option<i32>,
     pub use_rag: Option<bool>,
     pub use_knowledge_graph: Option<bool>,
+    pub use_pageindex: Option<bool>,
+    pub rag_params: Option<Value>,
+    pub rerank_config: Option<Value>,
     pub tools: Option<Value>,
     pub personality_traits: Option<Value>,
     pub greeting: Option<String>,
@@ -67,6 +71,9 @@ pub struct CreateAgentRequest {
     pub top_k: Option<i32>,
     pub use_rag: Option<bool>,
     pub use_knowledge_graph: Option<bool>,
+    pub use_pageindex: Option<bool>,
+    pub rag_params: Option<Value>,
+    pub rerank_config: Option<Value>,
     pub tools: Option<Vec<String>>,
     pub personality_traits: Option<Vec<String>>,
     pub greeting: Option<String>,
@@ -88,6 +95,9 @@ pub struct UpdateAgentRequest {
     pub top_k: Option<i32>,
     pub use_rag: Option<bool>,
     pub use_knowledge_graph: Option<bool>,
+    pub use_pageindex: Option<bool>,
+    pub rag_params: Option<Value>,
+    pub rerank_config: Option<Value>,
     pub tools: Option<Vec<String>>,
     pub personality_traits: Option<Vec<String>>,
     pub greeting: Option<String>,
@@ -190,15 +200,19 @@ pub(crate) async fn create_agent(
     let response_mode = payload.response_mode.unwrap_or_else(|| "streaming".into());
     let use_rag = payload.use_rag.unwrap_or(true);
     let use_kg = payload.use_knowledge_graph.unwrap_or(false);
+    let use_pageindex = payload.use_pageindex.unwrap_or(false);
+    let rag_params_json = payload.rag_params.as_ref();
+    let rerank_config_json = payload.rerank_config.as_ref();
     let tools_json = payload.tools.as_ref().map(|t| json!(t));
     let traits_json = payload.personality_traits.as_ref().map(|t| json!(t));
 
     let result = sqlx::query(
         r#"INSERT INTO agent_configs
             (tenant_id, name, display_name, description, system_prompt, model_id, provider,
-             temperature, max_tokens, top_k, use_rag, use_knowledge_graph,
+             temperature, max_tokens, top_k, use_rag, use_knowledge_graph, use_pageindex,
+             rag_params, rerank_config,
              tools, personality_traits, greeting, avatar_url, template_id, tier, response_mode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
     )
     .bind(tenant_id)
     .bind(&payload.name)
@@ -212,6 +226,9 @@ pub(crate) async fn create_agent(
     .bind(top_k)
     .bind(use_rag)
     .bind(use_kg)
+    .bind(use_pageindex)
+    .bind(&rag_params_json)
+    .bind(&rerank_config_json)
     .bind(&tools_json)
     .bind(&traits_json)
     .bind(&payload.greeting)
@@ -343,6 +360,11 @@ pub(crate) async fn update_agent(
     let use_kg = payload
         .use_knowledge_graph
         .unwrap_or(existing.use_knowledge_graph.unwrap_or(false));
+    let use_pageindex = payload
+        .use_pageindex
+        .unwrap_or(existing.use_pageindex.unwrap_or(false));
+    let rag_params_json = payload.rag_params.or(existing.rag_params);
+    let rerank_config_json = payload.rerank_config.or(existing.rerank_config);
     let tools_json = payload.tools.map(|t| json!(t)).or(existing.tools);
     let traits_json = payload
         .personality_traits
@@ -355,6 +377,7 @@ pub(crate) async fn update_agent(
         r#"UPDATE agent_configs SET
             display_name = ?, description = ?, system_prompt = ?, model_id = ?, provider = ?,
             temperature = ?, max_tokens = ?, top_k = ?, use_rag = ?, use_knowledge_graph = ?,
+            use_pageindex = ?, rag_params = ?, rerank_config = ?,
             tools = ?, personality_traits = ?, greeting = ?, avatar_url = ?,
             tier = ?, response_mode = ?
         WHERE id = ? AND tenant_id = ?"#,
@@ -369,6 +392,9 @@ pub(crate) async fn update_agent(
     .bind(top_k)
     .bind(use_rag)
     .bind(use_kg)
+    .bind(use_pageindex)
+    .bind(&rag_params_json)
+    .bind(&rerank_config_json)
     .bind(&tools_json)
     .bind(&traits_json)
     .bind(&greeting)
@@ -514,6 +540,9 @@ mod tests {
             api_key: None,
             tier: Some(1),
             response_mode: Some("streaming".into()),
+            use_pageindex: Some(false),
+            rag_params: None,
+            rerank_config: None,
             created_at: None,
             updated_at: None,
         };

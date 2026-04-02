@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-
+use mimir_core_ai::services::llm_router::UniversalClient;
 use crate::retrieval::qdrant::RetrievalResult;
 
 // ── Configuration ─────────────────────────────────────
@@ -96,6 +96,45 @@ pub fn rerank_results(
     weighted.truncate(limit);
 
     weighted
+}
+
+/// Reranks the given pre-filtered results using an actual Cross-Encoder machine learning model.
+pub async fn cross_encoder_rerank(
+    client: &UniversalClient,
+    model: &str,
+    query: &str,
+    mut results: Vec<RetrievalResult>,
+    final_top_k: usize,
+) -> anyhow::Result<Vec<RetrievalResult>> {
+    if results.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let texts: Vec<String> = results.iter().map(|r| r.content.clone()).collect();
+    let scores = client.rerank(model, query, &texts).await?;
+
+    let mut score_map: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+    for (i, s) in scores {
+        score_map.insert(i, s);
+    }
+
+    for (i, res) in results.iter_mut().enumerate() {
+        if let Some(s) = score_map.get(&i) {
+            res.score = *s;
+        } else {
+            // Assign low score to unranked items
+            res.score = f32::MIN;
+        }
+    }
+
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let mut seen = std::collections::HashSet::new();
+    results.retain(|r| seen.insert(r.title.clone()));
+    
+    results.truncate(final_top_k);
+
+    Ok(results)
 }
 
 /// Compute a summary of which sources contributed to the final results.

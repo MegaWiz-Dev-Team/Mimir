@@ -95,6 +95,73 @@ impl UniversalClient {
             }
         }
     }
+
+    /// Execute Cross-Encoder reranking using TEI interface
+    pub async fn rerank(
+        &self,
+        model: &str,
+        query: &str,
+        texts: &[String],
+    ) -> Result<Vec<(usize, f32)>> {
+        match self {
+            Self::Ollama(_) | Self::Gemini(_) => {
+                Err(anyhow!("Reranker API not natively supported for Ollama/Gemini via text endpoints"))
+            }
+            Self::Rest {
+                client,
+                endpoint,
+                api_key,
+                ..
+            } => {
+                let url = format!("{}/rerank", endpoint.trim_end_matches('/'));
+                let body = serde_json::json!({
+                    "model": model,
+                    "query": query,
+                    "texts": texts,
+                    "return_text": false
+                });
+
+                let mut req = client.post(&url);
+                if !api_key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", api_key));
+                }
+
+                let resp = req
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow!("Rerank request failed: {}", e))?;
+
+                if !resp.status().is_success() {
+                    let err_txt = resp.text().await.unwrap_or_default();
+                    return Err(anyhow!("Rerank API error: {}", err_txt));
+                }
+
+                #[derive(serde::Deserialize)]
+                struct RerankResult {
+                    index: usize,
+                    score: f32,
+                }
+
+                // TEI might return an array directly, or an object containing "results"
+                let json: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| anyhow!("Rerank parse error: {}", e))?;
+
+                let results: Vec<RerankResult> = if json.is_array() {
+                    serde_json::from_value(json).unwrap_or_default()
+                } else if let Some(res) = json.get("results") {
+                    serde_json::from_value(res.clone()).unwrap_or_default()
+                } else {
+                    return Err(anyhow!("Unexpected rerank response format"));
+                };
+
+                Ok(results.into_iter().map(|r| (r.index, r.score)).collect())
+            }
+        }
+    }
 }
 
 /// Centralized Router for resolving LLM interfaces based on tenant configuration.
@@ -260,6 +327,23 @@ impl LlmRouter {
             }
             other => Err(anyhow!("Unsupported LLM provider: {}", other)),
         }
+    }
+
+    /// Resolves the reranker. Defaults to Heimdall API TEI endpoints.
+    pub fn resolve_reranker(&self, requested_model: Option<&str>) -> Result<(UniversalClient, String)> {
+        // Fallback to Heimdall TEI model if none specified
+        let model = requested_model.unwrap_or("BAAI/bge-reranker-v2-m3").to_string();
+        let (endpoint, api_key) = self.get_heimdall_credentials()?;
+        
+        Ok((
+            UniversalClient::Rest {
+                provider: "heimdall".to_string(),
+                client: reqwest::Client::new(),
+                endpoint,
+                api_key,
+            },
+            model,
+        ))
     }
 
     /// Embed texts via requested embedding provider matching slot, or default Heimdall API

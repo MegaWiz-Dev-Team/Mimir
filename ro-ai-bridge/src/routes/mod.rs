@@ -25,6 +25,8 @@ pub mod ocr;
 pub mod pipeline;
 pub mod prompts;
 pub mod qc;
+pub mod rag_eval;
+pub mod rag_eval_tuner;
 pub mod sources;
 pub mod stats;
 pub mod tenant;

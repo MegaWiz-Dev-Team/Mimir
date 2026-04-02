@@ -277,10 +277,7 @@ impl QueryItemDbTool {
         parts.join("\n")
     }
 }
-use super::*;
 use regex::Regex;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[async_trait::async_trait]
 impl DynamicContextPlugin for QueryMobDbTool {

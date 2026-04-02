@@ -74,6 +74,16 @@ export default function AgentStudioPage() {
     const [formTopK, setFormTopK] = useState(5);
     const [formUseRag, setFormUseRag] = useState(true);
     const [formUseKG, setFormUseKG] = useState(false);
+    const [formUsePageIndex, setFormUsePageIndex] = useState(false);
+    const [formWeights, setFormWeights] = useState({ vector: 0.5, tree: 0.3, graph: 0.2 });
+    const [formShowAdvanced, setFormShowAdvanced] = useState(false);
+    const [formAdvanced, setFormAdvanced] = useState({
+        top_k_per_source: 10, vector_alpha: 0.7, vector_threshold: 0.3, graph_hops: 2,
+    });
+    const [formRerank, setFormRerank] = useState({
+        enabled: false, strategy: "rrf" as "rrf" | "cross_encoder" | "llm",
+        model: "BAAI/bge-reranker-v2-m3", final_top_k: 5,
+    });
     const [formTools, setFormTools] = useState<string[]>([]);
     const [formTraits, setFormTraits] = useState<string[]>([]);
     const [formGreeting, setFormGreeting] = useState("");
@@ -163,8 +173,12 @@ export default function AgentStudioPage() {
         setFormName(""); setFormDisplayName(""); setFormDescription("");
         setFormSystemPrompt(""); setFormModelId("llama3.2"); setFormProvider("ollama");
         setFormTemperature(0.7); setFormMaxTokens(2048); setFormTopK(5);
-        setFormUseRag(true); setFormUseKG(false); setFormTools([]);
-        setFormTraits([]); setFormGreeting(""); setFormTemplateId(null);
+        setFormUseRag(true); setFormUseKG(false); setFormUsePageIndex(false);
+        setFormWeights({ vector: 0.5, tree: 0.3, graph: 0.2 });
+        setFormShowAdvanced(false);
+        setFormAdvanced({ top_k_per_source: 10, vector_alpha: 0.7, vector_threshold: 0.3, graph_hops: 2 });
+        setFormRerank({ enabled: false, strategy: "rrf", model: "BAAI/bge-reranker-v2-m3", final_top_k: 5 });
+        setFormTools([]); setFormTraits([]); setFormGreeting(""); setFormTemplateId(null);
         setEditingAgent(null); setActiveTab("basic");
     };
 
@@ -187,6 +201,12 @@ export default function AgentStudioPage() {
         setFormTemperature(a.temperature ?? 0.7); setFormMaxTokens(a.max_tokens ?? 2048);
         setFormTopK(a.top_k ?? 5); setFormUseRag(a.use_rag ?? true);
         setFormUseKG(a.use_knowledge_graph ?? false);
+        setFormUsePageIndex((a as any).use_pageindex ?? false);
+        const rp = (a as any).rag_params;
+        if (rp?.weights) setFormWeights(rp.weights);
+        if (rp?.advanced) setFormAdvanced({ ...formAdvanced, ...rp.advanced });
+        const rc = (a as any).rerank_config;
+        if (rc) setFormRerank({ ...formRerank, ...rc });
         setFormTools(a.tools || []); setFormTraits(a.personality_traits || []);
         setFormGreeting(a.greeting || ""); setFormTemplateId(a.template_id || null);
     };
@@ -200,6 +220,12 @@ export default function AgentStudioPage() {
                 model_id: formModelId, provider: formProvider,
                 temperature: formTemperature, max_tokens: formMaxTokens,
                 top_k: formTopK, use_rag: formUseRag, use_knowledge_graph: formUseKG,
+                use_pageindex: formUsePageIndex,
+                rag_params: {
+                    weights: formWeights,
+                    advanced: formAdvanced,
+                },
+                rerank_config: formRerank,
                 tools: formTools.length > 0 ? formTools : undefined,
                 personality_traits: formTraits.length > 0 ? formTraits : undefined,
                 greeting: formGreeting || undefined, template_id: formTemplateId || undefined,
@@ -884,24 +910,142 @@ export default function AgentStudioPage() {
                         )}
 
                         {activeTab === "rag" && (
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-6">
+                            <div className="space-y-5">
+                                {/* Toggle Layer */}
+                                <div className="flex flex-wrap items-center gap-4">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input type="checkbox" checked={formUseRag}
                                             onChange={e => setFormUseRag(e.target.checked)}
                                             className="w-4 h-4 rounded accent-purple-600" />
-                                        <span className="text-sm font-medium">Enable RAG (Vector Search)</span>
+                                        <span className="text-sm font-medium">🔷 Vector Search</span>
                                     </label>
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input type="checkbox" checked={formUseKG}
                                             onChange={e => setFormUseKG(e.target.checked)}
                                             className="w-4 h-4 rounded accent-purple-600" />
-                                        <span className="text-sm font-medium">Enable Knowledge Graph</span>
+                                        <span className="text-sm font-medium">🔮 Knowledge Graph</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={formUsePageIndex}
+                                            onChange={e => setFormUsePageIndex(e.target.checked)}
+                                            className="w-4 h-4 rounded accent-purple-600" />
+                                        <span className="text-sm font-medium">🌿 PageIndex (Tree)</span>
                                     </label>
                                 </div>
-                                <p className="text-sm text-gray-500">
-                                    RAG retrieves relevant context from your knowledge base before generating responses.
-                                    Knowledge Graph enables structured relationship queries for deeper context.
+
+                                {/* Weight Sliders */}
+                                {(formUseRag || formUseKG || formUsePageIndex) && (
+                                    <div className="space-y-3 p-4 rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-900/50">
+                                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Ensemble Weights</h4>
+                                        <p className="text-xs text-gray-400">Adjust the contribution ratio of each search source. Total must equal 100%.</p>
+                                        {[
+                                            { key: "vector" as const, label: "🔷 Vector", color: "bg-blue-500", enabled: formUseRag },
+                                            { key: "tree" as const, label: "🌿 Tree", color: "bg-green-500", enabled: formUsePageIndex },
+                                            { key: "graph" as const, label: "🔮 Graph", color: "bg-purple-500", enabled: formUseKG },
+                                        ].map(s => (
+                                            <div key={s.key} className={`flex items-center gap-3 ${!s.enabled ? 'opacity-30' : ''}`}>
+                                                <span className="text-sm w-24 font-medium">{s.label}</span>
+                                                <input type="range" min={0} max={100} step={5}
+                                                    disabled={!s.enabled}
+                                                    value={Math.round(formWeights[s.key] * 100)}
+                                                    onChange={e => {
+                                                        const newVal = parseInt(e.target.value) / 100;
+                                                        setFormWeights(prev => {
+                                                            const updated = { ...prev, [s.key]: newVal };
+                                                            const sum = updated.vector + updated.tree + updated.graph;
+                                                            if (sum > 0) {
+                                                                updated.vector /= sum; updated.tree /= sum; updated.graph /= sum;
+                                                            }
+                                                            return updated;
+                                                        });
+                                                    }}
+                                                    className="flex-1 accent-purple-600" />
+                                                <span className="text-sm font-mono w-12 text-right">{Math.round(formWeights[s.key] * 100)}%</span>
+                                            </div>
+                                        ))}
+                                        <div className="flex gap-2 mt-2">
+                                            <button onClick={() => setFormWeights({ vector: 0.5, tree: 0.3, graph: 0.2 })}
+                                                className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-zinc-700 hover:bg-gray-300 dark:hover:bg-zinc-600">Balanced</button>
+                                            <button onClick={() => setFormWeights({ vector: 0.8, tree: 0.1, graph: 0.1 })}
+                                                className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-zinc-700 hover:bg-gray-300 dark:hover:bg-zinc-600">Vector Heavy</button>
+                                            <button onClick={() => setFormWeights({ vector: 0.2, tree: 0.1, graph: 0.7 })}
+                                                className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-zinc-700 hover:bg-gray-300 dark:hover:bg-zinc-600">Graph Heavy</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Advanced Settings */}
+                                <div className="border border-gray-200 dark:border-zinc-700 rounded-lg">
+                                    <button onClick={() => setFormShowAdvanced(!formShowAdvanced)}
+                                        className="flex items-center justify-between w-full px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-zinc-800 rounded-lg">
+                                        <span>▼ Advanced Settings</span>
+                                        <span className="text-xs text-gray-400">{formShowAdvanced ? 'Hide' : 'Show'}</span>
+                                    </button>
+                                    {formShowAdvanced && (
+                                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 dark:border-zinc-700 pt-3">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <Label className="text-xs">Top-K per Source</Label>
+                                                    <Input type="number" min={1} max={50} value={formAdvanced.top_k_per_source}
+                                                        onChange={e => setFormAdvanced(p => ({ ...p, top_k_per_source: parseInt(e.target.value) || 10 }))}
+                                                        className="mt-1" />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">Vector Alpha (Hybrid Tuning)</Label>
+                                                    <Input type="number" min={0} max={1} step={0.1} value={formAdvanced.vector_alpha}
+                                                        onChange={e => setFormAdvanced(p => ({ ...p, vector_alpha: parseFloat(e.target.value) || 0.7 }))}
+                                                        className="mt-1" />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">Vector Score Threshold</Label>
+                                                    <Input type="number" min={0} max={1} step={0.05} value={formAdvanced.vector_threshold}
+                                                        onChange={e => setFormAdvanced(p => ({ ...p, vector_threshold: parseFloat(e.target.value) || 0.3 }))}
+                                                        className="mt-1" />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">Graph Retrieval Hops</Label>
+                                                    <Input type="number" min={1} max={5} value={formAdvanced.graph_hops}
+                                                        onChange={e => setFormAdvanced(p => ({ ...p, graph_hops: parseInt(e.target.value) || 2 }))}
+                                                        className="mt-1" />
+                                                </div>
+                                            </div>
+
+                                            {/* Re-ranking Config */}
+                                            <div className="mt-4 pt-3 border-t border-gray-200 dark:border-zinc-700">
+                                                <label className="flex items-center gap-2 cursor-pointer mb-3">
+                                                    <input type="checkbox" checked={formRerank.enabled}
+                                                        onChange={e => setFormRerank(p => ({ ...p, enabled: e.target.checked }))}
+                                                        className="w-4 h-4 rounded accent-purple-600" />
+                                                    <span className="text-sm font-medium">Enable Re-ranking</span>
+                                                </label>
+                                                {formRerank.enabled && (
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <Label className="text-xs">Strategy</Label>
+                                                            <select value={formRerank.strategy}
+                                                                onChange={e => setFormRerank(p => ({ ...p, strategy: e.target.value as any }))}
+                                                                className="mt-1 w-full rounded-md border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+                                                                <option value="rrf">RRF (Reciprocal Rank Fusion)</option>
+                                                                <option value="cross_encoder">Cross-Encoder Model</option>
+                                                                <option value="llm">LLM-based Re-ranking</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <Label className="text-xs">Final Top-K</Label>
+                                                            <Input type="number" min={1} max={20} value={formRerank.final_top_k}
+                                                                onChange={e => setFormRerank(p => ({ ...p, final_top_k: parseInt(e.target.value) || 5 }))}
+                                                                className="mt-1" />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <p className="text-xs text-gray-400">
+                                    RAG retrieves relevant context from your knowledge base. Knowledge Graph enables structured relationship queries.
+                                    PageIndex navigates document structure for hierarchical retrieval.
                                 </p>
                             </div>
                         )}
