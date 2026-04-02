@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
 
                 // Store Result
                 // Add metadata to QA pairs?
-                for qa in &qa_pairs {
+                for _qa in &qa_pairs {
                     // We might want to store more metadata like chunk_id/file
                     // For now, keep it simple conform to struct
                 }

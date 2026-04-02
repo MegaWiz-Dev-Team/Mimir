@@ -24,12 +24,14 @@ import {
     fetchModels,
     modelsToProviders,
     LlmProvider,
+    generateAgent,
+    GeneratedAgentDraft,
 } from "@/lib/api";
 import {
     Plus, Brain, Bot, Send, Trash2, Edit, Rocket, Copy, Check,
     ChevronLeft, Loader2, Globe, Zap, Database, Wrench, Sparkles,
     ThumbsUp, ThumbsDown, Clock, Hash, X, LayoutGrid, MessageSquare,
-    ExternalLink,
+    ExternalLink, Wand2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -89,6 +91,17 @@ export default function AgentStudioPage() {
     const [copiedKey, setCopiedKey] = useState(false);
     const [showTemplates, setShowTemplates] = useState(false);
     const [activeTab, setActiveTab] = useState<"basic" | "model" | "behavior" | "rag" | "tools">("basic");
+
+    // AI Generator state
+    const [showGenerator, setShowGenerator] = useState(false);
+    const [genPrompt, setGenPrompt] = useState("");
+    const [genProvider, setGenProvider] = useState("heimdall");
+    const [genModelId, setGenModelId] = useState("");
+    const [genLoading, setGenLoading] = useState(false);
+    const [genDraft, setGenDraft] = useState<GeneratedAgentDraft | null>(null);
+    const [genError, setGenError] = useState<string | null>(null);
+    const [genLatency, setGenLatency] = useState<number | null>(null);
+    const [genSaving, setGenSaving] = useState(false);
 
     // ─── Load data ──────────────────────────────────────────────────────────────
 
@@ -287,6 +300,9 @@ export default function AgentStudioPage() {
                         <p className="text-gray-500 mt-1">Build, test, and deploy AI agents — no code required</p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <Button variant="outline" onClick={() => { setShowGenerator(true); setGenDraft(null); setGenError(null); setGenPrompt(""); }} className="hidden sm:flex bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-indigo-200 dark:border-indigo-800 hover:border-indigo-400">
+                            <Wand2 className="w-4 h-4 mr-2 text-indigo-600" /> Generate with AI
+                        </Button>
                         <Button variant="outline" onClick={() => { resetForm(); setShowTemplates(true); setView("builder"); }} className="hidden sm:flex">
                             <Sparkles className="w-4 h-4 mr-2" /> From Template
                         </Button>
@@ -337,6 +353,208 @@ export default function AgentStudioPage() {
                     <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex justify-between items-center">
                         <span className="text-sm">{error}</span>
                         <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 rounded"><X className="w-4 h-4" /></button>
+                    </div>
+                )}
+
+                {/* ═══ AI Generator Dialog ═══ */}
+                {showGenerator && (
+                    <div className="bg-white dark:bg-zinc-900 rounded-2xl border-2 border-indigo-200 dark:border-indigo-800 shadow-xl shadow-indigo-100/50 dark:shadow-none overflow-hidden">
+                        <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                                    <Wand2 className="w-5 h-5 text-white" />
+                                </div>
+                                <div>
+                                    <h3 className="text-white font-bold text-lg">AI Agent Generator</h3>
+                                    <p className="text-white/70 text-xs">Describe your agent in natural language</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowGenerator(false)} className="p-2 rounded-lg hover:bg-white/20 transition-colors"><X className="w-5 h-5 text-white" /></button>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            {/* Provider & Model Selection */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label className="text-sm font-medium text-gray-700 dark:text-zinc-300">AI Provider</Label>
+                                    <select value={genProvider}
+                                        onChange={e => { setGenProvider(e.target.value); setGenModelId(""); }}
+                                        className="mt-1.5 w-full rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+                                        {providers.length > 0 ? providers.map(p => (
+                                            <option key={p.id} value={p.id}>{p.display_name}</option>
+                                        )) : (
+                                            <>
+                                                <option value="heimdall">Heimdall (Self-Hosted)</option>
+                                                <option value="ollama">Ollama (Local)</option>
+                                                <option value="gemini">Google Gemini</option>
+                                                <option value="openai">OpenAI</option>
+                                            </>
+                                        )}
+                                    </select>
+                                </div>
+                                <div>
+                                    <Label className="text-sm font-medium text-gray-700 dark:text-zinc-300">Model</Label>
+                                    <select value={genModelId}
+                                        onChange={e => setGenModelId(e.target.value)}
+                                        className="mt-1.5 w-full rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+                                        <option value="">Select a model...</option>
+                                        {providers.find(p => p.id === genProvider)?.models.map(m => (
+                                            <option key={m.id} value={m.id}>{m.display_name || m.id}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Prompt Input */}
+                            <div>
+                                <Label className="text-sm font-medium text-gray-700 dark:text-zinc-300">Describe your agent</Label>
+                                <textarea
+                                    value={genPrompt}
+                                    onChange={e => setGenPrompt(e.target.value)}
+                                    placeholder="เช่น: สร้าง Agent สำหรับให้คำปรึกษาทางการแพทย์ด้านเด็ก ต้องตอบเป็นภาษาไทย มีความระมัดระวังสูง และต้องขออนุญาตก่อนให้คำแนะนำยา..."
+                                    className="mt-1.5 w-full rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 px-4 py-3 text-sm min-h-[100px] resize-y focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">{genPrompt.length} characters · ยิ่งละเอียดยิ่งแม่นยำ</p>
+                            </div>
+
+                            {genError && (
+                                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+                                    {genError}
+                                </div>
+                            )}
+
+                            {/* Generate Button */}
+                            {!genDraft && (
+                                <Button
+                                    onClick={async () => {
+                                        if (!genPrompt.trim() || !genModelId) return;
+                                        setGenLoading(true); setGenError(null);
+                                        try {
+                                            const res = await generateAgent({ prompt: genPrompt, provider: genProvider, model_id: genModelId });
+                                            setGenDraft(res.draft);
+                                            setGenLatency(res.latency_ms);
+                                        } catch (err: any) {
+                                            setGenError(err.message);
+                                        } finally {
+                                            setGenLoading(false);
+                                        }
+                                    }}
+                                    disabled={!genPrompt.trim() || !genModelId || genLoading}
+                                    className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white py-3 rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none text-sm font-medium"
+                                >
+                                    {genLoading ? (
+                                        <><Loader2 className="w-4 h-4 animate-spin mr-2" /> AI is drafting your agent...</>
+                                    ) : (
+                                        <><Wand2 className="w-4 h-4 mr-2" /> Generate Agent Config</>
+                                    )}
+                                </Button>
+                            )}
+
+                            {/* Draft Preview */}
+                            {genDraft && (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                            <span className="text-sm font-medium text-green-700 dark:text-green-400">Draft Generated</span>
+                                            {genLatency && <span className="text-xs text-gray-400">({genLatency}ms)</span>}
+                                        </div>
+                                        <Button variant="ghost" size="sm" onClick={() => setGenDraft(null)} className="text-xs">Regenerate</Button>
+                                    </div>
+
+                                    <div className="bg-gray-50 dark:bg-zinc-800 rounded-xl p-5 space-y-3 border border-gray-100 dark:border-zinc-700">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl shadow-md">
+                                                {genDraft.display_name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-base">{genDraft.display_name}</h4>
+                                                <p className="text-xs text-gray-500 font-mono">{genDraft.name} · {genDraft.provider}/{(genDraft.model_id || '').split('/').pop()}</p>
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-gray-600 dark:text-zinc-400">{genDraft.description}</p>
+
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {genDraft.use_rag && <span className="text-[10px] font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full">RAG</span>}
+                                            {genDraft.use_knowledge_graph && <span className="text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full">KG</span>}
+                                            {genDraft.personality_traits.map(t => (
+                                                <span key={t} className="text-[10px] font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-2 py-0.5 rounded-full">{t}</span>
+                                            ))}
+                                            <span className="text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full">temp: {genDraft.temperature}</span>
+                                        </div>
+
+                                        <details className="mt-2">
+                                            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">View System Prompt ({genDraft.system_prompt.length} chars)</summary>
+                                            <pre className="mt-2 text-xs bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg p-3 whitespace-pre-wrap max-h-[200px] overflow-y-auto">{genDraft.system_prompt}</pre>
+                                        </details>
+
+                                        {genDraft.greeting && (
+                                            <div className="mt-2 text-sm bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg p-3 italic text-gray-600 dark:text-zinc-400">
+                                                💬 {genDraft.greeting}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <Button variant="outline" className="flex-1" onClick={() => {
+                                            // Load into manual builder for tweaking
+                                            setFormName(genDraft.name);
+                                            setFormDisplayName(genDraft.display_name);
+                                            setFormDescription(genDraft.description);
+                                            setFormSystemPrompt(genDraft.system_prompt);
+                                            setFormModelId(genDraft.model_id);
+                                            setFormProvider(genDraft.provider);
+                                            setFormTemperature(genDraft.temperature);
+                                            setFormMaxTokens(genDraft.max_tokens);
+                                            setFormUseRag(genDraft.use_rag);
+                                            setFormUseKG(genDraft.use_knowledge_graph);
+                                            setFormTools(genDraft.tools);
+                                            setFormTraits(genDraft.personality_traits);
+                                            setFormGreeting(genDraft.greeting);
+                                            setShowGenerator(false);
+                                            setView("builder");
+                                        }}>
+                                            <Edit className="w-4 h-4 mr-2" /> Edit Before Saving
+                                        </Button>
+                                        <Button
+                                            className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg shadow-green-200 dark:shadow-none"
+                                            disabled={genSaving}
+                                            onClick={async () => {
+                                                setGenSaving(true);
+                                                try {
+                                                    await createAgent({
+                                                        name: genDraft.name,
+                                                        display_name: genDraft.display_name,
+                                                        description: genDraft.description,
+                                                        system_prompt: genDraft.system_prompt,
+                                                        model_id: genDraft.model_id,
+                                                        provider: genDraft.provider,
+                                                        temperature: genDraft.temperature,
+                                                        max_tokens: genDraft.max_tokens,
+                                                        use_rag: genDraft.use_rag,
+                                                        use_knowledge_graph: genDraft.use_knowledge_graph,
+                                                        tools: genDraft.tools,
+                                                        personality_traits: genDraft.personality_traits,
+                                                        greeting: genDraft.greeting,
+                                                        tier: genDraft.tier,
+                                                    });
+                                                    await loadAgents();
+                                                    setShowGenerator(false);
+                                                    setGenDraft(null);
+                                                } catch (err: any) {
+                                                    setGenError(err.message);
+                                                } finally {
+                                                    setGenSaving(false);
+                                                }
+                                            }}
+                                        >
+                                            {genSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
+                                            Save Agent
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
