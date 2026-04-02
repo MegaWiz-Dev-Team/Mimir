@@ -128,6 +128,7 @@ else
 fi
 
 # ─── Step 7: Build backend ──────────────────────────────────────
+export SQLX_OFFLINE=true   # Use cached query metadata — no live DB needed at compile time
 if [ "$MODE" = "--prod" ]; then
     info "Building backend (release)..."
     cargo build --release 2>&1 | tail -3
