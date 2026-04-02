@@ -429,7 +429,7 @@ export const PROVIDERS: LlmProvider[] = [
         models: [
             { id: "sakura/Llama-3-400B-Instruct", display_name: "Llama 3 400B (Sakura Cluster)", description: "Ultra-heavy reasoning for complex clinical logic" },
             { id: "sakura/Nemotron-4-340B-Instruct", display_name: "Nemotron 4 340B (Sakura Cluster)", description: "Nvidia optimized enterprise model" },
-            { id: "sakura/Qwen2.5-72B-Instruct", display_name: "Qwen 2.5 72B (Sakura Cluster)", description: "High-throughput model for RAG" },
+            { id: "sakura/Qwen3.5-110B-Chat", display_name: "Qwen 3.5 110B (vLLM Sakura)", description: "High-throughput model for RAG via vLLM" },
         ],
     },
     {
