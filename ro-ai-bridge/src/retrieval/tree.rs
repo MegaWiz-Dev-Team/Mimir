@@ -24,26 +24,31 @@ pub trait TreeRetriever: Send + Sync {
     /// Search across multiple documents in parallel.
     async fn search_parallel(
         &self,
+        router: &mimir_core_ai::services::llm_router::LlmRouter,
         docs: &[(String, String, String)], // (title, content, tree_json)
         question: &str,
     ) -> Vec<TreeSearchResult>;
 }
 
-// ── PageIndexRetriever ────────────────────────────────
+// ── NativeTreeRetriever ────────────────────────────────
 
-/// Production retriever that calls PageIndex sidecar in parallel.
-pub struct PageIndexRetriever {
-    base_url: String,
-    client: reqwest::Client,
-    /// Max concurrent requests to PageIndex to prevent overload.
-    concurrency_limit: usize,
+use mimir_core_ai::services::llm_router::UniversalClient;
+
+/// Production retriever that calls Native LLM in parallel.
+pub struct NativeTreeRetriever {
+    /// Max concurrent requests to prevent overload.
+    pub concurrency_limit: usize,
 }
 
-impl PageIndexRetriever {
-    pub fn new(base_url: String) -> Self {
+impl Default for NativeTreeRetriever {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NativeTreeRetriever {
+    pub fn new() -> Self {
         Self {
-            base_url,
-            client: reqwest::Client::new(),
             concurrency_limit: 10,
         }
     }
@@ -53,9 +58,11 @@ impl PageIndexRetriever {
         self
     }
 
-    /// Call PageIndex sidecar for a single document.
+    /// Call LLM natively for a single document's tree.
     async fn search_one(
         &self,
+        client: &UniversalClient,
+        model: &str,
         title: &str,
         tree_json: &str,
         content: &str,
@@ -64,24 +71,38 @@ impl PageIndexRetriever {
         let tree_index: Value =
             serde_json::from_str(tree_json).map_err(|e| format!("Invalid tree JSON: {}", e))?;
 
-        let resp = self
-            .client
-            .post(format!("{}/search", self.base_url))
-            .json(&json!({
-                "tree_index": tree_index,
-                "question": question,
-                "content": content,
-            }))
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await
-            .map_err(|e| format!("PageIndex request failed: {}", e))?;
-
-        if !resp.status().is_success() {
-            return Err(format!("PageIndex returned {}", resp.status()));
+        let system_prompt = "You are a document search agent. Given a tree index of a document, find the most relevant sections for the user's question. Return exactly a valid JSON with fields: 'answer' (string or null), 'relevant_sections' (list of strings representing node titles), 'reasoning' (string).";
+        
+        let mut truncated_tree = tree_json;
+        if tree_json.len() > 8000 {
+            truncated_tree = &tree_json[..8000];
+        }
+        let mut truncated_content = content;
+        if content.len() > 12000 {
+            truncated_content = &content[..12000];
         }
 
-        let result: Value = resp.json().await.map_err(|e| e.to_string())?;
+        let user_prompt = format!(
+            "## Document Title: {}\n\n## Tree Index:\n```json\n{}\n```\n\n## Partial Document Content:\n{}\n\n## Question:\n{}\n\nPlease find the answer using the tree index to locate relevant sections.",
+            title, truncated_tree, truncated_content, question
+        );
+
+        let response_text = client.prompt(model, system_prompt, &user_prompt, 2048, 0.1)
+            .await
+            .map_err(|e| format!("LLM generation failed: {}", e))?;
+
+        // Cleanup potential markdown codeblock wrapping
+        let clean_json = response_text.trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+
+        let result: Value = serde_json::from_str(clean_json).unwrap_or(json!({
+            "answer": null,
+            "relevant_sections": [],
+            "reasoning": "Failed to parse JSON"
+        }));
 
         let sections: Vec<String> = result
             .get("relevant_sections")
@@ -110,18 +131,27 @@ impl PageIndexRetriever {
 }
 
 #[async_trait]
-impl TreeRetriever for PageIndexRetriever {
+impl TreeRetriever for NativeTreeRetriever {
     async fn search_parallel(
         &self,
+        router: &mimir_core_ai::services::llm_router::LlmRouter,
         docs: &[(String, String, String)],
         question: &str,
     ) -> Vec<TreeSearchResult> {
         use futures::future::join_all;
 
+        let (client, model) = match router.resolve_client("generation") {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::warn!("Failed to resolve generation client: {}", e);
+                return vec![];
+            }
+        };
+
         // Build futures for all docs
         let futures: Vec<_> = docs
             .iter()
-            .map(|(title, content, tree_json)| self.search_one(title, tree_json, content, question))
+            .map(|(title, content, tree_json)| self.search_one(&client, &model, title, tree_json, content, question))
             .collect();
 
         // Execute all in parallel
@@ -134,7 +164,7 @@ impl TreeRetriever for PageIndexRetriever {
             .filter_map(|(i, r)| match r {
                 Ok(result) => Some(result),
                 Err(e) => {
-                    tracing::warn!("Tree search failed for doc {}: {}", docs[i].0, e);
+                    tracing::warn!("Native tree search failed for doc {}: {}", docs[i].0, e);
                     None
                 }
             })
@@ -166,6 +196,62 @@ pub fn tree_to_retrieval_results(tree_results: &[TreeSearchResult]) -> Vec<Retri
             })
         })
         .collect()
+}
+
+// ── Native Tree Builder ─────────────────────────────
+
+pub fn build_native_tree(content: &str, title: &str) -> Value {
+    let mut root = json!({
+        "title": title,
+        "children": [],
+        "level": 0
+    });
+    
+    let mut stack: Vec<(usize, Value)> = vec![(0, root)];
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            let level = trimmed.chars().take_while(|&c| c == '#').count();
+            let heading = trimmed.trim_start_matches('#').trim().to_string();
+            
+            if !heading.is_empty() {
+                let node = json!({
+                    "title": heading,
+                    "content": "",
+                    "children": [],
+                    "level": level
+                });
+                
+                while stack.len() > 1 && stack.last().unwrap().0 >= level {
+                    let (_, popped_node) = stack.pop().unwrap();
+                    let parent = stack.last_mut().unwrap();
+                    parent.1.get_mut("children").unwrap().as_array_mut().unwrap().push(popped_node);
+                }
+                
+                stack.push((level, node));
+            }
+        }
+    }
+    
+    while stack.len() > 1 {
+        let (_, popped_node) = stack.pop().unwrap();
+        let parent = stack.last_mut().unwrap();
+        parent.1.get_mut("children").unwrap().as_array_mut().unwrap().push(popped_node);
+    }
+    
+    stack.pop().unwrap().1
+}
+
+pub fn count_nodes(tree: &Value) -> i64 {
+    let mut count = 0i64;
+    if let Some(children) = tree.get("children").and_then(|n| n.as_array()) {
+        count += children.len() as i64;
+        for node in children {
+            count += count_nodes(node);
+        }
+    }
+    count
 }
 
 // ── Parent Context Extraction ─────────────────────────
