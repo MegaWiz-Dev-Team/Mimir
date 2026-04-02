@@ -35,3 +35,4 @@ pub mod vector;
 pub mod search;
 pub mod search_benchmark;
 pub mod search_optimize;
+pub mod swarm;
