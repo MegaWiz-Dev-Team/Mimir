@@ -1,15 +1,15 @@
-use anyhow::Result;
-use super::{WikiChunk, QAPair};
-use super::generator::{generate_qa, generate_missing_qa};
 use super::extractor::extract_acus;
+use super::generator::{generate_missing_qa, generate_qa};
 use super::verifier::verify_coverage;
-use crate::services::db::DbPool;
+use super::{QAPair, WikiChunk};
 use crate::config::QAConfig;
-use tokio::fs;
-use tracing::{info, error};
+use crate::services::db::DbPool;
+use crate::services::llm_router::{LlmRouter, UniversalClient};
+use anyhow::Result;
 use chrono::Utc;
 use sqlx::Row;
-use crate::services::llm_router::{LlmRouter, UniversalClient};
+use tokio::fs;
+use tracing::{error, info};
 
 pub async fn run_pipeline(
     db_pool: &DbPool,
@@ -19,7 +19,7 @@ pub async fn run_pipeline(
     input_dir: &str,
     is_test_run: bool,
     qa_count: usize,
-    tenant_id: String
+    tenant_id: String,
 ) -> Result<()> {
     // Convert fixed qa_count to a QAConfig with default rules
     let qa_config = QAConfig {
@@ -30,7 +30,17 @@ pub async fn run_pipeline(
             patterns: vec![],
         },
     };
-    run_pipeline_with_config(db_pool, run_id, provider, model, input_dir, is_test_run, qa_config, tenant_id).await
+    run_pipeline_with_config(
+        db_pool,
+        run_id,
+        provider,
+        model,
+        input_dir,
+        is_test_run,
+        qa_config,
+        tenant_id,
+    )
+    .await
 }
 
 /// Run pipeline with full QAConfig support (size-based and pattern-based rules)
@@ -42,7 +52,7 @@ pub async fn run_pipeline_with_config(
     input_dir: &str,
     is_test_run: bool,
     qa_config: QAConfig,
-    tenant_id: String
+    tenant_id: String,
 ) -> Result<()> {
     let started_at = Utc::now();
 
@@ -59,8 +69,12 @@ pub async fn run_pipeline_with_config(
     .execute(db_pool).await?;
 
     info!("🚀 Starting Pipeline Run: {}", run_id);
-    info!("📋 QA Config: default_count={}, {} size rules, {} file patterns", 
-        qa_config.default_count, qa_config.rules.len(), qa_config.file_patterns.patterns.len());
+    info!(
+        "📋 QA Config: default_count={}, {} size rules, {} file patterns",
+        qa_config.default_count,
+        qa_config.rules.len(),
+        qa_config.file_patterns.patterns.len()
+    );
 
     // Initialize dynamic routing instead of hardcoding Gemini/Ollama
     let router = LlmRouter::new(db_pool.clone(), &tenant_id).await?;
@@ -72,31 +86,49 @@ pub async fn run_pipeline_with_config(
     let mut failed_steps = 0usize;
 
     let mut dir = fs::read_dir(input_dir).await?;
-    
+
     while let Some(entry) = dir.next_entry().await? {
         let path = entry.path();
         if path.extension().map_or(false, |ext| ext == "md") {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             let content_raw = fs::read_to_string(&path).await?;
-            
+
             // Extract Frontmatter
             let (url, content) = if content_raw.starts_with("---") {
-                 if let Some(end) = content_raw[3..].find("---") {
-                     let frontmatter = &content_raw[3..end+3];
-                     let url = frontmatter.lines()
-                         .find(|l| l.trim().starts_with("url:"))
-                         .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('"').to_string())
-                         .unwrap_or_else(|| "unknown".to_string());
-                     (url, &content_raw[end+6..])
-                 } else { ("unknown".to_string(), content_raw.as_str()) }
-            } else { ("unknown".to_string(), content_raw.as_str()) };
+                if let Some(end) = content_raw[3..].find("---") {
+                    let frontmatter = &content_raw[3..end + 3];
+                    let url = frontmatter
+                        .lines()
+                        .find(|l| l.trim().starts_with("url:"))
+                        .map(|l| {
+                            l.splitn(2, ':')
+                                .nth(1)
+                                .unwrap_or("")
+                                .trim()
+                                .trim_matches('"')
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| "unknown".to_string());
+                    (url, &content_raw[end + 6..])
+                } else {
+                    ("unknown".to_string(), content_raw.as_str())
+                }
+            } else {
+                ("unknown".to_string(), content_raw.as_str())
+            };
 
             let chunks: Vec<&str> = content.split("\n#").collect();
 
             for (i, raw_chunk) in chunks.iter().enumerate() {
-                if raw_chunk.trim().len() < 50 { continue; }
-                let chunk_text = if i > 0 { format!("#{}", raw_chunk) } else { raw_chunk.to_string() };
-                
+                if raw_chunk.trim().len() < 50 {
+                    continue;
+                }
+                let chunk_text = if i > 0 {
+                    format!("#{}", raw_chunk)
+                } else {
+                    raw_chunk.to_string()
+                };
+
                 let wiki_chunk = WikiChunk {
                     source_file: filename.clone(),
                     url: url.clone(),
@@ -122,17 +154,30 @@ pub async fn run_pipeline_with_config(
                 .execute(db_pool).await?.last_insert_id();
 
                 // Process
-                match process_chunk(db_pool, step_id, &gen_client, &gen_model, &eval_client, &eval_model, &wiki_chunk, qa_count, &tenant_id).await {
+                match process_chunk(
+                    db_pool,
+                    step_id,
+                    &gen_client,
+                    &gen_model,
+                    &eval_client,
+                    &eval_model,
+                    &wiki_chunk,
+                    qa_count,
+                    &tenant_id,
+                )
+                .await
+                {
                     Ok(qa_pairs) => {
                         all_qa.extend(qa_pairs);
                         sqlx::query(
-                            "UPDATE pipeline_steps SET status = ?, finished_at = ? WHERE id = ?"
+                            "UPDATE pipeline_steps SET status = ?, finished_at = ? WHERE id = ?",
                         )
                         .bind("COMPLETED")
                         .bind(Utc::now())
                         .bind(step_id as i64)
-                        .execute(db_pool).await?;
-                    },
+                        .execute(db_pool)
+                        .await?;
+                    }
                     Err(e) => {
                         failed_steps += 1;
                         let err_msg = e.to_string();
@@ -149,7 +194,9 @@ pub async fn run_pipeline_with_config(
                 }
             }
 
-            if is_test_run { break; }
+            if is_test_run {
+                break;
+            }
         }
     }
 
@@ -161,25 +208,23 @@ pub async fn run_pipeline_with_config(
     } else {
         "PARTIAL"
     };
-    
-    info!("📊 Pipeline finished: {} total steps, {} failed, status={}", total_steps, failed_steps, final_status);
-    
-    sqlx::query(
-        "UPDATE pipeline_runs SET status = ?, finished_at = ? WHERE id = ?"
-    )
-    .bind(final_status)
-    .bind(Utc::now())
-    .bind(&run_id)
-    .execute(db_pool).await?;
+
+    info!(
+        "📊 Pipeline finished: {} total steps, {} failed, status={}",
+        total_steps, failed_steps, final_status
+    );
+
+    sqlx::query("UPDATE pipeline_runs SET status = ?, finished_at = ? WHERE id = ?")
+        .bind(final_status)
+        .bind(Utc::now())
+        .bind(&run_id)
+        .execute(db_pool)
+        .await?;
 
     Ok(())
 }
 
-pub async fn retry_step(
-    db_pool: &DbPool,
-    step_id: i64,
-    qa_count: usize
-) -> Result<()> {
+pub async fn retry_step(db_pool: &DbPool, step_id: i64, qa_count: usize) -> Result<()> {
     // Convert to QAConfig
     let qa_config = QAConfig {
         default_count: qa_count,
@@ -196,14 +241,14 @@ pub async fn retry_step(
 pub async fn retry_step_with_config(
     db_pool: &DbPool,
     step_id: i64,
-    qa_config: QAConfig
+    qa_config: QAConfig,
 ) -> Result<()> {
     // 1. Fetch Step Details
     let step = sqlx::query("SELECT * FROM pipeline_steps WHERE id = ?")
         .bind(step_id)
         .fetch_one(db_pool)
         .await?;
-    
+
     let run_id: String = step.get("run_id");
     let file_name: String = step.get("file_name");
     let chunk_index: i64 = step.get("chunk_index");
@@ -217,23 +262,35 @@ pub async fn retry_step_with_config(
 
     let _provider: String = run.get("provider");
     let _model: String = run.get("model");
-    
+
     // 3. Re-read Content (Assuming data/wiki)
-    let input_dir = "data/wiki"; 
+    let input_dir = "data/wiki";
     let path = std::path::Path::new(input_dir).join(&file_name);
     let content_raw = fs::read_to_string(&path).await?;
-    
+
     // Extract Frontmatter (Duplicate logic from run_pipeline - ideally refactor)
     let (url, content) = if content_raw.starts_with("---") {
-         if let Some(end) = content_raw[3..].find("---") {
-             let frontmatter = &content_raw[3..end+3];
-             let url_val = frontmatter.lines()
-                 .find(|l| l.trim().starts_with("url:"))
-                 .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('"').to_string())
-                 .unwrap_or_else(|| "unknown".to_string());
-             (url_val, &content_raw[end+6..])
-         } else { ("unknown".to_string(), content_raw.as_str()) }
-    } else { ("unknown".to_string(), content_raw.as_str()) };
+        if let Some(end) = content_raw[3..].find("---") {
+            let frontmatter = &content_raw[3..end + 3];
+            let url_val = frontmatter
+                .lines()
+                .find(|l| l.trim().starts_with("url:"))
+                .map(|l| {
+                    l.splitn(2, ':')
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string()
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+            (url_val, &content_raw[end + 6..])
+        } else {
+            ("unknown".to_string(), content_raw.as_str())
+        }
+    } else {
+        ("unknown".to_string(), content_raw.as_str())
+    };
 
     let chunks: Vec<&str> = content.split("\n#").collect();
     if chunk_index as usize >= chunks.len() {
@@ -241,8 +298,12 @@ pub async fn retry_step_with_config(
     }
 
     let raw_chunk = chunks[chunk_index as usize];
-    let chunk_text = if chunk_index > 0 { format!("#{}", raw_chunk) } else { raw_chunk.to_string() };
-    
+    let chunk_text = if chunk_index > 0 {
+        format!("#{}", raw_chunk)
+    } else {
+        raw_chunk.to_string()
+    };
+
     let wiki_chunk = WikiChunk {
         source_file: file_name.clone(),
         url: url.clone(),
@@ -255,11 +316,13 @@ pub async fn retry_step_with_config(
     // 3.5 Cleanup Previous Results
     sqlx::query("DELETE FROM qa_results WHERE step_id = ?")
         .bind(step_id)
-        .execute(db_pool).await?;
+        .execute(db_pool)
+        .await?;
 
     sqlx::query("DELETE FROM evaluation_reports WHERE step_id = ?")
         .bind(step_id)
-        .execute(db_pool).await?;
+        .execute(db_pool)
+        .await?;
 
     // 4. Update Status to RUNNING
     sqlx::query("UPDATE pipeline_steps SET status = 'RUNNING', error_message = NULL, started_at = ? WHERE id = ?")
@@ -273,16 +336,34 @@ pub async fn retry_step_with_config(
     let (eval_client, eval_model) = router.resolve_client("pipeline_evaluator")?;
 
     // 6. Process Chunk
-    info!("🔄 Retrying Step #{} (File: {}, Chunk: {}) with {} Q/A pairs", step_id, file_name, chunk_index, qa_count);
-    
-    match process_chunk(db_pool, step_id as u64, &gen_client, &gen_model, &eval_client, &eval_model, &wiki_chunk, qa_count, &tenant_id).await {
+    info!(
+        "🔄 Retrying Step #{} (File: {}, Chunk: {}) with {} Q/A pairs",
+        step_id, file_name, chunk_index, qa_count
+    );
+
+    match process_chunk(
+        db_pool,
+        step_id as u64,
+        &gen_client,
+        &gen_model,
+        &eval_client,
+        &eval_model,
+        &wiki_chunk,
+        qa_count,
+        &tenant_id,
+    )
+    .await
+    {
         Ok(_) => {
-            sqlx::query("UPDATE pipeline_steps SET status = 'COMPLETED', finished_at = ? WHERE id = ?")
-                .bind(Utc::now())
-                .bind(step_id)
-                .execute(db_pool).await?;
+            sqlx::query(
+                "UPDATE pipeline_steps SET status = 'COMPLETED', finished_at = ? WHERE id = ?",
+            )
+            .bind(Utc::now())
+            .bind(step_id)
+            .execute(db_pool)
+            .await?;
             info!("✅ Retry Step #{} Completed", step_id);
-        },
+        }
         Err(e) => {
             let err_msg = e.to_string();
             error!("❌ Retry Step #{} Failed: {}", step_id, err_msg);
@@ -297,11 +378,7 @@ pub async fn retry_step_with_config(
     Ok(())
 }
 
-pub async fn resume_pipeline(
-    db_pool: &DbPool,
-    run_id: String,
-    qa_count: usize
-) -> Result<()> {
+pub async fn resume_pipeline(db_pool: &DbPool, run_id: String, qa_count: usize) -> Result<()> {
     // Convert to QAConfig
     let qa_config = QAConfig {
         default_count: qa_count,
@@ -318,13 +395,14 @@ pub async fn resume_pipeline(
 pub async fn resume_pipeline_with_config(
     db_pool: &DbPool,
     run_id: String,
-    qa_config: QAConfig
+    qa_config: QAConfig,
 ) -> Result<()> {
     // 1. Check/Update Run Status
     let run = sqlx::query("SELECT status, tenant_id FROM pipeline_runs WHERE id = ?")
         .bind(&run_id)
-        .fetch_one(db_pool).await?;
-        
+        .fetch_one(db_pool)
+        .await?;
+
     let status: String = run.get("status");
     let tenant_id: String = run.get("tenant_id");
     if status == "COMPLETED" {
@@ -334,7 +412,8 @@ pub async fn resume_pipeline_with_config(
 
     sqlx::query("UPDATE pipeline_runs SET status = 'RUNNING', finished_at = NULL WHERE id = ?")
         .bind(&run_id)
-        .execute(db_pool).await?;
+        .execute(db_pool)
+        .await?;
 
     // 2. Iterate Config (Hardcoded data/wiki)
     let input_dir = "data/wiki";
@@ -345,20 +424,26 @@ pub async fn resume_pipeline_with_config(
         if path.extension().map_or(false, |ext| ext == "md") {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             let content_raw = fs::read_to_string(&path).await?;
-            
+
             // Frontmatter extraction
             let (_, content) = if content_raw.starts_with("---") {
-                 if let Some(end) = content_raw[3..].find("---") {
-                     // We don't need URL here as retry_step re-extracts it
-                     ("unknown".to_string(), &content_raw[end+6..])
-                 } else { ("unknown".to_string(), content_raw.as_str()) }
-            } else { ("unknown".to_string(), content_raw.as_str()) };
+                if let Some(end) = content_raw[3..].find("---") {
+                    // We don't need URL here as retry_step re-extracts it
+                    ("unknown".to_string(), &content_raw[end + 6..])
+                } else {
+                    ("unknown".to_string(), content_raw.as_str())
+                }
+            } else {
+                ("unknown".to_string(), content_raw.as_str())
+            };
 
             let chunks: Vec<&str> = content.split("\n#").collect();
-            
+
             for (i, raw_chunk) in chunks.iter().enumerate() {
-                if raw_chunk.trim().len() < 50 { continue; }
-                
+                if raw_chunk.trim().len() < 50 {
+                    continue;
+                }
+
                 // Check if step exists
                 let step = sqlx::query("SELECT id, status FROM pipeline_steps WHERE run_id = ? AND file_name = ? AND chunk_index = ?")
                     .bind(&run_id)
@@ -369,15 +454,16 @@ pub async fn resume_pipeline_with_config(
                 if let Some(row) = step {
                     let status: String = row.get("status");
                     if status != "COMPLETED" {
-                         let id: i64 = row.get("id");
-                         info!("Resuming step #{}", id);
-                         if let Err(e) = retry_step_with_config(db_pool, id, qa_config.clone()).await {
-                             error!("Failed to resume step #{}: {}", id, e);
-                         }
+                        let id: i64 = row.get("id");
+                        info!("Resuming step #{}", id);
+                        if let Err(e) = retry_step_with_config(db_pool, id, qa_config.clone()).await
+                        {
+                            error!("Failed to resume step #{}: {}", id, e);
+                        }
                     }
                 } else {
                     // Create new step
-                     let step_id = sqlx::query(
+                    let step_id = sqlx::query(
                         "INSERT INTO pipeline_steps (run_id, file_name, chunk_index, status, step_type, started_at, tenant_id) \
                          VALUES (?, ?, ?, ?, ?, ?, ?)"
                     )
@@ -389,11 +475,13 @@ pub async fn resume_pipeline_with_config(
                     .bind(Utc::now())
                     .bind(&tenant_id)
                     .execute(db_pool).await?.last_insert_id();
-                    
+
                     info!("Created new step #{} for resume", step_id);
-                     if let Err(e) = retry_step_with_config(db_pool, step_id as i64, qa_config.clone()).await {
-                         error!("Failed to process new step #{}: {}", step_id, e);
-                     }
+                    if let Err(e) =
+                        retry_step_with_config(db_pool, step_id as i64, qa_config.clone()).await
+                    {
+                        error!("Failed to process new step #{}: {}", step_id, e);
+                    }
                 }
             }
         }
@@ -403,7 +491,8 @@ pub async fn resume_pipeline_with_config(
     sqlx::query("UPDATE pipeline_runs SET status = 'COMPLETED', finished_at = ? WHERE id = ?")
         .bind(Utc::now())
         .bind(&run_id)
-        .execute(db_pool).await?;
+        .execute(db_pool)
+        .await?;
 
     Ok(())
 }
@@ -417,21 +506,22 @@ pub async fn process_chunk(
     eval_model: &str,
     chunk: &WikiChunk,
     qa_count: usize,
-    tenant_id: &str
+    tenant_id: &str,
 ) -> Result<Vec<QAPair>> {
     // 1. Generate Q/A
     let qa_pairs = generate_qa(gen_client, gen_model, chunk, qa_count).await?;
-    
+
     // Save Q/A to DB
     for qa in &qa_pairs {
         sqlx::query(
-            "INSERT INTO qa_results (step_id, question, answer, tenant_id) VALUES (?, ?, ?, ?)"
+            "INSERT INTO qa_results (step_id, question, answer, tenant_id) VALUES (?, ?, ?, ?)",
         )
         .bind(step_id as i64)
         .bind(&qa.question)
         .bind(&qa.answer)
         .bind(tenant_id)
-        .execute(db_pool).await?;
+        .execute(db_pool)
+        .await?;
     }
 
     // 2. Extract ACUs
@@ -443,7 +533,7 @@ pub async fn process_chunk(
     // Save Report to DB
     let facts_json = serde_json::to_string(&facts)?;
     let missing_json = serde_json::to_string(&report.missing_facts)?;
-    
+
     sqlx::query(
         "INSERT INTO evaluation_reports (step_id, coverage_score, atomic_facts, missing_facts, reasoning, tenant_id) \
          VALUES (?, ?, ?, ?, ?, ?)"
@@ -462,14 +552,14 @@ pub async fn process_chunk(
 pub async fn generate_missing_qa_for_step(
     db_pool: &DbPool,
     step_id: u64,
-    qa_config: QAConfig
+    qa_config: QAConfig,
 ) -> Result<()> {
     // 1. Fetch step details and missing facts
     let step_record = sqlx::query(
         "SELECT ps.file_name, ps.chunk_index, ps.tenant_id, pr.provider, pr.model
          FROM pipeline_steps ps
          JOIN pipeline_runs pr ON ps.run_id = pr.id
-         WHERE ps.id = ?"
+         WHERE ps.id = ?",
     )
     .bind(step_id as i64)
     .fetch_optional(db_pool)
@@ -489,11 +579,11 @@ pub async fn generate_missing_qa_for_step(
     let file_path = format!("data/wiki/{}", filename);
     let content = fs::read_to_string(&file_path).await?;
     let chunks: Vec<&str> = content.split("\n#").collect();
-    
+
     if chunk_index < 0 || chunk_index >= chunks.len() as i64 {
-         return Err(anyhow::anyhow!("Invalid chunk index"));
+        return Err(anyhow::anyhow!("Invalid chunk index"));
     }
-    
+
     let chunk_content = &chunks[chunk_index as usize];
     let chunk = WikiChunk {
         source_file: filename.clone(),
@@ -521,16 +611,28 @@ pub async fn generate_missing_qa_for_step(
         };
 
         // Normalize coverage score (handle old bug where score might be > 1)
-        let normalized_coverage = if coverage > 1.0 { coverage / 100.0 } else { coverage };
+        let normalized_coverage = if coverage > 1.0 {
+            coverage / 100.0
+        } else {
+            coverage
+        };
 
         if normalized_coverage >= 0.99 {
-            info!("Coverage for step #{} reached {:.1}%, breaking loop.", step_id, normalized_coverage * 100.0);
+            info!(
+                "Coverage for step #{} reached {:.1}%, breaking loop.",
+                step_id,
+                normalized_coverage * 100.0
+            );
             break;
         }
 
         let missing_facts_vec: Vec<super::AtomicFact> = serde_json::from_str(&missing_facts_json)?;
         // Limit to 15 missing facts max to prevent prompt explosion and LLM timeouts
-        let missing_facts: Vec<String> = missing_facts_vec.into_iter().take(15).map(|f| f.fact).collect();
+        let missing_facts: Vec<String> = missing_facts_vec
+            .into_iter()
+            .take(15)
+            .map(|f| f.fact)
+            .collect();
 
         if missing_facts.is_empty() {
             info!("No missing facts for step #{}, breaking loop.", step_id);
@@ -539,45 +641,56 @@ pub async fn generate_missing_qa_for_step(
 
         // 4. Generate missing QA
         let new_qa_pairs = generate_missing_qa(
-            &gen_client, 
-            &gen_model.as_str(), 
-            &chunk, 
-            &missing_facts, 
-            qa_config.get_qa_count(&filename, chunk.content.len())
-        ).await?;
+            &gen_client,
+            &gen_model.as_str(),
+            &chunk,
+            &missing_facts,
+            qa_config.get_qa_count(&filename, chunk.content.len()),
+        )
+        .await?;
 
-        info!("Generated {} new Q/A pairs for step #{}", new_qa_pairs.len(), step_id);
+        info!(
+            "Generated {} new Q/A pairs for step #{}",
+            new_qa_pairs.len(),
+            step_id
+        );
 
         if new_qa_pairs.is_empty() {
-            info!("LLM failed to generate any new pairs for step #{}, breaking to avoid infinite loop.", step_id);
+            info!(
+                "LLM failed to generate any new pairs for step #{}, breaking to avoid infinite loop.",
+                step_id
+            );
             break;
         }
 
         // Save New Q/A to DB
         for qa in &new_qa_pairs {
             sqlx::query(
-                "INSERT INTO qa_results (step_id, question, answer, tenant_id) VALUES (?, ?, ?, ?)"
+                "INSERT INTO qa_results (step_id, question, answer, tenant_id) VALUES (?, ?, ?, ?)",
             )
             .bind(step_id as i64)
             .bind(&qa.question)
             .bind(&qa.answer)
             .bind(&tenant_id)
-            .execute(db_pool).await?;
+            .execute(db_pool)
+            .await?;
         }
 
         // 5. Re-evaluate
         // Fetch all QA pairs for this step now
-        let all_qa_records = sqlx::query(
-            "SELECT question, answer FROM qa_results WHERE step_id = ?"
-        )
-        .bind(step_id as i64)
-        .fetch_all(db_pool)
-        .await?;
+        let all_qa_records =
+            sqlx::query("SELECT question, answer FROM qa_results WHERE step_id = ?")
+                .bind(step_id as i64)
+                .fetch_all(db_pool)
+                .await?;
 
-        let all_qa_pairs: Vec<QAPair> = all_qa_records.into_iter().map(|row| QAPair {
-            question: row.get("question"),
-            answer: row.get("answer"),
-        }).collect();
+        let all_qa_pairs: Vec<QAPair> = all_qa_records
+            .into_iter()
+            .map(|row| QAPair {
+                question: row.get("question"),
+                answer: row.get("answer"),
+            })
+            .collect();
 
         let report_record2 = sqlx::query(
             "SELECT CAST(atomic_facts AS CHAR) AS atomic_facts FROM evaluation_reports WHERE step_id = ?"
@@ -598,10 +711,11 @@ pub async fn generate_missing_qa_for_step(
         };
 
         if !facts.is_empty() {
-            let report = verify_coverage(&eval_client, &eval_model, &chunk, &facts, &all_qa_pairs).await?;
+            let report =
+                verify_coverage(&eval_client, &eval_model, &chunk, &facts, &all_qa_pairs).await?;
 
             let missing_json = serde_json::to_string(&report.missing_facts)?;
-            
+
             sqlx::query(
                 "UPDATE evaluation_reports SET coverage_score = ?, missing_facts = ?, reasoning = ? WHERE step_id = ?"
             )
@@ -610,8 +724,12 @@ pub async fn generate_missing_qa_for_step(
             .bind(report.reasoning)
             .bind(step_id as i64)
             .execute(db_pool).await?;
-            
-            info!("Updated coverage score for step #{} to {:.1}%", step_id, report.coverage_score * 100.0);
+
+            info!(
+                "Updated coverage score for step #{} to {:.1}%",
+                step_id,
+                report.coverage_score * 100.0
+            );
         } else {
             break; // No facts to verify against
         }

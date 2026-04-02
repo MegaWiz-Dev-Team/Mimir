@@ -1,3 +1,4 @@
+use crate::config::Config;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -8,15 +9,15 @@ use axum::{
 };
 use sqlx::MySqlPool;
 use std::sync::Arc;
-use crate::config::Config;
 
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::models::iam::{
-    CreateUserRequest, UpdateUserPasswordRequest, UpdateUserRoleRequest, UpdateTenantRequest,
-    CreateTenantRequest, UpdateTenantConfigRequest, TenantConfig, CreateRoleRequest, UpdateRoleRequest,
+    CreateRoleRequest, CreateTenantRequest, CreateUserRequest, TenantConfig, UpdateRoleRequest,
+    UpdateTenantConfigRequest, UpdateTenantRequest, UpdateUserPasswordRequest,
+    UpdateUserRoleRequest,
 };
-use mimir_core_ai::services::iam::IamService;
 use mimir_core_ai::services::domain;
+use mimir_core_ai::services::iam::IamService;
 
 pub fn iam_routes() -> Router<MySqlPool> {
     Router::new()
@@ -26,7 +27,10 @@ pub fn iam_routes() -> Router<MySqlPool> {
         .route("/users/{id}", delete(delete_user))
         .route("/tenants", get(get_tenants).post(create_tenant))
         .route("/tenants/{id}", patch(update_tenant).delete(delete_tenant))
-        .route("/tenants/{id}/config", get(get_tenant_config).patch(update_tenant_config))
+        .route(
+            "/tenants/{id}/config",
+            get(get_tenant_config).patch(update_tenant_config),
+        )
         .route("/tenants/{id}/features", get(get_tenant_features))
         .route("/my-tenants", get(get_my_tenants))
         // Custom Roles — Issue #191
@@ -46,7 +50,9 @@ async fn get_tenant_features(
     check_admin(&tenant_ctx)?;
 
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
-    let tenant_domain = iam_service.get_tenant_domain(&id).await
+    let tenant_domain = iam_service
+        .get_tenant_domain(&id)
+        .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     let features = domain::get_all_features(&tenant_domain);
@@ -76,7 +82,7 @@ async fn get_users(
     Extension(tenant_ctx): Extension<TenantContext>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.get_users().await {
         Ok(users) => Ok(Json(users)),
@@ -90,7 +96,7 @@ async fn get_tenants(
     Extension(tenant_ctx): Extension<TenantContext>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.get_tenants().await {
         Ok(tenants) => Ok(Json(tenants)),
@@ -120,7 +126,7 @@ async fn create_user(
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.create_user(payload).await {
         Ok(user) => Ok((StatusCode::CREATED, Json(user))),
@@ -136,7 +142,7 @@ async fn update_user_role(
     Json(payload): Json<UpdateUserRoleRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.update_user_role(&id, payload).await {
         Ok(_) => Ok(StatusCode::OK),
@@ -152,7 +158,7 @@ async fn update_user_password(
     Json(payload): Json<UpdateUserPasswordRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.update_user_password(&id, payload).await {
         Ok(_) => Ok(StatusCode::OK),
@@ -167,7 +173,7 @@ async fn delete_user(
     Extension(tenant_ctx): Extension<TenantContext>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.delete_user(&id).await {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
@@ -183,7 +189,7 @@ async fn update_tenant(
     Json(payload): Json<UpdateTenantRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.update_tenant(&id, payload).await {
         Ok(_) => Ok(StatusCode::OK),
@@ -198,7 +204,7 @@ async fn create_tenant(
     Json(payload): Json<CreateTenantRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.create_tenant(payload).await {
         Ok(tenant) => Ok((StatusCode::CREATED, Json(tenant))),
@@ -213,7 +219,7 @@ async fn delete_tenant(
     Extension(tenant_ctx): Extension<TenantContext>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.delete_tenant(&id).await {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
@@ -228,7 +234,7 @@ async fn get_tenant_config(
     Extension(tenant_ctx): Extension<TenantContext>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.get_tenant_config(&id).await {
         Ok(config) => Ok(Json(config)),
@@ -244,7 +250,7 @@ async fn update_tenant_config(
     Json(payload): Json<UpdateTenantConfigRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
-    
+
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.update_tenant_config(&id, payload).await {
         Ok(_) => Ok(StatusCode::OK),
@@ -276,7 +282,10 @@ async fn create_role(
 ) -> Result<impl IntoResponse, StatusCode> {
     check_admin(&tenant_ctx)?;
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
-    match iam_service.create_role(&tenant_ctx.tenant_id, payload).await {
+    match iam_service
+        .create_role(&tenant_ctx.tenant_id, payload)
+        .await
+    {
         Ok(role) => Ok((StatusCode::CREATED, Json(role))),
         Err(e) => {
             if e.to_string().contains("already exists") {

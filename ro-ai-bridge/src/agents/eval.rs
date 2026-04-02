@@ -3,19 +3,19 @@
 //! Provides a common `evaluate_agent()` function that takes an agent name + model_id
 //! and runs a single Q/A evaluation, returning the answer and latency.
 
-use anyhow::{Result, bail};
-use rig::providers::{ollama, gemini};
+use anyhow::{bail, Result};
 use rig::completion::Prompt;
+use rig::providers::{gemini, ollama};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
 use std::env;
+use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
 use mimir_core_ai::models::persona::Persona;
-use mimir_core_ai::services::qdrant::QdrantService;
+use mimir_core_ai::rag_engine::{DynamicContextPlugin, LlmProvider, OracleRagAgent};
 use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::rag_engine::{OracleRagAgent, LlmProvider, DynamicContextPlugin};
-use ro_ai_domain_game::tools::rag_tools::{QueryMobDbTool, QueryItemDbTool};
+use mimir_core_ai::services::qdrant::QdrantService;
+use ro_ai_domain_game::tools::rag_tools::{QueryItemDbTool, QueryMobDbTool};
 
 /// Result of a single evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,29 +64,25 @@ pub async fn evaluate_agent(
             if provider != LlmProvider::Ollama {
                 bail!("simple_npc only supports Ollama models, got: {}", model_id);
             }
-            
+
             let persona = create_eval_persona("simple_npc", 1);
-            let preamble = format!("{}\nAlways reply in the same language as the user's input.", persona.system_prompt);
+            let preamble = format!(
+                "{}\nAlways reply in the same language as the user's input.",
+                persona.system_prompt
+            );
             let client = ollama::Client::new();
-            let agent = client.agent(model_id)
-                .preamble(&preamble)
-                .build();
-            
-            tokio::time::timeout(
-                Duration::from_secs(120),
-                agent.prompt(question)
-            )
-            .await
-            .map_err(|_| anyhow::anyhow!("Timeout after 120s"))?
-            .map_err(|e| anyhow::anyhow!("Prompt failed: {}", e))?
+            let agent = client.agent(model_id).preamble(&preamble).build();
+
+            tokio::time::timeout(Duration::from_secs(120), agent.prompt(question))
+                .await
+                .map_err(|_| anyhow::anyhow!("Timeout after 120s"))?
+                .map_err(|e| anyhow::anyhow!("Prompt failed: {}", e))?
         }
 
         "oracle_rag" => {
             let persona = create_eval_persona("oracle_rag", 2);
-            let qdrant_svc = qdrant
-                .cloned()
-                .unwrap_or_else(|| QdrantService::new());
-            
+            let qdrant_svc = qdrant.cloned().unwrap_or_else(|| QdrantService::new());
+
             let mut plugins: Vec<Box<dyn DynamicContextPlugin>> = vec![];
             if let Some(pool) = db {
                 plugins.push(Box::new(QueryMobDbTool::new(pool.clone())));
@@ -129,7 +125,7 @@ pub async fn judge_response(
     let api_key = env::var("GEMINI_API_KEY")
         .or_else(|_| env::var("GOOGLE_API_KEY"))
         .map_err(|_| anyhow::anyhow!("GEMINI_API_KEY or GOOGLE_API_KEY must be set for judge"))?;
-    
+
     let client = gemini::Client::new(&api_key);
     let agent = client.agent(judge_model)
         .preamble("You are an expert evaluator for AI agent responses. You score responses on a 1-5 scale. Always respond in valid JSON only, no markdown.")
@@ -153,13 +149,10 @@ Respond with ONLY this JSON (no markdown, no code fences):
 {{"accuracy": <1-5>, "completeness": <1-5>, "relevance": <1-5>, "reasoning": "<brief explanation>"}}"#
     );
 
-    let response = tokio::time::timeout(
-        Duration::from_secs(60),
-        agent.prompt(prompt.as_str())
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Judge timeout after 60s"))?
-    .map_err(|e| anyhow::anyhow!("Judge prompt failed: {}", e))?;
+    let response = tokio::time::timeout(Duration::from_secs(60), agent.prompt(prompt.as_str()))
+        .await
+        .map_err(|_| anyhow::anyhow!("Judge timeout after 60s"))?
+        .map_err(|e| anyhow::anyhow!("Judge prompt failed: {}", e))?;
 
     // Parse JSON from response (handle potential markdown wrapping)
     let json_str = response
@@ -169,13 +162,17 @@ Respond with ONLY this JSON (no markdown, no code fences):
         .trim_end_matches("```")
         .trim();
 
-    let scores: JudgeScores = serde_json::from_str(json_str)
-        .map_err(|e| anyhow::anyhow!("Failed to parse judge response: {} | Raw: {}", e, json_str))?;
+    let scores: JudgeScores = serde_json::from_str(json_str).map_err(|e| {
+        anyhow::anyhow!("Failed to parse judge response: {} | Raw: {}", e, json_str)
+    })?;
 
     // Validate score range
-    if scores.accuracy < 1 || scores.accuracy > 5
-        || scores.completeness < 1 || scores.completeness > 5
-        || scores.relevance < 1 || scores.relevance > 5
+    if scores.accuracy < 1
+        || scores.accuracy > 5
+        || scores.completeness < 1
+        || scores.completeness > 5
+        || scores.relevance < 1
+        || scores.relevance > 5
     {
         warn!("Judge returned out-of-range scores, clamping");
     }
@@ -189,7 +186,10 @@ fn create_eval_persona(agent_name: &str, tier: i8) -> Persona {
     match Persona::load_by_name(agent_name) {
         Ok(p) => p,
         Err(_) => {
-            info!("No persona config found for '{}', using default eval persona", agent_name);
+            info!(
+                "No persona config found for '{}', using default eval persona",
+                agent_name
+            );
             Persona {
                 name: agent_name.to_string(),
                 display_name: format!("Eval {}", agent_name),

@@ -14,7 +14,7 @@ export function CoverageChart({ score }: CoverageChartProps) {
 
     return (
         <div className="relative h-[200px] w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <RadialBarChart
                     innerRadius="70%"
                     outerRadius="100%"

@@ -1,16 +1,17 @@
 //! Web connectors: hierarchy discovery, page import, and URL preview.
 
-use axum::{
-    Json, extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
-};
-use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::models::sources::DataSource;
-use mimir_core_ai::services::link_discovery;
-use serde_json::{json, Value};
-use serde::{Deserialize, Serialize};
-use tracing::{info, error, warn};
 use crate::routes::tenant::extract_tenant_id;
+use axum::{
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    Json,
+};
+use mimir_core_ai::models::sources::DataSource;
+use mimir_core_ai::services::db::DbPool;
+use mimir_core_ai::services::link_discovery;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tracing::{error, info, warn};
 
 // ─── Web Hierarchy Discovery ────────────────────────────────────────────────────
 
@@ -42,41 +43,63 @@ pub(crate) async fn discover_hierarchy(
     let tenant_id = extract_tenant_id(&headers);
     let max_depth = payload.max_depth.unwrap_or(3).min(5);
     // Read configurable max from tenant config (Issue #164)
-    let tenant_max: i32 = sqlx::query_scalar(
-        "SELECT max_crawl_pages FROM tenant_configs WHERE tenant_id = ?"
+    let tenant_max: i32 =
+        sqlx::query_scalar("SELECT max_crawl_pages FROM tenant_configs WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(100);
+    let max_pages = payload.max_pages.unwrap_or(tenant_max as u32).min(500);
+
+    let source = sqlx::query_as::<_, DataSource>(
+        "SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?",
     )
+    .bind(id)
     .bind(tenant_id)
     .fetch_optional(&pool)
     .await
-    .unwrap_or(None)
-    .unwrap_or(100);
-    let max_pages = payload.max_pages.unwrap_or(tenant_max as u32).min(500);
-
-    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
-        .bind(id)
-        .bind(tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
-
-    let source = source.ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"})))
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
     })?;
 
-    let root_url = source.config_json.get("url")
+    let source = source.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found"})),
+        )
+    })?;
+
+    let root_url = source
+        .config_json
+        .get("url")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            (StatusCode::BAD_REQUEST, Json(json!({"error": "Source has no URL configured"})))
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Source has no URL configured"})),
+            )
         })?
         .to_string();
 
-    info!("Starting hierarchy discovery for source {} from {}", id, root_url);
+    info!(
+        "Starting hierarchy discovery for source {} from {}",
+        id, root_url
+    );
 
     // BFS crawl
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut queue: std::collections::VecDeque<(String, u32)> = std::collections::VecDeque::new();
@@ -91,9 +114,7 @@ pub(crate) async fn discover_hierarchy(
         }
 
         let html = match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                resp.text().await.unwrap_or_default()
-            }
+            Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
             _ => {
                 all_pages.push((url.clone(), None, depth, String::new()));
                 continue;
@@ -102,7 +123,9 @@ pub(crate) async fn discover_hierarchy(
 
         let doc = scraper::Html::parse_document(&html);
         let title_sel = scraper::Selector::parse("title").unwrap();
-        let title = doc.select(&title_sel).next()
+        let title = doc
+            .select(&title_sel)
+            .next()
             .map(|el| el.text().collect::<String>().trim().to_string());
 
         let content_hash = link_discovery::compute_content_hash(&html);
@@ -111,7 +134,9 @@ pub(crate) async fn discover_hierarchy(
         if depth < max_depth {
             let links = link_discovery::discover_links(&html, &url, 200);
             for link in links {
-                if !visited.contains(&link.url) && all_pages.len() + queue.len() < max_pages as usize {
+                if !visited.contains(&link.url)
+                    && all_pages.len() + queue.len() < max_pages as usize
+                {
                     visited.insert(link.url.clone());
                     queue.push_back((link.url, depth + 1));
                 }
@@ -126,7 +151,7 @@ pub(crate) async fn discover_hierarchy(
             "error".to_string()
         } else {
             let existing: Option<(String,)> = sqlx::query_as(
-                "SELECT content_hash FROM crawled_pages WHERE source_id = ? AND url = ?"
+                "SELECT content_hash FROM crawled_pages WHERE source_id = ? AND url = ?",
             )
             .bind(id)
             .bind(url)
@@ -139,14 +164,18 @@ pub(crate) async fn discover_hierarchy(
                 Some(_) => "updated".to_string(),
                 None => {
                     let dup: Option<(i64,)> = sqlx::query_as(
-                        "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1"
+                        "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1",
                     )
                     .bind(content_hash)
                     .fetch_optional(&pool)
                     .await
                     .unwrap_or(None);
 
-                    if dup.is_some() { "duplicate".to_string() } else { "new".to_string() }
+                    if dup.is_some() {
+                        "duplicate".to_string()
+                    } else {
+                        "new".to_string()
+                    }
                 }
             }
         };
@@ -195,15 +224,25 @@ pub(crate) async fn import_pages(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
-        .bind(id)
-        .bind(tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let source = sqlx::query_as::<_, DataSource>(
+        "SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?",
+    )
+    .bind(id)
+    .bind(tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     if source.is_none() {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found"})),
+        ));
     }
 
     let mut imported = 0;
@@ -231,7 +270,10 @@ pub(crate) async fn import_pages(
         }
     }
 
-    info!("Imported {} pages for source {} ({} skipped)", imported, id, skipped);
+    info!(
+        "Imported {} pages for source {} ({} skipped)",
+        imported, id, skipped
+    );
 
     Ok(Json(json!({
         "source_id": id,
@@ -256,10 +298,14 @@ pub(crate) async fn preview_url(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     info!("Preview requested for: {}", params.url);
 
-    let preview = link_discovery::fetch_url_preview(&params.url).await
+    let preview = link_discovery::fetch_url_preview(&params.url)
+        .await
         .map_err(|e| {
             error!("Preview failed for {}: {}", params.url, e);
-            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Failed to preview URL: {}", e)})))
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("Failed to preview URL: {}", e)})),
+            )
         })?;
 
     Ok(Json(json!({

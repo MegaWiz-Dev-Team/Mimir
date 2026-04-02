@@ -9,19 +9,19 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     routing::get,
-    Router, Json,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::services::qdrant::QdrantService;
+use crate::routes::sources::pageindex::generate_tree;
+use crate::routes::sources::{call_llm_api_with_logging, infer_api_base};
 use crate::routes::tenant::extract_tenant_id;
 use crate::routes::vector::embed_texts;
-use crate::routes::sources::{call_llm_api_with_logging, infer_api_base};
-use crate::routes::sources::pageindex::generate_tree;
+use mimir_core_ai::services::db::DbPool;
+use mimir_core_ai::services::qdrant::QdrantService;
 
 /// Strip `<think>...</think>` blocks from Qwen-style reasoning responses,
 /// then extract the first JSON object or array from the remaining text.
@@ -71,27 +71,22 @@ pub struct AutoPipelineRequest {
     pub skip_completed: Option<bool>,
     /// Max chunks to process (default: all)
     pub max_chunks: Option<usize>,
-    /// Enable PageIndex Semantic Tree Generation 
+    /// Enable PageIndex Semantic Tree Generation
     pub enable_pageindex: Option<bool>,
     /// Skip KG extraction step (use existing KG data)
     pub skip_kg: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
-struct PipelineStep {
-    step: u8,
-    name: String,
-    status: String,
-    count: i64,
-    latency_ms: i64,
-    error: Option<String>,
-}
+
 
 // ─── Routes ─────────────────────────────────────────────────────────────────────
 
 pub fn auto_pipeline_routes() -> Router<DbPool> {
     Router::new()
-        .route("/{id}/auto-pipeline", axum::routing::post(run_auto_pipeline))
+        .route(
+            "/{id}/auto-pipeline",
+            axum::routing::post(run_auto_pipeline),
+        )
         .route("/{id}/pipeline-status", get(get_pipeline_status))
 }
 
@@ -107,9 +102,19 @@ async fn run_auto_pipeline(
     let tenant_id = extract_tenant_id(&headers).to_string();
     let run_id = Uuid::new_v4().to_string();
     let _skip_completed = req.skip_completed.unwrap_or(true);
-    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Router error: {}", e)}))))?;
-    let resolved_slot = router.config.resolve_slot("pipeline_generator", req.provider.as_deref(), req.model.as_deref());
+    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Router error: {}", e)})),
+            )
+        })?;
+    let resolved_slot = router.config.resolve_slot(
+        "pipeline_generator",
+        req.provider.as_deref(),
+        req.model.as_deref(),
+    );
     let provider = resolved_slot.provider;
     let model = resolved_slot.model;
     let prompt_version = req.prompt_version.unwrap_or_else(|| "v1.0".into());
@@ -119,17 +124,24 @@ async fn run_auto_pipeline(
     let skip_kg = req.skip_kg.unwrap_or(false);
 
     // Verify source exists and belongs to tenant
-    let source: Option<(i64, String)> = sqlx::query_as(
-        "SELECT id, name FROM data_sources WHERE id = ? AND tenant_id = ?"
-    )
-    .bind(source_id)
-    .bind(&tenant_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let source: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, name FROM data_sources WHERE id = ? AND tenant_id = ?")
+            .bind(source_id)
+            .bind(&tenant_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
 
     let (_, source_name) = source.ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"})))
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found"})),
+        )
     })?;
 
     // Create pipeline run record
@@ -146,7 +158,10 @@ async fn run_auto_pipeline(
     .execute(&pool)
     .await;
 
-    info!("🚀 Auto-pipeline started: run={} source={} ({}) provider={}/{}", run_id, source_id, source_name, provider, model);
+    info!(
+        "🚀 Auto-pipeline started: run={} source={} ({}) provider={}/{}",
+        run_id, source_id, source_name, provider, model
+    );
 
     // Spawn background pipeline
     let pool_clone = pool.clone();
@@ -170,7 +185,7 @@ async fn run_auto_pipeline(
         log_step(&pool_clone, &run_id_clone, 1, "chunk_check", "running").await;
 
         let chunks: Vec<(i64, String, Option<i32>)> = sqlx::query_as(
-            "SELECT id, content, token_count FROM chunks WHERE source_id = ? LIMIT ?"
+            "SELECT id, content, token_count FROM chunks WHERE source_id = ? LIMIT ?",
         )
         .bind(source_id)
         .bind(max_chunks as i64)
@@ -180,11 +195,35 @@ async fn run_auto_pipeline(
 
         let chunk_count = chunks.len() as i64;
         if chunk_count == 0 {
-            log_step_result(&pool_clone, &run_id_clone, 1, "skipped", 0, step1_start.elapsed().as_millis() as i64, Some("No chunks found — run sync first")).await;
-            finish_run(&pool_clone, &run_id_clone, "failed", Some("No chunks found")).await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                1,
+                "skipped",
+                0,
+                step1_start.elapsed().as_millis() as i64,
+                Some("No chunks found — run sync first"),
+            )
+            .await;
+            finish_run(
+                &pool_clone,
+                &run_id_clone,
+                "failed",
+                Some("No chunks found"),
+            )
+            .await;
             return;
         }
-        log_step_result(&pool_clone, &run_id_clone, 1, "completed", chunk_count, step1_start.elapsed().as_millis() as i64, None).await;
+        log_step_result(
+            &pool_clone,
+            &run_id_clone,
+            1,
+            "completed",
+            chunk_count,
+            step1_start.elapsed().as_millis() as i64,
+            None,
+        )
+        .await;
         total_steps_ok += 1;
         info!("  Step 1/5: ✅ {} chunks found", chunk_count);
 
@@ -195,11 +234,24 @@ async fn run_auto_pipeline(
         // Resolve embedding model from tenant config
         let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool_clone.clone());
         let tenant_config = iam.get_tenant_config(&tenant_clone).await.ok();
-        let llm_config = tenant_config.as_ref()
+        let llm_config = tenant_config
+            .as_ref()
             .and_then(|c| c.llm_config.as_ref())
             .map(|c| c.0.clone())
             .unwrap_or_default();
         let embed_model = llm_config.resolve_slot("embedding", None, None).model;
+
+        // C3: Extract tenant-specific prompt customizations for pipeline injection
+        let tenant_system_prompt = tenant_config
+            .as_ref()
+            .and_then(|c| c.system_prompt.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let tenant_qa_rules = tenant_config
+            .as_ref()
+            .and_then(|c| c.qa_rules.as_ref())
+            .map(|r| serde_json::to_string_pretty(&r.0).unwrap_or_default())
+            .unwrap_or_default();
 
         let qdrant = QdrantService::new();
         // Ensure collection exists with hybrid schema (dense + sparse)
@@ -211,7 +263,10 @@ async fn run_auto_pipeline(
         let mut embed_error = false;
 
         for chunk_batch in chunks.chunks(batch_size) {
-            let texts: Vec<String> = chunk_batch.iter().map(|(_, content, _)| content.clone()).collect();
+            let texts: Vec<String> = chunk_batch
+                .iter()
+                .map(|(_, content, _)| content.clone())
+                .collect();
             match embed_texts(&texts, &embed_model).await {
                 Ok(vectors) => {
                     let mut points = Vec::new();
@@ -254,10 +309,28 @@ async fn run_auto_pipeline(
         }
 
         if embed_error {
-            log_step_result(&pool_clone, &run_id_clone, 2, "failed", embedded, step2_start.elapsed().as_millis() as i64, Some("Embedding failed")).await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                2,
+                "failed",
+                embedded,
+                step2_start.elapsed().as_millis() as i64,
+                Some("Embedding failed"),
+            )
+            .await;
             pipeline_error = Some("Embedding failed".into());
         } else {
-            log_step_result(&pool_clone, &run_id_clone, 2, "completed", embedded, step2_start.elapsed().as_millis() as i64, None).await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                2,
+                "completed",
+                embedded,
+                step2_start.elapsed().as_millis() as i64,
+                None,
+            )
+            .await;
             total_steps_ok += 1;
             info!("  Step 2/5: ✅ {} chunks embedded", embedded);
 
@@ -274,26 +347,63 @@ async fn run_auto_pipeline(
         // ─── Step 2.5: PageIndex Generation (Optional) ────────────────────
         if pipeline_error.is_none() && enable_pageindex {
             let step25_start = std::time::Instant::now();
-            log_step(&pool_clone, &run_id_clone, 25, "pageindex_generation", "running").await;
-            
+            log_step(
+                &pool_clone,
+                &run_id_clone,
+                25,
+                "pageindex_generation",
+                "running",
+            )
+            .await;
+
             let mut full_text = String::new();
             for (_id, content, chunk_index) in &chunks {
                 let idx = chunk_index.unwrap_or(0);
                 full_text.push_str(&format!("\n--- [Page/Chunk {}] ---\n{}\n", idx, content));
             }
-            
+
             let api_base = infer_api_base(&provider);
-            let api_key = resolve_api_key(&provider);
+            let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
 
             let max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
-            match generate_tree(&pool_clone, &tenant_clone, source_id, &full_text, &api_key, &api_base, &model, &provider, max_index).await {
+            match generate_tree(
+                &pool_clone,
+                &tenant_clone,
+                source_id,
+                &full_text,
+                &api_key,
+                &api_base,
+                &model,
+                &provider,
+                max_index,
+            )
+            .await
+            {
                 Ok(_) => {
-                    log_step_result(&pool_clone, &run_id_clone, 25, "completed", 1, step25_start.elapsed().as_millis() as i64, None).await;
+                    log_step_result(
+                        &pool_clone,
+                        &run_id_clone,
+                        25,
+                        "completed",
+                        1,
+                        step25_start.elapsed().as_millis() as i64,
+                        None,
+                    )
+                    .await;
                     total_steps_ok += 1;
                     info!("  Step 2.5: ✅ PageIndex Semantic Tree generated");
                 }
                 Err(e) => {
-                    log_step_result(&pool_clone, &run_id_clone, 25, "failed", 0, step25_start.elapsed().as_millis() as i64, Some(&e.to_string())).await;
+                    log_step_result(
+                        &pool_clone,
+                        &run_id_clone,
+                        25,
+                        "failed",
+                        0,
+                        step25_start.elapsed().as_millis() as i64,
+                        Some(&e.to_string()),
+                    )
+                    .await;
                     // Don't fail the whole pipeline for this optional step
                     warn!("  Step 2.5: ⚠️ PageIndex generation failed: {}", e);
                 }
@@ -306,7 +416,7 @@ async fn run_auto_pipeline(
             log_step(&pool_clone, &run_id_clone, 3, "kg_extraction", "running").await;
 
             let api_base = infer_api_base(&provider);
-            let api_key = resolve_api_key(&provider);
+            let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
             let mut kg_entities = 0i64;
             let mut kg_relations = 0i64;
 
@@ -323,7 +433,8 @@ async fn run_auto_pipeline(
 
             // Connect to Neo4j for dual-write (graceful degradation)
             let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
-            let neo4j_svc = mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
+            let neo4j_svc =
+                mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
             if neo4j_svc.is_some() {
                 info!("  Step 3: Neo4j connected — dual-write enabled");
             } else {
@@ -331,15 +442,26 @@ async fn run_auto_pipeline(
             }
 
             for (_chunk_id, content, _) in &chunks {
-                let system_prompt = mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
-                let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(content, 20);
+                let system_prompt =
+                    mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
+                let user_prompt =
+                    mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(
+                        content, 20,
+                    );
                 let combined_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
 
                 let start = std::time::Instant::now();
                 let result = call_llm_api_with_logging(
-                    &api_key, &api_base, &model, &combined_prompt,
-                    Some(&pool_clone), Some(&tenant_clone), Some(&provider), Some("auto_pipeline_kg"),
-                ).await;
+                    &api_key,
+                    &api_base,
+                    &model,
+                    &combined_prompt,
+                    Some(&pool_clone),
+                    Some(&tenant_clone),
+                    Some(&provider),
+                    Some("auto_pipeline_kg"),
+                )
+                .await;
                 let _latency = start.elapsed().as_millis() as i64;
 
                 if let Ok((response_text, _tokens)) = result {
@@ -347,14 +469,14 @@ async fn run_auto_pipeline(
                     let clean = clean_llm_json(&response_text);
                     match serde_json::from_str::<Value>(&clean) {
                         Ok(parsed) => {
-                        if let Some(entities) = parsed["entities"].as_array() {
-                            for ent in entities {
-                                let ent_name = ent["name"].as_str().unwrap_or("");
-                                let ent_type = ent["type"].as_str().unwrap_or("Concept");
-                                let ent_props = ent.get("properties").map(|p| p.to_string());
+                            if let Some(entities) = parsed["entities"].as_array() {
+                                for ent in entities {
+                                    let ent_name = ent["name"].as_str().unwrap_or("");
+                                    let ent_type = ent["type"].as_str().unwrap_or("Concept");
+                                    let ent_props = ent.get("properties").map(|p| p.to_string());
 
-                                // MariaDB insert
-                                let _ = sqlx::query(
+                                    // MariaDB insert
+                                    let _ = sqlx::query(
                                     "INSERT IGNORE INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
                                 )
                                 .bind(&tenant_clone).bind(source_id).bind(_chunk_id)
@@ -363,34 +485,40 @@ async fn run_auto_pipeline(
                                 .bind(&ent_props)
                                 .execute(&pool_clone).await;
 
-                                // Neo4j dual-write
-                                if let Some(ref neo4j) = neo4j_svc {
-                                    let _ = neo4j.upsert_entity(
-                                        &tenant_clone, ent_name, ent_type,
-                                        ent_props.as_deref(), Some(source_id), Some(*_chunk_id),
-                                    ).await;
+                                    // Neo4j dual-write
+                                    if let Some(ref neo4j) = neo4j_svc {
+                                        let _ = neo4j
+                                            .upsert_entity(
+                                                &tenant_clone,
+                                                ent_name,
+                                                ent_type,
+                                                ent_props.as_deref(),
+                                                Some(source_id),
+                                                Some(*_chunk_id),
+                                            )
+                                            .await;
+                                    }
+                                    kg_entities += 1;
                                 }
-                                kg_entities += 1;
                             }
-                        }
-                        if let Some(relations) = parsed["relations"].as_array() {
-                            for rel in relations {
-                                // Look up from/to entity IDs by name
-                                let from_name = rel["from"].as_str().unwrap_or("");
-                                let to_name = rel["to"].as_str().unwrap_or("");
-                                let rel_type = rel["type"].as_str().unwrap_or("");
+                            if let Some(relations) = parsed["relations"].as_array() {
+                                for rel in relations {
+                                    // Look up from/to entity IDs by name
+                                    let from_name = rel["from"].as_str().unwrap_or("");
+                                    let to_name = rel["to"].as_str().unwrap_or("");
+                                    let rel_type = rel["type"].as_str().unwrap_or("");
 
-                                let from_id: Option<(i64,)> = sqlx::query_as(
+                                    let from_id: Option<(i64,)> = sqlx::query_as(
                                     "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
                                 ).bind(&tenant_clone).bind(from_name)
                                 .fetch_optional(&pool_clone).await.unwrap_or(None);
-                                let to_id: Option<(i64,)> = sqlx::query_as(
+                                    let to_id: Option<(i64,)> = sqlx::query_as(
                                     "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
                                 ).bind(&tenant_clone).bind(to_name)
                                 .fetch_optional(&pool_clone).await.unwrap_or(None);
-                                if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
-                                    // MariaDB insert
-                                    let _ = sqlx::query(
+                                    if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
+                                        // MariaDB insert
+                                        let _ = sqlx::query(
                                         "INSERT IGNORE INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
                                     )
                                     .bind(&tenant_clone).bind(source_id)
@@ -398,29 +526,47 @@ async fn run_auto_pipeline(
                                     .bind(rel_type)
                                     .execute(&pool_clone).await;
 
-                                    // Neo4j dual-write
-                                    if let Some(ref neo4j) = neo4j_svc {
-                                        let _ = neo4j.upsert_relation(
-                                            &tenant_clone, from_name, to_name, rel_type,
-                                            None, Some(source_id),
-                                        ).await;
+                                        // Neo4j dual-write
+                                        if let Some(ref neo4j) = neo4j_svc {
+                                            let _ = neo4j
+                                                .upsert_relation(
+                                                    &tenant_clone,
+                                                    from_name,
+                                                    to_name,
+                                                    rel_type,
+                                                    None,
+                                                    Some(source_id),
+                                                )
+                                                .await;
+                                        }
+                                        kg_relations += 1;
                                     }
-                                    kg_relations += 1;
                                 }
                             }
                         }
-                        }
                         Err(e) => {
-                            warn!("KG parse failed: {}. Raw(200): {:?} Clean(200): {:?}",
-                                e, &response_text[..response_text.len().min(200)],
-                                &clean[..clean.len().min(200)]);
+                            warn!(
+                                "KG parse failed: {}. Raw(200): {:?} Clean(200): {:?}",
+                                e,
+                                &response_text[..response_text.len().min(200)],
+                                &clean[..clean.len().min(200)]
+                            );
                         }
                     }
                 }
             }
 
-            log_step_result(&pool_clone, &run_id_clone, 3, "completed", kg_entities, step3_start.elapsed().as_millis() as i64, None).await;
-            
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                3,
+                "completed",
+                kg_entities,
+                step3_start.elapsed().as_millis() as i64,
+                None,
+            )
+            .await;
+
             // Update kg_run status
             let _ = sqlx::query(
                 "UPDATE kg_extraction_runs SET status = 'completed', entities_found = ?, relations_found = ?, chunks_processed = ?, finished_at = NOW() WHERE id = ?"
@@ -433,10 +579,24 @@ async fn run_auto_pipeline(
             .await;
 
             total_steps_ok += 1;
-            info!("  Step 3/5: ✅ {} entities, {} relations extracted (Neo4j={})", kg_entities, kg_relations, neo4j_svc.is_some());
+            info!(
+                "  Step 3/5: ✅ {} entities, {} relations extracted (Neo4j={})",
+                kg_entities,
+                kg_relations,
+                neo4j_svc.is_some()
+            );
         } else if skip_kg && pipeline_error.is_none() {
             log_step(&pool_clone, &run_id_clone, 3, "kg_extraction", "running").await;
-            log_step_result(&pool_clone, &run_id_clone, 3, "skipped", 0, 0, Some("Skipped by user")).await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                3,
+                "skipped",
+                0,
+                0,
+                Some("Skipped by user"),
+            )
+            .await;
             total_steps_ok += 1;
             info!("  Step 3/5: ⏭️ KG extraction skipped by user");
         }
@@ -447,7 +607,7 @@ async fn run_auto_pipeline(
             log_step(&pool_clone, &run_id_clone, 4, "qa_extraction", "running").await;
 
             let api_base = infer_api_base(&provider);
-            let api_key = resolve_api_key(&provider);
+            let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
             let mut qa_count = 0i64;
 
             // Create pipeline_steps entry for QA tracking (needed as FK for qa_results)
@@ -484,13 +644,31 @@ async fn run_auto_pipeline(
                     continue;
                 }
 
-                let prompt = format!("You are a QA Generator. Generate 2-5 high-quality question-answer pairs from the given text.\n\nReturn STRICT JSON array:\n[\n  {{\"question\": \"...\", \"answer\": \"...\"}}\n]\n\nRules:\n1. Keep answers concise and factual\n2. Only generate questions answerable from the text\n3. Prefer why/how/what questions over yes/no\n4. Cover different aspects of the text\n5. Return ONLY the JSON array\n\nText:\n{}", content);
+                // C3: Inject tenant-specific context into QA generation prompt
+                let system_context = if !tenant_system_prompt.is_empty() {
+                    format!("\nDomain Context: {}\n", tenant_system_prompt)
+                } else {
+                    String::new()
+                };
+                let extra_rules = if !tenant_qa_rules.is_empty() {
+                    format!("\nAdditional Rules from Admin:\n{}\n", tenant_qa_rules)
+                } else {
+                    String::new()
+                };
+                let prompt = format!("You are a QA Generator.{} Generate 2-5 high-quality question-answer pairs from the given text.\n\nReturn STRICT JSON array:\n[\n  {{\"question\": \"...\", \"answer\": \"...\"}}\n]\n\nRules:\n1. Keep answers concise and factual\n2. Only generate questions answerable from the text\n3. Prefer why/how/what questions over yes/no\n4. Cover different aspects of the text\n5. Return ONLY the JSON array{}\n\nText:\n{}", system_context, extra_rules, content);
 
                 let start = std::time::Instant::now();
                 let result = call_llm_api_with_logging(
-                    &api_key, &api_base, &model, &prompt,
-                    Some(&pool_clone), Some(&tenant_clone), Some(&provider), Some("auto_pipeline_qa"),
-                ).await;
+                    &api_key,
+                    &api_base,
+                    &model,
+                    &prompt,
+                    Some(&pool_clone),
+                    Some(&tenant_clone),
+                    Some(&provider),
+                    Some("auto_pipeline_qa"),
+                )
+                .await;
                 let _latency = start.elapsed().as_millis() as i64;
 
                 if let Ok((response_text, _tokens)) = result {
@@ -513,7 +691,16 @@ async fn run_auto_pipeline(
                 }
             }
 
-            log_step_result(&pool_clone, &run_id_clone, 4, "completed", qa_count, step4_start.elapsed().as_millis() as i64, None).await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                4,
+                "completed",
+                qa_count,
+                step4_start.elapsed().as_millis() as i64,
+                None,
+            )
+            .await;
             total_steps_ok += 1;
             info!("  Step 4/5: ✅ {} QA pairs generated", qa_count);
         }
@@ -533,17 +720,32 @@ async fn run_auto_pipeline(
             .unwrap_or_default();
 
             if qa_rows.is_empty() {
-                log_step_result(&pool_clone, &run_id_clone, 5, "skipped", 0, 0, Some("No QA pairs to index")).await;
+                log_step_result(
+                    &pool_clone,
+                    &run_id_clone,
+                    5,
+                    "skipped",
+                    0,
+                    0,
+                    Some("No QA pairs to index"),
+                )
+                .await;
             } else {
-                let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool_clone.clone());
+                let iam =
+                    mimir_core_ai::services::iam::IamService::new_with_env(pool_clone.clone());
                 let tc = iam.get_tenant_config(&tenant_clone).await.ok();
-                let lc = tc.as_ref().and_then(|c| c.llm_config.as_ref()).map(|c| c.0.clone()).unwrap_or_default();
+                let lc = tc
+                    .as_ref()
+                    .and_then(|c| c.llm_config.as_ref())
+                    .map(|c| c.0.clone())
+                    .unwrap_or_default();
                 let embed_model = lc.resolve_slot("embedding", None, None).model;
                 let qdrant = QdrantService::new();
 
                 let mut indexed = 0i64;
                 for batch in qa_rows.chunks(64) {
-                    let texts: Vec<String> = batch.iter()
+                    let texts: Vec<String> = batch
+                        .iter()
                         .map(|(_, q, a)| format!("{}\n{}", q, a))
                         .collect();
 
@@ -553,7 +755,7 @@ async fn run_auto_pipeline(
                             for (i, (qa_id, question, answer)) in batch.iter().enumerate() {
                                 points.push(json!({
                                     "id": *qa_id as u64,
-                                    "vector": vectors[i],
+                                    "vector": { "dense": vectors[i] },
                                     "payload": {
                                         "question": question,
                                         "answer": answer,
@@ -565,7 +767,7 @@ async fn run_auto_pipeline(
                                 }));
                             }
                             let body = json!({ "points": points });
-                            if let Ok(_) = qdrant.upsert_points("wiki_qa", body).await {
+                            if let Ok(_) = qdrant.upsert_points("golden_qa", body).await {
                                 indexed += points.len() as i64;
                             }
                         }
@@ -573,16 +775,38 @@ async fn run_auto_pipeline(
                     }
                 }
 
-                log_step_result(&pool_clone, &run_id_clone, 5, "completed", indexed, step5_start.elapsed().as_millis() as i64, None).await;
+                log_step_result(
+                    &pool_clone,
+                    &run_id_clone,
+                    5,
+                    "completed",
+                    indexed,
+                    step5_start.elapsed().as_millis() as i64,
+                    None,
+                )
+                .await;
                 total_steps_ok += 1;
                 info!("  Step 5/5: ✅ {} QA pairs indexed to Qdrant", indexed);
             }
         }
 
         // ─── Finish pipeline ─────────────────────────────────────────────
-        let final_status = if pipeline_error.is_some() { "failed" } else { "completed" };
-        finish_run(&pool_clone, &run_id_clone, final_status, pipeline_error.as_deref()).await;
-        info!("🏁 Auto-pipeline {} finished: {} steps completed, status={}", run_id_clone, total_steps_ok, final_status);
+        let final_status = if pipeline_error.is_some() {
+            "failed"
+        } else {
+            "completed"
+        };
+        finish_run(
+            &pool_clone,
+            &run_id_clone,
+            final_status,
+            pipeline_error.as_deref(),
+        )
+        .await;
+        info!(
+            "🏁 Auto-pipeline {} finished: {} steps completed, status={}",
+            run_id_clone, total_steps_ok, final_status
+        );
     });
 
     Ok(Json(json!({
@@ -638,7 +862,9 @@ async fn get_pipeline_status(
                 })).collect::<Vec<_>>()
             })))
         }
-        None => Ok(Json(json!({"source_id": source_id, "status": "no_runs", "steps": []}))),
+        None => Ok(Json(
+            json!({"source_id": source_id, "status": "no_runs", "steps": []}),
+        )),
     }
 }
 
@@ -652,7 +878,15 @@ async fn log_step(pool: &DbPool, run_id: &str, step: u8, name: &str, status: &st
     .execute(pool).await;
 }
 
-async fn log_step_result(pool: &DbPool, run_id: &str, step: u8, status: &str, count: i64, latency_ms: i64, error: Option<&str>) {
+async fn log_step_result(
+    pool: &DbPool,
+    run_id: &str,
+    step: u8,
+    status: &str,
+    count: i64,
+    latency_ms: i64,
+    error: Option<&str>,
+) {
     let _ = sqlx::query(
         "UPDATE pipeline_run_steps SET status = ?, item_count = ?, latency_ms = ?, error_message = ? WHERE run_id = ? AND step_number = ?"
     )
@@ -663,14 +897,37 @@ async fn log_step_result(pool: &DbPool, run_id: &str, step: u8, status: &str, co
 
 async fn finish_run(pool: &DbPool, run_id: &str, status: &str, error: Option<&str>) {
     let _ = sqlx::query(
-        "UPDATE pipeline_runs SET status = ?, error_message = ?, finished_at = NOW() WHERE id = ?"
+        "UPDATE pipeline_runs SET status = ?, error_message = ?, finished_at = NOW() WHERE id = ?",
     )
-    .bind(status).bind(error).bind(run_id)
-    .execute(pool).await;
+    .bind(status)
+    .bind(error)
+    .bind(run_id)
+    .execute(pool)
+    .await;
 }
 
-/// Resolve API key from environment based on provider
-fn resolve_api_key(provider: &str) -> String {
+/// Resolve API key from tenant config (if available), then environment fallback
+fn resolve_api_key_with_config(
+    provider: &str,
+    config: Option<&mimir_core_ai::models::iam::LlmConfig>,
+) -> String {
+    // Tier 1: Tenant-specific keys from LlmConfig
+    if let Some(cfg) = config {
+        let tenant_key = match provider {
+            "google" | "gemini" => cfg.google_api_key.clone(),
+            "openai" => cfg.openai_api_key.clone(),
+            "azure" => cfg.azure_api_key.clone(),
+            "heimdall" => cfg.heimdall_api_key.clone(),
+            _ => cfg.heimdall_api_key.clone(),
+        };
+        if let Some(key) = tenant_key {
+            if !key.is_empty() {
+                return key;
+            }
+        }
+    }
+
+    // Tier 2: Environment variable fallback
     match provider {
         "google" | "gemini" => std::env::var("GEMINI_API_KEY").unwrap_or_default(),
         "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),

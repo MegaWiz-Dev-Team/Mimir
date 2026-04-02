@@ -1,8 +1,8 @@
-use sqlx::FromRow;
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
-use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::rag_engine::DynamicContextPlugin;
+use mimir_core_ai::services::db::DbPool;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 /// Mob data from rAthena database
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -74,13 +74,13 @@ impl QueryMobDbTool {
                 size, race, element, element_level
             FROM mob_db 
             WHERE name_english LIKE ? OR name_aegis LIKE ?
-            LIMIT 10"#
+            LIMIT 10"#,
         )
         .bind(&pattern)
         .bind(&pattern)
         .fetch_all(&self.db_pool)
         .await?;
-        
+
         Ok(mobs)
     }
 
@@ -92,17 +92,21 @@ impl QueryMobDbTool {
                 base_exp, job_exp, attack, defense, magic_defense,
                 str, agi, vit, int, dex, luk,
                 size, race, element, element_level
-            FROM mob_db WHERE id = ?"#
+            FROM mob_db WHERE id = ?"#,
         )
         .bind(id)
         .fetch_optional(&self.db_pool)
         .await?;
-        
+
         Ok(mob)
     }
 
     /// Query mobs by level range
-    pub async fn query_by_level_range(&self, min_level: u32, max_level: u32) -> Result<Vec<MobData>> {
+    pub async fn query_by_level_range(
+        &self,
+        min_level: u32,
+        max_level: u32,
+    ) -> Result<Vec<MobData>> {
         let mobs = sqlx::query_as::<_, MobData>(
             r#"SELECT 
                 id, name_aegis, name_english, level, hp, sp,
@@ -112,13 +116,13 @@ impl QueryMobDbTool {
             FROM mob_db 
             WHERE level BETWEEN ? AND ?
             ORDER BY level, base_exp DESC
-            LIMIT 20"#
+            LIMIT 20"#,
         )
         .bind(min_level)
         .bind(max_level)
         .fetch_all(&self.db_pool)
         .await?;
-        
+
         Ok(mobs)
     }
 
@@ -176,13 +180,13 @@ impl QueryItemDbTool {
                 price_buy, price_sell, refineable
             FROM item_db 
             WHERE name_english LIKE ? OR name_aegis LIKE ?
-            LIMIT 10"#
+            LIMIT 10"#,
         )
         .bind(&pattern)
         .bind(&pattern)
         .fetch_all(&self.db_pool)
         .await?;
-        
+
         Ok(items)
     }
 
@@ -194,12 +198,12 @@ impl QueryItemDbTool {
                 attack, magic_attack, defense, weight, slots,
                 weapon_level, armor_level, equip_level_min,
                 price_buy, price_sell, refineable
-            FROM item_db WHERE id = ?"#
+            FROM item_db WHERE id = ?"#,
         )
         .bind(id)
         .fetch_optional(&self.db_pool)
         .await?;
-        
+
         Ok(item)
     }
 
@@ -214,25 +218,25 @@ impl QueryItemDbTool {
             FROM item_db 
             WHERE item_type = ?
             ORDER BY name_english
-            LIMIT 50"#
+            LIMIT 50"#,
         )
         .bind(item_type)
         .fetch_all(&self.db_pool)
         .await?;
-        
+
         Ok(items)
     }
 
     /// Format item data as human-readable text
     pub fn format_item(item: &ItemData) -> String {
         let mut parts = vec![format!("**{}** (ID: {})", item.name_english, item.id)];
-        
+
         parts.push(format!("- Type: {}", item.item_type));
-        
+
         if let Some(ref subtype) = item.subtype {
             parts.push(format!("  Subtype: {}", subtype));
         }
-        
+
         if item.attack > 0 {
             parts.push(format!("- ATK: {}", item.attack));
         }
@@ -242,20 +246,20 @@ impl QueryItemDbTool {
         if item.defense > 0 {
             parts.push(format!("- DEF: {}", item.defense));
         }
-        
+
         parts.push(format!("- Weight: {:.1}", item.weight as f32 / 10.0));
-        
+
         if item.slots > 0 {
             parts.push(format!("- Slots: {}", item.slots));
         }
-        
+
         if item.price_buy > 0 {
             parts.push(format!("- Buy Price: {} currency", item.price_buy));
         }
         if item.price_sell > 0 {
             parts.push(format!("- Sell Price: {} currency", item.price_sell));
         }
-        
+
         if item.weapon_level > 0 {
             parts.push(format!("- Weapon Level: {}", item.weapon_level));
         }
@@ -265,24 +269,28 @@ impl QueryItemDbTool {
         if item.equip_level_min > 0 {
             parts.push(format!("- Required Level: {}", item.equip_level_min));
         }
-        
+
         if item.refineable {
             parts.push("- Refineable: Yes".to_string());
         }
-        
+
         parts.join("\n")
     }
 }
 use super::*;
+use regex::Regex;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use regex::Regex;
 
 #[async_trait::async_trait]
 impl DynamicContextPlugin for QueryMobDbTool {
-    async fn get_context<'a>(&'a self, message: &'a str, tools_used: &'a mut Vec<String>) -> Result<String> {
+    async fn get_context<'a>(
+        &'a self,
+        message: &'a str,
+        tools_used: &'a mut Vec<String>,
+    ) -> Result<String> {
         let msg_lower = message.to_lowercase();
-        
+
         let is_mob_query = msg_lower.contains("mob")
             || msg_lower.contains("monster")
             || msg_lower.contains("boss")
@@ -313,9 +321,13 @@ impl DynamicContextPlugin for QueryMobDbTool {
 
 #[async_trait::async_trait]
 impl DynamicContextPlugin for QueryItemDbTool {
-    async fn get_context<'a>(&'a self, message: &'a str, tools_used: &'a mut Vec<String>) -> Result<String> {
+    async fn get_context<'a>(
+        &'a self,
+        message: &'a str,
+        tools_used: &'a mut Vec<String>,
+    ) -> Result<String> {
         let msg_lower = message.to_lowercase();
-        
+
         let is_item_query = msg_lower.contains("item")
             || msg_lower.contains("weapon")
             || msg_lower.contains("armor")
@@ -350,14 +362,14 @@ impl DynamicContextPlugin for QueryItemDbTool {
 pub fn extract_entity_name(query: &str) -> Option<String> {
     let re = Regex::new(r"\b[A-Z][a-zA-Z]*\b").unwrap();
     let words: Vec<&str> = re.find_iter(query).map(|m| m.as_str()).collect();
-    
+
     // Filter out common sentence starters that might be capitalized
-    let ignored = vec!["What", "How", "Where", "When", "Why", "Who", "Tell", "Can", "Is", "Are"];
-    
-    let filtered: Vec<&str> = words.into_iter()
-        .filter(|w| !ignored.contains(w))
-        .collect();
-        
+    let ignored = vec![
+        "What", "How", "Where", "When", "Why", "Who", "Tell", "Can", "Is", "Are",
+    ];
+
+    let filtered: Vec<&str> = words.into_iter().filter(|w| !ignored.contains(w)).collect();
+
     if !filtered.is_empty() {
         Some(filtered.join(" "))
     } else {

@@ -1,6 +1,6 @@
-use std::time::Instant;
 use reqwest::Client;
 use serde_json::json;
+use std::time::Instant;
 use tokio;
 
 #[tokio::main]
@@ -15,7 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = Instant::now();
 
-    let res = client.post(url)
+    let res = client
+        .post(url)
         .json(&json!({
             "model": model,
             "prompt": prompt,
@@ -26,11 +27,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let duration = start.elapsed();
     let status = res.status();
-    
+
     if status.is_success() {
         let body: serde_json::Value = res.json().await?;
         let response_text = body["response"].as_str().unwrap_or("No response");
-        
+
         println!("✅ Response received!");
         println!("⏱️  Duration: {:.2?}", duration);
         println!("📝 Output: {}", response_text.trim());
@@ -41,8 +42,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::create_dir_all(result_dir)?;
 
         let timestamp = chrono::Local::now().format("%Y-%m-%d_%H%M%S").to_string();
-        let result_filename = format!("{}/{}_m3_{}.json", result_dir, timestamp, model.replace(":", "_"));
-        
+        let result_filename = format!(
+            "{}/{}_m3_{}.json",
+            result_dir,
+            timestamp,
+            model.replace(":", "_")
+        );
+
         let result_json = json!({
             "test_id": "latency_test",
             "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -60,7 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-        std::fs::write(&result_filename, serde_json::to_string_pretty(&result_json)?)?;
+        std::fs::write(
+            &result_filename,
+            serde_json::to_string_pretty(&result_json)?,
+        )?;
         println!("💾 Result saved to: {}", result_filename);
     } else {
         println!("❌ Request failed with status: {}", status);

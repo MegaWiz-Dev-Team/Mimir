@@ -7,10 +7,10 @@ use anyhow::{Result, bail};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use tracing::info;
 use url::Url;
-use std::collections::HashSet;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,19 +36,19 @@ pub struct DiscoveredLink {
 
 /// Fetch a URL and extract OG metadata for preview.
 pub async fn fetch_url_preview(url: &str) -> Result<UrlPreview> {
-    let parsed = Url::parse(url)
-        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    let parsed = Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
 
-    let domain = parsed.host_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let domain = parsed.host_str().unwrap_or("unknown").to_string();
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent("MimirBot/1.0")
         .build()?;
 
-    let response = client.get(url).send().await
+    let response = client
+        .get(url)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch '{}': {}", url, e))?;
 
     if !response.status().is_success() {
@@ -74,8 +74,7 @@ pub fn parse_og_metadata(html: &str, url: &str, domain: &str) -> UrlPreview {
         .or_else(|| extract_meta(&doc, "twitter:description"))
         .or_else(|| extract_meta_name(&doc, "description"));
 
-    let image = extract_meta(&doc, "og:image")
-        .or_else(|| extract_meta(&doc, "twitter:image"));
+    let image = extract_meta(&doc, "og:image").or_else(|| extract_meta(&doc, "twitter:image"));
 
     let favicon = extract_favicon(&doc, url);
 
@@ -147,8 +146,12 @@ pub fn discover_links(html: &str, base_url: &str, max_links: usize) -> Vec<Disco
 
         // Skip non-page resources
         let path = resolved.path().to_lowercase();
-        if path.ends_with(".jpg") || path.ends_with(".png") || path.ends_with(".gif")
-            || path.ends_with(".css") || path.ends_with(".js") || path.ends_with(".pdf")
+        if path.ends_with(".jpg")
+            || path.ends_with(".png")
+            || path.ends_with(".gif")
+            || path.ends_with(".css")
+            || path.ends_with(".js")
+            || path.ends_with(".pdf")
         {
             continue;
         }
@@ -157,7 +160,11 @@ pub fn discover_links(html: &str, base_url: &str, max_links: usize) -> Vec<Disco
 
         links.push(DiscoveredLink {
             url: url_str,
-            text: if text.is_empty() { href.to_string() } else { text },
+            text: if text.is_empty() {
+                href.to_string()
+            } else {
+                text
+            },
         });
     }
 
@@ -177,12 +184,20 @@ pub fn compute_content_hash(content: &str) -> String {
 
 fn extract_meta(doc: &Html, property: &str) -> Option<String> {
     let sel = Selector::parse(&format!("meta[property=\"{}\"]", property)).ok()?;
-    doc.select(&sel).next()?.value().attr("content").map(|s| s.to_string())
+    doc.select(&sel)
+        .next()?
+        .value()
+        .attr("content")
+        .map(|s| s.to_string())
 }
 
 fn extract_meta_name(doc: &Html, name: &str) -> Option<String> {
     let sel = Selector::parse(&format!("meta[name=\"{}\"]", name)).ok()?;
-    doc.select(&sel).next()?.value().attr("content").map(|s| s.to_string())
+    doc.select(&sel)
+        .next()?
+        .value()
+        .attr("content")
+        .map(|s| s.to_string())
 }
 
 fn extract_title_tag(doc: &Html) -> Option<String> {
@@ -190,7 +205,11 @@ fn extract_title_tag(doc: &Html) -> Option<String> {
     let el = doc.select(&sel).next()?;
     let text = el.text().collect::<Vec<_>>().join("");
     let trimmed = text.trim().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn extract_favicon(doc: &Html, base_url: &str) -> Option<String> {
@@ -257,7 +276,10 @@ mod tests {
         let preview = parse_og_metadata(SAMPLE_HTML, "https://example.com", "example.com");
         assert_eq!(preview.title.as_deref(), Some("OG Title Here"));
         assert_eq!(preview.description.as_deref(), Some("OG Description"));
-        assert_eq!(preview.image.as_deref(), Some("https://example.com/image.png"));
+        assert_eq!(
+            preview.image.as_deref(),
+            Some("https://example.com/image.png")
+        );
         assert_eq!(preview.domain, "example.com");
     }
 
@@ -279,7 +301,10 @@ mod tests {
         </head><body></body></html>
         "##;
         let preview = parse_og_metadata(html, "https://test.com", "test.com");
-        assert_eq!(preview.description.as_deref(), Some("Name-based description"));
+        assert_eq!(
+            preview.description.as_deref(),
+            Some("Name-based description")
+        );
     }
 
     #[test]
@@ -288,11 +313,26 @@ mod tests {
         // Should include /about, /products, /contact (same domain)
         // Should exclude external, image, mailto, fragment
         let urls: Vec<&str> = links.iter().map(|l| l.url.as_str()).collect();
-        assert!(urls.contains(&"https://example.com/about"), "Should contain /about");
-        assert!(urls.contains(&"https://example.com/products"), "Should contain /products");
-        assert!(urls.contains(&"https://example.com/contact"), "Should contain /contact");
-        assert!(!urls.iter().any(|u| u.contains("other-domain")), "Should not contain external links");
-        assert!(!urls.iter().any(|u| u.contains("image.jpg")), "Should not contain image links");
+        assert!(
+            urls.contains(&"https://example.com/about"),
+            "Should contain /about"
+        );
+        assert!(
+            urls.contains(&"https://example.com/products"),
+            "Should contain /products"
+        );
+        assert!(
+            urls.contains(&"https://example.com/contact"),
+            "Should contain /contact"
+        );
+        assert!(
+            !urls.iter().any(|u| u.contains("other-domain")),
+            "Should not contain external links"
+        );
+        assert!(
+            !urls.iter().any(|u| u.contains("image.jpg")),
+            "Should not contain image links"
+        );
     }
 
     #[test]
@@ -315,20 +355,29 @@ mod tests {
         let hash2 = compute_content_hash("hello world");
         let hash3 = compute_content_hash("different content");
         assert_eq!(hash1, hash2, "Same content should produce same hash");
-        assert_ne!(hash1, hash3, "Different content should produce different hash");
+        assert_ne!(
+            hash1, hash3,
+            "Different content should produce different hash"
+        );
         assert_eq!(hash1.len(), 64, "SHA-256 hex should be 64 chars");
     }
 
     #[test]
     fn test_favicon_extraction() {
         let preview = parse_og_metadata(SAMPLE_HTML, "https://example.com", "example.com");
-        assert_eq!(preview.favicon.as_deref(), Some("https://example.com/favicon.png"));
+        assert_eq!(
+            preview.favicon.as_deref(),
+            Some("https://example.com/favicon.png")
+        );
     }
 
     #[test]
     fn test_favicon_default_fallback() {
         let html = "<html><head></head><body></body></html>";
         let preview = parse_og_metadata(html, "https://example.com", "example.com");
-        assert_eq!(preview.favicon.as_deref(), Some("https://example.com/favicon.ico"));
+        assert_eq!(
+            preview.favicon.as_deref(),
+            Some("https://example.com/favicon.ico")
+        );
     }
 }

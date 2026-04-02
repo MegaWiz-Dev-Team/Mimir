@@ -8,10 +8,10 @@
 //! to connect and query the Mimir knowledge base.
 
 use axum::{
-    routing::{get, post},
-    Router, Json,
-    http::{StatusCode, HeaderMap},
+    http::{HeaderMap, StatusCode},
     response::sse::{Event, Sse},
+    routing::{get, post},
+    Json, Router,
 };
 use futures::stream::Stream;
 use mimir_core_ai::services::db::DbPool;
@@ -246,9 +246,7 @@ async fn mcp_message(
 }
 
 /// GET /api/v1/mcp/sse — SSE stream for MCP transport
-async fn mcp_sse(
-    headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+async fn mcp_sse(headers: HeaderMap) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let tenant_id = crate::routes::tenant::extract_tenant_id(&headers).to_string();
     info!(event = "mcp_sse_connect", tenant_id = %tenant_id, "MCP SSE client connected");
 
@@ -348,17 +346,30 @@ mod tests {
     #[test]
     fn test_tools_have_input_schema() {
         let req = make_request("tools/list", None);
-        let tools = handle_mcp_message(&req, "t").result.unwrap()["tools"].as_array().unwrap().clone();
+        let tools = handle_mcp_message(&req, "t").result.unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .clone();
         for tool in &tools {
-            assert!(tool["inputSchema"].is_object(), "Tool {} must have inputSchema", tool["name"]);
+            assert!(
+                tool["inputSchema"].is_object(),
+                "Tool {} must have inputSchema",
+                tool["name"]
+            );
         }
     }
 
     #[test]
     fn test_query_knowledge_tool_schema() {
         let req = make_request("tools/list", None);
-        let tools = handle_mcp_message(&req, "t").result.unwrap()["tools"].as_array().unwrap().clone();
-        let qt = tools.iter().find(|t| t["name"] == "query_knowledge").unwrap();
+        let tools = handle_mcp_message(&req, "t").result.unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let qt = tools
+            .iter()
+            .find(|t| t["name"] == "query_knowledge")
+            .unwrap();
         let schema = &qt["inputSchema"];
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["question"].is_object());
@@ -370,9 +381,15 @@ mod tests {
     fn test_resources_list() {
         let req = make_request("resources/list", None);
         let resp = handle_mcp_message(&req, "test-tenant");
-        let resources = resp.result.unwrap()["resources"].as_array().unwrap().clone();
+        let resources = resp.result.unwrap()["resources"]
+            .as_array()
+            .unwrap()
+            .clone();
         assert!(resources.len() >= 2);
-        let uris: Vec<&str> = resources.iter().map(|r| r["uri"].as_str().unwrap()).collect();
+        let uris: Vec<&str> = resources
+            .iter()
+            .map(|r| r["uri"].as_str().unwrap())
+            .collect();
         assert!(uris.contains(&"mimir://tenant/documents"));
         assert!(uris.contains(&"mimir://tenant/graph"));
     }

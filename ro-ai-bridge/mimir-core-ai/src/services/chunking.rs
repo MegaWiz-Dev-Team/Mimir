@@ -5,7 +5,7 @@
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::info;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -23,7 +23,10 @@ pub enum ChunkStrategy {
 
 impl Default for ChunkStrategy {
     fn default() -> Self {
-        ChunkStrategy::Fixed { size: 500, overlap: 50 }
+        ChunkStrategy::Fixed {
+            size: 500,
+            overlap: 50,
+        }
     }
 }
 
@@ -49,7 +52,9 @@ pub fn chunk(text: &str, strategy: &ChunkStrategy) -> Result<Vec<ChunkResult>> {
     match strategy {
         ChunkStrategy::Fixed { size, overlap } => chunk_fixed(text, *size, *overlap),
         ChunkStrategy::Recursive { max_size } => chunk_recursive(text, *max_size),
-        ChunkStrategy::Semantic => bail!("Semantic chunking not yet implemented — requires embeddings (Sprint 10)"),
+        ChunkStrategy::Semantic => {
+            bail!("Semantic chunking not yet implemented — requires embeddings (Sprint 10)")
+        }
     }
 }
 
@@ -58,16 +63,26 @@ pub fn chunk(text: &str, strategy: &ChunkStrategy) -> Result<Vec<ChunkResult>> {
 /// - Markdown with headings (`##`) → `Recursive`
 /// - Plain text / short content → `Fixed`
 pub fn auto_recommend(text: &str) -> ChunkStrategy {
-    let heading_count = text.lines()
+    let heading_count = text
+        .lines()
         .filter(|line| line.starts_with("## ") || line.starts_with("### "))
         .count();
 
     if heading_count >= 2 {
-        info!("Auto-recommend: Recursive (found {} headings)", heading_count);
+        info!(
+            "Auto-recommend: Recursive (found {} headings)",
+            heading_count
+        );
         ChunkStrategy::Recursive { max_size: 500 }
     } else {
-        info!("Auto-recommend: Fixed (plain text, {} headings)", heading_count);
-        ChunkStrategy::Fixed { size: 500, overlap: 50 }
+        info!(
+            "Auto-recommend: Fixed (plain text, {} headings)",
+            heading_count
+        );
+        ChunkStrategy::Fixed {
+            size: 500,
+            overlap: 50,
+        }
     }
 }
 
@@ -258,9 +273,7 @@ fn split_by_headings(text: &str) -> Vec<String> {
 
 /// Split text by double newlines (paragraph breaks).
 fn split_by_paragraphs(text: &str) -> Vec<String> {
-    text.split("\n\n")
-        .map(|s| s.to_string())
-        .collect()
+    text.split("\n\n").map(|s| s.to_string()).collect()
 }
 
 /// Split long text by sentences, accumulating until max_size.
@@ -299,7 +312,11 @@ mod tests {
         let text = "a".repeat(1000);
         let result = chunk_fixed(&text, 300, 50).unwrap();
 
-        assert!(result.len() >= 3, "Should produce at least 3 chunks, got {}", result.len());
+        assert!(
+            result.len() >= 3,
+            "Should produce at least 3 chunks, got {}",
+            result.len()
+        );
         assert_eq!(result[0].chunk_index, 0);
         assert_eq!(result[0].content.len(), 300);
         assert!(result[0].token_count > 0);
@@ -329,8 +346,14 @@ mod tests {
     #[test]
     fn test_chunk_fixed_invalid_params() {
         assert!(chunk_fixed("text", 0, 0).is_err(), "Size 0 should error");
-        assert!(chunk_fixed("text", 10, 10).is_err(), "Overlap >= size should error");
-        assert!(chunk_fixed("text", 10, 15).is_err(), "Overlap > size should error");
+        assert!(
+            chunk_fixed("text", 10, 10).is_err(),
+            "Overlap >= size should error"
+        );
+        assert!(
+            chunk_fixed("text", 10, 15).is_err(),
+            "Overlap > size should error"
+        );
     }
 
     #[test]
@@ -415,13 +438,21 @@ Another short paragraph.
     fn test_chunk_semantic_not_implemented() {
         let result = chunk("some text", &ChunkStrategy::Semantic);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not yet implemented"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not yet implemented")
+        );
     }
 
     #[test]
     fn test_chunk_router_fixed() {
         let text = "Hello world. This is a test.";
-        let strategy = ChunkStrategy::Fixed { size: 500, overlap: 50 };
+        let strategy = ChunkStrategy::Fixed {
+            size: 500,
+            overlap: 50,
+        };
         let result = chunk(text, &strategy).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result[0].content.contains("Hello world"));

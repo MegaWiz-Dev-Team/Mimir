@@ -5,7 +5,7 @@
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -66,23 +66,24 @@ pub fn is_vault_enabled() -> bool {
 /// Required: `VAULT_ADDR`, `VAULT_TOKEN`
 /// Optional: `VAULT_MOUNT` (default: "secret"), `VAULT_PATH` (default: "mimir")
 pub fn parse_vault_config() -> Result<VaultConfig> {
-    let addr = std::env::var("VAULT_ADDR")
-        .map_err(|_| anyhow::anyhow!("VAULT_ADDR not set"))?;
-    
+    let addr = std::env::var("VAULT_ADDR").map_err(|_| anyhow::anyhow!("VAULT_ADDR not set"))?;
+
     if addr.trim().is_empty() {
         bail!("VAULT_ADDR is empty");
     }
 
-    let token = std::env::var("VAULT_TOKEN")
-        .map_err(|_| anyhow::anyhow!("VAULT_TOKEN not set"))?;
+    let token = std::env::var("VAULT_TOKEN").map_err(|_| anyhow::anyhow!("VAULT_TOKEN not set"))?;
 
-    let mount = std::env::var("VAULT_MOUNT")
-        .unwrap_or_else(|_| "secret".to_string());
-    
-    let path = std::env::var("VAULT_PATH")
-        .unwrap_or_else(|_| "mimir".to_string());
+    let mount = std::env::var("VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string());
 
-    Ok(VaultConfig { addr, token, mount, path })
+    let path = std::env::var("VAULT_PATH").unwrap_or_else(|_| "mimir".to_string());
+
+    Ok(VaultConfig {
+        addr,
+        token,
+        mount,
+        path,
+    })
 }
 
 /// Build the Vault KV v2 read URL for a given config.
@@ -102,6 +103,16 @@ pub fn build_secret_path(config: &VaultConfig) -> String {
 pub fn build_write_path(config: &VaultConfig) -> String {
     // In KV v2, read and write use the same /data/ endpoint
     build_secret_path(config)
+}
+
+/// Build the Vault KV v2 read/write URL for a tenant-specific path.
+///
+/// Format: `{addr}/v1/{mount}/data/{path}/tenants/{tenant_id}`
+pub fn build_tenant_secret_path(config: &VaultConfig, tenant_id: &str) -> String {
+    let addr = config.addr.trim_end_matches('/');
+    let mount = config.mount.trim_matches('/');
+    let path = config.path.trim_matches('/');
+    format!("{}/v1/{}/data/{}/tenants/{}", addr, mount, path, tenant_id)
 }
 
 /// Parse a Vault KV v2 response JSON and extract a specific key.
@@ -165,7 +176,7 @@ pub fn mask_secret(value: &str) -> String {
     if value.len() <= 8 {
         "****".to_string()
     } else {
-        format!("{}***{}", &value[..4], &value[value.len()-2..])
+        format!("{}***{}", &value[..4], &value[value.len() - 2..])
     }
 }
 
@@ -176,7 +187,10 @@ pub fn mask_secret(value: &str) -> String {
 /// Resolve a secret: try Vault first, fall back to env var.
 ///
 /// Returns the secret value and the source ("vault" or "env").
-pub async fn resolve_secret(env_name: &str, vault_config: Option<&VaultConfig>) -> Result<(String, &'static str)> {
+pub async fn resolve_secret(
+    env_name: &str,
+    vault_config: Option<&VaultConfig>,
+) -> Result<(String, &'static str)> {
     // Try Vault first if configured
     if let Some(config) = vault_config {
         let vault_key = map_config_to_vault_key(env_name);
@@ -213,7 +227,7 @@ pub async fn resolve_secret(env_name: &str, vault_config: Option<&VaultConfig>) 
 /// Fetch a secret from Vault KV v2.
 async fn fetch_from_vault(config: &VaultConfig, key: &str) -> Result<String> {
     let url = build_secret_path(config);
-    
+
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
@@ -227,10 +241,93 @@ async fn fetch_from_vault(config: &VaultConfig, key: &str) -> Result<String> {
         bail!("Vault returned status {}", response.status());
     }
 
-    let body: Value = response.json().await
+    let body: Value = response
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to parse Vault response: {}", e))?;
 
     parse_vault_response(&body, key)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tenant-Specific Multi-Tenant Vault Support (Issue #255)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Fetch tenant-specific secrets from Vault KV v2.
+/// Returns a JSON object containing the secrets, or an empty JSON object if not found.
+pub async fn get_tenant_secrets(tenant_id: &str) -> Result<Value> {
+    if !is_vault_enabled() {
+        return Ok(json!({}));
+    }
+    let config = parse_vault_config()?;
+    let url = build_tenant_secret_path(&config, tenant_id);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .header("X-Vault-Token", &config.token)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Vault connection failed: {}", e))?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        // Not found is fine, just means no credentials saved yet.
+        return Ok(json!({}));
+    }
+
+    if !response.status().is_success() {
+        bail!(
+            "Vault returned status {} when fetching tenant secrets",
+            response.status()
+        );
+    }
+
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to parse Vault response: {}", e))?;
+
+    let secrets = body
+        .get("data")
+        .and_then(|d| d.get("data"))
+        .cloned()
+        .unwrap_or(json!({}));
+
+    Ok(secrets)
+}
+
+/// Write tenant-specific secrets to Vault KV v2.
+/// Replaces the entire secret object at the tenant path.
+pub async fn write_tenant_secrets(tenant_id: &str, secrets: &Value) -> Result<()> {
+    if !is_vault_enabled() {
+        bail!("Cannot save credentials: HashiCorp Vault is not enabled or VAULT_ADDR is missing.");
+    }
+    let config = parse_vault_config()?;
+    let url = build_tenant_secret_path(&config, tenant_id);
+
+    // KV v2 requires payload wrapped in {"data": { ... }}
+    let write_body = json!({ "data": secrets });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .header("X-Vault-Token", &config.token)
+        .json(&write_body)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Vault write failed: {}", e))?;
+
+    if !response.status().is_success() {
+        bail!(
+            "Vault write returned status {} when saving tenant secrets",
+            response.status()
+        );
+    }
+
+    info!(tenant_id = %tenant_id, "Tenant provider credentials securely saved to Vault");
+    Ok(())
 }
 
 /// Check Vault server health/status.
@@ -252,7 +349,10 @@ pub async fn check_vault_status(config: &VaultConfig) -> VaultStatus {
                 enabled: true,
                 addr: Some(config.addr.clone()),
                 connected: true,
-                version: body.get("version").and_then(|v| v.as_str()).map(String::from),
+                version: body
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 sealed: body.get("sealed").and_then(|v| v.as_bool()),
             }
         }
@@ -270,7 +370,11 @@ pub async fn check_vault_status(config: &VaultConfig) -> VaultStatus {
 }
 
 /// Rotate a secret in Vault KV v2 (read-modify-write).
-pub async fn rotate_secret(config: &VaultConfig, key: &str, new_value: &str) -> Result<RotateSecretResponse> {
+pub async fn rotate_secret(
+    config: &VaultConfig,
+    key: &str,
+    new_value: &str,
+) -> Result<RotateSecretResponse> {
     let url = build_write_path(config);
 
     // First, read existing secrets so we don't overwrite others
@@ -337,8 +441,8 @@ pub async fn rotate_secret(config: &VaultConfig, key: &str, new_value: &str) -> 
 #[derive(Debug, Serialize)]
 pub struct ManagedSecretInfo {
     pub key: String,
-    pub status: &'static str,   // "present" | "missing"
-    pub source: &'static str,   // "vault" | "env" | "none"
+    pub status: &'static str, // "present" | "missing"
+    pub source: &'static str, // "vault" | "env" | "none"
     pub masked_value: Option<String>,
 }
 
@@ -462,8 +566,8 @@ mod tests {
         let config = VaultConfig {
             addr: "http://v:8200".to_string(),
             token: "tok".to_string(),
-            mount: "secret".to_string(),   // default
-            path: "mimir".to_string(),     // default
+            mount: "secret".to_string(), // default
+            path: "mimir".to_string(),   // default
         };
         let url = build_secret_path(&config);
         assert!(url.contains("/secret/data/mimir"));
@@ -559,7 +663,10 @@ mod tests {
     fn test_build_rotation_payload() {
         let payload = build_rotation_payload("api_key", "new-secret-value");
         let data = payload.get("data").unwrap();
-        assert_eq!(data.get("api_key").unwrap().as_str().unwrap(), "new-secret-value");
+        assert_eq!(
+            data.get("api_key").unwrap().as_str().unwrap(),
+            "new-secret-value"
+        );
     }
 
     // ========================================
@@ -681,7 +788,9 @@ mod tests {
     async fn test_inject_vault_secrets_noop_without_vault() {
         // When VAULT_ADDR is not set, inject should be a no-op
         // (does not panic, does not modify env)
-        unsafe { std::env::remove_var("VAULT_ADDR"); }
+        unsafe {
+            std::env::remove_var("VAULT_ADDR");
+        }
 
         let test_key = "GEMINI_API_KEY";
         let original = std::env::var(test_key).ok();

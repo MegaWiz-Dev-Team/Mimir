@@ -3,7 +3,7 @@
 //! Provides graph operations for entity/relation storage via Neo4j.
 //! All queries enforce tenant isolation with `tenant_id` parameter.
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -27,7 +27,8 @@ impl Neo4jConfig {
         Self {
             uri: env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://localhost:7687".to_string()),
             user: env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_string()),
-            password: env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "mimir_neo4j_password".to_string()),
+            password: env::var("NEO4J_PASSWORD")
+                .unwrap_or_else(|_| "mimir_neo4j_password".to_string()),
         }
     }
 }
@@ -216,7 +217,7 @@ pub fn build_visualization_cypher() -> &'static str {
 /// Map entity type to a color for visualization.
 pub fn entity_type_color(entity_type: &str) -> &'static str {
     match entity_type.to_lowercase().as_str() {
-        "person" => "#4A90D9",      // Blue
+        "person" => "#4A90D9",       // Blue
         "organization" => "#27AE60", // Green
         "location" => "#E67E22",     // Orange
         "concept" => "#9B59B6",      // Purple
@@ -268,7 +269,7 @@ impl Neo4jService {
 
         for query in &index_queries {
             match graph.run(neo4rs::query(query)).await {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => warn!("Index creation warning (may already exist): {}", e),
             }
         }
@@ -306,7 +307,10 @@ impl Neo4jService {
             .param("source_id", source_id.unwrap_or(-1))
             .param("chunk_id", chunk_id.unwrap_or(-1));
 
-        let mut result = self.graph.execute(query).await
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
             .context("Failed to upsert entity")?;
 
         if let Some(row) = result.next().await? {
@@ -336,7 +340,10 @@ impl Neo4jService {
             .param("properties", props_str)
             .param("source_id", source_id.unwrap_or(-1));
 
-        let mut result = self.graph.execute(query).await
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
             .context("Failed to upsert relation")?;
 
         if let Some(row) = result.next().await? {
@@ -359,7 +366,10 @@ impl Neo4jService {
             .param("query", query_text)
             .param("limit", limit as i64);
 
-        let mut result = self.graph.execute(query).await
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
             .context("Failed to search entities")?;
 
         let mut entities = Vec::new();
@@ -368,7 +378,9 @@ impl Neo4jService {
                 id: None,
                 name: row.get("name").unwrap_or_default(),
                 entity_type: row.get("entity_type").unwrap_or_default(),
-                properties: row.get::<String>("properties").ok()
+                properties: row
+                    .get::<String>("properties")
+                    .ok()
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 tenant_id: tenant_id.to_string(),
                 source_id: None,
@@ -385,9 +397,11 @@ impl Neo4jService {
         let mut stats = GraphStats::default();
 
         // Node stats
-        let query = neo4rs::query(build_graph_stats_cypher())
-            .param("tenant_id", tenant_id);
-        let mut result = self.graph.execute(query).await
+        let query = neo4rs::query(build_graph_stats_cypher()).param("tenant_id", tenant_id);
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
             .context("Failed to get node stats")?;
 
         while let Some(row) = result.next().await? {
@@ -401,9 +415,11 @@ impl Neo4jService {
         }
 
         // Edge stats
-        let query = neo4rs::query(build_edge_stats_cypher())
-            .param("tenant_id", tenant_id);
-        let mut result = self.graph.execute(query).await
+        let query = neo4rs::query(build_edge_stats_cypher()).param("tenant_id", tenant_id);
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
             .context("Failed to get edge stats")?;
 
         while let Some(row) = result.next().await? {
@@ -420,16 +436,15 @@ impl Neo4jService {
     }
 
     /// Delete all entities (and their relations) for a specific source.
-    pub async fn delete_entities_by_source(
-        &self,
-        tenant_id: &str,
-        source_id: i64,
-    ) -> Result<u64> {
+    pub async fn delete_entities_by_source(&self, tenant_id: &str, source_id: i64) -> Result<u64> {
         let query = neo4rs::query(build_delete_by_source_cypher())
             .param("tenant_id", tenant_id)
             .param("source_id", source_id);
 
-        let mut result = self.graph.execute(query).await
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
             .context("Failed to delete entities by source")?;
 
         if let Some(row) = result.next().await? {
@@ -455,9 +470,15 @@ mod tests {
     #[test]
     fn test_neo4j_config_defaults() {
         // Remove env vars to test defaults
-        unsafe { std::env::remove_var("NEO4J_URI"); }
-        unsafe { std::env::remove_var("NEO4J_USER"); }
-        unsafe { std::env::remove_var("NEO4J_PASSWORD"); }
+        unsafe {
+            std::env::remove_var("NEO4J_URI");
+        }
+        unsafe {
+            std::env::remove_var("NEO4J_USER");
+        }
+        unsafe {
+            std::env::remove_var("NEO4J_PASSWORD");
+        }
 
         let config = Neo4jConfig::from_env();
         assert_eq!(config.uri, "bolt://localhost:7687");
@@ -471,7 +492,10 @@ mod tests {
     #[test]
     fn test_upsert_entity_cypher_has_tenant_id() {
         let cypher = build_upsert_entity_cypher();
-        assert!(cypher.contains("tenant_id: $tenant_id"), "Upsert entity must filter by tenant_id");
+        assert!(
+            cypher.contains("tenant_id: $tenant_id"),
+            "Upsert entity must filter by tenant_id"
+        );
         assert!(cypher.contains("MERGE"), "Must use MERGE for upsert");
         assert!(cypher.contains("ON CREATE SET"), "Must handle ON CREATE");
         assert!(cypher.contains("ON MATCH SET"), "Must handle ON MATCH");
@@ -483,10 +507,19 @@ mod tests {
     #[test]
     fn test_upsert_relation_cypher_has_tenant_id() {
         let cypher = build_upsert_relation_cypher();
-        assert!(cypher.contains("tenant_id: $tenant_id"), "Upsert relation must filter by tenant_id");
+        assert!(
+            cypher.contains("tenant_id: $tenant_id"),
+            "Upsert relation must filter by tenant_id"
+        );
         assert!(cypher.contains("MERGE"), "Must use MERGE for upsert");
-        assert!(cypher.contains("MATCH (a:Entity"), "Must match source entity");
-        assert!(cypher.contains("MATCH (b:Entity"), "Must match target entity");
+        assert!(
+            cypher.contains("MATCH (a:Entity"),
+            "Must match source entity"
+        );
+        assert!(
+            cypher.contains("MATCH (b:Entity"),
+            "Must match target entity"
+        );
     }
 
     // ========================================
@@ -495,9 +528,15 @@ mod tests {
     #[test]
     fn test_search_entities_cypher_tenant_isolation() {
         let cypher = build_search_entities_cypher();
-        assert!(cypher.contains("n.tenant_id = $tenant_id"), "Search must filter by tenant_id");
+        assert!(
+            cypher.contains("n.tenant_id = $tenant_id"),
+            "Search must filter by tenant_id"
+        );
         assert!(cypher.contains("LIMIT $limit"), "Search must be limited");
-        assert!(cypher.contains("toLower"), "Search must be case-insensitive");
+        assert!(
+            cypher.contains("toLower"),
+            "Search must be case-insensitive"
+        );
     }
 
     // ========================================
@@ -506,7 +545,10 @@ mod tests {
     #[test]
     fn test_find_paths_cypher_tenant_isolation() {
         let cypher = build_find_paths_cypher();
-        assert!(cypher.contains("tenant_id: $tenant_id"), "Path finding must filter by tenant_id");
+        assert!(
+            cypher.contains("tenant_id: $tenant_id"),
+            "Path finding must filter by tenant_id"
+        );
         assert!(cypher.contains("shortestPath"), "Must use shortestPath");
     }
 
@@ -518,11 +560,17 @@ mod tests {
         // Normal depth
         let cypher = build_get_neighbors_cypher(3);
         assert!(cypher.contains("*1..3"), "Depth 3 should produce *1..3");
-        assert!(cypher.contains("tenant_id: $tenant_id"), "Must filter by tenant_id");
+        assert!(
+            cypher.contains("tenant_id: $tenant_id"),
+            "Must filter by tenant_id"
+        );
 
         // Capped depth
         let cypher_capped = build_get_neighbors_cypher(100);
-        assert!(cypher_capped.contains("*1..5"), "Depth should be capped at 5");
+        assert!(
+            cypher_capped.contains("*1..5"),
+            "Depth should be capped at 5"
+        );
     }
 
     // ========================================
@@ -531,10 +579,16 @@ mod tests {
     #[test]
     fn test_stats_cypher_tenant_isolation() {
         let node_stats = build_graph_stats_cypher();
-        assert!(node_stats.contains("n.tenant_id = $tenant_id"), "Node stats must filter by tenant_id");
+        assert!(
+            node_stats.contains("n.tenant_id = $tenant_id"),
+            "Node stats must filter by tenant_id"
+        );
 
         let edge_stats = build_edge_stats_cypher();
-        assert!(edge_stats.contains("a.tenant_id = $tenant_id"), "Edge stats must filter by tenant_id");
+        assert!(
+            edge_stats.contains("a.tenant_id = $tenant_id"),
+            "Edge stats must filter by tenant_id"
+        );
     }
 
     // ========================================
@@ -543,9 +597,18 @@ mod tests {
     #[test]
     fn test_delete_by_source_cypher_tenant_isolation() {
         let cypher = build_delete_by_source_cypher();
-        assert!(cypher.contains("tenant_id: $tenant_id"), "Delete must filter by tenant_id");
-        assert!(cypher.contains("source_id: $source_id"), "Delete must filter by source_id");
-        assert!(cypher.contains("DETACH DELETE"), "Must use DETACH DELETE to remove relations");
+        assert!(
+            cypher.contains("tenant_id: $tenant_id"),
+            "Delete must filter by tenant_id"
+        );
+        assert!(
+            cypher.contains("source_id: $source_id"),
+            "Delete must filter by source_id"
+        );
+        assert!(
+            cypher.contains("DETACH DELETE"),
+            "Must use DETACH DELETE to remove relations"
+        );
     }
 
     // ========================================
@@ -594,8 +657,14 @@ mod tests {
     #[test]
     fn test_visualization_cypher_tenant_isolation() {
         let cypher = build_visualization_cypher();
-        assert!(cypher.contains("n.tenant_id = $tenant_id"), "Visualization must filter by tenant_id");
-        assert!(cypher.contains("LIMIT $limit"), "Visualization must have limit");
+        assert!(
+            cypher.contains("n.tenant_id = $tenant_id"),
+            "Visualization must filter by tenant_id"
+        );
+        assert!(
+            cypher.contains("LIMIT $limit"),
+            "Visualization must have limit"
+        );
     }
 
     // ========================================

@@ -4,11 +4,11 @@
 //! GET /api/docs/openapi.yaml — OpenAPI spec file
 
 use axum::{
-    routing::get,
-    Router,
+    http::{header, StatusCode},
     response::Html,
     response::Response,
-    http::{header, StatusCode},
+    routing::get,
+    Router,
 };
 use sqlx::MySqlPool;
 
@@ -20,7 +20,8 @@ pub fn docs_routes() -> Router<MySqlPool> {
 
 /// GET /api/docs — Swagger UI (loaded from CDN)
 async fn swagger_ui() -> Html<String> {
-    Html(r#"<!DOCTYPE html>
+    Html(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -47,7 +48,9 @@ async fn swagger_ui() -> Html<String> {
         });
     </script>
 </body>
-</html>"#.to_string())
+</html>"#
+            .to_string(),
+    )
 }
 
 /// GET /api/docs/openapi.yaml — serve the spec file

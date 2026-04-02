@@ -121,9 +121,7 @@ impl TreeRetriever for PageIndexRetriever {
         // Build futures for all docs
         let futures: Vec<_> = docs
             .iter()
-            .map(|(title, content, tree_json)| {
-                self.search_one(title, tree_json, content, question)
-            })
+            .map(|(title, content, tree_json)| self.search_one(title, tree_json, content, question))
             .collect();
 
         // Execute all in parallel
@@ -149,9 +147,10 @@ pub fn tree_to_retrieval_results(tree_results: &[TreeSearchResult]) -> Vec<Retri
     tree_results
         .iter()
         .filter_map(|tr| {
-            let content = tr.answer.clone().unwrap_or_else(|| {
-                tr.relevant_sections.join("\n")
-            });
+            let content = tr
+                .answer
+                .clone()
+                .unwrap_or_else(|| tr.relevant_sections.join("\n"));
             if content.is_empty() {
                 return None;
             }
@@ -192,10 +191,7 @@ pub fn extract_parent_context(tree_index: &Value, matched_sections: &[String]) -
 
     // Walk the tree recursively looking for nodes whose content matches
     fn find_parents(node: &Value, target: &str, path: &mut Vec<String>) -> bool {
-        let title = node
-            .get("title")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let title = node.get("title").and_then(|t| t.as_str()).unwrap_or("");
 
         if !title.is_empty() {
             path.push(title.to_string());
@@ -301,9 +297,17 @@ mod tests {
         let sections = vec!["POST /api/search".to_string()];
         let parents = extract_parent_context(&tree, &sections);
 
-        assert!(parents.len() >= 1, "Should find at least 1 parent, got: {:?}", parents);
-        assert!(parents.contains(&"# Document".to_string()) || parents.contains(&"## Architecture".to_string()),
-            "Parents should include ancestor headings, got: {:?}", parents);
+        assert!(
+            parents.len() >= 1,
+            "Should find at least 1 parent, got: {:?}",
+            parents
+        );
+        assert!(
+            parents.contains(&"# Document".to_string())
+                || parents.contains(&"## Architecture".to_string()),
+            "Parents should include ancestor headings, got: {:?}",
+            parents
+        );
     }
 
     #[test]
@@ -348,14 +352,12 @@ mod tests {
 
     #[test]
     fn test_tree_to_retrieval_results_basic() {
-        let tree_results = vec![
-            TreeSearchResult {
-                document_title: "API Guide".to_string(),
-                answer: Some("Use POST /search endpoint".to_string()),
-                relevant_sections: vec!["Details here".to_string()],
-                parent_context: vec!["## API".to_string()],
-            },
-        ];
+        let tree_results = vec![TreeSearchResult {
+            document_title: "API Guide".to_string(),
+            answer: Some("Use POST /search endpoint".to_string()),
+            relevant_sections: vec!["Details here".to_string()],
+            parent_context: vec!["## API".to_string()],
+        }];
 
         let results = tree_to_retrieval_results(&tree_results);
         assert_eq!(results.len(), 1);
@@ -367,14 +369,12 @@ mod tests {
 
     #[test]
     fn test_tree_to_retrieval_results_uses_sections_when_no_answer() {
-        let tree_results = vec![
-            TreeSearchResult {
-                document_title: "Doc".to_string(),
-                answer: None,
-                relevant_sections: vec!["Section A".to_string(), "Section B".to_string()],
-                parent_context: vec![],
-            },
-        ];
+        let tree_results = vec![TreeSearchResult {
+            document_title: "Doc".to_string(),
+            answer: None,
+            relevant_sections: vec!["Section A".to_string(), "Section B".to_string()],
+            parent_context: vec![],
+        }];
 
         let results = tree_to_retrieval_results(&tree_results);
         assert_eq!(results.len(), 1);
@@ -384,14 +384,12 @@ mod tests {
 
     #[test]
     fn test_tree_to_retrieval_results_skips_empty() {
-        let tree_results = vec![
-            TreeSearchResult {
-                document_title: "Empty".to_string(),
-                answer: None,
-                relevant_sections: vec![],
-                parent_context: vec![],
-            },
-        ];
+        let tree_results = vec![TreeSearchResult {
+            document_title: "Empty".to_string(),
+            answer: None,
+            relevant_sections: vec![],
+            parent_context: vec![],
+        }];
 
         let results = tree_to_retrieval_results(&tree_results);
         assert_eq!(results.len(), 0, "Should skip results with no content");
@@ -399,14 +397,12 @@ mod tests {
 
     #[test]
     fn test_tree_to_retrieval_results_metadata_has_parent_context() {
-        let tree_results = vec![
-            TreeSearchResult {
-                document_title: "Doc".to_string(),
-                answer: Some("answer".to_string()),
-                relevant_sections: vec!["sec1".to_string()],
-                parent_context: vec!["# Heading".to_string(), "## Sub".to_string()],
-            },
-        ];
+        let tree_results = vec![TreeSearchResult {
+            document_title: "Doc".to_string(),
+            answer: Some("answer".to_string()),
+            relevant_sections: vec!["sec1".to_string()],
+            parent_context: vec!["# Heading".to_string(), "## Sub".to_string()],
+        }];
 
         let results = tree_to_retrieval_results(&tree_results);
         assert_eq!(results.len(), 1);

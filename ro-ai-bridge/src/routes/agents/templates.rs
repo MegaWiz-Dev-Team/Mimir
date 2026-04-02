@@ -131,7 +131,10 @@ mod tests {
     fn test_templates_have_required_fields() {
         for t in &get_templates() {
             assert!(!t.name.is_empty(), "Template name must not be empty");
-            assert!(!t.system_prompt.is_empty(), "System prompt must not be empty");
+            assert!(
+                !t.system_prompt.is_empty(),
+                "System prompt must not be empty"
+            );
             assert!(!t.model_id.is_empty(), "Model ID must not be empty");
             assert!(!t.greeting.is_empty(), "Greeting must not be empty");
             assert!(!t.provider.is_empty(), "Provider must not be empty");
@@ -161,28 +164,59 @@ mod tests {
     #[test]
     fn test_npc_agent_has_action_tools() {
         let templates = get_templates();
-        let npc = templates.iter().find(|t| t.id == "npc_game_agent").expect("NPC game agent");
-        assert!(npc.tools.contains(&"heal".to_string()), "NPC should have heal");
-        assert!(npc.tools.contains(&"buff".to_string()), "NPC should have buff");
-        assert!(npc.tools.contains(&"warp".to_string()), "NPC should have warp");
-        assert!(npc.tools.contains(&"QueryMobDb".to_string()), "NPC should have QueryMobDb");
+        let npc = templates
+            .iter()
+            .find(|t| t.id == "npc_game_agent")
+            .expect("NPC game agent");
+        assert!(
+            npc.tools.contains(&"heal".to_string()),
+            "NPC should have heal"
+        );
+        assert!(
+            npc.tools.contains(&"buff".to_string()),
+            "NPC should have buff"
+        );
+        assert!(
+            npc.tools.contains(&"warp".to_string()),
+            "NPC should have warp"
+        );
+        assert!(
+            npc.tools.contains(&"QueryMobDb".to_string()),
+            "NPC should have QueryMobDb"
+        );
     }
 
     /// TC_MIG_05b: Medical Doctor uses MedGemma and knowledge graph
     #[test]
     fn test_medical_doctor_config() {
         let templates = get_templates();
-        let med = templates.iter().find(|t| t.id == "medical_doctor").expect("Medical Doctor");
-        assert!(med.model_id.contains("medgemma"), "Medical Doctor should use MedGemma model");
-        assert!(med.use_knowledge_graph, "Medical Doctor should use knowledge graph");
-        assert!(med.temperature <= 0.4, "Medical Doctor should have low temperature for accuracy");
+        let med = templates
+            .iter()
+            .find(|t| t.id == "medical_doctor")
+            .expect("Medical Doctor");
+        assert!(
+            med.model_id.contains("medgemma"),
+            "Medical Doctor should use MedGemma model"
+        );
+        assert!(
+            med.use_knowledge_graph,
+            "Medical Doctor should use knowledge graph"
+        );
+        assert!(
+            med.temperature <= 0.4,
+            "Medical Doctor should have low temperature for accuracy"
+        );
     }
 
     /// TC_MIG_06: All NPC templates use Heimdall provider
     #[test]
     fn test_npc_templates_use_heimdall() {
         for t in &get_templates() {
-            assert_eq!(t.provider, "heimdall", "NPC template '{}' should use heimdall", t.id);
+            assert_eq!(
+                t.provider, "heimdall",
+                "NPC template '{}' should use heimdall",
+                t.id
+            );
         }
     }
 }

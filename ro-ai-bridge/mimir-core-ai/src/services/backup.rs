@@ -277,7 +277,10 @@ mod tests {
             .expect("should parse");
         assert_eq!(entry.backup_type, BackupType::MariaDB);
         assert_eq!(entry.date, "20260301");
-        assert_eq!(entry.path, "/data/backups/mariadb/mimir_mariadb_20260301_120000.sql.gz");
+        assert_eq!(
+            entry.path,
+            "/data/backups/mariadb/mimir_mariadb_20260301_120000.sql.gz"
+        );
     }
 
     #[test]

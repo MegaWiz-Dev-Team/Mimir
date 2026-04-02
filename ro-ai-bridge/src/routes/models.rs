@@ -6,7 +6,9 @@ pub fn models_routes() -> Router<DbPool> {
     Router::new().route("/models", get(list_models))
 }
 
-async fn list_models(State(pool): State<DbPool>) -> Result<Json<Vec<mimir_core_ai::models::model_config::ModelConfig>>, axum::http::StatusCode> {
+async fn list_models(
+    State(pool): State<DbPool>,
+) -> Result<Json<Vec<mimir_core_ai::models::model_config::ModelConfig>>, axum::http::StatusCode> {
     match get_active_llm_models(&pool).await {
         Ok(models) => Ok(Json(models)),
         Err(e) => {

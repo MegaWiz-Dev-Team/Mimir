@@ -12,10 +12,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::qa_qc::clustering::{ClusteringService, ClusterDTO, ResolveClusterRequest};
-use axum::http::HeaderMap;
 use crate::routes::tenant::extract_tenant_id;
+use axum::http::HeaderMap;
+use mimir_core_ai::qa_qc::clustering::{ClusterDTO, ClusteringService, ResolveClusterRequest};
+use mimir_core_ai::services::db::DbPool;
 
 #[derive(Debug, Deserialize)]
 pub struct SeedData {
@@ -51,8 +51,12 @@ async fn list_clusters(
 ) -> Json<Vec<ClusterDTO>> {
     let tenant_id = extract_tenant_id(&headers).to_string();
 
-    let status_filter = q.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("ALL");
-    
+    let status_filter = q
+        .status
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("ALL");
+
     match ClusteringService::get_clusters(&pool, &tenant_id, Some(status_filter)).await {
         Ok(clusters) => Json(clusters),
         Err(e) => {
@@ -92,12 +96,16 @@ async fn trigger_generate(
 
     // Note: In a real system, you might want to fire and forget this or use a background worker queue.
     // For now, we await it or spawn it. Spawning is safer to not block the HTTP response if Gemini takes long.
-    
+
     let pool_clone = pool.clone();
-    
+
     tokio::spawn(async move {
         if let Err(e) = ClusteringService::trigger_clustering(&pool_clone, &tenant_id).await {
-            tracing::error!("Background clustering failed for tenant {}: {}", tenant_id, e);
+            tracing::error!(
+                "Background clustering failed for tenant {}: {}",
+                tenant_id,
+                e
+            );
         }
     });
 
@@ -115,50 +123,58 @@ async fn seed_qa_data(
 ) -> Json<serde_json::Value> {
     let tenant_id = extract_tenant_id(&headers);
     let mut success_count = 0;
-    
+
     // Create mock run
     let run_id = uuid::Uuid::new_v4().to_string();
     let _ = sqlx::query("INSERT INTO pipeline_runs (id, status, provider, model) VALUES (?, 'COMPLETED', 'mock', 'mock')")
         .bind(&run_id).execute(&pool).await;
-        
+
     // Create mock step
     let _ = sqlx::query("INSERT INTO pipeline_steps (run_id, file_name, status, step_type) VALUES (?, 'mock_file.txt', 'COMPLETED', 'GENERATE')")
         .bind(&run_id).execute(&pool).await;
-        
-    let step_record: Result<(i64,), _> = sqlx::query_as("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1")
-        .bind(&run_id).fetch_one(&pool).await;
-    
+
+    let step_record: Result<(i64,), _> =
+        sqlx::query_as("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1")
+            .bind(&run_id)
+            .fetch_one(&pool)
+            .await;
+
     if let Ok(step_record) = step_record {
         for item in payload {
             let res = sqlx::query(
                 r#"
                 INSERT INTO qa_results (step_id, question, answer, context, tenant_id)
                 VALUES (?, ?, ?, ?, ?)
-                "#)
-                .bind(step_record.0)
-                .bind(item.question)
-                .bind(item.answer)
-                .bind(item.context)
-                .bind(tenant_id)
-                .execute(&pool).await;
-            
+                "#,
+            )
+            .bind(step_record.0)
+            .bind(item.question)
+            .bind(item.answer)
+            .bind(item.context)
+            .bind(tenant_id)
+            .execute(&pool)
+            .await;
+
             if res.is_ok() {
                 success_count += 1;
             } else if let Err(e) = res {
-                 tracing::error!("Seed failed insert: {}", e);
+                tracing::error!("Seed failed insert: {}", e);
             }
         }
     }
-    
+
     Json(serde_json::json!({ "inserted": success_count }))
 }
 
 /// GET /api/v1/qc/status — Check if background clustering is running
 async fn get_qc_status() -> Json<serde_json::Value> {
-    let is_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
-    let processed = mimir_core_ai::qa_qc::clustering::PROCESSED_COUNT.load(std::sync::atomic::Ordering::SeqCst);
-    let total = mimir_core_ai::qa_qc::clustering::TOTAL_COUNT.load(std::sync::atomic::Ordering::SeqCst);
-    
+    let is_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING
+        .load(std::sync::atomic::Ordering::SeqCst);
+    let processed =
+        mimir_core_ai::qa_qc::clustering::PROCESSED_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+    let total =
+        mimir_core_ai::qa_qc::clustering::TOTAL_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+
     Json(serde_json::json!({
         "is_generating": is_running,
         "processed_count": processed,
@@ -168,11 +184,13 @@ async fn get_qc_status() -> Json<serde_json::Value> {
 
 /// POST /api/v1/qc/stop — Force stop the running clustering job
 async fn stop_qc_generation() -> Json<serde_json::Value> {
-    let was_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
-    
+    let was_running = mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING
+        .load(std::sync::atomic::Ordering::SeqCst);
+
     if was_running {
         // Set stop flag — the clustering loop checks this each iteration
-        mimir_core_ai::qa_qc::clustering::STOP_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::STOP_REQUESTED
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("QC stop requested — clustering will stop at next iteration");
         Json(serde_json::json!({
             "success": true,
@@ -180,9 +198,12 @@ async fn stop_qc_generation() -> Json<serde_json::Value> {
         }))
     } else {
         // Force reset all flags in case they're stuck
-        mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
-        mimir_core_ai::qa_qc::clustering::STOP_REQUESTED.store(false, std::sync::atomic::Ordering::SeqCst);
-        mimir_core_ai::qa_qc::clustering::PROCESSED_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::IS_CLUSTERING_RUNNING
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::STOP_REQUESTED
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        mimir_core_ai::qa_qc::clustering::PROCESSED_COUNT
+            .store(0, std::sync::atomic::Ordering::SeqCst);
         mimir_core_ai::qa_qc::clustering::TOTAL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("QC force reset — all flags cleared");
         Json(serde_json::json!({

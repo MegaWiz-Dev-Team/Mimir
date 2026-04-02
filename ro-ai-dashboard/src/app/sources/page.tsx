@@ -991,8 +991,9 @@ export default function SourcesPage() {
 
             {/* ═══ Configure Auto-Pipeline Dialog ═══ */}
             <Dialog open={pipelineConfigSource !== null} onOpenChange={(open) => {
-                if (!open && !pipelineStarting) {
+                if (!open) {
                     setPipelineConfigSource(null);
+                    setPipelineStarting(false);
                     setPipelineRunStatus(null);
                 }
             }}>
@@ -1089,12 +1090,12 @@ export default function SourcesPage() {
                         {pipelineStarting && (
                             <div className="mt-4 border rounded-md p-4 bg-muted/50">
                                 <h4 className="text-sm font-semibold mb-3 flex items-center">
-                                    {pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed' ? (
-                                        pipelineRunStatus?.status === 'finished' ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> : <X className="w-4 h-4 mr-2 text-red-500" />
+                                    {pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed' ? (
+                                        (pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished') ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> : <X className="w-4 h-4 mr-2 text-red-500" />
                                     ) : (
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin text-primary" /> 
                                     )}
-                                    {pipelineRunStatus?.status === 'finished' ? 'Pipeline Completed' : pipelineRunStatus?.status === 'failed' ? 'Pipeline Failed' : 'Pipeline Running...'}
+                                    {(pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished') ? 'Pipeline Completed' : pipelineRunStatus?.status === 'failed' ? 'Pipeline Failed' : 'Pipeline Running...'}
                                 </h4>
                                 {pipelineRunStatus ? (
                                     <div className="space-y-2 text-sm max-h-[200px] overflow-y-auto">
@@ -1111,7 +1112,7 @@ export default function SourcesPage() {
                                             </div>
                                         ))}
                                         {pipelineRunStatus.status === 'failed' && <p className="text-xs text-red-500 mt-2">{pipelineRunStatus.error}</p>}
-                                        {pipelineRunStatus.status === 'finished' && <p className="text-xs text-green-600 font-medium mt-2">All extraction processes finished successfully.</p>}
+                                        {(pipelineRunStatus.status === 'completed' || pipelineRunStatus.status === 'finished') && <p className="text-xs text-green-600 font-medium mt-2">All extraction processes finished successfully.</p>}
                                     </div>
                                 ) : (
                                     <div className="text-sm text-muted-foreground">Initializing run...</div>
@@ -1121,10 +1122,13 @@ export default function SourcesPage() {
                     </div>
                     
                     <DialogFooter>
-                        {pipelineStarting && (pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed') ? (
+                        {pipelineStarting && (pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed') ? (
                             <Button onClick={() => { setPipelineConfigSource(null); setPipelineStarting(false); setPipelineRunStatus(null); loadSources(); }}>Close</Button>
                         ) : pipelineStarting ? (
-                            <Button disabled><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Running...</Button>
+                            <>
+                                <Button variant="outline" onClick={() => { setPipelineConfigSource(null); setPipelineStarting(false); setPipelineRunStatus(null); loadSources(); }}>Run in Background</Button>
+                                <Button disabled><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Running...</Button>
+                            </>
                         ) : (
                             <>
                                 <Button variant="outline" onClick={() => setPipelineConfigSource(null)}>Cancel</Button>
@@ -1146,7 +1150,7 @@ export default function SourcesPage() {
                                                 try {
                                                     const statusRes = await fetchPipelineStatus(pipelineConfigSource.id);
                                                     setPipelineRunStatus(statusRes);
-                                                    if (statusRes.status === 'finished' || statusRes.status === 'failed') {
+                                                    if (statusRes.status === 'completed' || statusRes.status === 'failed') {
                                                         clearInterval(intervalId);
                                                         loadSources();
                                                     }

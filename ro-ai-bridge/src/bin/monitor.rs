@@ -1,33 +1,34 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, post},
-    Router, Json, extract::{State, Path, Extension},
-    response::{IntoResponse, sse::Event, Sse},
+    extract::{Extension, Path, State},
     http::StatusCode,
+    response::{sse::Event, IntoResponse, Sse},
+    routing::{get, post},
+    Json, Router,
 };
 use dotenvy::dotenv;
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
-use mimir_core_ai::services::db::{init_db, DbPool};
-use mimir_core_ai::qa_qc::pipeline::{run_pipeline_with_config, resume_pipeline_with_config};
+use futures::stream::Stream;
 use mimir_core_ai::config::QAConfig;
+use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::qa_qc::pipeline::{resume_pipeline_with_config, run_pipeline_with_config};
+use mimir_core_ai::services::db::{init_db, DbPool};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
-use tracing::{info, error};
 use tokio::net::TcpListener;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::mpsc;
-use futures::stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
+use tracing::{error, info};
 
-use mimir_core_ai::services::qdrant::QdrantService;
-use mimir_core_ai::qa_qc::indexer::run_indexer;
-use mimir_core_ai::rag_engine::{OracleRagAgent, LlmProvider};
-use mimir_core_ai::models::persona::Persona;
-use mimir_core_ai::services::iam::IamService;
-use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
-use rig::providers::ollama;
-use mimir_core_ai::qa_qc::clustering::{ClusteringService, ResolveClusterRequest};
 use axum::extract::Query;
+use mimir_core_ai::models::persona::Persona;
+use mimir_core_ai::qa_qc::clustering::{ClusteringService, ResolveClusterRequest};
+use mimir_core_ai::qa_qc::indexer::run_indexer;
+use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent};
+use mimir_core_ai::services::iam::IamService;
+use mimir_core_ai::services::qdrant::QdrantService;
+use rig::providers::ollama;
+use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 
 #[derive(Deserialize)]
 struct RunRequest {
@@ -137,38 +138,51 @@ async fn main() -> Result<()> {
     let pool = init_db().await?;
     let qdrant = QdrantService::new();
     let iam = IamService::new_with_env(pool.clone());
-    let state = Arc::new(AppState { 
+    let state = Arc::new(AppState {
         db: pool.clone(), // Clone pool for AppState
         qdrant,
         iam,
     });
 
     let auth_routes = Router::new()
-        
         // Quality Control
         .route("/api/v1/qc/clusters", get(get_qc_clusters))
         .route("/api/v1/qc/resolve/{id}", post(resolve_qc_cluster))
         .route("/api/v1/qc/generate", post(generate_qc_clusters))
-        
         // Pipeline endpoints
         .route("/api/v1/pipeline/run", post(trigger_run))
         .route("/api/v1/pipeline/runs", get(list_runs))
         .route("/api/v1/pipeline/runs/{id}", get(get_run_details))
         .route("/api/v1/pipeline/steps/{id}/qa", get(get_step_qa))
         .route("/api/v1/pipeline/steps/{id}/report", get(get_step_report))
-        .route("/api/v1/pipeline/steps/{id}/retry", post(retry_step_handler))
-        .route("/api/v1/pipeline/steps/{id}/generate_missing", post(generate_missing_qa_handler))
-        .route("/api/v1/pipeline/runs/{id}/resume", post(resume_run_handler))
+        .route(
+            "/api/v1/pipeline/steps/{id}/retry",
+            post(retry_step_handler),
+        )
+        .route(
+            "/api/v1/pipeline/steps/{id}/generate_missing",
+            post(generate_missing_qa_handler),
+        )
+        .route(
+            "/api/v1/pipeline/runs/{id}/resume",
+            post(resume_run_handler),
+        )
         .route("/api/v1/vector/stats", get(get_vector_stats))
         .route("/api/v1/vector/index", post(trigger_indexing))
         .route("/api/v1/vector/search", post(search_vectors))
-        .route("/api/v1/vector/{id}", axum::routing::delete(delete_vector_handler))
+        .route(
+            "/api/v1/vector/{id}",
+            axum::routing::delete(delete_vector_handler),
+        )
         // Agent chat endpoints
         .route("/api/v1/agents/chat", post(chat_handler))
         .route("/api/v1/agents/chat/stream", post(chat_stream_handler))
         // Model config endpoints
         .route("/api/v1/models", get(models_handler))
-        .route("/api/v1/personas/{name}/config", post(update_persona_config_handler))
+        .route(
+            "/api/v1/personas/{name}/config",
+            post(update_persona_config_handler),
+        )
         // Wiki content endpoint
         .route("/api/v1/wiki/{filename}", get(get_wiki_content))
         .layer(axum::middleware::from_fn(tenant_auth_middleware));
@@ -205,12 +219,19 @@ async fn auth_login(
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse {
     match state.iam.login(&payload.username, &payload.password).await {
-        Ok((access_token, tenant_id)) => {
-            (StatusCode::OK, Json(LoginResponse { access_token, tenant_id })).into_response()
-        },
-        Err(e) => {
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": e.to_string()}))).into_response()
-        }
+        Ok((access_token, tenant_id)) => (
+            StatusCode::OK,
+            Json(LoginResponse {
+                access_token,
+                tenant_id,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -219,34 +240,63 @@ async fn trigger_run(
     tenant_ctx: Option<Extension<TenantContext>>,
     Json(payload): Json<RunRequest>,
 ) -> Json<RunResponse> {
-    let tenant_id = tenant_ctx.map(|ctx| ctx.tenant_id.clone())
-        .unwrap_or_else(|| payload.tenant_id.unwrap_or_else(|| "default_tenant".to_string()));
-        
+    let tenant_id = tenant_ctx
+        .map(|ctx| ctx.tenant_id.clone())
+        .unwrap_or_else(|| {
+            payload
+                .tenant_id
+                .unwrap_or_else(|| "default_tenant".to_string())
+        });
+
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.and_then(|c| c.llm_config).map(|c| c.0).unwrap_or_default();
-    let slot = llm_config.resolve_slot("pipeline_generator", payload.provider.as_deref(), payload.model.as_deref());
+    let llm_config = tenant_config
+        .and_then(|c| c.llm_config)
+        .map(|c| c.0)
+        .unwrap_or_default();
+    let slot = llm_config.resolve_slot(
+        "pipeline_generator",
+        payload.provider.as_deref(),
+        payload.model.as_deref(),
+    );
     let provider = slot.provider;
     let model = slot.model;
-    
+
     let is_test = payload.test_run.unwrap_or(false);
-    
+
     // Load QA config from file (uses defaults if file not found)
-    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let config_path =
+        std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
     let qa_config = QAConfig::from_file_or_default(&config_path);
-    info!("📋 QA Config: default_count={}, {} size rules, {} file patterns", 
-        qa_config.default_count, qa_config.rules.len(), qa_config.file_patterns.patterns.len());
+    info!(
+        "📋 QA Config: default_count={}, {} size rules, {} file patterns",
+        qa_config.default_count,
+        qa_config.rules.len(),
+        qa_config.file_patterns.patterns.len()
+    );
 
     let db = state.db.clone();
     let run_id = uuid::Uuid::new_v4().to_string();
     let run_id_inner = run_id.clone();
-    
+
     tokio::spawn(async move {
         // Pass qa_config to pipeline - it will calculate count per chunk
-        if let Err(e) = run_pipeline_with_config(&db, run_id_inner.clone(), &provider, &model, "data/wiki", is_test, qa_config, tenant_id).await {
+        if let Err(e) = run_pipeline_with_config(
+            &db,
+            run_id_inner.clone(),
+            &provider,
+            &model,
+            "data/wiki",
+            is_test,
+            qa_config,
+            tenant_id,
+        )
+        .await
+        {
             tracing::error!("Background pipeline failed: {}", e);
             let _ = sqlx::query("UPDATE pipeline_runs SET status = 'FAILED' WHERE id = ?")
                 .bind(run_id_inner)
-                .execute(&db).await;
+                .execute(&db)
+                .await;
         }
     });
 
@@ -261,16 +311,19 @@ async fn list_runs(State(state): State<Arc<AppState>>) -> Json<Vec<serde_json::V
         .await
         .unwrap_or_default();
 
-    let json_runs = runs.into_iter().map(|r| {
-        serde_json::json!({
-            "id": r.get::<String, _>("id"),
-            "status": r.get::<String, _>("status"),
-            "provider": r.get::<String, _>("provider"),
-            "model": r.get::<String, _>("model"),
-            "started_at": r.get::<chrono::DateTime<chrono::Utc>, _>("started_at"),
-            "finished_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("finished_at"),
+    let json_runs = runs
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "status": r.get::<String, _>("status"),
+                "provider": r.get::<String, _>("provider"),
+                "model": r.get::<String, _>("model"),
+                "started_at": r.get::<chrono::DateTime<chrono::Utc>, _>("started_at"),
+                "finished_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("finished_at"),
+            })
         })
-    }).collect();
+        .collect();
 
     Json(json_runs)
 }
@@ -298,17 +351,20 @@ async fn get_run_details(
             .await
             .unwrap_or_default();
 
-        let json_steps: Vec<_> = steps.into_iter().map(|s| {
-            serde_json::json!({
-                "id": s.get::<i64, _>("id"),
-                "file_name": s.get::<String, _>("file_name"),
-                "chunk_index": s.get::<i64, _>("chunk_index"),
-                "status": s.get::<String, _>("status"),
-                "step_type": s.get::<String, _>("step_type"),
-                "qa_count": s.get::<Option<i64>, _>("qa_count").unwrap_or(0),
-                "coverage_score": s.get::<Option<f32>, _>("coverage_score"),
+        let json_steps: Vec<_> = steps
+            .into_iter()
+            .map(|s| {
+                serde_json::json!({
+                    "id": s.get::<i64, _>("id"),
+                    "file_name": s.get::<String, _>("file_name"),
+                    "chunk_index": s.get::<i64, _>("chunk_index"),
+                    "status": s.get::<String, _>("status"),
+                    "step_type": s.get::<String, _>("step_type"),
+                    "qa_count": s.get::<Option<i64>, _>("qa_count").unwrap_or(0),
+                    "coverage_score": s.get::<Option<f32>, _>("coverage_score"),
+                })
             })
-        }).collect();
+            .collect();
 
         Json(serde_json::json!({
             "id": r.get::<String, _>("id"),
@@ -334,14 +390,17 @@ async fn get_step_qa(
         .await
         .unwrap_or_default();
 
-    let json_list = qa_list.into_iter().map(|q| {
-        serde_json::json!({
-            "id": q.get::<i64, _>("id"),
-            "question": q.get::<String, _>("question"),
-            "answer": q.get::<String, _>("answer"),
-            "context": q.get::<Option<String>, _>("context"),
+    let json_list = qa_list
+        .into_iter()
+        .map(|q| {
+            serde_json::json!({
+                "id": q.get::<i64, _>("id"),
+                "question": q.get::<String, _>("question"),
+                "answer": q.get::<String, _>("answer"),
+                "context": q.get::<Option<String>, _>("context"),
+            })
         })
-    }).collect();
+        .collect();
 
     Json(json_list)
 }
@@ -365,16 +424,16 @@ async fn get_step_report(
                 Err(_) => {
                     // Fallback: try reading as Vec<u8> (BLOB) and convert to String
                     row.try_get::<Option<Vec<u8>>, _>(col)
-                       .ok()
-                       .flatten()
-                       .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .ok()
+                        .flatten()
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
                 }
             }
         };
 
         let atomic_facts_raw = read_string_or_blob(&r, "atomic_facts");
         let missing_facts_raw = read_string_or_blob(&r, "missing_facts");
-        
+
         let atomic_facts: serde_json::Value = atomic_facts_raw
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or(serde_json::Value::Null);
@@ -384,13 +443,18 @@ async fn get_step_report(
             .map(|v: serde_json::Value| {
                 // Check if it's an array of objects with "fact" key, and flatten
                 if let Some(arr) = v.as_array() {
-                    let strings: Vec<String> = arr.iter().filter_map(|item| {
-                        if let Some(s) = item.as_str() {
-                            Some(s.to_string())
-                        } else {
-                            item.get("fact").and_then(|f| f.as_str()).map(|s| s.to_string())
-                        }
-                    }).collect();
+                    let strings: Vec<String> = arr
+                        .iter()
+                        .filter_map(|item| {
+                            if let Some(s) = item.as_str() {
+                                Some(s.to_string())
+                            } else {
+                                item.get("fact")
+                                    .and_then(|f| f.as_str())
+                                    .map(|s| s.to_string())
+                            }
+                        })
+                        .collect();
                     serde_json::to_value(strings).unwrap_or(serde_json::Value::Null)
                 } else {
                     v
@@ -404,12 +468,14 @@ async fn get_step_report(
             "reasoning": r.get::<Option<String>, _>("reasoning"),
             "atomic_facts": atomic_facts,
             "missing_facts": missing_facts,
-        })).into_response()
+        }))
+        .into_response()
     } else {
         (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "Report not found"}))
-        ).into_response()
+            Json(serde_json::json!({"error": "Report not found"})),
+        )
+            .into_response()
     }
 }
 
@@ -418,7 +484,7 @@ async fn retry_step_handler(
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
-    
+
     // Update status to RUNNING immediately so frontend sees it on next fetch
     let _ = sqlx::query("UPDATE pipeline_steps SET status = 'RUNNING', error_message = NULL, started_at = NOW() WHERE id = ?")
         .bind(id)
@@ -426,16 +492,22 @@ async fn retry_step_handler(
         .await;
 
     // Load QA config
-    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let config_path =
+        std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
     let qa_config = QAConfig::from_file_or_default(&config_path);
-    
+
     tokio::spawn(async move {
-        if let Err(e) = mimir_core_ai::qa_qc::pipeline::retry_step_with_config(&db, id, qa_config).await {
+        if let Err(e) =
+            mimir_core_ai::qa_qc::pipeline::retry_step_with_config(&db, id, qa_config).await
+        {
             tracing::error!("Background retry Step #{} failed: {}", id, e);
-            let _ = sqlx::query("UPDATE pipeline_steps SET status = 'FAILED', error_message = ? WHERE id = ?")
-                .bind(e.to_string())
-                .bind(id)
-                .execute(&db).await;
+            let _ = sqlx::query(
+                "UPDATE pipeline_steps SET status = 'FAILED', error_message = ? WHERE id = ?",
+            )
+            .bind(e.to_string())
+            .bind(id)
+            .execute(&db)
+            .await;
         }
     });
 
@@ -447,7 +519,7 @@ async fn generate_missing_qa_handler(
     Path(id): Path<u64>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
-    
+
     // Check if step exists
     let step = sqlx::query("SELECT id FROM pipeline_steps WHERE id = ?")
         .bind(id as i64)
@@ -456,17 +528,25 @@ async fn generate_missing_qa_handler(
         .unwrap_or_default();
 
     if step.is_none() {
-         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Step not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Step not found"})),
+        )
+            .into_response();
     }
 
     // Load QA config
-    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let config_path =
+        std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
     let qa_config = QAConfig::from_file_or_default(&config_path);
-    
+
     // Spawn background task
     let step_id = id;
     tokio::spawn(async move {
-        if let Err(e) = mimir_core_ai::qa_qc::pipeline::generate_missing_qa_for_step(&db, step_id, qa_config).await {
+        if let Err(e) =
+            mimir_core_ai::qa_qc::pipeline::generate_missing_qa_for_step(&db, step_id, qa_config)
+                .await
+        {
             tracing::error!("Missing QA generation for Step #{} failed: {}", step_id, e);
         }
     });
@@ -479,7 +559,7 @@ async fn resume_run_handler(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
-    
+
     // Check if run exists
     let run = sqlx::query("SELECT id FROM pipeline_runs WHERE id = ?")
         .bind(&id)
@@ -488,21 +568,27 @@ async fn resume_run_handler(
         .unwrap_or_default();
 
     if run.is_none() {
-         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Run not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Run not found"})),
+        )
+            .into_response();
     }
 
     // Load QA config
-    let config_path = std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
+    let config_path =
+        std::env::var("QA_CONFIG_PATH").unwrap_or_else(|_| "data/qa_config.json".to_string());
     let qa_config = QAConfig::from_file_or_default(&config_path);
-    
+
     // Run resume in background
     let run_id = id.clone();
     tokio::spawn(async move {
         if let Err(e) = resume_pipeline_with_config(&db, run_id.clone(), qa_config).await {
-             error!("Background resume Run #{} failed: {}", run_id, e);
-             let _ = sqlx::query("UPDATE pipeline_runs SET status = 'FAILED' WHERE id = ?")
+            error!("Background resume Run #{} failed: {}", run_id, e);
+            let _ = sqlx::query("UPDATE pipeline_runs SET status = 'FAILED' WHERE id = ?")
                 .bind(&run_id)
-                .execute(&db).await;
+                .execute(&db)
+                .await;
         }
     });
 
@@ -510,11 +596,15 @@ async fn resume_run_handler(
 }
 
 async fn get_vector_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let collection_name = "wiki_qa";
-    
+    let collection_name = "golden_qa";
+
     // 1. Get Qdrant stats
-    let qdrant_info = state.qdrant.get_collection_info(collection_name).await.unwrap_or(serde_json::Value::Null);
-    
+    let qdrant_info = state
+        .qdrant
+        .get_collection_info(collection_name)
+        .await
+        .unwrap_or(serde_json::Value::Null);
+
     // 2. Get MariaDB stats
     let total_qa = sqlx::query("SELECT count(*) as count FROM qa_results")
         .fetch_one(&state.db)
@@ -522,11 +612,12 @@ async fn get_vector_stats(State(state): State<Arc<AppState>>) -> impl IntoRespon
         .map(|r| r.get::<i64, _>("count"))
         .unwrap_or(0);
 
-    let indexed_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE indexed_at IS NOT NULL")
-        .fetch_one(&state.db)
-        .await
-        .map(|r| r.get::<i64, _>("count"))
-        .unwrap_or(0);
+    let indexed_qa =
+        sqlx::query("SELECT count(*) as count FROM qa_results WHERE indexed_at IS NOT NULL")
+            .fetch_one(&state.db)
+            .await
+            .map(|r| r.get::<i64, _>("count"))
+            .unwrap_or(0);
 
     Json(serde_json::json!({
         "qdrant": qdrant_info,
@@ -541,9 +632,9 @@ async fn get_vector_stats(State(state): State<Arc<AppState>>) -> impl IntoRespon
 async fn trigger_indexing(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let db = state.db.clone();
     let qdrant = QdrantService::new();
-    
+
     tokio::spawn(async move {
-        if let Err(e) = run_indexer(&db, &qdrant, "wiki_qa").await {
+        if let Err(e) = run_indexer(&db, &qdrant, "golden_qa").await {
             error!("Background indexing failed: {}", e);
         }
     });
@@ -564,23 +655,54 @@ async fn search_vectors(
 
     let show_expired = payload.show_expired.unwrap_or(false);
 
-    let router = match mimir_core_ai::services::llm_router::LlmRouter::new(state.db.clone(), &target_tenant).await {
-        Ok(r) => r,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
-    };
+    let router =
+        match mimir_core_ai::services::llm_router::LlmRouter::new(state.db.clone(), &target_tenant)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e.to_string()})),
+                )
+                    .into_response()
+            }
+        };
 
     match router.embed_texts_strict(&[payload.query.clone()]).await {
         Ok(embeddings) => {
             if let Some(vector_f32) = embeddings.into_iter().next() {
-                match state.qdrant.search("wiki_qa", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
+                match state
+                    .qdrant
+                    .search(
+                        "golden_qa",
+                        vector_f32,
+                        payload.limit.unwrap_or(5),
+                        &target_tenant,
+                        show_expired,
+                    )
+                    .await
+                {
                     Ok(results) => Json(results).into_response(),
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+                    Err(e) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": e.to_string()})),
+                    )
+                        .into_response(),
                 }
             } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Empty embedding vector"}))).into_response()
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Empty embedding vector"})),
+                )
+                    .into_response()
             }
-        },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -590,12 +712,24 @@ async fn delete_vector_handler(
     axum::extract::Path(id): axum::extract::Path<u64>,
 ) -> impl IntoResponse {
     if tenant.role != "SuperAdmin" && tenant.role != "admin" {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Unauthorized to delete vectors"}))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Unauthorized to delete vectors"})),
+        )
+            .into_response();
     }
-    
-    match state.qdrant.delete_point("wiki_qa", id).await {
-        Ok(_) => (StatusCode::OK, Json(serde_json::json!({"status": "success"}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+
+    match state.qdrant.delete_point("golden_qa", id).await {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"status": "success"})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -607,38 +741,52 @@ async fn chat_handler(
     Json(payload): Json<ChatRequest>,
 ) -> impl IntoResponse {
     let start = std::time::Instant::now();
-    
-    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
+
+    let tenant_id = payload
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| "default_tenant".to_string());
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.and_then(|c| c.llm_config).map(|c| c.0).unwrap_or_default();
-    let slot = llm_config.resolve_slot("chat", payload.provider.as_deref(), payload.model.as_deref());
-    let provider = slot.provider.parse::<LlmProvider>().unwrap_or(LlmProvider::Ollama);
+    let llm_config = tenant_config
+        .and_then(|c| c.llm_config)
+        .map(|c| c.0)
+        .unwrap_or_default();
+    let slot = llm_config.resolve_slot(
+        "chat",
+        payload.provider.as_deref(),
+        payload.model.as_deref(),
+    );
+    let provider = slot
+        .provider
+        .parse::<LlmProvider>()
+        .unwrap_or(LlmProvider::Ollama);
     let model = slot.model;
 
     info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
           payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
-    
+
     // Load persona
     let persona = match Persona::load_by_name_cached(&payload.persona) {
         Ok(p) => p,
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("Persona not found: {}", e)}))
-            ).into_response();
+                Json(serde_json::json!({"error": format!("Persona not found: {}", e)})),
+            )
+                .into_response();
         }
     };
-    
+
     // Route to appropriate agent based on tier
     match payload.tier {
         1 => {
             // Tier 1: Simple NPC (no RAG)
             let agent = SimpleNpcAgent::with_model(persona, &model);
-            
+
             match agent.chat(&payload.message).await {
                 Ok(response) => {
                     let action = agent.action_capture.lock().await.clone(); // Capture action
-                    
+
                     let chat_response = ChatResponse {
                         content: response,
                         tier: 1,
@@ -654,19 +802,22 @@ async fn chat_handler(
                     };
                     Json(chat_response).into_response()
                 }
-                Err(e) => {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": format!("Agent error: {}", e)}))
-                    ).into_response()
-                }
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("Agent error: {}", e)})),
+                )
+                    .into_response(),
             }
         }
         2 => {
             // Tier 2: Oracle RAG with provider support
             let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
-            plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryMobDbTool::new(state.db.clone())));
-            plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryItemDbTool::new(state.db.clone())));
+            plugins.push(Box::new(
+                ro_ai_domain_game::tools::rag_tools::QueryMobDbTool::new(state.db.clone()),
+            ));
+            plugins.push(Box::new(
+                ro_ai_domain_game::tools::rag_tools::QueryItemDbTool::new(state.db.clone()),
+            ));
 
             let agent = OracleRagAgent::with_provider(
                 persona,
@@ -677,7 +828,7 @@ async fn chat_handler(
                 None,
                 tenant_id.clone(),
             );
-            
+
             match agent.chat(&payload.message).await {
                 Ok(response) => {
                     let chat_response = ChatResponse {
@@ -689,33 +840,37 @@ async fn chat_handler(
                         model: model.clone(),
                         confidence_score: Some(response.confidence_score),
                         confidence_level: Some(format!("{:?}", response.confidence_level)),
-                        sources: Some(response.sources.iter().map(|s| {
-                            serde_json::json!({
-                                "source_type": s.source_type,
-                                "source_id": s.source_id,
-                                "relevance": s.relevance,
-                                "snippet": s.snippet
-                            })
-                        }).collect()),
+                        sources: Some(
+                            response
+                                .sources
+                                .iter()
+                                .map(|s| {
+                                    serde_json::json!({
+                                        "source_type": s.source_type,
+                                        "source_id": s.source_id,
+                                        "relevance": s.relevance,
+                                        "snippet": s.snippet
+                                    })
+                                })
+                                .collect(),
+                        ),
                         tools_used: Some(response.tools_used),
                         action: None,
                     };
                     Json(chat_response).into_response()
                 }
-                Err(e) => {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": format!("Agent error: {}", e)}))
-                    ).into_response()
-                }
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("Agent error: {}", e)})),
+                )
+                    .into_response(),
             }
         }
-        _ => {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid tier. Must be 1 or 2"}))
-            ).into_response()
-        }
+        _ => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid tier. Must be 1 or 2"})),
+        )
+            .into_response(),
     }
 }
 
@@ -724,148 +879,187 @@ async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ChatRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
-    let tenant_id = payload.tenant_id.clone().unwrap_or_else(|| "default_tenant".to_string());
+    let tenant_id = payload
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| "default_tenant".to_string());
     let tenant_config = state.iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.and_then(|c| c.llm_config).map(|c| c.0).unwrap_or_default();
-    let slot = llm_config.resolve_slot("chat", payload.provider.as_deref(), payload.model.as_deref());
-    let provider = slot.provider.parse::<LlmProvider>().unwrap_or(LlmProvider::Ollama);
+    let llm_config = tenant_config
+        .and_then(|c| c.llm_config)
+        .map(|c| c.0)
+        .unwrap_or_default();
+    let slot = llm_config.resolve_slot(
+        "chat",
+        payload.provider.as_deref(),
+        payload.model.as_deref(),
+    );
+    let provider = slot
+        .provider
+        .parse::<LlmProvider>()
+        .unwrap_or(LlmProvider::Ollama);
     let model = slot.model;
-    
+
     info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
           payload.tier, payload.persona, provider, model, payload.message, payload.tenant_id);
     let (tx, rx) = mpsc::channel(100);
     let start = std::time::Instant::now();
-    
+
     // Clone needed data for the spawned task
     let persona_name = payload.persona.clone();
     let message = payload.message.clone();
     let tier = payload.tier;
     let db = state.db.clone();
     let qdrant = state.qdrant.clone();
-    
+
     // Spawn task to generate response
     tokio::spawn(async move {
         // Load persona
         let persona = match Persona::load_by_name_cached(&persona_name) {
             Ok(p) => p,
             Err(e) => {
-                let _ = tx.send(Event::default()
-                    .event("error")
-                    .json_data(serde_json::json!({"error": format!("Persona not found: {}", e)}))
-                ).await;
+                let _ = tx
+                    .send(Event::default().event("error").json_data(
+                        serde_json::json!({"error": format!("Persona not found: {}", e)}),
+                    ))
+                    .await;
                 return;
             }
         };
-        
+
         match tier {
             1 => {
                 // Tier 1: Simple NPC (no RAG) - simulate streaming
                 let agent = SimpleNpcAgent::with_model(persona, &model);
-                
+
                 match agent.chat(&message).await {
                     Ok(response) => {
                         let action = agent.action_capture.lock().await.clone(); // Capture action
-                        // Simulate token-by-token streaming
-                        // Since rig-core doesn't support true streaming yet, we chunk the response
+                                                                                // Simulate token-by-token streaming
+                                                                                // Since rig-core doesn't support true streaming yet, we chunk the response
                         let words: Vec<&str> = response.split_whitespace().collect();
                         let chunk_size = 3; // Send 3 words at a time
-                        
+
                         for chunk in words.chunks(chunk_size) {
                             let token = chunk.join(" ") + " ";
-                            let _ = tx.send(Event::default()
-                                .event("token")
-                                .json_data(StreamToken { token })
-                            ).await;
+                            let _ = tx
+                                .send(
+                                    Event::default()
+                                        .event("token")
+                                        .json_data(StreamToken { token }),
+                                )
+                                .await;
                             // Small delay to simulate streaming
                             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                         }
-                        
+
                         // Send done event
-                        let _ = tx.send(Event::default()
-                            .event("done")
-                            .json_data(StreamDone {
+                        let _ = tx
+                            .send(Event::default().event("done").json_data(StreamDone {
                                 latency_ms: start.elapsed().as_millis() as u64,
                                 confidence_score: None,
                                 confidence_level: None,
                                 sources: None,
                                 action,
-                            })
-                        ).await;
+                            }))
+                            .await;
                     }
                     Err(e) => {
-                        let _ = tx.send(Event::default()
-                            .event("error")
-                            .json_data(serde_json::json!({"error": format!("Agent error: {}", e)}))
-                        ).await;
+                        let _ = tx
+                            .send(Event::default().event("error").json_data(
+                                serde_json::json!({"error": format!("Agent error: {}", e)}),
+                            ))
+                            .await;
                     }
                 }
             }
             2 => {
                 // Tier 2: Oracle RAG with provider support
-                let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
-                plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryMobDbTool::new(db.clone())));
-                plugins.push(Box::new(ro_ai_domain_game::tools::rag_tools::QueryItemDbTool::new(db.clone())));
+                let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> =
+                    vec![];
+                plugins.push(Box::new(
+                    ro_ai_domain_game::tools::rag_tools::QueryMobDbTool::new(db.clone()),
+                ));
+                plugins.push(Box::new(
+                    ro_ai_domain_game::tools::rag_tools::QueryItemDbTool::new(db.clone()),
+                ));
 
                 let agent = OracleRagAgent::with_provider(
-                    persona, 
-                    qdrant, 
+                    persona,
+                    qdrant,
                     plugins,
                     provider.clone(),
                     Some(&model),
                     None,
                     tenant_id.clone(),
                 );
-                
+
                 match agent.chat(&message).await {
                     Ok(response) => {
                         // Simulate token-by-token streaming
                         let words: Vec<&str> = response.content.split_whitespace().collect();
                         let chunk_size = 3;
-                        
+
                         for chunk in words.chunks(chunk_size) {
                             let token = chunk.join(" ") + " ";
-                            let _ = tx.send(Event::default()
-                                .event("token")
-                                .json_data(StreamToken { token })
-                            ).await;
+                            let _ = tx
+                                .send(
+                                    Event::default()
+                                        .event("token")
+                                        .json_data(StreamToken { token }),
+                                )
+                                .await;
                             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                         }
-                        
+
                         // Send done event with metadata
-                        let _ = tx.send(Event::default()
-                            .event("done")
-                            .json_data(StreamDone {
-                                latency_ms: response.latency_ms,
-                                confidence_score: Some(response.confidence_score),
-                                confidence_level: Some(format!("{:?}", response.confidence_level)),
-                                sources: Some(response.sources.iter().map(|s| {
-                                    serde_json::json!({
-                                        "source_type": s.source_type,
-                                        "source_id": s.source_id,
-                                        "relevance": s.relevance
-                                    })
-                                }).collect()),
-                                action: None,
-                            })
-                        ).await;
+                        let _ = tx
+                            .send(
+                                Event::default().event("done").json_data(StreamDone {
+                                    latency_ms: response.latency_ms,
+                                    confidence_score: Some(response.confidence_score),
+                                    confidence_level: Some(format!(
+                                        "{:?}",
+                                        response.confidence_level
+                                    )),
+                                    sources: Some(
+                                        response
+                                            .sources
+                                            .iter()
+                                            .map(|s| {
+                                                serde_json::json!({
+                                                    "source_type": s.source_type,
+                                                    "source_id": s.source_id,
+                                                    "relevance": s.relevance
+                                                })
+                                            })
+                                            .collect(),
+                                    ),
+                                    action: None,
+                                }),
+                            )
+                            .await;
                     }
                     Err(e) => {
-                        let _ = tx.send(Event::default()
-                            .event("error")
-                            .json_data(serde_json::json!({"error": format!("Agent error: {}", e)}))
-                        ).await;
+                        let _ = tx
+                            .send(Event::default().event("error").json_data(
+                                serde_json::json!({"error": format!("Agent error: {}", e)}),
+                            ))
+                            .await;
                     }
                 }
             }
             _ => {
-                let _ = tx.send(Event::default()
-                    .event("error")
-                    .json_data(serde_json::json!({"error": "Invalid tier. Must be 1 or 2"}))
-                ).await;
+                let _ = tx
+                    .send(
+                        Event::default().event("error").json_data(
+                            serde_json::json!({"error": "Invalid tier. Must be 1 or 2"}),
+                        ),
+                    )
+                    .await;
             }
         }
     });
-    
+
     // Return SSE stream
     Sse::new(ReceiverStream::new(rx))
 }
@@ -873,26 +1067,26 @@ async fn chat_stream_handler(
 // ─── Model Config API ────────────────────────────────────────────────────────
 
 /// Get available LLM models from the database
-async fn models_handler(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn models_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match mimir_core_ai::services::db::get_active_llm_models(&state.db).await {
         Ok(models) => Json(models).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to fetch models: {}", e)}))
-        ).into_response()
+            Json(serde_json::json!({"error": format!("Failed to fetch models: {}", e)})),
+        )
+            .into_response(),
     }
 }
 
 // ─── Wiki Content API ────────────────────────────────────────────────────────
 
 /// Get wiki content by filename
-async fn get_wiki_content(
-    Path(filename): Path<String>,
-) -> impl IntoResponse {
+async fn get_wiki_content(Path(filename): Path<String>) -> impl IntoResponse {
     // Safety check: only allow alphanum, dots, underscores and hyphens
-    if !filename.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-') {
+    if !filename
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
         return (StatusCode::BAD_REQUEST, "Invalid filename").into_response();
     }
 
@@ -902,7 +1096,7 @@ async fn get_wiki_content(
     }
 
     let path = std::path::Path::new("data/wiki").join(filename);
-    
+
     match tokio::fs::read_to_string(path).await {
         Ok(content) => content.into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "Wiki file not found").into_response(),
@@ -921,11 +1115,21 @@ async fn get_qc_clusters(
     Extension(tenant): Extension<TenantContext>,
     Query(params): Query<GetClustersQuery>,
 ) -> impl IntoResponse {
-    match ClusteringService::get_clusters(&state.db, &tenant.tenant_id, params.status.as_deref()).await {
-        Ok(clusters) => (StatusCode::OK, Json(serde_json::json!({ "clusters": clusters }))).into_response(),
+    match ClusteringService::get_clusters(&state.db, &tenant.tenant_id, params.status.as_deref())
+        .await
+    {
+        Ok(clusters) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "clusters": clusters })),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to get QC clusters: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response()
         }
     }
 }
@@ -940,7 +1144,11 @@ async fn resolve_qc_cluster(
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => {
             error!("Failed to resolve QC cluster {}: {}", id, e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response()
         }
     }
 }
@@ -957,8 +1165,12 @@ async fn generate_qc_clusters(
             error!("Background QC Clustering failed: {}", e);
         }
     });
-    
-    (StatusCode::ACCEPTED, Json(serde_json::json!({"status": "Generation started in background"}))).into_response()
+
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({"status": "Generation started in background"})),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -977,7 +1189,8 @@ async fn update_persona_config_handler(
             return (
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({"error": format!("Persona '{}' not found: {}", name, e)})),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -989,10 +1202,18 @@ async fn update_persona_config_handler(
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("Failed to save persona: {}", e)})),
-        ).into_response();
+        )
+            .into_response();
     }
 
-    info!("Updated persona '{}' config to use model_id: {}", name, payload.model_id);
+    info!(
+        "Updated persona '{}' config to use model_id: {}",
+        name, payload.model_id
+    );
 
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "persona": persona}))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "persona": persona})),
+    )
+        .into_response()
 }

@@ -61,9 +61,8 @@ impl DomainConnector for GameConnector {
 
     fn allowed_extensions(&self) -> &[&str] {
         &[
-            "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc",
-            "json", "md", "html", "htm", "xml", "yaml", "yml",
-            "png", "jpg", "jpeg",
+            "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc", "json", "md", "html", "htm", "xml",
+            "yaml", "yml", "png", "jpg", "jpeg",
         ]
     }
 
@@ -89,14 +88,18 @@ impl DomainConnector for MedicalConnector {
 
     fn allowed_extensions(&self) -> &[&str] {
         &[
-            "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc",
-            "json", "md", "html", "htm", "xml", "yaml", "yml",
-            "png", "jpg", "jpeg", "dicom", "dcm",
+            "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc", "json", "md", "html", "htm", "xml",
+            "yaml", "yml", "png", "jpg", "jpeg", "dicom", "dcm",
         ]
     }
 
     fn enabled_features(&self) -> &[&str] {
-        &["dicom", "medical_sources", "ai_vision_ocr", "medical_disclaimer"]
+        &[
+            "dicom",
+            "medical_sources",
+            "ai_vision_ocr",
+            "medical_disclaimer",
+        ]
     }
 }
 
@@ -117,9 +120,8 @@ impl DomainConnector for DefaultConnector {
 
     fn allowed_extensions(&self) -> &[&str] {
         &[
-            "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc",
-            "json", "md", "html", "htm", "xml", "yaml", "yml",
-            "png", "jpg", "jpeg",
+            "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc", "json", "md", "html", "htm", "xml",
+            "yaml", "yml", "png", "jpg", "jpeg",
         ]
     }
 
@@ -170,11 +172,7 @@ pub fn get_all_features(domain: &str) -> Vec<(&'static str, bool)> {
 /// allowed for the specified domain.
 pub fn validate_extension_for_domain(filename: &str, domain: &str) -> Result<()> {
     let connector = get_domain_connector(domain);
-    let ext = filename
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
 
     if ext.is_empty() || !connector.allowed_extensions().contains(&ext.as_str()) {
         bail!("Unsupported file type: .{} (domain: {})", ext, domain);
@@ -253,7 +251,10 @@ mod tests {
     #[test]
     fn ut_001c_dcm_allowed_for_medical() {
         let result = validate_extension_for_domain("scan.dcm", "medical");
-        assert!(result.is_ok(), "DICOM files should be allowed for medical domain");
+        assert!(
+            result.is_ok(),
+            "DICOM files should be allowed for medical domain"
+        );
     }
 
     // ========================================
@@ -262,7 +263,10 @@ mod tests {
     #[test]
     fn ut_001d_dcm_rejected_for_game() {
         let result = validate_extension_for_domain("scan.dcm", "game");
-        assert!(result.is_err(), "DICOM files should NOT be allowed for game domain");
+        assert!(
+            result.is_err(),
+            "DICOM files should NOT be allowed for game domain"
+        );
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("Unsupported file type"),

@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, AlertTriangle, ArrowRight, Save, Edit3, RefreshCw, Zap, GripVertical, FileText } from "lucide-react";
-import { fetchQcClusters, resolveQcCluster, triggerQcGeneration, fetchQcStatus } from "@/lib/api";
+import { CheckCircle2, AlertTriangle, ArrowRight, Save, Edit3, RefreshCw, Zap, GripVertical, FileText, XCircle, Database } from "lucide-react";
+import { fetchQcClusters, resolveQcCluster, triggerQcGeneration, fetchQcStatus, stopQcGeneration, fetchVectorStats, triggerIndexing } from "@/lib/api";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import {
     Dialog,
@@ -33,6 +33,8 @@ export default function QualityControlPage() {
     const [clusters, setClusters] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [generatingStatus, setGeneratingStatus] = useState({ is_generating: false, processed_count: 0, total_count: 0 });
+    const [pendingGolden, setPendingGolden] = useState<number>(0);
+    const [indexing, setIndexing] = useState(false);
 
     // Dialog state
     const [selectedCluster, setSelectedCluster] = useState<any | null>(null);
@@ -41,13 +43,31 @@ export default function QualityControlPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            // Fetch all instead of just pending to show both columns
-            const data = await fetchQcClusters("");
-            setClusters(Array.isArray(data) ? data : data.clusters || []);
+            const [clusterData, vectorStats] = await Promise.all([
+                fetchQcClusters(""),
+                fetchVectorStats().catch(() => null)
+            ]);
+            setClusters(Array.isArray(clusterData) ? clusterData : clusterData.clusters || []);
+            if (vectorStats?.database?.pending_golden !== undefined) {
+                setPendingGolden(vectorStats.database.pending_golden);
+            }
         } catch (e) {
             console.warn("[QC]", e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleIndex = async () => {
+        setIndexing(true);
+        try {
+            await triggerIndexing();
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            await loadData();
+        } catch (error) {
+            alert("Failed to trigger indexing");
+        } finally {
+            setIndexing(false);
         }
     };
 
@@ -120,6 +140,15 @@ export default function QualityControlPage() {
         }
     };
 
+    const handleStopGenerate = async () => {
+        try {
+            await stopQcGeneration();
+            setGeneratingStatus(prev => ({ ...prev, is_generating: false }));
+        } catch (e) {
+            alert("Failed to stop generation");
+        }
+    };
+
     const onDragEnd = (result: DropResult) => {
         const { source, destination, draggableId } = result;
 
@@ -168,11 +197,20 @@ export default function QualityControlPage() {
                     <Button variant="outline" onClick={loadData} disabled={loading}>
                         <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
                     </Button>
+                    {generatingStatus.is_generating && (
+                        <Button variant="destructive" onClick={handleStopGenerate}>
+                            <XCircle className="w-4 h-4 mr-2" /> Stop Scan
+                        </Button>
+                    )}
                     <Button onClick={handleGenerate} disabled={generatingStatus.is_generating}>
-                        <Zap className="w-4 h-4 mr-2" />
+                        <Zap className={`mr-2 h-4 w-4 ${generatingStatus.is_generating ? 'animate-pulse text-yellow-500' : ''}`} />
                         {generatingStatus.is_generating
-                            ? `Scanning (${generatingStatus.processed_count} / ${generatingStatus.total_count})...`
+                            ? `Scanning (${generatingStatus.processed_count} / ${generatingStatus.total_count})`
                             : "Auto-scan QC Issues"}
+                    </Button>
+                    <Button onClick={handleIndex} disabled={indexing || pendingGolden === 0} className="bg-amber-600 hover:bg-amber-700 text-white">
+                        <Database className="mr-2 h-4 w-4" />
+                        {indexing ? "Indexing..." : `Index Golden QA (${pendingGolden})`}
                     </Button>
                 </div>
             </div>

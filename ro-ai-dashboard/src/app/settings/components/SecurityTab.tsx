@@ -80,10 +80,14 @@ export function SecurityTab(props: SettingsTabProps) {
         },
     };
 
-    // Count missing secrets for banner
-    const missingSecrets = vaultSecrets?.secrets?.filter((s: any) => s.status !== "present") || [];
-
-    const pendingPermChanges = props.hasPendingChanges; // used for display logic
+    // Count missing secrets for banner (Excluding LLM keys which are now in TenantConfig)
+    const hiddenSecrets = ["GEMINI_API_KEY", "HEIMDALL_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
+    const missingSecrets = vaultSecrets?.secrets?.filter((s: any) => s.status !== "present" && !hiddenSecrets.includes(s.key)) || [];
+    
+    // Filter vault secrets to hide LLM keys that are now managed by TenantConfig
+    const displaySecrets = vaultSecrets?.secrets?.filter((s: any) => !hiddenSecrets.includes(s.key)) || [];
+    const displayPresentCount = displaySecrets.filter((s: any) => s.status === 'present').length;
+    const displayTotal = displaySecrets.length;
 
     return (
         <>
@@ -109,6 +113,81 @@ export function SecurityTab(props: SettingsTabProps) {
                                 </div>
                             ))}
                         </div>
+                    </CardContent>
+                </Card>
+
+                {/* Tenant-Specific LLM Credentials */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Lock className="w-5 h-5 text-primary" /> LLM Provider Credentials</CardTitle>
+                        <CardDescription>API keys for AI model providers used by this tenant. These override any system-wide defaults.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 mb-4">
+                            <p className="text-xs text-blue-700 dark:text-blue-400">
+                                <strong>Scope:</strong> Keys set here apply <em>only to this tenant</em>. If left empty, the system falls back to global platform secrets (configured by the system administrator below).
+                            </p>
+                        </div>
+                        <form onSubmit={props.handleSaveCredentials} className="space-y-4">
+                            <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Self-Hosted</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Heimdall Access URL</label>
+                                    <Input
+                                        placeholder="http://localhost:8080/v1"
+                                        value={config?.llm_config?.heimdall_url || ""}
+                                        onChange={e => config && props.setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_url: e.target.value } })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Heimdall API Key</label>
+                                    <Input
+                                        type="password"
+                                        placeholder="sk-heimdall-..."
+                                        value={config?.llm_config?.heimdall_api_key || ""}
+                                        onChange={e => config && props.setConfig({ ...config, llm_config: { ...config.llm_config, heimdall_api_key: e.target.value } })}
+                                    />
+                                </div>
+                            </div>
+
+                            <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide pt-2">Cloud Providers</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">OpenAI API Key</label>
+                                    <Input
+                                        type="password"
+                                        placeholder="sk-proj-..."
+                                        value={config?.llm_config?.openai_api_key || ""}
+                                        onChange={e => config && props.setConfig({ ...config, llm_config: { ...config.llm_config, openai_api_key: e.target.value } })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Google Gemini API Key</label>
+                                    <Input
+                                        type="password"
+                                        placeholder="AIza..."
+                                        value={config?.llm_config?.google_api_key || ""}
+                                        onChange={e => config && props.setConfig({ ...config, llm_config: { ...config.llm_config, google_api_key: e.target.value } })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Azure OpenAI Key</label>
+                                    <Input
+                                        type="password"
+                                        placeholder="Enter key..."
+                                        value={config?.llm_config?.azure_api_key || ""}
+                                        onChange={e => config && props.setConfig({ ...config, llm_config: { ...config.llm_config, azure_api_key: e.target.value } })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between mt-4">
+                                <p className="text-xs text-muted-foreground">💡 Secured by HashiCorp Vault. Keys are never stored in the database.</p>
+                                <Button type="submit" disabled={props.isSaving}>
+                                    <Save className="w-4 h-4 mr-2" />
+                                    {props.isSaving ? "Saving..." : "Save Credentials"}
+                                </Button>
+                            </div>
+                        </form>
                     </CardContent>
                 </Card>
 
@@ -182,17 +261,17 @@ export function SecurityTab(props: SettingsTabProps) {
                     </div>
                 )}
 
-                {/* Managed Secrets Table */}
+                {/* Infrastructure Secrets Table */}
                 {vaultSecrets && (
                     <Card>
                         <CardHeader>
                             <div className="flex items-center justify-between">
                                 <div>
                                     <CardTitle className="flex items-center gap-2">
-                                        <Key className="w-5 h-5 text-primary" /> Managed Secrets
-                                        <span className="text-sm font-normal text-muted-foreground">({vaultSecrets.present_count}/{vaultSecrets.total} present)</span>
+                                        <Key className="w-5 h-5 text-primary" /> Infrastructure Secrets
+                                        <span className="text-sm font-normal text-muted-foreground">({displayPresentCount}/{displayTotal} present)</span>
                                     </CardTitle>
-                                    <CardDescription>Secrets managed by Vault or environment variables.</CardDescription>
+                                    <CardDescription>System-wide infrastructure credentials (database, storage, auth). LLM provider keys are managed per-tenant above.</CardDescription>
                                 </div>
                                 {vaultSecrets.vault_enabled && (
                                     <Button variant="outline" size="sm" disabled={isVaultLoading} onClick={refreshVaultData}>
@@ -213,7 +292,7 @@ export function SecurityTab(props: SettingsTabProps) {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {vaultSecrets.secrets.map((s) => (
+                                    {displaySecrets.map((s: any) => (
                                         <TableRow key={s.key}>
                                             <TableCell className="font-mono text-sm">{s.key}</TableCell>
                                             <TableCell>

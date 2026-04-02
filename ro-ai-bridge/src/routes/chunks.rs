@@ -1,15 +1,15 @@
 use axum::{
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Router, Json,
-    extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::models::chunks::Chunk;
 use crate::routes::tenant::extract_tenant_id;
+use mimir_core_ai::models::chunks::Chunk;
+use mimir_core_ai::services::db::DbPool;
 
 #[derive(Debug, Deserialize)]
 pub struct ChunkListQuery {
@@ -117,16 +117,51 @@ async fn list_chunks(
         .await
         .unwrap_or((0, 0));
 
-    let chunks: Vec<ChunkWithSource> = sqlx::query_as::<_, (i64, i64, String, i32, String, Option<i32>, Option<serde_json::Value>, Option<chrono::DateTime<chrono::Utc>>)>(
-        &data_query
-    )
+    let chunks: Vec<ChunkWithSource> = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i64,
+            String,
+            i32,
+            String,
+            Option<i32>,
+            Option<serde_json::Value>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ),
+    >(&data_query)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?
     .into_iter()
-    .map(|(id, source_id, source_name, chunk_index, content, token_count, metadata_json, created_at)| {
-        ChunkWithSource { id, source_id, source_name, chunk_index, content, token_count, metadata_json, created_at }
-    })
+    .map(
+        |(
+            id,
+            source_id,
+            source_name,
+            chunk_index,
+            content,
+            token_count,
+            metadata_json,
+            created_at,
+        )| {
+            ChunkWithSource {
+                id,
+                source_id,
+                source_name,
+                chunk_index,
+                content,
+                token_count,
+                metadata_json,
+                created_at,
+            }
+        },
+    )
     .collect();
 
     Ok(Json(ChunkListResponse {
@@ -153,10 +188,29 @@ async fn get_chunk(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
 
     match result {
-        Some((id, source_id, source_name, chunk_index, content, token_count, metadata_json, created_at)) => {
-            Ok(Json(ChunkWithSource { id, source_id, source_name, chunk_index, content, token_count, metadata_json, created_at }))
-        }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Chunk not found"})))),
+        Some((
+            id,
+            source_id,
+            source_name,
+            chunk_index,
+            content,
+            token_count,
+            metadata_json,
+            created_at,
+        )) => Ok(Json(ChunkWithSource {
+            id,
+            source_id,
+            source_name,
+            chunk_index,
+            content,
+            token_count,
+            metadata_json,
+            created_at,
+        })),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Chunk not found"})),
+        )),
     }
 }
 
@@ -167,7 +221,10 @@ async fn generate_qa_for_chunks(
     Json(req): Json<GenerateQaRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if req.chunk_ids.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "No chunks selected"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "No chunks selected"})),
+        ));
     }
 
     let tenant_id = extract_tenant_id(&headers).to_string();
@@ -186,7 +243,10 @@ async fn generate_qa_for_chunks(
     let verified_count = query.fetch_one(&pool).await.unwrap_or(0);
 
     if verified_count == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "No matching chunks found for this tenant"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "No matching chunks found for this tenant"})),
+        ));
     }
 
     // Spawn background QA generation
@@ -195,7 +255,11 @@ async fn generate_qa_for_chunks(
     let tenant_clone = tenant_id.clone();
 
     tokio::spawn(async move {
-        tracing::info!("Starting QA generation for {} chunks (tenant: {})", chunk_ids.len(), tenant_clone);
+        tracing::info!(
+            "Starting QA generation for {} chunks (tenant: {})",
+            chunk_ids.len(),
+            tenant_clone
+        );
         for chunk_id in &chunk_ids {
             // Fetch chunk content
             let chunk_result: Option<(String,)> = sqlx::query_as(
@@ -216,8 +280,13 @@ async fn generate_qa_for_chunks(
 
                 // Use clustering service to generate QA for this chunk content
                 match mimir_core_ai::qa_qc::clustering::ClusteringService::generate_qa_for_content(
-                    &pool_clone, &tenant_clone, *chunk_id, &content
-                ).await {
+                    &pool_clone,
+                    &tenant_clone,
+                    *chunk_id,
+                    &content,
+                )
+                .await
+                {
                     Ok(_) => {
                         let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'completed') WHERE id = ?")
                             .bind(chunk_id)

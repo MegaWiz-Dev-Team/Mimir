@@ -6,16 +6,17 @@
 //! - GET    /api/v1/llm-usage/alerts       — get usage alerts
 //! - GET    /api/v1/llm-usage/benchmark    — benchmark report
 
-use crate::routes::tenant::extract_tenant_id;use axum::{
+use crate::routes::tenant::extract_tenant_id;
+use axum::{
+    extract::{Query, State},
+    http::{HeaderMap, StatusCode},
     routing::{get, put},
-    Router, Json,
-    extract::{State, Query},
-    http::{StatusCode, HeaderMap},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use mimir_core_ai::services::db::DbPool;
 
@@ -71,8 +72,7 @@ pub struct BenchmarkEntry {
 // ─── Routes ─────────────────────────────────────────────────────────────────────
 
 pub fn budget_settings_routes() -> Router<DbPool> {
-    Router::new()
-        .route("/llm-budget", get(get_budget).put(save_budget))
+    Router::new().route("/llm-budget", get(get_budget).put(save_budget))
 }
 
 pub fn budget_usage_routes() -> Router<DbPool> {
@@ -91,12 +91,17 @@ async fn get_budget(
     let tenant_id = extract_tenant_id(&headers);
 
     let budgets = sqlx::query_as::<_, BudgetConfig>(
-        "SELECT * FROM llm_budget_configs WHERE tenant_id = ? ORDER BY model_id"
+        "SELECT * FROM llm_budget_configs WHERE tenant_id = ? ORDER BY model_id",
     )
     .bind(tenant_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(budgets))
 }
@@ -143,7 +148,7 @@ async fn get_alerts(
 
     // Check budget limits
     let budgets = sqlx::query_as::<_, BudgetConfig>(
-        "SELECT * FROM llm_budget_configs WHERE tenant_id = ? AND daily_token_limit > 0"
+        "SELECT * FROM llm_budget_configs WHERE tenant_id = ? AND daily_token_limit > 0",
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -170,7 +175,10 @@ async fn get_alerts(
             alerts.push(UsageAlert {
                 alert_type: "budget_exceeded".into(),
                 model_id: budget.model_id.clone(),
-                message: format!("Daily token limit exceeded for {} ({}/{})", budget.model_id, usage.0, budget.daily_token_limit),
+                message: format!(
+                    "Daily token limit exceeded for {} ({}/{})",
+                    budget.model_id, usage.0, budget.daily_token_limit
+                ),
                 severity: "critical".into(),
                 current_value: usage_pct,
                 threshold: 100.0,
@@ -179,7 +187,10 @@ async fn get_alerts(
             alerts.push(UsageAlert {
                 alert_type: "budget_warning".into(),
                 model_id: budget.model_id.clone(),
-                message: format!("Token usage at {:.0}% for {} ({}/{})", usage_pct, budget.model_id, usage.0, budget.daily_token_limit),
+                message: format!(
+                    "Token usage at {:.0}% for {} ({}/{})",
+                    usage_pct, budget.model_id, usage.0, budget.daily_token_limit
+                ),
                 severity: "warning".into(),
                 current_value: usage_pct,
                 threshold: budget.alert_threshold_pct as f64,
@@ -195,7 +206,7 @@ async fn get_alerts(
         FROM llm_usage_logs
         WHERE tenant_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
         GROUP BY model_id
-        HAVING total > 5"#
+        HAVING total > 5"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -208,7 +219,10 @@ async fn get_alerts(
             alerts.push(UsageAlert {
                 alert_type: "error_rate".into(),
                 model_id: model_id.clone(),
-                message: format!("High error rate for {}: {:.0}% ({}/{})", model_id, error_rate, errors, total),
+                message: format!(
+                    "High error rate for {}: {:.0}% ({}/{})",
+                    model_id, error_rate, errors, total
+                ),
                 severity: "warning".into(),
                 current_value: error_rate,
                 threshold: 10.0,
@@ -233,7 +247,10 @@ async fn get_alerts(
         alerts.push(UsageAlert {
             alert_type: "latency_spike".into(),
             model_id: model_id.clone(),
-            message: format!("High average latency for {}: {:.0}ms", model_id, avg_latency),
+            message: format!(
+                "High average latency for {}: {:.0}ms",
+                model_id, avg_latency
+            ),
             severity: "warning".into(),
             current_value: *avg_latency,
             threshold: 10000.0,
@@ -263,12 +280,17 @@ async fn get_benchmark(
         FROM llm_usage_logs
         WHERE tenant_id = ?
         GROUP BY model_id, provider
-        ORDER BY total_calls DESC"#
+        ORDER BY total_calls DESC"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     let mut benchmarks: Vec<BenchmarkEntry> = vec![];
 
@@ -285,12 +307,16 @@ async fn get_benchmark(
 
         let p50 = if !latencies.is_empty() {
             latencies[latencies.len() / 2].0 as f64
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         let p95 = if !latencies.is_empty() {
             let idx = ((latencies.len() as f64) * 0.95) as usize;
             latencies[idx.min(latencies.len() - 1)].0 as f64
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         // Estimate cost (reuse logic from llm_usage)
         let cost_per_1k = estimate_cost(model_id, *total_tok);
@@ -299,7 +325,11 @@ async fn get_benchmark(
             model_id: model_id.clone(),
             provider: provider.clone(),
             total_calls: *total,
-            success_rate: if *total > 0 { (*success as f64 / *total as f64) * 100.0 } else { 0.0 },
+            success_rate: if *total > 0 {
+                (*success as f64 / *total as f64) * 100.0
+            } else {
+                0.0
+            },
             avg_latency_ms: *avg_lat,
             p50_latency_ms: p50,
             p95_latency_ms: p95,

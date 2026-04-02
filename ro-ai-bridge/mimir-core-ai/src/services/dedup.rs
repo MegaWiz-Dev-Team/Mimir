@@ -3,8 +3,8 @@
 //! Detects duplicate content across different data sources using
 //! content fingerprinting (SHA-256 for exact, SimHash for fuzzy).
 
-use sha2::{Sha256, Digest};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -37,10 +37,7 @@ pub struct DuplicateSource {
 pub fn normalize_text(text: &str) -> String {
     let lowered = text.to_lowercase();
     // Collapse whitespace
-    let collapsed: String = lowered
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed: String = lowered.split_whitespace().collect::<Vec<_>>().join(" ");
     collapsed.trim().to_string()
 }
 
@@ -72,7 +69,8 @@ pub fn simhash(text: &str) -> u64 {
     let shingles: Vec<String> = if words.len() == 1 {
         vec![words[0].to_string()]
     } else {
-        words.windows(2)
+        words
+            .windows(2)
             .map(|w| format!("{} {}", w[0], w[1]))
             .collect()
     };
@@ -130,7 +128,12 @@ impl DedupTracker {
     }
 
     /// Record a duplicate chunk.
-    pub fn record_duplicate(&mut self, chunk_index: usize, content_hash: &str, existing_source_id: i64) {
+    pub fn record_duplicate(
+        &mut self,
+        chunk_index: usize,
+        content_hash: &str,
+        existing_source_id: i64,
+    ) {
         self.report.total_chunks += 1;
         self.report.duplicate_chunks += 1;
         self.report.duplicate_sources.push(DuplicateSource {
@@ -175,7 +178,10 @@ mod tests {
     fn test_normalize_text() {
         assert_eq!(normalize_text("  Hello   World  "), "hello world");
         assert_eq!(normalize_text("UPPERCASE"), "uppercase");
-        assert_eq!(normalize_text("tabs\there\nand\nnewlines"), "tabs here and newlines");
+        assert_eq!(
+            normalize_text("tabs\there\nand\nnewlines"),
+            "tabs here and newlines"
+        );
         assert_eq!(normalize_text(""), "");
     }
 
@@ -213,7 +219,11 @@ mod tests {
         let h1 = simhash("The quick brown fox jumps over the lazy dog");
         let h2 = simhash("The quick brown fox jumped over the lazy dog"); // changed "jumps" → "jumped"
         let dist = hamming_distance(h1, h2);
-        assert!(dist <= 10, "Similar texts should have low hamming distance, got {}", dist);
+        assert!(
+            dist <= 10,
+            "Similar texts should have low hamming distance, got {}",
+            dist
+        );
     }
 
     #[test]
@@ -221,7 +231,11 @@ mod tests {
         let h1 = simhash("The quick brown fox jumps over the lazy dog");
         let h2 = simhash("A completely different sentence about something else entirely");
         let dist = hamming_distance(h1, h2);
-        assert!(dist > 5, "Different texts should have high hamming distance, got {}", dist);
+        assert!(
+            dist > 5,
+            "Different texts should have high hamming distance, got {}",
+            dist
+        );
     }
 
     #[test]

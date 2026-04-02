@@ -62,7 +62,8 @@ pub fn detect_column_type(samples: &[&str]) -> SqlColumnType {
     }
 
     // Filter out empty strings for type detection
-    let non_empty: Vec<&str> = samples.iter()
+    let non_empty: Vec<&str> = samples
+        .iter()
         .filter(|s| !s.trim().is_empty())
         .copied()
         .collect();
@@ -91,7 +92,10 @@ pub fn detect_column_type(samples: &[&str]) -> SqlColumnType {
 fn sanitize_identifier(input: &str) -> Result<String> {
     let re = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
     if !re.is_match(input) {
-        bail!("Identifier contains unsafe characters: '{}'. Only [a-zA-Z0-9_] allowed.", input);
+        bail!(
+            "Identifier contains unsafe characters: '{}'. Only [a-zA-Z0-9_] allowed.",
+            input
+        );
     }
     Ok(input.to_string())
 }
@@ -161,9 +165,7 @@ pub fn generate_batch_inserts(
     rows: &[Vec<String>],
     batch_size: usize,
 ) -> Vec<(String, Vec<Vec<String>>)> {
-    let col_names: Vec<String> = headers.iter()
-        .map(|h| sanitize_column_name(h))
-        .collect();
+    let col_names: Vec<String> = headers.iter().map(|h| sanitize_column_name(h)).collect();
 
     let col_list = col_names.join(", ");
     let placeholder_row = format!("({})", vec!["?"; headers.len()].join(", "));
@@ -174,7 +176,9 @@ pub fn generate_batch_inserts(
         let placeholders: Vec<&str> = chunk.iter().map(|_| placeholder_row.as_str()).collect();
         let sql = format!(
             "INSERT INTO {} ({}) VALUES {};",
-            table_name, col_list, placeholders.join(", ")
+            table_name,
+            col_list,
+            placeholders.join(", ")
         );
         let batch_rows: Vec<Vec<String>> = chunk.to_vec();
         batches.push((sql, batch_rows));
@@ -188,12 +192,15 @@ pub fn generate_batch_inserts(
 /// Parse CSV bytes and return (headers, detected_types, rows) for SQL import.
 ///
 /// Reads all rows, samples up to 100 rows to detect column types.
-pub fn parse_csv_for_sql(data: &[u8]) -> Result<(Vec<String>, Vec<SqlColumnType>, Vec<Vec<String>>)> {
+pub fn parse_csv_for_sql(
+    data: &[u8],
+) -> Result<(Vec<String>, Vec<SqlColumnType>, Vec<Vec<String>>)> {
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
         .from_reader(Cursor::new(data));
 
-    let headers: Vec<String> = reader.headers()
+    let headers: Vec<String> = reader
+        .headers()
         .map_err(|e| anyhow::anyhow!("Failed to read CSV headers: {}", e))?
         .iter()
         .map(|h| h.to_string())
@@ -216,14 +223,20 @@ pub fn parse_csv_for_sql(data: &[u8]) -> Result<(Vec<String>, Vec<SqlColumnType>
     let mut types = Vec::new();
 
     for col_idx in 0..headers.len() {
-        let samples: Vec<&str> = all_rows.iter()
+        let samples: Vec<&str> = all_rows
+            .iter()
             .take(sample_count)
             .filter_map(|row| row.get(col_idx).map(|s| s.as_str()))
             .collect();
         types.push(detect_column_type(&samples));
     }
 
-    info!("Parsed CSV: {} headers, {} rows, types: {:?}", headers.len(), all_rows.len(), types);
+    info!(
+        "Parsed CSV: {} headers, {} rows, types: {:?}",
+        headers.len(),
+        all_rows.len(),
+        types
+    );
 
     Ok((headers, types, all_rows))
 }
@@ -233,34 +246,41 @@ pub fn parse_csv_for_sql(data: &[u8]) -> Result<(Vec<String>, Vec<SqlColumnType>
 /// Parse XLSX bytes and return (headers, detected_types, rows) for SQL import.
 ///
 /// Reads the first sheet only.
-pub fn parse_xlsx_for_sql(data: &[u8]) -> Result<(Vec<String>, Vec<SqlColumnType>, Vec<Vec<String>>)> {
-    use calamine::{Reader, Xlsx, Data};
+pub fn parse_xlsx_for_sql(
+    data: &[u8],
+) -> Result<(Vec<String>, Vec<SqlColumnType>, Vec<Vec<String>>)> {
+    use calamine::{Data, Reader, Xlsx};
 
     let cursor = Cursor::new(data);
-    let mut workbook: Xlsx<_> = Xlsx::new(cursor)
-        .map_err(|e| anyhow::anyhow!("Failed to open XLSX: {}", e))?;
+    let mut workbook: Xlsx<_> =
+        Xlsx::new(cursor).map_err(|e| anyhow::anyhow!("Failed to open XLSX: {}", e))?;
 
     let sheet_names = workbook.sheet_names().to_vec();
-    let first_sheet = sheet_names.first()
+    let first_sheet = sheet_names
+        .first()
         .ok_or_else(|| anyhow::anyhow!("XLSX has no sheets"))?;
 
-    let range = workbook.worksheet_range(first_sheet)
+    let range = workbook
+        .worksheet_range(first_sheet)
         .map_err(|e| anyhow::anyhow!("Failed to read XLSX worksheet: {}", e))?;
 
     let mut rows_iter = range.rows();
 
     // First row = headers
     let headers: Vec<String> = match rows_iter.next() {
-        Some(row) => row.iter().map(|cell| match cell {
-            Data::String(s) => s.clone(),
-            Data::Float(f) => f.to_string(),
-            Data::Int(i) => i.to_string(),
-            Data::Bool(b) => b.to_string(),
-            Data::DateTime(dt) => dt.to_string(),
-            Data::Error(e) => format!("{:?}", e),
-            Data::Empty => String::new(),
-            _ => String::new(),
-        }).collect(),
+        Some(row) => row
+            .iter()
+            .map(|cell| match cell {
+                Data::String(s) => s.clone(),
+                Data::Float(f) => f.to_string(),
+                Data::Int(i) => i.to_string(),
+                Data::Bool(b) => b.to_string(),
+                Data::DateTime(dt) => dt.to_string(),
+                Data::Error(e) => format!("{:?}", e),
+                Data::Empty => String::new(),
+                _ => String::new(),
+            })
+            .collect(),
         None => bail!("XLSX sheet is empty"),
     };
 
@@ -271,16 +291,19 @@ pub fn parse_xlsx_for_sql(data: &[u8]) -> Result<(Vec<String>, Vec<SqlColumnType
     // Data rows
     let mut all_rows: Vec<Vec<String>> = Vec::new();
     for row in rows_iter {
-        let cells: Vec<String> = row.iter().map(|cell| match cell {
-            Data::String(s) => s.clone(),
-            Data::Float(f) => f.to_string(),
-            Data::Int(i) => i.to_string(),
-            Data::Bool(b) => b.to_string(),
-            Data::DateTime(dt) => dt.to_string(),
-            Data::Error(e) => format!("{:?}", e),
-            Data::Empty => String::new(),
-            _ => String::new(),
-        }).collect();
+        let cells: Vec<String> = row
+            .iter()
+            .map(|cell| match cell {
+                Data::String(s) => s.clone(),
+                Data::Float(f) => f.to_string(),
+                Data::Int(i) => i.to_string(),
+                Data::Bool(b) => b.to_string(),
+                Data::DateTime(dt) => dt.to_string(),
+                Data::Error(e) => format!("{:?}", e),
+                Data::Empty => String::new(),
+                _ => String::new(),
+            })
+            .collect();
         all_rows.push(cells);
     }
 
@@ -289,14 +312,20 @@ pub fn parse_xlsx_for_sql(data: &[u8]) -> Result<(Vec<String>, Vec<SqlColumnType
     let mut types = Vec::new();
 
     for col_idx in 0..headers.len() {
-        let samples: Vec<&str> = all_rows.iter()
+        let samples: Vec<&str> = all_rows
+            .iter()
             .take(sample_count)
             .filter_map(|row| row.get(col_idx).map(|s| s.as_str()))
             .collect();
         types.push(detect_column_type(&samples));
     }
 
-    info!("Parsed XLSX: {} headers, {} rows, types: {:?}", headers.len(), all_rows.len(), types);
+    info!(
+        "Parsed XLSX: {} headers, {} rows, types: {:?}",
+        headers.len(),
+        all_rows.len(),
+        types
+    );
 
     Ok((headers, types, all_rows))
 }
@@ -329,7 +358,10 @@ pub fn process_tabular_for_sql(
 ) -> Result<SqlImportResult> {
     let ext = s3_key.rsplit('.').next().unwrap_or("").to_lowercase();
 
-    info!("SQL Import: processing ext={}, tenant={}, source_id={}", ext, tenant_id, source_id);
+    info!(
+        "SQL Import: processing ext={}, tenant={}, source_id={}",
+        ext, tenant_id, source_id
+    );
 
     // Parse tabular data
     let (headers, types, rows) = match ext.as_str() {
@@ -348,8 +380,12 @@ pub fn process_tabular_for_sql(
     let total_rows = rows.len();
     let insert_batches = generate_batch_inserts(&table_name, &headers, &rows, 1000);
 
-    info!("SQL Import ready: table={}, {} rows in {} batches",
-        table_name, total_rows, insert_batches.len());
+    info!(
+        "SQL Import ready: table={}, {} rows in {} batches",
+        table_name,
+        total_rows,
+        insert_batches.len()
+    );
 
     Ok(SqlImportResult {
         create_table_ddl,
@@ -448,7 +484,12 @@ mod tests {
     fn test_sanitize_table_name_unsafe_characters() {
         let result = sanitize_table_name("abc; DROP TABLE", 1);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unsafe characters"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unsafe characters")
+        );
     }
 
     #[test]
@@ -508,21 +549,26 @@ mod tests {
         assert_eq!(batches.len(), 2);
 
         // First batch: 2 rows
-        assert!(batches[0].0.contains("INSERT INTO test_table (name, age) VALUES (?, ?), (?, ?)"));
+        assert!(
+            batches[0]
+                .0
+                .contains("INSERT INTO test_table (name, age) VALUES (?, ?), (?, ?)")
+        );
         assert_eq!(batches[0].1.len(), 2);
 
         // Second batch: 1 row
-        assert!(batches[1].0.contains("INSERT INTO test_table (name, age) VALUES (?, ?)"));
+        assert!(
+            batches[1]
+                .0
+                .contains("INSERT INTO test_table (name, age) VALUES (?, ?)")
+        );
         assert_eq!(batches[1].1.len(), 1);
     }
 
     #[test]
     fn test_generate_batch_inserts_exact_batch() {
         let headers = vec!["col1".to_string()];
-        let rows = vec![
-            vec!["a".to_string()],
-            vec!["b".to_string()],
-        ];
+        let rows = vec![vec!["a".to_string()], vec!["b".to_string()]];
 
         let batches = generate_batch_inserts("t", &headers, &rows, 2);
         assert_eq!(batches.len(), 1);
@@ -536,12 +582,16 @@ mod tests {
     fn test_parse_csv_for_sql() {
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = parse_csv_for_sql(csv_data);
-        assert!(result.is_ok(), "CSV parsing should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "CSV parsing should succeed: {:?}",
+            result.err()
+        );
 
         let (headers, types, rows) = result.unwrap();
         assert_eq!(headers, vec!["Name", "Age", "City"]);
         assert_eq!(types[0], SqlColumnType::Varchar255); // Name
-        assert_eq!(types[1], SqlColumnType::Decimal);    // Age
+        assert_eq!(types[1], SqlColumnType::Decimal); // Age
         assert_eq!(types[2], SqlColumnType::Varchar255); // City
         assert_eq!(rows.len(), 2);
     }
@@ -554,7 +604,7 @@ mod tests {
 
         let (_, types, _) = result.unwrap();
         assert_eq!(types[0], SqlColumnType::Varchar255); // Name
-        assert_eq!(types[1], SqlColumnType::Date);       // BirthDate
+        assert_eq!(types[1], SqlColumnType::Date); // BirthDate
     }
 
     #[test]
@@ -571,11 +621,19 @@ mod tests {
     fn test_parse_xlsx_for_sql() {
         let xlsx_bytes = include_bytes!("../../tests/fixtures/sample.xlsx");
         let result = parse_xlsx_for_sql(xlsx_bytes);
-        assert!(result.is_ok(), "XLSX parsing should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "XLSX parsing should succeed: {:?}",
+            result.err()
+        );
 
         let (headers, types, rows) = result.unwrap();
         assert!(!headers.is_empty(), "Should have headers");
-        assert_eq!(headers.len(), types.len(), "Types count should match headers");
+        assert_eq!(
+            headers.len(),
+            types.len(),
+            "Types count should match headers"
+        );
         assert!(!rows.is_empty(), "Should have data rows");
     }
 
@@ -586,11 +644,19 @@ mod tests {
     fn test_process_tabular_for_sql_csv() {
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = process_tabular_for_sql("tenant/1/data.csv", csv_data, "tenant1", 42);
-        assert!(result.is_ok(), "SQL import should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "SQL import should succeed: {:?}",
+            result.err()
+        );
 
         let import = result.unwrap();
         assert_eq!(import.table_name, "tenant_tenant1_src_42");
-        assert!(import.create_table_ddl.contains("CREATE TABLE IF NOT EXISTS tenant_tenant1_src_42"));
+        assert!(
+            import
+                .create_table_ddl
+                .contains("CREATE TABLE IF NOT EXISTS tenant_tenant1_src_42")
+        );
         assert!(import.create_table_ddl.contains("name VARCHAR(255)"));
         assert!(import.create_table_ddl.contains("age DECIMAL"));
         assert_eq!(import.total_rows, 2);
@@ -601,7 +667,12 @@ mod tests {
     fn test_process_tabular_for_sql_unsupported_ext() {
         let result = process_tabular_for_sql("file.json", b"data", "t1", 1);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unsupported tabular extension"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported tabular extension")
+        );
     }
 
     #[test]

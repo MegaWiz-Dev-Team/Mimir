@@ -4,7 +4,7 @@
 //! and invoke via JSON-RPC style API.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -70,7 +70,8 @@ pub fn list_tools() -> Vec<McpToolDefinition> {
     vec![
         McpToolDefinition {
             name: "vector_search".into(),
-            description: "Search documents using vector similarity (semantic search via Qdrant)".into(),
+            description: "Search documents using vector similarity (semantic search via Qdrant)"
+                .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -152,17 +153,30 @@ pub fn server_info() -> McpServerInfo {
 /// Validate tool call arguments against schema.
 pub fn validate_tool_call(request: &McpToolCallRequest) -> Result<(), String> {
     let tools = list_tools();
-    let tool = tools.iter().find(|t| t.name == request.name)
-        .ok_or_else(|| format!("Unknown tool: '{}'. Available: {}", 
-            request.name,
-            tools.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", ")))?;
+    let tool = tools
+        .iter()
+        .find(|t| t.name == request.name)
+        .ok_or_else(|| {
+            format!(
+                "Unknown tool: '{}'. Available: {}",
+                request.name,
+                tools
+                    .iter()
+                    .map(|t| t.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?;
 
     // Check required fields
     if let Some(required) = tool.input_schema.get("required").and_then(|r| r.as_array()) {
         for field in required {
             if let Some(field_name) = field.as_str() {
                 if !request.arguments.contains_key(field_name) {
-                    return Err(format!("Missing required argument: '{}' for tool '{}'", field_name, request.name));
+                    return Err(format!(
+                        "Missing required argument: '{}' for tool '{}'",
+                        field_name, request.name
+                    ));
                 }
             }
         }
@@ -178,53 +192,84 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
         Ok(()) => {
             let text = match request.name.as_str() {
                 "vector_search" => {
-                    let query = request.arguments.get("query")
+                    let query = request
+                        .arguments
+                        .get("query")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tenant = request.arguments.get("tenant_id")
+                    let tenant = request
+                        .arguments
+                        .get("tenant_id")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
-                    let limit = request.arguments.get("limit")
+                    let limit = request
+                        .arguments
+                        .get("limit")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(10);
-                    format!("Vector search dispatched: query='{}', tenant='{}', limit={}", query, tenant, limit)
-                },
+                    format!(
+                        "Vector search dispatched: query='{}', tenant='{}', limit={}",
+                        query, tenant, limit
+                    )
+                }
                 "sql_query" => {
-                    let query = request.arguments.get("query")
+                    let query = request
+                        .arguments
+                        .get("query")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tenant = request.arguments.get("tenant_id")
+                    let tenant = request
+                        .arguments
+                        .get("tenant_id")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
-                    format!("SQL query dispatched: query='{}', tenant='{}'", query, tenant)
-                },
+                    format!(
+                        "SQL query dispatched: query='{}', tenant='{}'",
+                        query, tenant
+                    )
+                }
                 "graph_search" => {
-                    let entity = request.arguments.get("entity")
+                    let entity = request
+                        .arguments
+                        .get("entity")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tenant = request.arguments.get("tenant_id")
+                    let tenant = request
+                        .arguments
+                        .get("tenant_id")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
-                    let depth = request.arguments.get("max_depth")
+                    let depth = request
+                        .arguments
+                        .get("max_depth")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(2);
-                    format!("Graph search dispatched: entity='{}', tenant='{}', depth={}", entity, tenant, depth)
-                },
+                    format!(
+                        "Graph search dispatched: entity='{}', tenant='{}', depth={}",
+                        entity, tenant, depth
+                    )
+                }
                 "source_list" => {
-                    let tenant = request.arguments.get("tenant_id")
+                    let tenant = request
+                        .arguments
+                        .get("tenant_id")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
                     format!("Source list dispatched: tenant='{}'", tenant)
-                },
+                }
                 "submit_feedback" => {
-                    let rtype = request.arguments.get("report_type")
+                    let rtype = request
+                        .arguments
+                        .get("report_type")
                         .and_then(|v| v.as_str())
                         .unwrap_or("feedback");
-                    let title = request.arguments.get("title")
+                    let title = request
+                        .arguments
+                        .get("title")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
                     format!("Feedback dispatched: type='{}', title='{}'", rtype, title)
-                },
+                }
                 _ => "Unknown tool".to_string(),
             };
 
@@ -235,7 +280,7 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
                 }],
                 is_error: false,
             }
-        },
+        }
         Err(err) => McpToolCallResult {
             content: vec![McpContent {
                 content_type: "text".to_string(),
@@ -277,10 +322,22 @@ mod tests {
         let tools = list_tools();
         for tool in &tools {
             assert!(!tool.name.is_empty(), "Tool name must not be empty");
-            assert!(!tool.description.is_empty(), "Tool description must not be empty");
-            assert_eq!(tool.input_schema["type"], "object", "Schema type must be 'object'");
-            assert!(tool.input_schema.get("properties").is_some(), "Schema must have properties");
-            assert!(tool.input_schema.get("required").is_some(), "Schema must have required");
+            assert!(
+                !tool.description.is_empty(),
+                "Tool description must not be empty"
+            );
+            assert_eq!(
+                tool.input_schema["type"], "object",
+                "Schema type must be 'object'"
+            );
+            assert!(
+                tool.input_schema.get("properties").is_some(),
+                "Schema must have properties"
+            );
+            assert!(
+                tool.input_schema.get("required").is_some(),
+                "Schema must have required"
+            );
         }
     }
 
@@ -347,7 +404,10 @@ mod tests {
         args.insert("query".into(), json!("hello world"));
         args.insert("tenant_id".into(), json!("t1"));
         args.insert("limit".into(), json!(5));
-        let req = McpToolCallRequest { name: "vector_search".into(), arguments: args };
+        let req = McpToolCallRequest {
+            name: "vector_search".into(),
+            arguments: args,
+        };
         let result = dispatch_tool_call(&req);
         assert!(!result.is_error);
         assert!(result.content[0].text.contains("hello world"));
@@ -362,7 +422,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("query".into(), json!("SELECT * FROM users"));
         args.insert("tenant_id".into(), json!("t1"));
-        let req = McpToolCallRequest { name: "sql_query".into(), arguments: args };
+        let req = McpToolCallRequest {
+            name: "sql_query".into(),
+            arguments: args,
+        };
         let result = dispatch_tool_call(&req);
         assert!(!result.is_error);
         assert!(result.content[0].text.contains("SELECT * FROM users"));
@@ -376,7 +439,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("entity".into(), json!("Aspirin"));
         args.insert("tenant_id".into(), json!("t1"));
-        let req = McpToolCallRequest { name: "graph_search".into(), arguments: args };
+        let req = McpToolCallRequest {
+            name: "graph_search".into(),
+            arguments: args,
+        };
         let result = dispatch_tool_call(&req);
         assert!(!result.is_error);
         assert!(result.content[0].text.contains("Aspirin"));
@@ -387,7 +453,10 @@ mod tests {
     // ========================================
     #[test]
     fn test_dispatch_invalid_tool_returns_error() {
-        let req = McpToolCallRequest { name: "bad_tool".into(), arguments: HashMap::new() };
+        let req = McpToolCallRequest {
+            name: "bad_tool".into(),
+            arguments: HashMap::new(),
+        };
         let result = dispatch_tool_call(&req);
         assert!(result.is_error);
         assert!(result.content[0].text.contains("Unknown tool"));
@@ -400,7 +469,10 @@ mod tests {
     fn test_dispatch_source_list() {
         let mut args = HashMap::new();
         args.insert("tenant_id".into(), json!("t1"));
-        let req = McpToolCallRequest { name: "source_list".into(), arguments: args };
+        let req = McpToolCallRequest {
+            name: "source_list".into(),
+            arguments: args,
+        };
         let result = dispatch_tool_call(&req);
         assert!(!result.is_error);
         assert!(result.content[0].text.contains("tenant='t1'"));
@@ -415,7 +487,10 @@ mod tests {
         args.insert("report_type".into(), json!("bug"));
         args.insert("title".into(), json!("Test bug"));
         args.insert("description".into(), json!("Details"));
-        let req = McpToolCallRequest { name: "submit_feedback".into(), arguments: args };
+        let req = McpToolCallRequest {
+            name: "submit_feedback".into(),
+            arguments: args,
+        };
         let result = dispatch_tool_call(&req);
         assert!(!result.is_error);
         assert!(result.content[0].text.contains("bug"));

@@ -5,7 +5,7 @@
 //! once Issue #76 is merged.
 
 use anyhow::{Result, bail};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Maximum file size in bytes (50 MB)
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 52,428,800 bytes
@@ -14,10 +14,8 @@ const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 52,428,800 bytes
 /// When Issue #76 (Domain Connector) is implemented, this will be replaced
 /// with domain-specific whitelists via `get_domain_connector()`.
 const ALLOWED_EXTENSIONS: &[&str] = &[
-    "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc",
-    "pptx", "ppt",
-    "json", "md", "html", "htm", "xml", "yaml", "yml",
-    "png", "jpg", "jpeg", "dicom", "dcm",
+    "pdf", "csv", "xlsx", "xls", "txt", "docx", "doc", "pptx", "ppt", "json", "md", "html", "htm",
+    "xml", "yaml", "yml", "png", "jpg", "jpeg", "dicom", "dcm",
 ];
 
 /// Validate that a filename has an allowed extension.
@@ -25,11 +23,7 @@ const ALLOWED_EXTENSIONS: &[&str] = &[
 /// # Errors
 /// Returns `Err` with "Unsupported file type" if the extension is not in the whitelist.
 pub fn validate_extension(filename: &str) -> Result<()> {
-    let ext = filename
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
 
     if ext.is_empty() || !ALLOWED_EXTENSIONS.contains(&ext.as_str()) {
         bail!("Unsupported file type: .{}", ext);
@@ -80,18 +74,14 @@ pub fn compute_file_hash(data: &[u8]) -> String {
 /// This replaces the manual source_type selection by users, reducing
 /// cognitive load and preventing type mismatch errors.
 pub fn detect_source_type(filename: &str) -> &str {
-    let ext = filename
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
 
     match ext.as_str() {
         "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt" | "md" | "html" | "htm" => "document",
         "csv" | "xlsx" | "xls" => "tabular",
         "json" | "yaml" | "yml" | "xml" => "structured",
         "png" | "jpg" | "jpeg" | "dicom" | "dcm" => "image",
-        _ => "document"
+        _ => "document",
     }
 }
 
@@ -196,7 +186,10 @@ mod tests {
         let data2 = b"File content version B";
         let hash1 = compute_file_hash(data1);
         let hash2 = compute_file_hash(data2);
-        assert_ne!(hash1, hash2, "Different data should produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different data should produce different hashes"
+        );
     }
 
     // ========================================
