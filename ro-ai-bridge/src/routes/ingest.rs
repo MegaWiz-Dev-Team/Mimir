@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::retrieval::tree::{build_native_tree, count_nodes};
 use mimir_core_ai::services::db::DbPool;
 
 // ── Models ────────────────────────────────────────────
@@ -95,18 +96,8 @@ async fn ingest_document(
         ));
     }
 
-    // Call PageIndex sidecar to build tree
-    let pageindex_url =
-        std::env::var("PAGEINDEX_URL").unwrap_or_else(|_| "http://localhost:8600".to_string());
-
-    let tree_index = match build_tree_index(&pageindex_url, &req.title, &req.content).await {
-        Ok(tree) => tree,
-        Err(e) => {
-            tracing::warn!("PageIndex sidecar unavailable, using simple tree: {}", e);
-            // Fallback: build a simple heading-based index inline
-            build_simple_tree(&req.content, &req.title)
-        }
-    };
+    // Build Tree native
+    let tree_index = build_native_tree(&req.content, &req.title);
 
     let tree_json = serde_json::to_string(&tree_index).unwrap_or_default();
     let node_count = count_nodes(&tree_index);
@@ -208,63 +199,3 @@ async fn delete_document(
     Ok(Json(json!({"deleted": doc_id})))
 }
 
-// ── PageIndex Sidecar Client ──────────────────────────
-
-async fn build_tree_index(base_url: &str, title: &str, content: &str) -> Result<Value, String> {
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/build-tree", base_url))
-        .json(&json!({
-            "content": content,
-            "title": title,
-        }))
-        .timeout(std::time::Duration::from_secs(120))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.status().is_success() {
-        return Err(format!("PageIndex returned {}", resp.status()));
-    }
-
-    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(body.get("tree_index").cloned().unwrap_or(body))
-}
-
-fn build_simple_tree(content: &str, title: &str) -> Value {
-    let mut nodes = Vec::new();
-    let mut current_heading = String::new();
-    let mut node_id = 0;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
-            let heading = trimmed.trim_start_matches('#').trim().to_string();
-            if !heading.is_empty() {
-                nodes.push(json!({
-                    "title": heading,
-                    "node_id": format!("{:04}", node_id),
-                    "summary": "",
-                }));
-                node_id += 1;
-                current_heading = heading;
-            }
-        }
-    }
-
-    json!({
-        "title": title,
-        "nodes": nodes,
-    })
-}
-
-fn count_nodes(tree: &Value) -> i64 {
-    let mut count = 0i64;
-    if let Some(nodes) = tree.get("nodes").and_then(|n| n.as_array()) {
-        count += nodes.len() as i64;
-        for node in nodes {
-            count += count_nodes(node);
-        }
-    }
-    count
-}

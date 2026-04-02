@@ -94,12 +94,22 @@ async fn query_tenant(
     let mut all_sources = Vec::new();
     let mut all_answers = Vec::new();
 
-    // Strategy 1: Tree search via PageIndex sidecar (PARALLEL — Sprint 31)
+    // Strategy 1: Native Tree search (LLM)
     if mode == "tree" || mode == "hybrid" {
-        let pageindex_url =
-            std::env::var("PAGEINDEX_URL").unwrap_or_else(|_| "http://localhost:8600".to_string());
+        use mimir_core_ai::services::llm_router::LlmRouter;
+        
+        let router = match LlmRouter::new(pool.clone(), &tenant_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Failed to init LlmRouter for tree search: {}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to init router: {}", e)})),
+                ));
+            }
+        };
 
-        let retriever = crate::retrieval::tree::PageIndexRetriever::new(pageindex_url);
+        let retriever = crate::retrieval::tree::NativeTreeRetriever::new();
 
         // Collect docs that have both content and tree_index
         let searchable_docs: Vec<(String, String, String)> = docs
@@ -115,7 +125,7 @@ async fn query_tenant(
         if !searchable_docs.is_empty() {
             use crate::retrieval::tree::TreeRetriever;
             let tree_results = retriever
-                .search_parallel(&searchable_docs, &req.question)
+                .search_parallel(&router, &searchable_docs, &req.question)
                 .await;
 
             for result in &tree_results {
