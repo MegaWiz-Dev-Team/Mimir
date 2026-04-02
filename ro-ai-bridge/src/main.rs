@@ -186,7 +186,7 @@ async fn main() {
         .merge(search_optimize_routes())
         .merge(search_benchmark_routes())
         // Sprint 18: Swarm Multi Agent
-        .nest("/api/v1/tenants/:tenant_id", swarm_routes())
+        .nest("/api/v1/tenants/{tenant_id}", swarm_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
