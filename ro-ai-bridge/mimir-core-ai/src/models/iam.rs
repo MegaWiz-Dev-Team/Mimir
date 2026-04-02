@@ -68,7 +68,6 @@ pub struct CreateTenantRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoginResponse {
-
     pub token: String,
     pub tenant_id: String,
 }
@@ -99,6 +98,10 @@ pub struct LlmConfig {
     pub heimdall_url: Option<String>,
     /// Heimdall API key (stored via Vault in production)
     pub heimdall_api_key: Option<String>,
+    /// Cloud provider API keys (migrated from dropped provider_api_keys column)
+    pub openai_api_key: Option<String>,
+    pub google_api_key: Option<String>,
+    pub azure_api_key: Option<String>,
 }
 
 impl LlmConfig {
@@ -106,7 +109,12 @@ impl LlmConfig {
     /// 1. Specific slot value (e.g., llm_config.chat)
     /// 2. Provided defaults (default_provider + default_model from TenantConfig)
     /// 3. Hardcoded fallback (ollama + llama3.2, or heimdall + BAAI/bge-m3 for embedding)
-    pub fn resolve_slot(&self, slot_name: &str, default_provider: Option<&str>, default_model: Option<&str>) -> LlmSlot {
+    pub fn resolve_slot(
+        &self,
+        slot_name: &str,
+        default_provider: Option<&str>,
+        default_model: Option<&str>,
+    ) -> LlmSlot {
         let slot = match slot_name {
             "chat" => self.chat.as_ref(),
             "rag" => self.rag.as_ref(),
@@ -127,15 +135,24 @@ impl LlmConfig {
         // Tier 2: TenantConfig defaults
         if let (Some(p), Some(m)) = (default_provider, default_model) {
             if !p.is_empty() && !m.is_empty() {
-                return LlmSlot { provider: p.to_string(), model: m.to_string() };
+                return LlmSlot {
+                    provider: p.to_string(),
+                    model: m.to_string(),
+                };
             }
         }
 
         // Tier 3: Hardcoded fallback
         if slot_name == "embedding" {
-            LlmSlot { provider: "heimdall".to_string(), model: "BAAI/bge-m3".to_string() }
+            LlmSlot {
+                provider: "heimdall".to_string(),
+                model: "BAAI/bge-m3".to_string(),
+            }
         } else {
-            LlmSlot { provider: "ollama".to_string(), model: "llama3.2".to_string() }
+            LlmSlot {
+                provider: "ollama".to_string(),
+                model: "llama3.2".to_string(),
+            }
         }
     }
 }
@@ -145,6 +162,7 @@ pub struct TenantConfig {
     pub tenant_id: String,
     pub default_provider: String,
     pub default_model: String,
+    #[sqlx(default)]
     pub provider_api_keys: Option<sqlx::types::Json<serde_json::Value>>,
     pub qa_rules: Option<sqlx::types::Json<serde_json::Value>>,
     pub system_prompt: Option<String>,
@@ -152,6 +170,7 @@ pub struct TenantConfig {
     pub is_dedicated_vector_db: bool,
     pub max_crawl_pages: i32,
     pub search_settings: Option<sqlx::types::Json<serde_json::Value>>,
+    pub pipeline_settings: Option<sqlx::types::Json<serde_json::Value>>,
     pub llm_config: Option<sqlx::types::Json<LlmConfig>>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -168,6 +187,7 @@ pub struct UpdateTenantConfigRequest {
     pub is_dedicated_vector_db: Option<bool>,
     pub max_crawl_pages: Option<i32>,
     pub search_settings: Option<sqlx::types::Json<serde_json::Value>>,
+    pub pipeline_settings: Option<sqlx::types::Json<serde_json::Value>>,
     pub llm_config: Option<sqlx::types::Json<LlmConfig>>,
 }
 
@@ -202,7 +222,10 @@ mod tests {
 
     #[test]
     fn test_llm_slot_serialization() {
-        let slot = LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() };
+        let slot = LlmSlot {
+            provider: "gemini".into(),
+            model: "gemini-2.5-flash".into(),
+        };
         let json = serde_json::to_string(&slot).unwrap();
         assert!(json.contains("gemini-2.5-flash"));
         let parsed: LlmSlot = serde_json::from_str(&json).unwrap();
@@ -220,7 +243,10 @@ mod tests {
     #[test]
     fn test_resolve_slot_tier1_specific_value() {
         let config = LlmConfig {
-            chat: Some(LlmSlot { provider: "heimdall".into(), model: "Qwen3.5-35B".into() }),
+            chat: Some(LlmSlot {
+                provider: "heimdall".into(),
+                model: "Qwen3.5-35B".into(),
+            }),
             ..Default::default()
         };
         let slot = config.resolve_slot("chat", Some("ollama"), Some("llama3.2"));
@@ -263,7 +289,10 @@ mod tests {
     #[test]
     fn test_resolve_slot_empty_provider_falls_through() {
         let config = LlmConfig {
-            chat: Some(LlmSlot { provider: "".into(), model: "".into() }),
+            chat: Some(LlmSlot {
+                provider: "".into(),
+                model: "".into(),
+            }),
             ..Default::default()
         };
         // Empty slot should fall through to tier 2
@@ -274,14 +303,35 @@ mod tests {
     #[test]
     fn test_llm_config_full_serialization() {
         let config = LlmConfig {
-            chat: Some(LlmSlot { provider: "ollama".into(), model: "llama3.2".into() }),
-            rag: Some(LlmSlot { provider: "heimdall".into(), model: "Qwen3.5-35B-A3B-4bit".into() }),
-            pipeline_generator: Some(LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
-            pipeline_evaluator: Some(LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
-            judge: Some(LlmSlot { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
-            embedding: Some(LlmSlot { provider: "heimdall".into(), model: "BAAI/bge-m3".into() }),
+            chat: Some(LlmSlot {
+                provider: "ollama".into(),
+                model: "llama3.2".into(),
+            }),
+            rag: Some(LlmSlot {
+                provider: "heimdall".into(),
+                model: "Qwen3.5-35B-A3B-4bit".into(),
+            }),
+            pipeline_generator: Some(LlmSlot {
+                provider: "gemini".into(),
+                model: "gemini-2.5-flash".into(),
+            }),
+            pipeline_evaluator: Some(LlmSlot {
+                provider: "gemini".into(),
+                model: "gemini-2.5-flash".into(),
+            }),
+            judge: Some(LlmSlot {
+                provider: "gemini".into(),
+                model: "gemini-2.5-flash".into(),
+            }),
+            embedding: Some(LlmSlot {
+                provider: "heimdall".into(),
+                model: "BAAI/bge-m3".into(),
+            }),
             heimdall_url: Some("https://example.ngrok.dev/v1".into()),
-            heimdall_api_key: Some("test-key".into()),
+            heimdall_api_key: Some("test-key-123".into()),
+            openai_api_key: None,
+            google_api_key: None,
+            azure_api_key: None,
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: LlmConfig = serde_json::from_str(&json).unwrap();
@@ -290,4 +340,3 @@ mod tests {
         assert_eq!(parsed.heimdall_url.unwrap(), "https://example.ngrok.dev/v1");
     }
 }
-

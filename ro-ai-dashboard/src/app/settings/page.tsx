@@ -22,6 +22,7 @@ import { SettingsTabProps } from "./components/types";
 import { GeneralTab } from "./components/GeneralTab";
 import { AIModelsTab } from "./components/AIModelsTab";
 import { PipelineTab } from "./components/PipelineTab";
+import { KnowledgeGraphTab } from "./components/KnowledgeGraphTab";
 import { SearchTab } from "./components/SearchTab";
 import { SecurityTab } from "./components/SecurityTab";
 import { TenantsTab, UsersTab } from "./components/AdminTabs";
@@ -59,7 +60,6 @@ export default function SettingsPage() {
     const [dedupThreshold, setDedupThreshold] = useState(0);
 
     // Search settings (local state)
-    const [embeddingModel, setEmbeddingModel] = useState("nomic-embed-text");
     const [topK, setTopK] = useState(5);
     const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
     const [searchMode, setSearchMode] = useState("hybrid");
@@ -172,10 +172,22 @@ export default function SettingsPage() {
                     const configData = await fetchTenantConfig(activeTenant.id);
                     setConfig(configData);
                     if (configData.search_settings) {
-                        setEmbeddingModel(configData.search_settings.embedding_model || "nomic-embed-text");
                         setTopK(configData.search_settings.top_k || 5);
                         setSimilarityThreshold(configData.search_settings.similarity_threshold || 0.7);
                         setSearchMode(configData.search_settings.search_mode || "hybrid");
+                        // Fallback: older records might still have chunk settings here before migration
+                        if (!configData.pipeline_settings?.chunk_strategy && (configData.search_settings as any).chunk_strategy) {
+                            setChunkStrategy((configData.search_settings as any).chunk_strategy);
+                            setChunkSize((configData.search_settings as any).chunk_size || 512);
+                            setChunkOverlap((configData.search_settings as any).chunk_overlap || 50);
+                            setDedupThreshold((configData.search_settings as any).dedup_threshold || 0);
+                        }
+                    }
+                    if (configData.pipeline_settings) {
+                        if (configData.pipeline_settings.chunk_strategy) setChunkStrategy(configData.pipeline_settings.chunk_strategy);
+                        if (configData.pipeline_settings.chunk_size) setChunkSize(configData.pipeline_settings.chunk_size);
+                        if (configData.pipeline_settings.chunk_overlap !== undefined) setChunkOverlap(configData.pipeline_settings.chunk_overlap);
+                        if (configData.pipeline_settings.dedup_threshold !== undefined) setDedupThreshold(configData.pipeline_settings.dedup_threshold);
                     }
                 } catch (err) { console.warn("[Settings] Failed to load tenant config:", err); }
             }
@@ -185,12 +197,47 @@ export default function SettingsPage() {
         finally { setIsLoading(false); }
     };
 
+    // B1: Tab-specific save functions to prevent cross-tab overwrites
     const handleSave = async (e: React.FormEvent) => {
+        // General tab: save only tenant name
         e.preventDefault();
         if (!currentTenantId) return;
         setIsSaving(true);
-        try { await updateTenant(currentTenantId, tenantName); if (config) await updateTenantConfig(currentTenantId, config); alert("Settings updated successfully."); loadData(); }
-        catch { alert("Failed to update settings."); }
+        try { await updateTenant(currentTenantId, tenantName); alert("Tenant name updated."); }
+        catch { alert("Failed to update tenant name."); }
+        finally { setIsSaving(false); }
+    };
+
+    const handleSaveAIModels = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentTenantId || !config) return;
+        setIsSaving(true);
+        try {
+            await updateTenantConfig(currentTenantId, {
+                default_provider: config.default_provider,
+                default_model: config.default_model,
+                llm_config: config.llm_config,
+                system_prompt: config.system_prompt,
+                max_daily_tokens: config.max_daily_tokens,
+                is_dedicated_vector_db: config.is_dedicated_vector_db,
+            });
+            alert("AI model settings saved."); loadData();
+        }
+        catch { alert("Failed to save AI model settings."); }
+        finally { setIsSaving(false); }
+    };
+
+    const handleSaveCredentials = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentTenantId || !config) return;
+        setIsSaving(true);
+        try {
+            await updateTenantConfig(currentTenantId, {
+                llm_config: config.llm_config,
+            });
+            alert("Credentials saved."); loadData();
+        }
+        catch { alert("Failed to save credentials."); }
         finally { setIsSaving(false); }
     };
 
@@ -200,9 +247,10 @@ export default function SettingsPage() {
 
     const tabProps: SettingsTabProps = {
         isLoading, isSaving, config, setConfig, currentTenantId, tenantName, setTenantName, handleSave,
+        handleSaveAIModels, handleSaveCredentials,
         chunkStrategy, setChunkStrategy, chunkSize, setChunkSize, chunkOverlap, setChunkOverlap, dedupThreshold, setDedupThreshold,
         updateTenantConfigFn: updateTenantConfig,
-        embeddingModel, setEmbeddingModel, topK, setTopK, similarityThreshold, setSimilarityThreshold, searchMode, setSearchMode,
+        topK, setTopK, similarityThreshold, setSimilarityThreshold, searchMode, setSearchMode,
         vaultStatus, vaultSecrets, isVaultLoading, refreshVaultData, rotateDialog, setRotateDialog, rotateValue, setRotateValue, isRotating, rotatingKey, handleRotateSecret,
         roles, isRolesLoading, loadRoles, addRoleDialog, setAddRoleDialog, newRoleName, setNewRoleName,
         deleteRoleDialog, setDeleteRoleDialog, hasPendingChanges, isSavingRoles, handleSaveRoles, handleAddRole, handleDeleteRole,
@@ -217,27 +265,7 @@ export default function SettingsPage() {
             case "general": return <GeneralTab {...tabProps} />;
             case "ai-models": return <AIModelsTab {...tabProps} />;
             case "pipeline": return <PipelineTab {...tabProps} />;
-            case "knowledge-graph":
-                return (
-                    <Card>
-                        <CardContent className="space-y-4 pt-6">
-                            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                                <h4 className="font-medium text-green-800 dark:text-green-300">✓ Knowledge Graph Active</h4>
-                                <p className="text-sm text-green-600 dark:text-green-400 mt-1">Sprint 17 — Entity extraction, graph visualization, and path finding are available.</p>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <a href="/graph" className="p-4 rounded-lg border border-slate-200 dark:border-zinc-700 hover:border-purple-400 dark:hover:border-purple-500 transition-colors group">
-                                    <h4 className="font-medium group-hover:text-purple-600 dark:group-hover:text-purple-400">Open Graph Explorer</h4>
-                                    <p className="text-sm text-muted-foreground mt-1">Visualize entities and relationships</p>
-                                </a>
-                                <div className="p-4 rounded-lg border border-slate-200 dark:border-zinc-700">
-                                    <h4 className="font-medium">Neo4j Connection</h4>
-                                    <p className="text-sm text-muted-foreground mt-1">bolt://localhost:7687 (default)</p>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                );
+            case "knowledge-graph": return <KnowledgeGraphTab {...tabProps} />;
             case "search": return <SearchTab {...tabProps} />;
             case "security": return <SecurityTab {...tabProps} />;
             case "tenants": return <TenantsTab {...tabProps} />;

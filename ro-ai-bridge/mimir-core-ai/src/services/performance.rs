@@ -35,15 +35,25 @@ impl PoolConfig {
     pub fn from_env() -> Self {
         Self {
             max_connections: std::env::var("DB_POOL_MAX")
-                .ok().and_then(|v| v.parse().ok()).unwrap_or(10),
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10),
             min_connections: std::env::var("DB_POOL_MIN")
-                .ok().and_then(|v| v.parse().ok()).unwrap_or(2),
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2),
             acquire_timeout_secs: std::env::var("DB_POOL_ACQUIRE_TIMEOUT")
-                .ok().and_then(|v| v.parse().ok()).unwrap_or(30),
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30),
             idle_timeout_secs: std::env::var("DB_POOL_IDLE_TIMEOUT")
-                .ok().and_then(|v| v.parse().ok()).unwrap_or(300),
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
             max_lifetime_secs: std::env::var("DB_POOL_MAX_LIFETIME")
-                .ok().and_then(|v| v.parse().ok()).unwrap_or(1800),
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1800),
         }
     }
 }
@@ -90,18 +100,24 @@ impl InMemoryCache {
 
     /// Insert a value with the default TTL.
     pub fn set(&mut self, key: String, value: String) {
-        self.entries.insert(key, CacheEntry {
-            value,
-            expires_at: Instant::now() + self.default_ttl,
-        });
+        self.entries.insert(
+            key,
+            CacheEntry {
+                value,
+                expires_at: Instant::now() + self.default_ttl,
+            },
+        );
     }
 
     /// Insert a value with a custom TTL.
     pub fn set_with_ttl(&mut self, key: String, value: String, ttl_secs: u64) {
-        self.entries.insert(key, CacheEntry {
-            value,
-            expires_at: Instant::now() + Duration::from_secs(ttl_secs),
-        });
+        self.entries.insert(
+            key,
+            CacheEntry {
+                value,
+                expires_at: Instant::now() + Duration::from_secs(ttl_secs),
+            },
+        );
     }
 
     /// Remove expired entries to free memory.
@@ -196,10 +212,21 @@ pub struct IndexRecommendation {
 
 /// Generate SQL for creating all recommended indexes.
 pub fn generate_index_sql() -> String {
-    recommended_indexes().iter().map(|idx| {
-        let index_name = format!("idx_{}_{}", idx.table, idx.columns.replace(", ", "_").replace(" DESC", ""));
-        format!("CREATE INDEX IF NOT EXISTS {} ON {} ({});", index_name, idx.table, idx.columns)
-    }).collect::<Vec<_>>().join("\n")
+    recommended_indexes()
+        .iter()
+        .map(|idx| {
+            let index_name = format!(
+                "idx_{}_{}",
+                idx.table,
+                idx.columns.replace(", ", "_").replace(" DESC", "")
+            );
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {} ({});",
+                index_name, idx.table, idx.columns
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

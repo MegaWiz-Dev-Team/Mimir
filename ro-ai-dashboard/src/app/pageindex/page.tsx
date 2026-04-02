@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { fetchSources, DataSource } from "@/lib/api";
+import { fetchSources, DataSource, generatePageIndexTree } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { FileText, Layers, ListTree, Search, ChevronRight, ChevronDown, Hash, ArrowRight } from "lucide-react";
+import { FileText, Layers, ListTree, Search, ChevronRight, ChevronDown, Hash, ArrowRight, RefreshCw, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
@@ -69,6 +69,7 @@ export default function PageIndexViewer() {
     const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const [regenerating, setRegenerating] = useState(false);
 
     // Detect dark mode automatically via tailwind / layout scope
     useEffect(() => {
@@ -231,6 +232,35 @@ export default function PageIndexViewer() {
                                         Extract Page Index
                                     </Button>
                                 </Link>
+                            )}
+                            {selectedSource && (
+                                <Button
+                                    size="sm"
+                                    variant={rootNode ? "outline" : "default"}
+                                    className="text-xs"
+                                    disabled={regenerating}
+                                    onClick={async () => {
+                                        if (!selectedSourceId) return;
+                                        setRegenerating(true);
+                                        try {
+                                            await generatePageIndexTree(selectedSourceId);
+                                            // Wait a bit then reload
+                                            setTimeout(async () => {
+                                                await loadData();
+                                                setRegenerating(false);
+                                            }, 3000);
+                                        } catch (error) {
+                                            console.error("Failed to regenerate tree", error);
+                                            setRegenerating(false);
+                                        }
+                                    }}
+                                >
+                                    {regenerating ? (
+                                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Generating...</>
+                                    ) : (
+                                        <><RefreshCw className="w-3 h-3 mr-1" /> {rootNode ? 'Re-generate Tree' : 'Generate Tree'}</>
+                                    )}
+                                </Button>
                             )}
                         </div>
                     </CardHeader>

@@ -1,8 +1,8 @@
 use crate::models::sources::DataSource;
 use crate::services::extraction;
 use crate::services::sql_import;
-use anyhow::{Result, Context};
-use tracing::{info, error, warn};
+use anyhow::{Context, Result};
+use tracing::{error, info, warn};
 
 /// Retry an async operation with exponential backoff.
 ///
@@ -27,11 +27,20 @@ where
                     let delay = base_delay_ms * 2u64.pow(attempt);
                     warn!(
                         "{} failed (attempt {}/{}), retrying in {}ms: {}",
-                        operation_name, attempt + 1, max_retries + 1, delay, e
+                        operation_name,
+                        attempt + 1,
+                        max_retries + 1,
+                        delay,
+                        e
                     );
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 } else {
-                    error!("{} failed after {} attempts: {}", operation_name, max_retries + 1, e);
+                    error!(
+                        "{} failed after {} attempts: {}",
+                        operation_name,
+                        max_retries + 1,
+                        e
+                    );
                 }
                 last_err = Some(e);
             }
@@ -56,17 +65,22 @@ impl IngressManager {
 
         info!(
             "Phase 3: Extracting source_id={}, type={}, s3_key={}, storage_mode={}, size={} bytes",
-            source.id, source.source_type, s3_key, storage_mode, data.len()
+            source.id,
+            source.source_type,
+            s3_key,
+            storage_mode,
+            data.len()
         );
 
         // SQL mode branch for tabular data
         if storage_mode == "sql" && source.source_type == "tabular" {
-            let result = sql_import::process_tabular_for_sql(
-                s3_key, data, &source.tenant_id, source.id
-            )?;
+            let result =
+                sql_import::process_tabular_for_sql(s3_key, data, &source.tenant_id, source.id)?;
             return Ok(format!(
                 "SQL Import: table={}, {} rows, {} batches",
-                result.table_name, result.total_rows, result.insert_batches.len()
+                result.table_name,
+                result.total_rows,
+                result.insert_batches.len()
             ));
         }
 
@@ -76,11 +90,16 @@ impl IngressManager {
     /// Phase 3 (SQL Mode): Extract and prepare SQL import for tabular data.
     ///
     /// Returns `SqlImportResult` with DDL and INSERT statements for execution.
-    pub fn process_extraction_sql(source: &DataSource, data: &[u8]) -> Result<sql_import::SqlImportResult> {
+    pub fn process_extraction_sql(
+        source: &DataSource,
+        data: &[u8],
+    ) -> Result<sql_import::SqlImportResult> {
         let s3_key = source.s3_key.as_deref().unwrap_or("unknown");
         info!(
             "Phase 3 (SQL Mode): source_id={}, s3_key={}, size={} bytes",
-            source.id, s3_key, data.len()
+            source.id,
+            s3_key,
+            data.len()
         );
         sql_import::process_tabular_for_sql(s3_key, data, &source.tenant_id, source.id)
     }
@@ -92,27 +111,34 @@ impl IngressManager {
     ///
     /// Returns raw bytes to be saved to RustFS.
     pub async fn process_fetch(source: &DataSource) -> Result<Vec<u8>> {
-        info!("Phase 2: Fetching source_id={}, type={}", source.id, source.source_type);
+        info!(
+            "Phase 2: Fetching source_id={}, type={}",
+            source.id, source.source_type
+        );
 
         match source.source_type.as_str() {
             "web" => Self::fetch_web(source).await,
             "mcp" => Self::fetch_mcp(source).await,
             _ => Err(anyhow::anyhow!(
-                "Phase 2 fetch not applicable for source_type: {}", source.source_type
+                "Phase 2 fetch not applicable for source_type: {}",
+                source.source_type
             )),
         }
     }
 
     /// Fetch raw HTML from a web URL.
     async fn fetch_web(source: &DataSource) -> Result<Vec<u8>> {
-        let url = source.config_json.get("url")
+        let url = source
+            .config_json
+            .get("url")
             .and_then(|v| v.as_str())
             .context("Missing or invalid 'url' in config_json for web source")?;
 
         info!("Fetching HTML from URL: {}", url);
 
         let client = reqwest::Client::new();
-        let response = client.get(url)
+        let response = client
+            .get(url)
             .timeout(std::time::Duration::from_secs(30))
             .send()
             .await
@@ -122,7 +148,10 @@ impl IngressManager {
             return Err(anyhow::anyhow!("HTTP error: {}", response.status()));
         }
 
-        let bytes = response.bytes().await.context("Failed to read response body")?;
+        let bytes = response
+            .bytes()
+            .await
+            .context("Failed to read response body")?;
         info!("Fetched {} bytes from {}", bytes.len(), url);
 
         Ok(bytes.to_vec())
@@ -133,23 +162,34 @@ impl IngressManager {
     /// Reads the `mcp_url` from `config_json`, connects to the MCP server,
     /// fetches all resources, and returns them as JSON bytes.
     async fn fetch_mcp(source: &DataSource) -> Result<Vec<u8>> {
-        let mcp_url = source.config_json.get("mcp_url")
+        let mcp_url = source
+            .config_json
+            .get("mcp_url")
             .and_then(|v| v.as_str())
             .context("Missing 'mcp_url' in config_json for MCP source")?;
 
         info!("Connecting to MCP server: {}", mcp_url);
 
         let mut mcp_client = crate::services::mcp_client::McpClient::new(mcp_url);
-        mcp_client.connect().await.context("Failed to connect to MCP server")?;
+        mcp_client
+            .connect()
+            .await
+            .context("Failed to connect to MCP server")?;
 
-        let resources = mcp_client.fetch_resources().await
+        let resources = mcp_client
+            .fetch_resources()
+            .await
             .context("Failed to fetch MCP resources")?;
 
         // Serialize all resources to JSON bytes
         let json_bytes = serde_json::to_vec_pretty(&resources)
             .context("Failed to serialize MCP resources to JSON")?;
 
-        info!("Fetched {} MCP resources ({} bytes)", resources.len(), json_bytes.len());
+        info!(
+            "Fetched {} MCP resources ({} bytes)",
+            resources.len(),
+            json_bytes.len()
+        );
         Ok(json_bytes)
     }
 
@@ -160,24 +200,30 @@ impl IngressManager {
     /// - `document` / `tabular`: requires pre-downloaded data — use `process_source_with_data()`
     ///   or provide S3 bucket to download from.
     pub async fn process_source(source: &DataSource) -> Result<String> {
-        info!("Processing source: {} (type={})", source.name, source.source_type);
+        info!(
+            "Processing source: {} (type={})",
+            source.name, source.source_type
+        );
         match source.source_type.as_str() {
             "web" => {
                 let data = Self::fetch_web(source).await?;
                 extraction::extract_html_to_markdown(&data)
-            },
+            }
             "mcp" => {
                 let data = Self::fetch_mcp(source).await?;
                 extraction::extract_mcp_json_to_markdown(&data)
-            },
+            }
             "file" | "document" | "tabular" => {
                 // For file-based sources, data must be provided via process_source_with_data()
                 Err(anyhow::anyhow!(
                     "Source type '{}' requires file data — use process_source_with_data() or sync_source with S3 download",
                     source.source_type
                 ))
-            },
-            _ => Err(anyhow::anyhow!("Unsupported source type: {}", source.source_type)),
+            }
+            _ => Err(anyhow::anyhow!(
+                "Unsupported source type: {}",
+                source.source_type
+            )),
         }
     }
 
@@ -189,13 +235,18 @@ impl IngressManager {
     pub fn process_source_with_data(source: &DataSource, data: &[u8]) -> Result<String> {
         if data.is_empty() {
             return Err(anyhow::anyhow!(
-                "Empty file data for source '{}' (id={})", source.name, source.id
+                "Empty file data for source '{}' (id={})",
+                source.name,
+                source.id
             ));
         }
 
         info!(
             "Processing source with data: {} (id={}, type={}, {} bytes)",
-            source.name, source.id, source.source_type, data.len()
+            source.name,
+            source.id,
+            source.source_type,
+            data.len()
         );
 
         Self::process_extraction(source, data)
@@ -228,16 +279,20 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Failed to send HTTP request") || err_msg.contains("error sending request"));
+        assert!(
+            err_msg.contains("Failed to send HTTP request")
+                || err_msg.contains("error sending request")
+        );
 
         let bad_config_source = DataSource {
             id: 2,
@@ -256,14 +311,18 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
         let result2 = IngressManager::process_source(&bad_config_source).await;
         assert!(result2.is_err());
-        assert_eq!(result2.unwrap_err().to_string(), "Missing or invalid 'url' in config_json for web source");
+        assert_eq!(
+            result2.unwrap_err().to_string(),
+            "Missing or invalid 'url' in config_json for web source"
+        );
     }
 
     #[tokio::test]
@@ -285,15 +344,19 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Unsupported source type: unknown");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Unsupported source type: unknown"
+        );
     }
 
     #[test]
@@ -315,11 +378,12 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/10/data.csv".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let csv_data = b"Name,Score\nAlice,95\n";
         let result = IngressManager::process_extraction(&source, csv_data);
@@ -348,11 +412,12 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let result = IngressManager::process_fetch(&source).await;
         assert!(result.is_err());
@@ -378,18 +443,29 @@ mod tests {
             storage_mode: Some("sql".to_string()),
             s3_key: Some("test/20/data.csv".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
         let result = IngressManager::process_extraction(&source, csv_data);
-        assert!(result.is_ok(), "SQL mode extraction should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "SQL mode extraction should succeed: {:?}",
+            result.err()
+        );
         let summary = result.unwrap();
-        assert!(summary.contains("SQL Import:"), "Should return SQL import summary");
-        assert!(summary.contains("tenant_test_tenant_src_20"), "Should contain table name");
+        assert!(
+            summary.contains("SQL Import:"),
+            "Should return SQL import summary"
+        );
+        assert!(
+            summary.contains("tenant_test_tenant_src_20"),
+            "Should contain table name"
+        );
         assert!(summary.contains("2 rows"), "Should report row count");
     }
 
@@ -412,19 +488,28 @@ mod tests {
             storage_mode: Some("sql".to_string()),
             s3_key: Some("test/30/data.csv".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = IngressManager::process_extraction_sql(&source, csv_data);
-        assert!(result.is_ok(), "process_extraction_sql should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "process_extraction_sql should succeed: {:?}",
+            result.err()
+        );
 
         let import = result.unwrap();
         assert_eq!(import.table_name, "tenant_t1_src_30");
-        assert!(import.create_table_ddl.contains("CREATE TABLE IF NOT EXISTS tenant_t1_src_30"));
+        assert!(
+            import
+                .create_table_ddl
+                .contains("CREATE TABLE IF NOT EXISTS tenant_t1_src_30")
+        );
         assert!(import.create_table_ddl.contains("name VARCHAR(255)"));
         assert!(import.create_table_ddl.contains("age DECIMAL"));
         assert_eq!(import.total_rows, 2);
@@ -451,15 +536,20 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/40/readme.txt".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let txt_data = b"Hello, this is a test document for pipeline wiring.";
         let result = IngressManager::process_source_with_data(&source, txt_data);
-        assert!(result.is_ok(), "TXT extraction should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "TXT extraction should succeed: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("Hello, this is a test document"));
     }
@@ -483,15 +573,20 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/41/data.csv".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let csv_data = b"Name,Age,City\nAlice,30,Bangkok\nBob,25,Tokyo\n";
         let result = IngressManager::process_source_with_data(&source, csv_data);
-        assert!(result.is_ok(), "CSV extraction should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "CSV extraction should succeed: {:?}",
+            result.err()
+        );
         let md = result.unwrap();
         assert!(md.contains("| Name | Age | City |"));
         assert!(md.contains("| Alice | 30 | Bangkok |"));
@@ -516,11 +611,12 @@ mod tests {
             storage_mode: None,
             s3_key: Some("test/42/empty.txt".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let result = IngressManager::process_source_with_data(&source, b"");
         assert!(result.is_err(), "Empty file should return error");
@@ -546,15 +642,21 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requires file data"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires file data")
+        );
     }
 
     // ─── Issue #122: "file" source_type must work via process_source_with_data ──
@@ -578,17 +680,25 @@ mod tests {
             storage_mode: Some("markdown".to_string()),
             s3_key: Some("test/122/data.csv".to_string()),
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let csv_data = b"Name,Score\nAlice,95\nBob,88\n";
         let result = IngressManager::process_source_with_data(&source, csv_data);
-        assert!(result.is_ok(), "File type CSV should extract via process_source_with_data: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "File type CSV should extract via process_source_with_data: {:?}",
+            result.err()
+        );
         let md = result.unwrap();
-        assert!(md.contains("| Name | Score |"), "Should contain markdown table");
+        assert!(
+            md.contains("| Name | Score |"),
+            "Should contain markdown table"
+        );
     }
 
     #[tokio::test]
@@ -610,14 +720,20 @@ mod tests {
             storage_mode: None,
             s3_key: None,
             file_hash: None,
-                refresh_interval_hours: None,
-                last_refreshed_at: None,
-                next_refresh_at: None,
-                refresh_status: None,
-                pageindex_tree: None,        };
+            refresh_interval_hours: None,
+            last_refreshed_at: None,
+            next_refresh_at: None,
+            refresh_status: None,
+            pageindex_tree: None,
+        };
 
         let result = IngressManager::process_source(&source).await;
         assert!(result.is_err(), "File type without data should error");
-        assert!(result.unwrap_err().to_string().contains("requires file data"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires file data")
+        );
     }
 }

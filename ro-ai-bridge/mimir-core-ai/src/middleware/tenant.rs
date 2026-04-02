@@ -1,14 +1,14 @@
+use crate::config::Config;
 use axum::{
+    Extension,
     extract::Request,
+    http::{StatusCode, header},
     middleware::Next,
     response::Response,
-    http::{StatusCode, header},
-    Extension,
 };
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use crate::config::Config;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TenantClaims {
@@ -32,7 +32,9 @@ pub async fn tenant_auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = req.headers().get(header::AUTHORIZATION)
+    let auth_header = req
+        .headers()
+        .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
 
     // Fallback to query parameters for SSE/WebSocket
@@ -54,10 +56,10 @@ pub async fn tenant_auth_middleware(
         return Err(StatusCode::UNAUTHORIZED);
     };
 
-    let secret = config
-        .map(|c| c.jwt_secret.clone())
-        .unwrap_or_else(|| std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string()));
-    
+    let secret = config.map(|c| c.jwt_secret.clone()).unwrap_or_else(|| {
+        std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string())
+    });
+
     // Decode and validate token
     let token_data = match decode::<TenantClaims>(
         &token,

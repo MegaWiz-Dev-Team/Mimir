@@ -41,7 +41,10 @@ pub struct SparseVector {
 pub fn text_to_sparse_vector(text: &str) -> SparseVector {
     let tokens = tokenize(text);
     if tokens.is_empty() {
-        return SparseVector { indices: vec![], values: vec![] };
+        return SparseVector {
+            indices: vec![],
+            values: vec![],
+        };
     }
 
     // Count term frequencies

@@ -3,11 +3,11 @@
 //! Spawns a background task that periodically checks for sources due for refresh
 //! and runs the extraction pipeline on them.
 
+use chrono::Utc;
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use chrono::Utc;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 /// State shared between the cron worker and status endpoint
 #[derive(Debug, Clone)]
@@ -36,14 +36,9 @@ pub fn start_cron_worker(pool: MySqlPool, tick_seconds: u64) -> CronState {
     let worker_state = state.clone();
 
     tokio::spawn(async move {
-        info!(
-            tick_seconds = tick_seconds,
-            "🕐 Cron worker started"
-        );
+        info!(tick_seconds = tick_seconds, "🕐 Cron worker started");
 
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(tick_seconds)
-        );
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(tick_seconds));
 
         loop {
             interval.tick().await;
@@ -69,10 +64,11 @@ async fn cron_tick(pool: &MySqlPool, state: &CronState) {
            WHERE refresh_interval_hours IS NOT NULL 
              AND refresh_status = 'idle'
              AND next_refresh_at <= NOW()
-           LIMIT 10"#
+           LIMIT 10"#,
     )
     .fetch_all(pool)
-    .await {
+    .await
+    {
         Ok(sources) => sources,
         Err(e) => {
             error!(error = %e, "Cron tick: failed to query due sources");
@@ -94,12 +90,12 @@ async fn cron_tick(pool: &MySqlPool, state: &CronState) {
         }
 
         // Mark as running
-        if let Err(e) = sqlx::query(
-            "UPDATE data_sources SET refresh_status = 'running' WHERE id = ?"
-        )
-        .bind(source.id)
-        .execute(pool)
-        .await {
+        if let Err(e) =
+            sqlx::query("UPDATE data_sources SET refresh_status = 'running' WHERE id = ?")
+                .bind(source.id)
+                .execute(pool)
+                .await
+        {
             error!(source_id = source.id, error = %e, "Failed to set refresh_status=running");
             let mut active = state.active_jobs.lock().await;
             *active = active.saturating_sub(1);
@@ -117,7 +113,7 @@ async fn cron_tick(pool: &MySqlPool, state: &CronState) {
                    SET refresh_status = 'idle',
                        last_refreshed_at = ?,
                        next_refresh_at = DATE_ADD(?, INTERVAL refresh_interval_hours HOUR)
-                   WHERE id = ?"#
+                   WHERE id = ?"#,
             )
             .bind(now)
             .bind(now)
@@ -128,12 +124,10 @@ async fn cron_tick(pool: &MySqlPool, state: &CronState) {
             info!(source_id = source.id, name = %source.name, "✅ Source refreshed successfully");
         } else {
             // Mark as failed
-            let _ = sqlx::query(
-                "UPDATE data_sources SET refresh_status = 'failed' WHERE id = ?"
-            )
-            .bind(source.id)
-            .execute(pool)
-            .await;
+            let _ = sqlx::query("UPDATE data_sources SET refresh_status = 'failed' WHERE id = ?")
+                .bind(source.id)
+                .execute(pool)
+                .await;
 
             warn!(source_id = source.id, name = %source.name, "❌ Source refresh failed");
         }
@@ -168,11 +162,12 @@ async fn run_source_refresh(pool: &MySqlPool, source: &DueSource) -> bool {
 
     // Build a minimal DataSource for IngressManager
     let full_source = match sqlx::query_as::<_, crate::models::sources::DataSource>(
-        "SELECT * FROM data_sources WHERE id = ?"
+        "SELECT * FROM data_sources WHERE id = ?",
     )
     .bind(source.id)
     .fetch_optional(pool)
-    .await {
+    .await
+    {
         Ok(Some(s)) => s,
         Ok(None) => {
             error!(source_id = source.id, "Source not found");
@@ -186,11 +181,10 @@ async fn run_source_refresh(pool: &MySqlPool, source: &DueSource) -> bool {
 
     // For web/mcp: can process directly
     match source.source_type.as_str() {
-        "web" | "mcp" => {
-            match IngressManager::process_source(&full_source).await {
-                Ok(markdown) => {
-                    let mb_size = (markdown.len() as f64) / (1024.0 * 1024.0);
-                    let _ = sqlx::query(
+        "web" | "mcp" => match IngressManager::process_source(&full_source).await {
+            Ok(markdown) => {
+                let mb_size = (markdown.len() as f64) / (1024.0 * 1024.0);
+                let _ = sqlx::query(
                         "UPDATE data_sources SET raw_markdown = ?, mb_size = ?, last_sync_status = 'COMPLETED', last_sync_at = NOW() WHERE id = ?"
                     )
                     .bind(&markdown)
@@ -198,20 +192,18 @@ async fn run_source_refresh(pool: &MySqlPool, source: &DueSource) -> bool {
                     .bind(source.id)
                     .execute(pool)
                     .await;
-                    true
-                }
-                Err(e) => {
-                    error!(source_id = source.id, error = %e, "Refresh extraction failed");
-                    let _ = sqlx::query(
-                        "UPDATE data_sources SET last_sync_status = 'FAILED' WHERE id = ?"
-                    )
-                    .bind(source.id)
-                    .execute(pool)
-                    .await;
-                    false
-                }
+                true
             }
-        }
+            Err(e) => {
+                error!(source_id = source.id, error = %e, "Refresh extraction failed");
+                let _ =
+                    sqlx::query("UPDATE data_sources SET last_sync_status = 'FAILED' WHERE id = ?")
+                        .bind(source.id)
+                        .execute(pool)
+                        .await;
+                false
+            }
+        },
         _ => {
             // For file/document/tabular: skip if no s3_key (requires re-upload)
             warn!(

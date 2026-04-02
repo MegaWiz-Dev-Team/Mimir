@@ -65,12 +65,16 @@ pub async fn require_tenant_id(
 
 async fn ensure_tenant_columns(pool: &DbPool) {
     let _ = sqlx::query("ALTER TABLE tenants ADD COLUMN service_type VARCHAR(64)")
-        .execute(pool).await;
+        .execute(pool)
+        .await;
     let _ = sqlx::query("ALTER TABLE tenants ADD COLUMN description TEXT")
-        .execute(pool).await;
+        .execute(pool)
+        .await;
     // Fix domain column width (was VARCHAR(20), too short for '{id}.asgard.local')
-    let _ = sqlx::query("ALTER TABLE tenants MODIFY COLUMN domain VARCHAR(255) NOT NULL DEFAULT ''")
-        .execute(pool).await;
+    let _ =
+        sqlx::query("ALTER TABLE tenants MODIFY COLUMN domain VARCHAR(255) NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await;
 }
 
 // ── Routes ────────────────────────────────────────────
@@ -89,23 +93,48 @@ async fn create_tenant(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     ensure_tenant_columns(&pool).await;
 
-    let existing: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM tenants WHERE id = ?")
-            .bind(&req.id)
-            .fetch_optional(&pool).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM tenants WHERE id = ?")
+        .bind(&req.id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     if existing.is_some() {
-        return Err((StatusCode::CONFLICT, Json(json!({"error": format!("Tenant '{}' already exists", req.id)}))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": format!("Tenant '{}' already exists", req.id)})),
+        ));
     }
 
     let domain = format!("{}.asgard.local", &req.id);
-    sqlx::query("INSERT INTO tenants (id, name, domain, service_type, description) VALUES (?, ?, ?, ?, ?)")
-        .bind(&req.id).bind(&req.name).bind(&domain).bind(&req.service_type).bind(&req.description)
-        .execute(&pool).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    sqlx::query(
+        "INSERT INTO tenants (id, name, domain, service_type, description) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&req.id)
+    .bind(&req.name)
+    .bind(&domain)
+    .bind(&req.service_type)
+    .bind(&req.description)
+    .execute(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
-    Ok((StatusCode::CREATED, Json(json!({"id": req.id, "name": req.name, "domain": domain, "service_type": req.service_type, "description": req.description}))))
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            json!({"id": req.id, "name": req.name, "domain": domain, "service_type": req.service_type, "description": req.description}),
+        ),
+    ))
 }
 
 async fn list_tenants(
@@ -116,8 +145,14 @@ async fn list_tenants(
     let rows: Vec<Tenant> = sqlx::query_as(
         "SELECT id, name, domain, service_type, description FROM tenants ORDER BY created_at",
     )
-    .fetch_all(&pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(rows.into_iter().map(|t| json!({"id": t.id, "name": t.name, "domain": t.domain, "service_type": t.service_type, "description": t.description})).collect()))
 }
@@ -132,11 +167,24 @@ async fn get_tenant(
         "SELECT id, name, domain, service_type, description FROM tenants WHERE id = ?",
     )
     .bind(&id)
-    .fetch_optional(&pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": format!("Tenant '{}' not found", id)}))))?;
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("Tenant '{}' not found", id)})),
+        )
+    })?;
 
-    Ok(Json(json!({"id": tenant.id, "name": tenant.name, "domain": tenant.domain, "service_type": tenant.service_type, "description": tenant.description})))
+    Ok(Json(
+        json!({"id": tenant.id, "name": tenant.name, "domain": tenant.domain, "service_type": tenant.service_type, "description": tenant.description}),
+    ))
 }
 
 async fn delete_tenant(
@@ -144,11 +192,21 @@ async fn delete_tenant(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let result = sqlx::query("DELETE FROM tenants WHERE id = ?")
-        .bind(&id).execute(&pool).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": format!("Tenant '{}' not found", id)}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("Tenant '{}' not found", id)})),
+        ));
     }
 
     Ok(Json(json!({"deleted": id})))

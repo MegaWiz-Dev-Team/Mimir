@@ -6,20 +6,21 @@
 //! - GET    /api/v1/evaluations/compare           — A/B model comparison
 //! - GET    /api/v1/evaluations/feedback-summary  — user feedback aggregation
 
-use crate::routes::tenant::extract_tenant_id;use axum::{
+use crate::routes::tenant::extract_tenant_id;
+use axum::{
+    extract::{Query, State},
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Router, Json,
-    extract::{State, Query},
-    http::{StatusCode, HeaderMap},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use mimir_core_ai::services::db::DbPool;
 use crate::agents::eval::{evaluate_agent, judge_response, JudgeScores};
+use mimir_core_ai::services::db::DbPool;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -101,7 +102,8 @@ async fn run_evaluation_batch(
     // Resolve judge model from tenant config (llm_config.judge slot)
     let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.as_ref()
+    let llm_config = tenant_config
+        .as_ref()
         .and_then(|c| c.llm_config.as_ref())
         .map(|c| c.0.clone())
         .unwrap_or_default();
@@ -111,8 +113,12 @@ async fn run_evaluation_batch(
     let judge_model = payload.judge_model.unwrap_or(judge_slot.model);
     let agent_name = payload.agent_name.unwrap_or_else(|| "oracle_rag".into());
 
-    info!("Starting evaluation batch {} with {} models x {} questions",
-        batch_id, payload.models.len(), payload.questions.len());
+    info!(
+        "Starting evaluation batch {} with {} models x {} questions",
+        batch_id,
+        payload.models.len(),
+        payload.questions.len()
+    );
 
     let mut results: Vec<Value> = vec![];
     let mut total_scored = 0;
@@ -126,22 +132,36 @@ async fn run_evaluation_batch(
                 &q.question,
                 Some(&pool),
                 None, // No Qdrant in batch mode
-            ).await;
+            )
+            .await;
 
             let (actual_answer, latency_ms, error_msg) = match eval_result {
                 Ok(r) => (Some(r.answer), r.latency_ms as i32, None),
                 Err(e) => {
-                    warn!("Eval failed for model {} question '{}': {}", model_id, q.question, e);
+                    warn!(
+                        "Eval failed for model {} question '{}': {}",
+                        model_id, q.question, e
+                    );
                     (None, 0, Some(e.to_string()))
                 }
             };
 
             // Judge response if we have an answer and expected answer
-            let (accuracy, completeness, relevance, reasoning) = if let (Some(ref answer), Some(ref expected)) = (&actual_answer, &q.expected_answer) {
+            let (accuracy, completeness, relevance, reasoning) = if let (
+                Some(ref answer),
+                Some(ref expected),
+            ) =
+                (&actual_answer, &q.expected_answer)
+            {
                 match judge_response(&q.question, expected, answer, &judge_model).await {
                     Ok(scores) => {
                         total_scored += 1;
-                        (scores.accuracy as i32, scores.completeness as i32, scores.relevance as i32, Some(scores.reasoning))
+                        (
+                            scores.accuracy as i32,
+                            scores.completeness as i32,
+                            scores.relevance as i32,
+                            Some(scores.reasoning),
+                        )
                     }
                     Err(e) => {
                         warn!("Judge failed: {}", e);
@@ -157,7 +177,7 @@ async fn run_evaluation_batch(
                 r#"INSERT INTO evaluation_reports
                     (tenant_id, agent_config_id, model_id, question, expected_answer, actual_answer,
                      accuracy, completeness, relevance, reasoning, latency_ms, batch_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             )
             .bind(tenant_id)
             .bind(payload.agent_config_id)
@@ -185,7 +205,12 @@ async fn run_evaluation_batch(
         }
     }
 
-    info!("Evaluation batch {} completed: {} results, {} scored", batch_id, results.len(), total_scored);
+    info!(
+        "Evaluation batch {} completed: {} results, {} scored",
+        batch_id,
+        results.len(),
+        total_scored
+    );
 
     Ok(Json(json!({
         "batch_id": batch_id,
@@ -227,10 +252,17 @@ async fn get_eval_results(
         q = q.bind(model);
     }
 
-    let results = q.bind(per_page).bind(offset)
+    let results = q
+        .bind(per_page)
+        .bind(offset)
         .fetch_all(&pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     // Model performance summary
     let summary: Vec<(String, f64, f64, f64, i64)> = sqlx::query_as(
@@ -242,7 +274,7 @@ async fn get_eval_results(
             COUNT(*) as total_evals
         FROM evaluation_reports WHERE tenant_id = ?
         GROUP BY model_id
-        ORDER BY (AVG(accuracy) + AVG(completeness) + AVG(relevance)) / 3 DESC"#
+        ORDER BY (AVG(accuracy) + AVG(completeness) + AVG(relevance)) / 3 DESC"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -287,21 +319,27 @@ async fn compare_models(
         q = q.bind(batch);
     }
 
-    let results = q.fetch_all(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let results = q.fetch_all(&pool).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
-    let models: Vec<Value> = results.iter().map(|(model, acc, comp, rel, lat, total)| {
-        json!({
-            "model_id": model,
-            "avg_accuracy": acc,
-            "avg_completeness": comp,
-            "avg_relevance": rel,
-            "avg_latency_ms": lat,
-            "total_evaluations": total,
-            "overall_score": (acc + comp + rel) / 3.0
+    let models: Vec<Value> = results
+        .iter()
+        .map(|(model, acc, comp, rel, lat, total)| {
+            json!({
+                "model_id": model,
+                "avg_accuracy": acc,
+                "avg_completeness": comp,
+                "avg_relevance": rel,
+                "avg_latency_ms": lat,
+                "total_evaluations": total,
+                "overall_score": (acc + comp + rel) / 3.0
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({
         "comparison": models,
@@ -322,7 +360,7 @@ async fn feedback_summary(
         r#"SELECT agent_config_id, feedback, COUNT(*) as count
         FROM agent_conversations
         WHERE tenant_id = ? AND feedback IS NOT NULL
-        GROUP BY agent_config_id, feedback"#
+        GROUP BY agent_config_id, feedback"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -334,7 +372,7 @@ async fn feedback_summary(
         r#"SELECT model_id, feedback, COUNT(*) as count
         FROM agent_conversations
         WHERE tenant_id = ? AND feedback IS NOT NULL
-        GROUP BY model_id, feedback"#
+        GROUP BY model_id, feedback"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -414,7 +452,7 @@ async fn extraction_summary(
     let rel_stats: Vec<(String, String, i64)> = sqlx::query_as(
         r#"SELECT COALESCE(provider, 'unknown'), COALESCE(model, 'unknown'), COUNT(*) as rel_count
            FROM kg_relations WHERE tenant_id = ?
-           GROUP BY provider, model"#
+           GROUP BY provider, model"#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -422,13 +460,21 @@ async fn extraction_summary(
     .unwrap_or_default();
 
     // Unique providers and models
-    let providers: Vec<String> = qa_stats.iter().map(|r| r.0.clone())
+    let providers: Vec<String> = qa_stats
+        .iter()
+        .map(|r| r.0.clone())
         .chain(kg_stats.iter().map(|r| r.0.clone()))
-        .collect::<std::collections::HashSet<_>>().into_iter().collect();
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
 
-    let models: Vec<String> = qa_stats.iter().map(|r| r.1.clone())
+    let models: Vec<String> = qa_stats
+        .iter()
+        .map(|r| r.1.clone())
         .chain(kg_stats.iter().map(|r| r.1.clone()))
-        .collect::<std::collections::HashSet<_>>().into_iter().collect();
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
 
     Ok(Json(json!({
         "qa_stats": qa_stats.iter().map(|(p, m, pv, count, lat)| json!({
@@ -517,13 +563,16 @@ async fn retrieval_summary(
     .unwrap_or_default();
 
     // Collection stats from Qdrant (HTTP check)
-    let qdrant_url = std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string());
+    let qdrant_url =
+        std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string());
     let client = reqwest::Client::new();
 
     let mut collections = vec![];
-    for col_name in &["source_chunks", "wiki_qa"] {
-        let resp = client.get(format!("{}/collections/{}", qdrant_url, col_name))
-            .send().await;
+    for col_name in &["source_chunks", "golden_qa"] {
+        let resp = client
+            .get(format!("{}/collections/{}", qdrant_url, col_name))
+            .send()
+            .await;
         let count = match resp {
             Ok(r) if r.status().is_success() => {
                 let body: Value = r.json().await.unwrap_or_default();
@@ -580,7 +629,7 @@ async fn pipeline_scorecard(
 
     // Get all sources with their pipeline coverage
     let sources: Vec<(i64, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, name, source_type FROM data_sources WHERE tenant_id = ? ORDER BY name"
+        "SELECT id, name, source_type FROM data_sources WHERE tenant_id = ? ORDER BY name",
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -591,19 +640,33 @@ async fn pipeline_scorecard(
 
     for (source_id, name, source_type) in &sources {
         // Count chunks
-        let chunk_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM chunks WHERE source_id = ? AND tenant_id = ?"
-        ).bind(source_id).bind(tenant_id).fetch_one(&pool).await.unwrap_or((0,));
+        let chunk_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM chunks WHERE source_id = ? AND tenant_id = ?")
+                .bind(source_id)
+                .bind(tenant_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap_or((0,));
 
         // Count KG entities
         let entity_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM kg_entities WHERE source_id = ? AND tenant_id = ?"
-        ).bind(source_id).bind(tenant_id).fetch_one(&pool).await.unwrap_or((0,));
+            "SELECT COUNT(*) FROM kg_entities WHERE source_id = ? AND tenant_id = ?",
+        )
+        .bind(source_id)
+        .bind(tenant_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0,));
 
         // Count KG relations
         let relation_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM kg_relations WHERE source_id = ? AND tenant_id = ?"
-        ).bind(source_id).bind(tenant_id).fetch_one(&pool).await.unwrap_or((0,));
+            "SELECT COUNT(*) FROM kg_relations WHERE source_id = ? AND tenant_id = ?",
+        )
+        .bind(source_id)
+        .bind(tenant_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0,));
 
         // Count QA results
         let qa_count: (i64,) = sqlx::query_as(
@@ -631,7 +694,10 @@ async fn pipeline_scorecard(
         let has_qa = qa_count.0 > 0;
         let has_qa_index = qa_step.0 > 0;
 
-        let steps_done = [has_chunks, has_embed, has_kg, has_qa, has_qa_index].iter().filter(|&&x| x).count();
+        let steps_done = [has_chunks, has_embed, has_kg, has_qa, has_qa_index]
+            .iter()
+            .filter(|&&x| x)
+            .count();
 
         scorecards.push(json!({
             "source_id": source_id,
@@ -656,7 +722,10 @@ async fn pipeline_scorecard(
 
     // Summary totals
     let total_sources = sources.len();
-    let fully_complete = scorecards.iter().filter(|s| s["completion_pct"] == 100).count();
+    let fully_complete = scorecards
+        .iter()
+        .filter(|s| s["completion_pct"] == 100)
+        .count();
 
     Ok(Json(json!({
         "total_sources": total_sources,

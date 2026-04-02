@@ -5,11 +5,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{info, error};
+use tracing::{error, info};
 
-use mimir_core_ai::services::db::DbPool;
-use crate::routes::tenant::extract_tenant_id;
 use crate::routes::sources::config::{call_llm_api_with_logging, infer_api_base};
+use crate::routes::tenant::extract_tenant_id;
+use mimir_core_ai::services::db::DbPool;
 
 #[derive(Debug, Deserialize)]
 pub struct PageIndexRequest {
@@ -45,42 +45,70 @@ pub async fn extract_pageindex_route(
     let tenant_id = extract_tenant_id(&headers).to_string();
 
     // Verify source
-    let source: Option<(i64, String)> = sqlx::query_as(
-        "SELECT id, name FROM data_sources WHERE id = ? AND tenant_id = ?"
-    )
-    .bind(source_id)
-    .bind(&tenant_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let source: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, name FROM data_sources WHERE id = ? AND tenant_id = ?")
+            .bind(source_id)
+            .bind(&tenant_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
 
     let (_, source_name) = source.ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found or access denied"})))
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found or access denied"})),
+        )
     })?;
 
-    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Router error: {}", e)}))))?;
-    let resolved_slot = router.config.resolve_slot("pipeline_generator", payload.provider.as_deref(), payload.model.as_deref());
+    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Router error: {}", e)})),
+            )
+        })?;
+    let resolved_slot = router.config.resolve_slot(
+        "pipeline_generator",
+        payload.provider.as_deref(),
+        payload.model.as_deref(),
+    );
     let provider = resolved_slot.provider;
     let model = resolved_slot.model;
-    
+
     let api_base = infer_api_base(&provider);
     let api_key = resolve_api_key(&provider);
 
     // Fetch chunks
     let chunks: Vec<(i64, String, Option<i32>)> = sqlx::query_as(
-        "SELECT id, content, chunk_index FROM chunks WHERE source_id = ? ORDER BY chunk_index ASC"
+        "SELECT id, content, chunk_index FROM chunks WHERE source_id = ? ORDER BY chunk_index ASC",
     )
     .bind(source_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     if chunks.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "No chunks found."}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "No chunks found."})),
+        ));
     }
 
-    info!("Starting PageIndex Extraction: source={} provider={} model={}", source_id, provider, model);
+    info!(
+        "Starting PageIndex Extraction: source={} provider={} model={}",
+        source_id, provider, model
+    );
 
     // Prepare full text representation
     // In a production scenario with gemini-2.5-pro or 3.1-flash-lite, we can pass up to 1M or 2M tokens.
@@ -97,9 +125,24 @@ pub async fn extract_pageindex_route(
     let model_clone = model.clone();
 
     tokio::spawn(async move {
-        match generate_tree(&pool, &tenant_id, source_id, &full_text, &api_key, &api_base, &model_clone, &provider_clone, max_index).await {
+        match generate_tree(
+            &pool,
+            &tenant_id,
+            source_id,
+            &full_text,
+            &api_key,
+            &api_base,
+            &model_clone,
+            &provider_clone,
+            max_index,
+        )
+        .await
+        {
             Ok(_) => info!("PageIndex successfully generated for source {}", source_id),
-            Err(e) => error!("PageIndex generation failed for source {}: {}", source_id, e),
+            Err(e) => error!(
+                "PageIndex generation failed for source {}: {}",
+                source_id, e
+            ),
         }
     });
 
@@ -123,7 +166,8 @@ pub async fn generate_tree(
     provider: &str,
     max_index: i32,
 ) -> anyhow::Result<()> {
-    let system_prompt = format!(r#"You are a document structuring assistant. Analyze the provided document, which is divided into sections annotated with [Page/Chunk X]. 
+    let system_prompt = format!(
+        r#"You are a document structuring assistant. Analyze the provided document, which is divided into sections annotated with [Page/Chunk X]. 
 Your objective is to generate a hierarchical "PageIndex" semantic tree that organizes the document's content logically based on its major headings and conceptual flow.
 
 Rules:
@@ -150,7 +194,9 @@ Output EXCLUSIVELY a JSON object with this shape:
      {{ "node_id": "0001", "title": "Chap 1", "start_index": 0, "end_index": 5, "summary": "...", "nodes": [] }}
   ]
 }}
-Do not include markdown blocks or any other text before/after the JSON."#, max_index, max_index, max_index);
+Do not include markdown blocks or any other text before/after the JSON."#,
+        max_index, max_index, max_index
+    );
 
     let user_prompt = format!("{}\n\nDocument Context:\n{}", system_prompt, content);
 
@@ -164,20 +210,22 @@ Do not include markdown blocks or any other text before/after the JSON."#, max_i
         Some(tenant_id),
         Some(provider),
         Some("extract_pageindex"),
-    ).await?;
+    )
+    .await?;
 
-    let cleaned = response.trim_start_matches("```json").trim_end_matches("```").trim();
-    
+    let cleaned = response
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .trim();
+
     // Validate JSON
     let mut parsed: Value = serde_json::from_str(cleaned)
         .map_err(|e| anyhow::anyhow!("Failed to parse PageIndex JSON: {}", e))?;
 
     // Fix inverted ranges (start_index > end_index) recursively
     fn fix_ranges(node: &mut Value) {
-        if let (Some(start), Some(end)) = (
-            node["start_index"].as_i64(),
-            node["end_index"].as_i64(),
-        ) {
+        if let (Some(start), Some(end)) = (node["start_index"].as_i64(), node["end_index"].as_i64())
+        {
             if start > end {
                 node["start_index"] = serde_json::json!(end);
                 node["end_index"] = serde_json::json!(start);
@@ -195,13 +243,11 @@ Do not include markdown blocks or any other text before/after the JSON."#, max_i
         .map_err(|e| anyhow::anyhow!("Failed to serialize fixed PageIndex: {}", e))?;
 
     // Store in database
-    let _ = sqlx::query(
-        "UPDATE data_sources SET pageindex_tree = ? WHERE id = ?"
-    )
-    .bind(&fixed_json)
-    .bind(source_id)
-    .execute(pool)
-    .await?;
+    let _ = sqlx::query("UPDATE data_sources SET pageindex_tree = ? WHERE id = ?")
+        .bind(&fixed_json)
+        .bind(source_id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }

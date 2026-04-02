@@ -1,70 +1,65 @@
-use axum::{
-    routing::get,
-    Router,
-    Extension,
-    Json,
-    middleware,
-};
+use axum::{middleware, routing::get, Extension, Json, Router};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
-use tracing_subscriber::{self, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use tower_http::cors::{CorsLayer, Any};
+use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use ro_ai_bridge::config::Config;
-use mimir_core_ai::services::db;
 use mimir_core_ai::middleware::request_id::request_id_middleware;
 use mimir_core_ai::services::cron;
-use ro_ai_bridge::routes::eval::eval_routes;
-use ro_ai_bridge::routes::iam::iam_routes;
-use ro_ai_bridge::routes::auth::auth_routes;
-use ro_ai_bridge::routes::pipeline::pipeline_routes;
-use ro_ai_bridge::routes::qc::qc_routes;
-use ro_ai_bridge::routes::vector::vector_routes;
-use ro_ai_bridge::routes::llm_usage::llm_usage_routes;
+use mimir_core_ai::services::db;
+use ro_ai_bridge::config::Config;
 use ro_ai_bridge::routes::agents::agents_routes;
-use ro_ai_bridge::routes::chat::chat_routes;
-use ro_ai_bridge::routes::conversations::conversations_routes;
-use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
-use ro_ai_bridge::routes::budget::{budget_settings_routes, budget_usage_routes};
-use ro_ai_bridge::routes::cron::{cron_routes, cron_status_routes};
-use ro_ai_bridge::routes::feedback::feedback_routes;
-use ro_ai_bridge::routes::ocr::ocr_routes;
-use ro_ai_bridge::routes::db_connector::db_connector_routes;
-use ro_ai_bridge::routes::vault::vault_routes;
-use ro_ai_bridge::routes::mcp::mcp_routes;
-use ro_ai_bridge::routes::backup::backup_routes;
-use ro_ai_bridge::routes::docs::docs_routes;
-use ro_ai_bridge::routes::chunks::chunks_routes;
-use ro_ai_bridge::routes::graph::graph_routes;
-use ro_ai_bridge::routes::coverage::coverage_routes;
-use ro_ai_bridge::routes::prompts::prompts_routes;
-use ro_ai_bridge::routes::auto_pipeline::auto_pipeline_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
-use ro_ai_bridge::routes::tenant::tenant_routes;
+use ro_ai_bridge::routes::auth::auth_routes;
+use ro_ai_bridge::routes::auto_pipeline::auto_pipeline_routes;
+use ro_ai_bridge::routes::backup::backup_routes;
+use ro_ai_bridge::routes::budget::{budget_settings_routes, budget_usage_routes};
+use ro_ai_bridge::routes::chat::chat_routes;
+use ro_ai_bridge::routes::chunks::chunks_routes;
+use ro_ai_bridge::routes::conversations::conversations_routes;
+use ro_ai_bridge::routes::coverage::coverage_routes;
+use ro_ai_bridge::routes::cron::{cron_routes, cron_status_routes};
+use ro_ai_bridge::routes::db_connector::db_connector_routes;
+use ro_ai_bridge::routes::docs::docs_routes;
+use ro_ai_bridge::routes::eval::eval_routes;
+use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
+use ro_ai_bridge::routes::feedback::feedback_routes;
+use ro_ai_bridge::routes::graph::graph_routes;
+use ro_ai_bridge::routes::iam::iam_routes;
 use ro_ai_bridge::routes::ingest::ingest_routes;
+use ro_ai_bridge::routes::llm_usage::llm_usage_routes;
+use ro_ai_bridge::routes::mcp::mcp_routes;
+use ro_ai_bridge::routes::ocr::ocr_routes;
+use ro_ai_bridge::routes::pipeline::pipeline_routes;
+use ro_ai_bridge::routes::prompts::prompts_routes;
+use ro_ai_bridge::routes::qc::qc_routes;
+use ro_ai_bridge::routes::tenant::tenant_routes;
 use ro_ai_bridge::routes::tenant_query::tenant_query_routes;
+use ro_ai_bridge::routes::vault::vault_routes;
+use ro_ai_bridge::routes::vector::vector_routes;
+// Sprint 32: RAG Ensemble Playground (Phase 2)
+use ro_ai_bridge::routes::search::search_routes;
+use ro_ai_bridge::routes::search_benchmark::search_benchmark_routes;
+use ro_ai_bridge::routes::search_optimize::search_optimize_routes;
 
 #[tokio::main]
 async fn main() {
     // Initialize structured JSON logging with env-filter support
     // Usage: RUST_LOG=info (default), RUST_LOG=debug, RUST_LOG=ro_ai_bridge=debug,mimir_core_ai=info
     tracing_subscriber::registry()
-        .with(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info"))
-        )
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(
             tracing_subscriber::fmt::layer()
                 .json()
                 .with_target(true)
                 .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
-                .with_current_span(true)
+                .with_current_span(true),
         )
         .init();
-    
+
     // Inject Vault secrets into env vars (before Config reads them)
     mimir_core_ai::config::inject_vault_secrets().await;
 
@@ -74,7 +69,10 @@ async fn main() {
 
     // Initialize database
     let pool = db::init_db().await.expect("Failed to initialize database");
-    info!(event = "db_connected", "✅ Database connected and migrations applied");
+    info!(
+        event = "db_connected",
+        "✅ Database connected and migrations applied"
+    );
 
     // Seed built-in roles (admin, editor, viewer) for all tenants (Issue #220)
     {
@@ -106,9 +104,12 @@ async fn main() {
         .nest("/api/v1/auth", auth_routes())
         .nest("/api/v1/pipeline", pipeline_routes())
         .nest("/api/v1/qc", qc_routes())
-        .nest("/api/v1/stats", ro_ai_bridge::routes::stats::stats_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::stats::stats_routes())
         .nest("/api/v1/vector", vector_routes())
-        .nest("/api/v1/sources", ro_ai_bridge::routes::sources::sources_routes().merge(auto_pipeline_routes()))
+        .nest(
+            "/api/v1/sources",
+            ro_ai_bridge::routes::sources::sources_routes().merge(auto_pipeline_routes()),
+        )
         .nest("/api/v1/chunks", chunks_routes())
         .nest("/api/v1/llm-usage", llm_usage_routes())
         .nest("/api/v1/agents", agents_routes())
@@ -140,6 +141,10 @@ async fn main() {
         .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes())
         .nest("/api/v1", ro_ai_bridge::routes::models::models_routes())
         .nest("/api/v1", ro_ai_bridge::routes::features::features_routes())
+        // Sprint 32: RAG Ensemble Playground (Phase 2)
+        .merge(search_routes())
+        .merge(search_optimize_routes())
+        .merge(search_benchmark_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
@@ -149,11 +154,10 @@ async fn main() {
     // run it
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     info!(event = "server_starting", address = %addr, "🚀 listening on {}", addr);
-    
+
     let listener = TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
-
 
 async fn health_check() -> Json<Value> {
     Json(json!({

@@ -4,7 +4,7 @@
 //! Supports MLX Server, vLLM, Heimdall Gateway, and benchmarking across providers.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Types
@@ -102,11 +102,31 @@ impl ProviderConfig {
 
 /// Heimdall available models registry
 pub const HEIMDALL_MODELS: &[(&str, &str, &str)] = &[
-    ("mlx-community/Qwen3.5-35B-A3B-4bit", "35B (MoE 3B Active)", "Primary — RAG, Chat, QA Generation"),
-    ("mlx-community/Qwen3.5-27B-4bit", "27B", "Complex reasoning tasks"),
-    ("mlx-community/Qwen3.5-9B-MLX-4bit", "9B", "Light tasks, low latency"),
-    ("mlx-community/Qwen3-0.6B-4bit", "0.6B", "Smoke test, health check"),
-    ("lmstudio-community/medgemma-4b-it-MLX-4bit", "4B", "Medical domain, OCR"),
+    (
+        "mlx-community/Qwen3.5-35B-A3B-4bit",
+        "35B (MoE 3B Active)",
+        "Primary — RAG, Chat, QA Generation",
+    ),
+    (
+        "mlx-community/Qwen3.5-27B-4bit",
+        "27B",
+        "Complex reasoning tasks",
+    ),
+    (
+        "mlx-community/Qwen3.5-9B-MLX-4bit",
+        "9B",
+        "Light tasks, low latency",
+    ),
+    (
+        "mlx-community/Qwen3-0.6B-4bit",
+        "0.6B",
+        "Smoke test, health check",
+    ),
+    (
+        "lmstudio-community/medgemma-4b-it-MLX-4bit",
+        "4B",
+        "Medical domain, OCR",
+    ),
 ];
 
 /// Chat message
@@ -262,35 +282,67 @@ pub fn build_embeddings_url(config: &ProviderConfig) -> String {
 /// Parse an OpenAI-compatible chat completion response.
 pub fn parse_chat_response(response: &Value) -> Result<ChatCompletionResponse, String> {
     // Parse choices
-    let choices = response.get("choices")
+    let choices = response
+        .get("choices")
         .and_then(|c| c.as_array())
         .ok_or("Missing 'choices' in response")?;
 
-    let parsed_choices: Vec<ChatChoice> = choices.iter().enumerate().map(|(i, choice)| {
-        let default_msg = json!({});
-        let message = choice.get("message").unwrap_or(&default_msg);
-        ChatChoice {
-            index: choice.get("index").and_then(|v| v.as_u64()).unwrap_or(i as u64) as usize,
-            message: ChatMessage {
-                role: message.get("role").and_then(|v| v.as_str()).unwrap_or("assistant").to_string(),
-                content: message.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            },
-            finish_reason: choice.get("finish_reason").and_then(|v| v.as_str()).map(String::from),
-        }
-    }).collect();
+    let parsed_choices: Vec<ChatChoice> = choices
+        .iter()
+        .enumerate()
+        .map(|(i, choice)| {
+            let default_msg = json!({});
+            let message = choice.get("message").unwrap_or(&default_msg);
+            ChatChoice {
+                index: choice
+                    .get("index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(i as u64) as usize,
+                message: ChatMessage {
+                    role: message
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("assistant")
+                        .to_string(),
+                    content: message
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                },
+                finish_reason: choice
+                    .get("finish_reason")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+            }
+        })
+        .collect();
 
-    let usage = response.get("usage").map(|u| {
-        TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        }
+    let usage = response.get("usage").map(|u| TokenUsage {
+        prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        completion_tokens: u
+            .get("completion_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32,
+        total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
     });
 
     Ok(ChatCompletionResponse {
-        id: response.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        object: response.get("object").and_then(|v| v.as_str()).unwrap_or("chat.completion").to_string(),
-        model: response.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        id: response
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        object: response
+            .get("object")
+            .and_then(|v| v.as_str())
+            .unwrap_or("chat.completion")
+            .to_string(),
+        model: response
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         choices: parsed_choices,
         usage,
     })
@@ -298,16 +350,30 @@ pub fn parse_chat_response(response: &Value) -> Result<ChatCompletionResponse, S
 
 /// Parse a models list response.
 pub fn parse_models_response(response: &Value) -> Vec<ModelInfo> {
-    response.get("data")
+    response
+        .get("data")
         .and_then(|d| d.as_array())
         .map(|models| {
-            models.iter().map(|m| {
-                ModelInfo {
-                    id: m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    object: m.get("object").and_then(|v| v.as_str()).unwrap_or("model").to_string(),
-                    owned_by: m.get("owned_by").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
-                }
-            }).collect()
+            models
+                .iter()
+                .map(|m| ModelInfo {
+                    id: m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    object: m
+                        .get("object")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("model")
+                        .to_string(),
+                    owned_by: m
+                        .get("owned_by")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                })
+                .collect()
         })
         .unwrap_or_default()
 }
@@ -411,8 +477,14 @@ mod tests {
 
     fn test_messages() -> Vec<ChatMessage> {
         vec![
-            ChatMessage { role: "system".to_string(), content: "You are a helpful assistant.".to_string() },
-            ChatMessage { role: "user".to_string(), content: "Hello!".to_string() },
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are a helpful assistant.".to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello!".to_string(),
+            },
         ]
     }
 
@@ -427,7 +499,11 @@ mod tests {
         assert_eq!(req["model"], "mlx-community/Mistral-7B-Instruct-v0.3-4bit");
         assert_eq!(req["max_tokens"], 2048);
         let temp = req["temperature"].as_f64().unwrap();
-        assert!((temp - 0.7).abs() < 0.01, "temperature should be ~0.7, got {}", temp);
+        assert!(
+            (temp - 0.7).abs() < 0.01,
+            "temperature should be ~0.7, got {}",
+            temp
+        );
         assert_eq!(req["stream"], false);
         assert!(req["messages"].is_array());
         assert_eq!(req["messages"].as_array().unwrap().len(), 2);
@@ -578,7 +654,11 @@ mod tests {
     fn test_calculate_benchmark_failure() {
         let config = ProviderConfig::vllm_default();
         let result = calculate_benchmark(
-            &config, 1000.0, 0, 0, false,
+            &config,
+            1000.0,
+            0,
+            0,
+            false,
             Some("Connection refused".to_string()),
         );
 
@@ -594,13 +674,19 @@ mod tests {
     #[test]
     fn test_build_chat_url_mlx() {
         let config = ProviderConfig::mlx_default();
-        assert_eq!(build_chat_url(&config), "http://localhost:8080/v1/chat/completions");
+        assert_eq!(
+            build_chat_url(&config),
+            "http://localhost:8080/v1/chat/completions"
+        );
     }
 
     #[test]
     fn test_build_chat_url_vllm() {
         let config = ProviderConfig::vllm_default();
-        assert_eq!(build_chat_url(&config), "http://localhost:8000/v1/chat/completions");
+        assert_eq!(
+            build_chat_url(&config),
+            "http://localhost:8000/v1/chat/completions"
+        );
     }
 
     #[test]
@@ -618,7 +704,10 @@ mod tests {
     #[test]
     fn test_build_embeddings_url() {
         let config = ProviderConfig::vllm_default();
-        assert_eq!(build_embeddings_url(&config), "http://localhost:8000/v1/embeddings");
+        assert_eq!(
+            build_embeddings_url(&config),
+            "http://localhost:8000/v1/embeddings"
+        );
     }
 
     // ========================================
@@ -636,8 +725,14 @@ mod tests {
     fn test_provider_from_str() {
         assert_eq!(LlmProvider::from_str("mlx"), Some(LlmProvider::MLX));
         assert_eq!(LlmProvider::from_str("VLLM"), Some(LlmProvider::VLLM));
-        assert_eq!(LlmProvider::from_str("heimdall"), Some(LlmProvider::Heimdall));
-        assert_eq!(LlmProvider::from_str("HEIMDALL"), Some(LlmProvider::Heimdall));
+        assert_eq!(
+            LlmProvider::from_str("heimdall"),
+            Some(LlmProvider::Heimdall)
+        );
+        assert_eq!(
+            LlmProvider::from_str("HEIMDALL"),
+            Some(LlmProvider::Heimdall)
+        );
         assert_eq!(LlmProvider::from_str("unknown"), None);
     }
 
@@ -678,21 +773,33 @@ mod tests {
     fn test_build_chat_url_heimdall() {
         let config = ProviderConfig::heimdall_default("key");
         let url = build_chat_url(&config);
-        assert!(url.ends_with("/v1/chat/completions"), "URL should end with /v1/chat/completions, got: {}", url);
+        assert!(
+            url.ends_with("/v1/chat/completions"),
+            "URL should end with /v1/chat/completions, got: {}",
+            url
+        );
     }
 
     #[test]
     fn test_build_models_url_heimdall() {
         let config = ProviderConfig::heimdall_default("key");
         let url = build_models_url(&config);
-        assert!(url.ends_with("/v1/models"), "URL should end with /v1/models, got: {}", url);
+        assert!(
+            url.ends_with("/v1/models"),
+            "URL should end with /v1/models, got: {}",
+            url
+        );
     }
 
     #[test]
     fn test_build_embeddings_url_heimdall() {
         let config = ProviderConfig::heimdall_default("key");
         let url = build_embeddings_url(&config);
-        assert!(url.ends_with("/v1/embeddings"), "URL should end with /v1/embeddings, got: {}", url);
+        assert!(
+            url.ends_with("/v1/embeddings"),
+            "URL should end with /v1/embeddings, got: {}",
+            url
+        );
     }
 
     #[test]
@@ -745,7 +852,14 @@ mod tests {
         assert!(hd_req.get("temperature").is_some());
         assert!(hd_req.get("stream").is_some());
         // MLX has the same keys
-        assert_eq!(hd_req.as_object().unwrap().keys().collect::<Vec<_>>().len(),
-                   mlx_req.as_object().unwrap().keys().collect::<Vec<_>>().len());
+        assert_eq!(
+            hd_req.as_object().unwrap().keys().collect::<Vec<_>>().len(),
+            mlx_req
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>()
+                .len()
+        );
     }
 }

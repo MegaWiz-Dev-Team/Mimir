@@ -1,5 +1,5 @@
-use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use anyhow::Result;
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use std::env;
 use tracing::info;
 
@@ -9,18 +9,16 @@ use crate::models::model_config::ModelConfig;
 
 pub async fn init_db() -> Result<MySqlPool> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    
+
     info!("🔌 Connecting to database: {}", database_url);
-    
+
     let pool = MySqlPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await?;
 
     // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
 
     info!("✅ Database migrations applied");
     Ok(pool)
@@ -38,7 +36,7 @@ pub async fn get_active_llm_models(pool: &DbPool) -> Result<Vec<ModelConfig>> {
     )
     .fetch_all(pool)
     .await?;
-    
+
     Ok(models)
 }
 
@@ -52,7 +50,7 @@ pub async fn get_model_by_id(pool: &DbPool, model_id: &str) -> Result<Option<Mod
     .bind(model_id)
     .fetch_optional(pool)
     .await?;
-    
+
     Ok(model)
 }
 
@@ -67,6 +65,6 @@ pub async fn get_models_by_provider(pool: &DbPool, provider: &str) -> Result<Vec
     .bind(provider)
     .fetch_all(pool)
     .await?;
-    
+
     Ok(models)
 }

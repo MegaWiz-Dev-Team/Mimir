@@ -1,6 +1,6 @@
-# 🚀 Mac Mini Deployment Guide — Project Mimir
+# 🚀 Deployment Guide — Project Mimir
 
-**Target:** macOS (Apple Silicon / Intel Mac Mini)
+**Covers:** Local Development (Docker Compose) and K3s Production (OrbStack)
 **Architecture:** Docker services + Rust backend + Next.js frontend
 
 ---
@@ -223,3 +223,89 @@ cd ro-ai-bridge && cargo clean
 | Neo4j login fails          | Default: `neo4j` / `mimir_neo4j_password`                          |
 | RustFS bucket not found    | Run `mc mb mimir/mimir-uploads`                                    |
 | Port conflicts             | Check `lsof -i :3001` and stop conflicting services                |
+| Source data missing (K3s)  | Rebuild dashboard with `NEXT_PUBLIC_API_URL=http://localhost:30000/api` |
+| API 404 on `/v1/` routes   | Frontend expects `API_URL/v1/...` — the `/api` prefix must be included |
+| Migration checksum mismatch| Update checksum in `_sqlx_migrations` table or re-run from clean state |
+
+---
+
+## K3s Production Deployment (OrbStack)
+
+### Prerequisites
+- [OrbStack](https://orbstack.dev) installed with K3s enabled
+- `kubectl` configured to point to OrbStack K3s
+- Docker for building images
+
+### Quick Deploy
+
+```bash
+# Deploy everything (build API + Dashboard, rollout to K3s)
+./scripts/k3s-deploy.sh all
+
+# Deploy only API
+./scripts/k3s-deploy.sh api
+
+# Deploy only Dashboard
+./scripts/k3s-deploy.sh dashboard
+
+# Skip build, just rollout restart
+./scripts/k3s-deploy.sh all --no-build
+
+# Override API URL for network access
+NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ./scripts/k3s-deploy.sh dashboard
+```
+
+### K3s Architecture
+
+```
+┌──────────────────── K3s Cluster (OrbStack) ────────────────────┐
+│  Namespace: asgard                                             │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
+│  │ mimir-api   │  │ mimir-dash   │  │ Supporting Services    │ │
+│  │ :30000      │  │ :30001       │  │ mariadb, qdrant, redis │ │
+│  │ (Rust/Axum) │  │ (Next.js)    │  │ neo4j, yggdrasil       │ │
+│  └──────┬──────┘  └──────┬───────┘  └────────────────────────┘ │
+│         │                │                                      │
+│         └── API_BASE_URL: http://localhost:30000/api ──┘        │
+│                                                                 │
+│  Namespace: asgard-infra                                        │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ mariadb (shared), postgres, etc.                           │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Important: API URL Structure
+
+The frontend (`api.ts`) constructs the full API URL as:
+```
+NEXT_PUBLIC_API_URL + "/v1" + "/endpoint"
+```
+
+So when building the dashboard Docker image, the `NEXT_PUBLIC_API_URL` must include `/api`:
+- ✅ Correct: `http://localhost:30000/api` → resolves to `http://localhost:30000/api/v1/sources`
+- ❌ Wrong: `http://localhost:30000` → resolves to `http://localhost:30000/v1/sources` (404)
+
+### K3s Maintenance
+
+```bash
+# Check pod status
+kubectl get pods -n asgard
+
+# View API logs
+kubectl logs deployment/mimir-api -n asgard --tail=50
+
+# View dashboard logs  
+kubectl logs deployment/mimir-dashboard -n asgard --tail=20
+
+# Restart a deployment
+kubectl rollout restart deployment/mimir-api -n asgard
+
+# Port-forward MariaDB for local access
+kubectl port-forward svc/mariadb -n asgard 33060:3306
+
+# Check migration state
+kubectl exec deployment/mariadb -n asgard -- \
+  mariadb -u mimir -pmimir_password mimir \
+  -e "SELECT version, success, description FROM _sqlx_migrations ORDER BY version DESC LIMIT 5;"
+```

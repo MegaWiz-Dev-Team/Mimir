@@ -169,7 +169,10 @@ pub fn parse_extraction_response(response: &str) -> ExtractionResult {
     match serde_json::from_str::<ExtractionResult>(&cleaned) {
         Ok(result) => result,
         Err(e) => {
-            warn!("Failed to parse extraction response: {}. Trying fallback.", e);
+            warn!(
+                "Failed to parse extraction response: {}. Trying fallback.",
+                e
+            );
             // Try to extract entities array only
             if let Ok(val) = serde_json::from_str::<Value>(&cleaned) {
                 return extraction_from_value(&val);
@@ -228,7 +231,10 @@ fn extraction_from_value(val: &Value) -> ExtractionResult {
         vec![]
     };
 
-    ExtractionResult { entities, relations }
+    ExtractionResult {
+        entities,
+        relations,
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -243,13 +249,19 @@ pub fn dedup_entities(entities: Vec<ExtractedEntity>) -> Vec<ExtractedEntity> {
     let mut seen: HashMap<String, ExtractedEntity> = HashMap::new();
 
     for entity in entities {
-        let key = format!("{}::{}", entity.name.to_lowercase(), entity.entity_type.to_lowercase());
+        let key = format!(
+            "{}::{}",
+            entity.name.to_lowercase(),
+            entity.entity_type.to_lowercase()
+        );
 
         if let Some(existing) = seen.get_mut(&key) {
             // Merge properties if the new one has them
             if let Some(new_props) = &entity.properties {
                 if let Some(existing_props) = &mut existing.properties {
-                    if let (Some(existing_obj), Some(new_obj)) = (existing_props.as_object_mut(), new_props.as_object()) {
+                    if let (Some(existing_obj), Some(new_obj)) =
+                        (existing_props.as_object_mut(), new_props.as_object())
+                    {
                         for (k, v) in new_obj {
                             existing_obj.insert(k.clone(), v.clone());
                         }
@@ -261,11 +273,14 @@ pub fn dedup_entities(entities: Vec<ExtractedEntity>) -> Vec<ExtractedEntity> {
         } else {
             // Normalize entity type
             let normalized_type = EntityType::from_str_flexible(&entity.entity_type);
-            seen.insert(key, ExtractedEntity {
-                name: entity.name,
-                entity_type: normalized_type.as_str().to_string(),
-                properties: entity.properties,
-            });
+            seen.insert(
+                key,
+                ExtractedEntity {
+                    name: entity.name,
+                    entity_type: normalized_type.as_str().to_string(),
+                    properties: entity.properties,
+                },
+            );
         }
     }
 
@@ -311,11 +326,17 @@ mod tests {
     fn test_system_prompt_contains_entity_types() {
         let prompt = build_extraction_system_prompt();
         assert!(prompt.contains("Person"), "Prompt must mention Person type");
-        assert!(prompt.contains("Organization"), "Prompt must mention Organization");
+        assert!(
+            prompt.contains("Organization"),
+            "Prompt must mention Organization"
+        );
         assert!(prompt.contains("Drug"), "Prompt must mention Drug");
         assert!(prompt.contains("Monster"), "Prompt must mention Monster");
         assert!(prompt.contains("Item"), "Prompt must mention Item");
-        assert!(prompt.contains("JSON"), "Prompt must mention JSON output format");
+        assert!(
+            prompt.contains("JSON"),
+            "Prompt must mention JSON output format"
+        );
     }
 
     // ========================================
@@ -417,14 +438,23 @@ That's all."#;
         ];
 
         let deduped = dedup_entities(entities);
-        assert_eq!(deduped.len(), 2, "Should merge duplicates (Aspirin + aspirin = 1)");
+        assert_eq!(
+            deduped.len(),
+            2,
+            "Should merge duplicates (Aspirin + aspirin = 1)"
+        );
 
         // Find the Aspirin entity (after dedup)
-        let aspirin = deduped.iter().find(|e| e.name.to_lowercase() == "aspirin").unwrap();
+        let aspirin = deduped
+            .iter()
+            .find(|e| e.name.to_lowercase() == "aspirin")
+            .unwrap();
         // Properties should be merged
         let props = aspirin.properties.as_ref().unwrap();
-        assert!(props.get("category").is_some() || props.get("dosage").is_some(),
-            "Should have merged properties");
+        assert!(
+            props.get("category").is_some() || props.get("dosage").is_some(),
+            "Should have merged properties"
+        );
     }
 
     // ========================================
@@ -457,16 +487,28 @@ That's all."#;
     #[test]
     fn test_entity_type_parsing() {
         assert_eq!(EntityType::from_str_flexible("Person"), EntityType::Person);
-        assert_eq!(EntityType::from_str_flexible("character"), EntityType::Person);
-        assert_eq!(EntityType::from_str_flexible("guild"), EntityType::Organization);
+        assert_eq!(
+            EntityType::from_str_flexible("character"),
+            EntityType::Person
+        );
+        assert_eq!(
+            EntityType::from_str_flexible("guild"),
+            EntityType::Organization
+        );
         assert_eq!(EntityType::from_str_flexible("mob"), EntityType::Monster);
         assert_eq!(EntityType::from_str_flexible("boss"), EntityType::Monster);
         assert_eq!(EntityType::from_str_flexible("weapon"), EntityType::Item);
         assert_eq!(EntityType::from_str_flexible("medicine"), EntityType::Drug);
-        assert_eq!(EntityType::from_str_flexible("disease"), EntityType::Symptom);
+        assert_eq!(
+            EntityType::from_str_flexible("disease"),
+            EntityType::Symptom
+        );
         assert_eq!(EntityType::from_str_flexible("quest"), EntityType::Event);
         assert_eq!(EntityType::from_str_flexible("map"), EntityType::Location);
-        assert_eq!(EntityType::from_str_flexible("unknown_xyz"), EntityType::Other);
+        assert_eq!(
+            EntityType::from_str_flexible("unknown_xyz"),
+            EntityType::Other
+        );
     }
 
     // ========================================

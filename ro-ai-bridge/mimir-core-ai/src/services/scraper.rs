@@ -35,8 +35,8 @@ pub struct ScraperService {
 impl ScraperService {
     /// Create a new scraper backed by Ratatoskr.
     pub async fn new() -> Result<Self> {
-        let ratatoskr_url = std::env::var("RATATOSKR_URL")
-            .unwrap_or_else(|_| "http://ratatoskr:9200".to_string());
+        let ratatoskr_url =
+            std::env::var("RATATOSKR_URL").unwrap_or_else(|_| "http://ratatoskr:9200".to_string());
 
         info!("🐿️ ScraperService → Ratatoskr at {}", ratatoskr_url);
 

@@ -13,12 +13,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use mimir_core_ai::services::db::DbPool;
+use crate::routes::sources::config::{
+    call_llm_api_with_logging, infer_api_base, resolve_llm_credentials,
+};
 use crate::routes::tenant::extract_tenant_id;
-use crate::routes::sources::config::{call_llm_api_with_logging, infer_api_base, resolve_llm_credentials};
+use mimir_core_ai::services::db::DbPool;
 
 // ─── Request / Response ────────────────────────────────────────────────────────
 
@@ -89,32 +91,55 @@ pub async fn extract_source(
     let extract_type = payload.extract_type.to_lowercase();
 
     if !["kg", "qa", "both"].contains(&extract_type.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "extract_type must be 'kg', 'qa', or 'both'"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "extract_type must be 'kg', 'qa', or 'both'"})),
+        ));
     }
 
     // Verify source belongs to tenant
-    let source: Option<(i64, String)> = sqlx::query_as(
-        "SELECT id, name FROM data_sources WHERE id = ? AND tenant_id = ?"
-    )
-    .bind(source_id)
-    .bind(&tenant_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let source: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, name FROM data_sources WHERE id = ? AND tenant_id = ?")
+            .bind(source_id)
+            .bind(&tenant_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
 
     let (_, source_name) = source.ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Source not found or access denied"})))
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found or access denied"})),
+        )
     })?;
 
     // Resolve provider + model
-    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Router error: {}", e)}))))?;
-    
-    let resolved_slot = router.config.resolve_slot("pipeline_generator", payload.provider.as_deref(), payload.model.as_deref());
+    let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Router error: {}", e)})),
+            )
+        })?;
+
+    let resolved_slot = router.config.resolve_slot(
+        "pipeline_generator",
+        payload.provider.as_deref(),
+        payload.model.as_deref(),
+    );
     let provider = resolved_slot.provider;
     let model = resolved_slot.model;
-    
-    let prompt_version = payload.prompt_version.clone().unwrap_or_else(|| "v1.0".to_string());
+
+    let prompt_version = payload
+        .prompt_version
+        .clone()
+        .unwrap_or_else(|| "v1.0".to_string());
     let run_label = payload.run_label.clone();
 
     // Resolve API credentials
@@ -124,17 +149,25 @@ pub async fn extract_source(
     // Fetch chunks for this source
     let max_chunks = payload.max_chunks.unwrap_or(usize::MAX);
     let chunks: Vec<(i64, String, Option<i32>)> = sqlx::query_as(
-        "SELECT id, content, token_count FROM chunks WHERE source_id = ? ORDER BY chunk_index ASC"
+        "SELECT id, content, token_count FROM chunks WHERE source_id = ? ORDER BY chunk_index ASC",
     )
     .bind(source_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     let chunks_to_process: Vec<_> = chunks.into_iter().take(max_chunks).collect();
 
     if chunks_to_process.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "No chunks found for this source. Run sync first."}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "No chunks found for this source. Run sync first."})),
+        ));
     }
 
     let chunk_count = chunks_to_process.len();
@@ -170,10 +203,20 @@ pub async fn extract_source(
             // KG Extraction
             if extract_type_clone == "kg" || extract_type_clone == "both" {
                 match extract_kg_from_chunk(
-                    &pool_clone, &tenant_clone, source_id, *chunk_id, content,
-                    &api_key_clone, &api_base_clone, &model_clone, &provider_clone,
-                    &prompt_version_clone, &run_label_clone,
-                ).await {
+                    &pool_clone,
+                    &tenant_clone,
+                    source_id,
+                    *chunk_id,
+                    content,
+                    &api_key_clone,
+                    &api_base_clone,
+                    &model_clone,
+                    &provider_clone,
+                    &prompt_version_clone,
+                    &run_label_clone,
+                )
+                .await
+                {
                     Ok((entities, relations)) => {
                         total_entities += entities;
                         total_relations += relations;
@@ -187,10 +230,20 @@ pub async fn extract_source(
             // QA Generation
             if extract_type_clone == "qa" || extract_type_clone == "both" {
                 match extract_qa_from_chunk(
-                    &pool_clone, &tenant_clone, source_id, *chunk_id, content,
-                    &api_key_clone, &api_base_clone, &model_clone, &provider_clone,
-                    &prompt_version_clone, &run_label_clone,
-                ).await {
+                    &pool_clone,
+                    &tenant_clone,
+                    source_id,
+                    *chunk_id,
+                    content,
+                    &api_key_clone,
+                    &api_base_clone,
+                    &model_clone,
+                    &provider_clone,
+                    &prompt_version_clone,
+                    &run_label_clone,
+                )
+                .await
+                {
                     Ok(count) => {
                         total_qa += count;
                     }
@@ -204,7 +257,12 @@ pub async fn extract_source(
         let total_ms = total_start.elapsed().as_millis() as i64;
         info!(
             "Extraction complete: source={} entities={} relations={} qa={} errors={} latency={}ms",
-            source_id, total_entities, total_relations, total_qa, errors.len(), total_ms
+            source_id,
+            total_entities,
+            total_relations,
+            total_qa,
+            errors.len(),
+            total_ms
         );
     });
 
@@ -239,19 +297,37 @@ async fn extract_kg_from_chunk(
     let start = std::time::Instant::now();
 
     let system_prompt = default_kg_system_prompt();
-    let user_prompt = format!("{}\n\nExtract entities and relationships from this text:\n\n---\n{}\n---", system_prompt, content);
+    let user_prompt = format!(
+        "{}\n\nExtract entities and relationships from this text:\n\n---\n{}\n---",
+        system_prompt, content
+    );
 
     let (response, _tokens) = call_llm_api_with_logging(
-        api_key, api_base, model, &user_prompt,
-        Some(pool), Some(tenant_id), Some(provider), Some("extract_kg"),
-    ).await?;
+        api_key,
+        api_base,
+        model,
+        &user_prompt,
+        Some(pool),
+        Some(tenant_id),
+        Some(provider),
+        Some("extract_kg"),
+    )
+    .await?;
 
     let latency_ms = start.elapsed().as_millis() as i32;
 
     // Parse JSON response
-    let cleaned = response.trim_start_matches("```json").trim_end_matches("```").trim();
-    let parsed: Value = serde_json::from_str(cleaned)
-        .map_err(|e| anyhow::anyhow!("Failed to parse KG JSON: {} — raw: {}", e, &cleaned[..cleaned.len().min(200)]))?;
+    let cleaned = response
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .trim();
+    let parsed: Value = serde_json::from_str(cleaned).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse KG JSON: {} — raw: {}",
+            e,
+            &cleaned[..cleaned.len().min(200)]
+        )
+    })?;
 
     let entities = parsed["entities"].as_array().map(|a| a.len()).unwrap_or(0);
     let relations = parsed["relations"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -308,7 +384,10 @@ async fn extract_kg_from_chunk(
         }
     }
 
-    info!("KG chunk {}: {} entities, {} relations ({}ms)", chunk_id, entities, relations, latency_ms);
+    info!(
+        "KG chunk {}: {} entities, {} relations ({}ms)",
+        chunk_id, entities, relations, latency_ms
+    );
     Ok((entities, relations))
 }
 
@@ -330,29 +409,57 @@ async fn extract_qa_from_chunk(
     let start = std::time::Instant::now();
 
     let system_prompt = default_qa_system_prompt();
-    let user_prompt = format!("{}\n\nGenerate QA pairs from this content:\n\n{}", system_prompt, content);
+    let user_prompt = format!(
+        "{}\n\nGenerate QA pairs from this content:\n\n{}",
+        system_prompt, content
+    );
 
     let (response, _tokens) = call_llm_api_with_logging(
-        api_key, api_base, model, &user_prompt,
-        Some(pool), Some(tenant_id), Some(provider), Some("extract_qa"),
-    ).await?;
+        api_key,
+        api_base,
+        model,
+        &user_prompt,
+        Some(pool),
+        Some(tenant_id),
+        Some(provider),
+        Some("extract_qa"),
+    )
+    .await?;
 
     let latency_ms = start.elapsed().as_millis() as i32;
 
     // Parse JSON array
-    let cleaned = response.trim_start_matches("```json").trim_end_matches("```").trim();
-    let qa_pairs: Vec<Value> = serde_json::from_str(cleaned)
-        .map_err(|e| anyhow::anyhow!("Failed to parse QA JSON: {} — raw: {}", e, &cleaned[..cleaned.len().min(200)]))?;
+    let cleaned = response
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .trim();
+    let qa_pairs: Vec<Value> = serde_json::from_str(cleaned).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse QA JSON: {} — raw: {}",
+            e,
+            &cleaned[..cleaned.len().min(200)]
+        )
+    })?;
 
     // Create pipeline run for provenance tracking
     let run_id = Uuid::new_v4().to_string();
-    let _ = sqlx::query("INSERT INTO pipeline_runs (id, status, provider, model) VALUES (?, 'COMPLETED', ?, ?)")
-        .bind(&run_id).bind(provider).bind(model).execute(pool).await;
+    let _ = sqlx::query(
+        "INSERT INTO pipeline_runs (id, status, provider, model) VALUES (?, 'COMPLETED', ?, ?)",
+    )
+    .bind(&run_id)
+    .bind(provider)
+    .bind(model)
+    .execute(pool)
+    .await;
     let _ = sqlx::query("INSERT INTO pipeline_steps (run_id, file_name, status, step_type) VALUES (?, ?, 'COMPLETED', 'GENERATE')")
         .bind(&run_id).bind(format!("chunk_{}", chunk_id)).execute(pool).await;
 
-    let step_id: Option<(i64,)> = sqlx::query_as("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1")
-        .bind(&run_id).fetch_optional(pool).await.unwrap_or(None);
+    let step_id: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM pipeline_steps WHERE run_id = ? LIMIT 1")
+            .bind(&run_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
 
     let mut count = 0;
     for qa in &qa_pairs {

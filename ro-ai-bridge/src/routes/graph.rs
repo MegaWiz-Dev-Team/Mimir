@@ -4,20 +4,18 @@
 //! and bulk import of entities/relations.
 //! All endpoints enforce tenant isolation via X-Tenant-Id header.
 
+use crate::routes::tenant::extract_tenant_id;
 use axum::{
-    routing::{get, post, delete},
-    Router, Json,
-    extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    routing::{delete, get, post},
+    Json, Router,
 };
 use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::services::neo4j::{
-    entity_type_color, entity_type_size,
-};
-use serde_json::{json, Value};
+use mimir_core_ai::services::neo4j::{entity_type_color, entity_type_size};
 use serde::Deserialize;
-use tracing::{info, warn, instrument};
-use crate::routes::tenant::extract_tenant_id;
+use serde_json::{json, Value};
+use tracing::{info, instrument, warn};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Query parameter structs
@@ -118,24 +116,26 @@ async fn get_stats(
     State(pool): State<DbPool>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
-    info!(event = "graph_stats", tenant_id = tenant_id, "Fetching KG stats");
+    info!(
+        event = "graph_stats",
+        tenant_id = tenant_id,
+        "Fetching KG stats"
+    );
 
     // Try SQL-based stats from kg_entities/kg_relations tables
-    let entity_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM kg_entities WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or((0,));
+    let entity_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM kg_entities WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
 
-    let relation_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM kg_relations WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or((0,));
+    let relation_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM kg_relations WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
 
     // Entity type breakdown
     let type_counts: Vec<(String, i64)> = sqlx::query_as(
@@ -194,11 +194,21 @@ async fn search_entities(
     query_str.push_str(" ORDER BY name LIMIT ? OFFSET ?");
 
     // Build dynamic query
-    let mut query = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<i64>, Option<i64>, Option<String>)>(&query_str)
-        .bind(tenant_id.clone());
+    let mut query = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
+        ),
+    >(&query_str)
+    .bind(tenant_id.clone());
 
-    let mut count_query = sqlx::query_as::<_, (i64,)>(&count_str)
-        .bind(tenant_id);
+    let mut count_query = sqlx::query_as::<_, (i64,)>(&count_str).bind(tenant_id);
 
     if let Some(ref q) = params.q {
         let pattern = format!("%{}%", q);
@@ -215,23 +225,29 @@ async fn search_entities(
     query = query.bind(limit).bind(offset);
 
     let rows = query.fetch_all(&pool).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
     })?;
 
     let total = count_query.fetch_one(&pool).await.unwrap_or((0,));
 
-    let entities: Vec<Value> = rows.iter().map(|(id, name, et, props, sid, cid, nid)| {
-        json!({
-            "id": id,
-            "name": name,
-            "entity_type": et,
-            "properties": props.as_ref().and_then(|p| serde_json::from_str::<Value>(p).ok()),
-            "source_id": sid,
-            "chunk_id": cid,
-            "neo4j_node_id": nid,
-            "color": entity_type_color(et),
+    let entities: Vec<Value> = rows
+        .iter()
+        .map(|(id, name, et, props, sid, cid, nid)| {
+            json!({
+                "id": id,
+                "name": name,
+                "entity_type": et,
+                "properties": props.as_ref().and_then(|p| serde_json::from_str::<Value>(p).ok()),
+                "source_id": sid,
+                "chunk_id": cid,
+                "neo4j_node_id": nid,
+                "color": entity_type_color(et),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({
         "entities": entities,
@@ -254,18 +270,27 @@ async fn get_neighbors(
     let limit = params.limit.unwrap_or(50).min(200) as i64;
 
     // Get entity name
-    let entity: Option<(String, String)> = sqlx::query_as(
-        "SELECT name, entity_type FROM kg_entities WHERE id = ? AND tenant_id = ?"
-    )
-    .bind(entity_id)
-    .bind(tenant_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let entity: Option<(String, String)> =
+        sqlx::query_as("SELECT name, entity_type FROM kg_entities WHERE id = ? AND tenant_id = ?")
+            .bind(entity_id)
+            .bind(tenant_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
 
     let (entity_name, entity_type) = match entity {
         Some(e) => e,
-        None => return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Entity not found"})))),
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Entity not found"})),
+            ))
+        }
     };
 
     // Get relations where this entity is involved (via FK)
@@ -273,7 +298,7 @@ async fn get_neighbors(
         "SELECT r.id, e.name, r.relation_type, e.entity_type \
          FROM kg_relations r \
          JOIN kg_entities e ON e.id = r.to_entity_id \
-         WHERE r.from_entity_id = ? AND r.tenant_id = ? LIMIT ?"
+         WHERE r.from_entity_id = ? AND r.tenant_id = ? LIMIT ?",
     )
     .bind(entity_id)
     .bind(tenant_id)
@@ -286,7 +311,7 @@ async fn get_neighbors(
         "SELECT r.id, e.name, r.relation_type, e.entity_type \
          FROM kg_relations r \
          JOIN kg_entities e ON e.id = r.from_entity_id \
-         WHERE r.to_entity_id = ? AND r.tenant_id = ? LIMIT ?"
+         WHERE r.to_entity_id = ? AND r.tenant_id = ? LIMIT ?",
     )
     .bind(entity_id)
     .bind(tenant_id)
@@ -364,7 +389,7 @@ async fn find_paths(
          JOIN kg_entities e1 ON e1.id = r.from_entity_id \
          JOIN kg_entities e2 ON e2.id = r.to_entity_id \
          WHERE r.tenant_id = ? AND \
-         ((e1.name = ? AND e2.name = ?) OR (e1.name = ? AND e2.name = ?))"
+         ((e1.name = ? AND e2.name = ?) OR (e1.name = ? AND e2.name = ?))",
     )
     .bind(tenant_id)
     .bind(&params.from)
@@ -376,9 +401,10 @@ async fn find_paths(
     .unwrap_or_default();
 
     if !direct.is_empty() {
-        let path: Vec<Value> = direct.iter().map(|(f, t, r)| {
-            json!({"from": f, "to": t, "relation_type": r})
-        }).collect();
+        let path: Vec<Value> = direct
+            .iter()
+            .map(|(f, t, r)| json!({"from": f, "to": t, "relation_type": r}))
+            .collect();
 
         return Ok(Json(json!({
             "found": true,
@@ -405,15 +431,18 @@ async fn find_paths(
     .unwrap_or_default();
 
     if !two_hop.is_empty() {
-        let paths: Vec<Value> = two_hop.iter().map(|(f, m, r1, t, r2)| {
-            json!({
-                "steps": [
-                    {"from": f, "to": m, "relation_type": r1},
-                    {"from": m, "to": t, "relation_type": r2},
-                ],
-                "length": 2,
+        let paths: Vec<Value> = two_hop
+            .iter()
+            .map(|(f, m, r1, t, r2)| {
+                json!({
+                    "steps": [
+                        {"from": f, "to": m, "relation_type": r1},
+                        {"from": m, "to": t, "relation_type": r2},
+                    ],
+                    "length": 2,
+                })
             })
-        }).collect();
+            .collect();
 
         return Ok(Json(json!({
             "found": true,
@@ -442,8 +471,12 @@ async fn trigger_extraction(
 
     // If text provided directly, parse and return prompt (no background task)
     if let Some(ref text) = payload.text {
-        let system_prompt = mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
-        let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(text, max_entities);
+        let system_prompt =
+            mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
+        let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(
+            text,
+            max_entities,
+        );
 
         return Ok(Json(json!({
             "status": "prompt_ready",
@@ -477,20 +510,21 @@ async fn trigger_extraction(
             let chunks: Vec<(i64, String)> = if let Some(ref ids) = payload.chunk_ids {
                 // Incremental: only specified chunks
                 let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                let query_str = format!("SELECT id, content FROM chunks WHERE source_id = ? AND id IN ({}) LIMIT 10000", placeholders);
+                let query_str = format!(
+                    "SELECT id, content FROM chunks WHERE source_id = ? AND id IN ({}) LIMIT 10000",
+                    placeholders
+                );
                 let mut q = sqlx::query_as::<_, (i64, String)>(&query_str).bind(source_id);
                 for id in ids {
                     q = q.bind(id);
                 }
                 q.fetch_all(&pool_bg).await.unwrap_or_default()
             } else {
-                sqlx::query_as(
-                    "SELECT id, content FROM chunks WHERE source_id = ? LIMIT 10000"
-                )
-                .bind(source_id)
-                .fetch_all(&pool_bg)
-                .await
-                .unwrap_or_default()
+                sqlx::query_as("SELECT id, content FROM chunks WHERE source_id = ? LIMIT 10000")
+                    .bind(source_id)
+                    .fetch_all(&pool_bg)
+                    .await
+                    .unwrap_or_default()
             };
 
             if chunks.is_empty() {
@@ -501,7 +535,12 @@ async fn trigger_extraction(
             }
 
             // Resolve LLM credentials
-            let router = match mimir_core_ai::services::llm_router::LlmRouter::new(pool_bg.clone(), &tenant_bg).await {
+            let router = match mimir_core_ai::services::llm_router::LlmRouter::new(
+                pool_bg.clone(),
+                &tenant_bg,
+            )
+            .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::error!("LlmRouter init failed for tenant {}: {}", tenant_bg, e);
@@ -514,7 +553,7 @@ async fn trigger_extraction(
             let resolved_slot = router.config.resolve_slot("pipeline_generator", None, None);
             let provider_str = resolved_slot.provider;
             let model_str = resolved_slot.model;
-            
+
             let provider = &provider_str;
             let model = &model_str;
             let api_base = crate::routes::sources::infer_api_base(provider);
@@ -523,30 +562,50 @@ async fn trigger_extraction(
                 "openai" => "OPENAI_API_KEY",
                 "heimdall" => "HEIMDALL_API_KEY",
                 _ => "OLLAMA_API_KEY",
-            }).unwrap_or_default();
+            })
+            .unwrap_or_default();
 
             // Connect to Neo4j for dual-write
             let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
-            let neo4j_svc = mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
+            let neo4j_svc =
+                mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
 
             let mut total_entities = 0i64;
             let mut total_relations = 0i64;
             let mut chunks_processed = 0i64;
 
             for (chunk_id, content) in &chunks {
-                let system_prompt = mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
-                let user_prompt = mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(content, max_entities);
+                let system_prompt =
+                    mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
+                let user_prompt =
+                    mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(
+                        content,
+                        max_entities,
+                    );
                 let combined = format!("{}\n\n{}", system_prompt, user_prompt);
 
                 let result = crate::routes::sources::call_llm_api_with_logging(
-                    &api_key, &api_base, model, &combined,
-                    Some(&pool_bg), Some(&tenant_bg), Some(provider), Some("kg_extraction"),
-                ).await;
+                    &api_key,
+                    &api_base,
+                    model,
+                    &combined,
+                    Some(&pool_bg),
+                    Some(&tenant_bg),
+                    Some(provider),
+                    Some("kg_extraction"),
+                )
+                .await;
 
                 if let Ok((response_text, _)) = result {
-                    let parsed = mimir_core_ai::services::entity_extractor::parse_extraction_response(&response_text);
-                    let entities = mimir_core_ai::services::entity_extractor::dedup_entities(parsed.entities);
-                    let relations = mimir_core_ai::services::entity_extractor::dedup_relations(parsed.relations);
+                    let parsed =
+                        mimir_core_ai::services::entity_extractor::parse_extraction_response(
+                            &response_text,
+                        );
+                    let entities =
+                        mimir_core_ai::services::entity_extractor::dedup_entities(parsed.entities);
+                    let relations = mimir_core_ai::services::entity_extractor::dedup_relations(
+                        parsed.relations,
+                    );
 
                     // Insert entities
                     for ent in &entities {
@@ -559,10 +618,16 @@ async fn trigger_extraction(
                         .execute(&pool_bg).await;
 
                         if let Some(ref neo4j) = neo4j_svc {
-                            let _ = neo4j.upsert_entity(
-                                &tenant_bg, &ent.name, &ent.entity_type,
-                                props_str.as_deref(), Some(source_id), Some(*chunk_id),
-                            ).await;
+                            let _ = neo4j
+                                .upsert_entity(
+                                    &tenant_bg,
+                                    &ent.name,
+                                    &ent.entity_type,
+                                    props_str.as_deref(),
+                                    Some(source_id),
+                                    Some(*chunk_id),
+                                )
+                                .await;
                         }
                         total_entities += 1;
                     }
@@ -570,14 +635,22 @@ async fn trigger_extraction(
                     // Insert relations
                     for rel in &relations {
                         let from_id: Option<(i64,)> = sqlx::query_as(
-                            "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
-                        ).bind(&tenant_bg).bind(&rel.from)
-                        .fetch_optional(&pool_bg).await.unwrap_or(None);
+                            "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1",
+                        )
+                        .bind(&tenant_bg)
+                        .bind(&rel.from)
+                        .fetch_optional(&pool_bg)
+                        .await
+                        .unwrap_or(None);
 
                         let to_id: Option<(i64,)> = sqlx::query_as(
-                            "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
-                        ).bind(&tenant_bg).bind(&rel.to)
-                        .fetch_optional(&pool_bg).await.unwrap_or(None);
+                            "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1",
+                        )
+                        .bind(&tenant_bg)
+                        .bind(&rel.to)
+                        .fetch_optional(&pool_bg)
+                        .await
+                        .unwrap_or(None);
 
                         if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
                             let _ = sqlx::query(
@@ -588,10 +661,16 @@ async fn trigger_extraction(
                             .execute(&pool_bg).await;
 
                             if let Some(ref neo4j) = neo4j_svc {
-                                let _ = neo4j.upsert_relation(
-                                    &tenant_bg, &rel.from, &rel.to, &rel.relation_type,
-                                    None, Some(source_id),
-                                ).await;
+                                let _ = neo4j
+                                    .upsert_relation(
+                                        &tenant_bg,
+                                        &rel.from,
+                                        &rel.to,
+                                        &rel.relation_type,
+                                        None,
+                                        Some(source_id),
+                                    )
+                                    .await;
                             }
                             total_relations += 1;
                         }
@@ -614,7 +693,13 @@ async fn trigger_extraction(
             ).bind(total_entities).bind(total_relations).bind(chunks_processed).bind(run_id)
             .execute(&pool_bg).await;
 
-            info!(event = "kg_extraction_completed", run_id = run_id, entities = total_entities, relations = total_relations, chunks = chunks_processed);
+            info!(
+                event = "kg_extraction_completed",
+                run_id = run_id,
+                entities = total_entities,
+                relations = total_relations,
+                chunks = chunks_processed
+            );
         });
 
         return Ok(Json(json!({
@@ -625,7 +710,10 @@ async fn trigger_extraction(
         })));
     }
 
-    Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Either 'source_id' or 'text' must be provided"}))))
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(json!({"error": "Either 'source_id' or 'text' must be provided"})),
+    ))
 }
 
 /// GET /api/v1/graph/visualization?limit=&type= — Get graph data for Sigma.js
@@ -637,7 +725,12 @@ async fn get_visualization(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
     let limit = params.limit.unwrap_or(200).min(1000) as i64;
-    info!(event = "graph_visualization", tenant_id = tenant_id, limit = limit, "Fetching visualization data");
+    info!(
+        event = "graph_visualization",
+        tenant_id = tenant_id,
+        limit = limit,
+        "Fetching visualization data"
+    );
 
     // Get entities
     let mut entity_query = "SELECT id, name, entity_type, CAST(properties AS CHAR) as properties FROM kg_entities WHERE tenant_id = ?".to_string();
@@ -659,18 +752,24 @@ async fn get_visualization(
         }
     };
 
-    let nodes: Vec<Value> = entities.iter().map(|(id, name, et, _)| {
-        json!({
-            "id": id.to_string(),
-            "label": name,
-            "entity_type": et,
-            "color": entity_type_color(et),
-            "size": entity_type_size(et),
+    let nodes: Vec<Value> = entities
+        .iter()
+        .map(|(id, name, et, _)| {
+            json!({
+                "id": id.to_string(),
+                "label": name,
+                "entity_type": et,
+                "color": entity_type_color(et),
+                "size": entity_type_size(et),
+            })
         })
-    }).collect();
+        .collect();
 
     // Get relations between visible entities
-    let entity_names: Vec<String> = entities.iter().map(|(_, name, _, _)| name.clone()).collect();
+    let entity_names: Vec<String> = entities
+        .iter()
+        .map(|(_, name, _, _)| name.clone())
+        .collect();
     let mut edges = Vec::new();
 
     if !entity_names.is_empty() {
@@ -679,7 +778,7 @@ async fn get_visualization(
             "SELECT r.id, r.from_entity_id, r.to_entity_id, r.relation_type \
              FROM kg_relations r \
              WHERE r.tenant_id = ? \
-             LIMIT ?"
+             LIMIT ?",
         )
         .bind(tenant_id)
         .bind(limit * 2)
@@ -688,7 +787,8 @@ async fn get_visualization(
         .unwrap_or_default();
 
         // Build entity id → string id lookup
-        let id_to_str: std::collections::HashMap<i64, String> = entities.iter()
+        let id_to_str: std::collections::HashMap<i64, String> = entities
+            .iter()
             .map(|(id, _, _, _)| (*id, id.to_string()))
             .collect();
 
@@ -722,24 +822,30 @@ async fn delete_source_entities(
     let tenant_id = extract_tenant_id(&headers);
 
     // Delete relations first (referencing entities from this source)
-    let rel_deleted = sqlx::query(
-        "DELETE FROM kg_relations WHERE tenant_id = ? AND source_id = ?"
-    )
-    .bind(tenant_id)
-    .bind(source_id)
-    .execute(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let rel_deleted = sqlx::query("DELETE FROM kg_relations WHERE tenant_id = ? AND source_id = ?")
+        .bind(tenant_id)
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     // Delete entities
-    let ent_deleted = sqlx::query(
-        "DELETE FROM kg_entities WHERE tenant_id = ? AND source_id = ?"
-    )
-    .bind(tenant_id)
-    .bind(source_id)
-    .execute(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let ent_deleted = sqlx::query("DELETE FROM kg_entities WHERE tenant_id = ? AND source_id = ?")
+        .bind(tenant_id)
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     info!(
         event = "kg_source_deleted",
@@ -764,29 +870,44 @@ async fn get_extraction_runs(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let runs: Vec<(i64, i64, String, i64, i64, i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+    let runs: Vec<(
+        i64,
+        i64,
+        String,
+        i64,
+        i64,
+        i64,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
         "SELECT id, source_id, status, entities_found, relations_found, chunks_processed, \
          started_at, completed_at, error_message \
-         FROM kg_extraction_runs WHERE tenant_id = ? ORDER BY id DESC LIMIT 20"
+         FROM kg_extraction_runs WHERE tenant_id = ? ORDER BY id DESC LIMIT 20",
     )
     .bind(tenant_id)
     .fetch_all(&pool)
     .await
     .unwrap_or_default();
 
-    let runs_json: Vec<Value> = runs.iter().map(|(id, sid, status, ents, rels, chunks, started, completed, err)| {
-        json!({
-            "id": id,
-            "source_id": sid,
-            "status": status,
-            "entities_found": ents,
-            "relations_found": rels,
-            "chunks_processed": chunks,
-            "started_at": started,
-            "completed_at": completed,
-            "error_message": err,
-        })
-    }).collect();
+    let runs_json: Vec<Value> = runs
+        .iter()
+        .map(
+            |(id, sid, status, ents, rels, chunks, started, completed, err)| {
+                json!({
+                    "id": id,
+                    "source_id": sid,
+                    "status": status,
+                    "entities_found": ents,
+                    "relations_found": rels,
+                    "chunks_processed": chunks,
+                    "started_at": started,
+                    "completed_at": completed,
+                    "error_message": err,
+                })
+            },
+        )
+        .collect();
 
     Ok(Json(json!({
         "runs": runs_json,
@@ -807,14 +928,21 @@ async fn bulk_create_entities(
     let tenant_id = extract_tenant_id(&headers);
     let source_id = payload.source_id;
     let total = payload.entities.len();
-    
-    info!(event = "kg_bulk_create_entities", tenant_id = tenant_id, count = total, "Bulk creating entities");
+
+    info!(
+        event = "kg_bulk_create_entities",
+        tenant_id = tenant_id,
+        count = total,
+        "Bulk creating entities"
+    );
 
     let mut inserted = 0u64;
     let mut skipped = 0u64;
 
     for ent in &payload.entities {
-        let props_json = ent.properties.as_ref()
+        let props_json = ent
+            .properties
+            .as_ref()
             .map(|p| serde_json::to_string(p).unwrap_or_default());
 
         let result = sqlx::query(
@@ -840,7 +968,11 @@ async fn bulk_create_entities(
         }
     }
 
-    info!(event = "kg_bulk_entities_done", inserted = inserted, skipped = skipped);
+    info!(
+        event = "kg_bulk_entities_done",
+        inserted = inserted,
+        skipped = skipped
+    );
 
     Ok(Json(json!({
         "inserted": inserted,
@@ -860,34 +992,39 @@ async fn bulk_create_relations(
     let source_id = payload.source_id;
     let total = payload.relations.len();
 
-    info!(event = "kg_bulk_create_relations", tenant_id = tenant_id, count = total, "Bulk creating relations");
+    info!(
+        event = "kg_bulk_create_relations",
+        tenant_id = tenant_id,
+        count = total,
+        "Bulk creating relations"
+    );
 
     let mut inserted = 0u64;
     let mut skipped = 0u64;
 
     for rel in &payload.relations {
-        let props_json = rel.properties.as_ref()
+        let props_json = rel
+            .properties
+            .as_ref()
             .map(|p| serde_json::to_string(p).unwrap_or_default());
 
         // Lookup from_entity_id
-        let from_id: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM kg_entities WHERE name = ? AND tenant_id = ? LIMIT 1"
-        )
-        .bind(&rel.from_entity)
-        .bind(tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None);
+        let from_id: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM kg_entities WHERE name = ? AND tenant_id = ? LIMIT 1")
+                .bind(&rel.from_entity)
+                .bind(tenant_id)
+                .fetch_optional(&pool)
+                .await
+                .unwrap_or(None);
 
         // Lookup to_entity_id
-        let to_id: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM kg_entities WHERE name = ? AND tenant_id = ? LIMIT 1"
-        )
-        .bind(&rel.to_entity)
-        .bind(tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None);
+        let to_id: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM kg_entities WHERE name = ? AND tenant_id = ? LIMIT 1")
+                .bind(&rel.to_entity)
+                .bind(tenant_id)
+                .fetch_optional(&pool)
+                .await
+                .unwrap_or(None);
 
         let (from_id, to_id) = match (from_id, to_id) {
             (Some((fid,)), Some((tid,))) => (fid, tid),
@@ -920,7 +1057,11 @@ async fn bulk_create_relations(
         }
     }
 
-    info!(event = "kg_bulk_relations_done", inserted = inserted, skipped = skipped);
+    info!(
+        event = "kg_bulk_relations_done",
+        inserted = inserted,
+        skipped = skipped
+    );
 
     Ok(Json(json!({
         "inserted": inserted,

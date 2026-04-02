@@ -8,16 +8,16 @@
 //! - PATCH /api/eval/scores/:id/review — Submit human review
 
 use axum::{
-    extract::{Path, Query, State, Extension},
+    extract::{Extension, Path, Query, State},
+    response::IntoResponse,
     routing::{get, patch, post},
     Json, Router,
-    response::IntoResponse,
 };
+use chrono::NaiveDateTime;
+use mimir_core_ai::evaluation::runner::{start_evaluation_run, EvaluatorParams};
+use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::NaiveDateTime;
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
-use mimir_core_ai::evaluation::runner::{start_evaluation_run, EvaluatorParams};
 
 use mimir_core_ai::services::db::DbPool;
 
@@ -196,9 +196,14 @@ async fn get_run_scores(
     if q.model.is_some() {
         query_str.push_str(" AND model_id = ?");
     }
-    query_str.push_str(&format!(" ORDER BY agent_name, model_id, id LIMIT {} OFFSET {}", limit, offset));
+    query_str.push_str(&format!(
+        " ORDER BY agent_name, model_id, id LIMIT {} OFFSET {}",
+        limit, offset
+    ));
 
-    let mut query = sqlx::query_as::<_, EvalScore>(&query_str).bind(&id).bind(&tenant.tenant_id);
+    let mut query = sqlx::query_as::<_, EvalScore>(&query_str)
+        .bind(&id)
+        .bind(&tenant.tenant_id);
 
     if let Some(ref agent) = q.agent {
         query = query.bind(agent);
@@ -218,15 +223,20 @@ async fn get_run_matrix(
     Path(id): Path<String>,
 ) -> Json<MatrixResponse> {
     // First, verify tenant owns the run
-    let run_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM eval_runs WHERE id = ? AND tenant_id = ?")
-        .bind(&id)
-        .bind(&tenant.tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None);
-        
+    let run_exists: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM eval_runs WHERE id = ? AND tenant_id = ?")
+            .bind(&id)
+            .bind(&tenant.tenant_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None);
+
     if run_exists.is_none() {
-        return Json(MatrixResponse { agents: vec![], models: vec![], cells: vec![] });
+        return Json(MatrixResponse {
+            agents: vec![],
+            models: vec![],
+            cells: vec![],
+        });
     }
 
     let summaries = sqlx::query_as::<_, EvalSummary>(
@@ -259,7 +269,11 @@ async fn get_run_matrix(
         })
         .collect();
 
-    Json(MatrixResponse { agents, models, cells })
+    Json(MatrixResponse {
+        agents,
+        models,
+        cells,
+    })
 }
 
 /// PATCH /api/v1/eval/scores/:id/review — Submit human review
@@ -277,7 +291,7 @@ async fn submit_review(
             human_notes = COALESCE(?, human_notes),
             reviewed_by = COALESCE(?, reviewed_by),
             reviewed_at = NOW()
-        WHERE id = ? AND tenant_id = ?"#
+        WHERE id = ? AND tenant_id = ?"#,
     )
     .bind(body.accuracy_score)
     .bind(body.completeness_score)
@@ -308,28 +322,26 @@ async fn start_run(
     Json(payload): Json<EvaluatorParams>,
 ) -> axum::response::Response {
     let mut verified_params = payload;
-    
+
     // Safety check: force tenant ID to be the context tenant ID unless SuperAdmin
     if tenant.role != "SuperAdmin" || verified_params.tenant_id.is_empty() {
         verified_params.tenant_id = tenant.tenant_id.clone();
     }
-    
+
     if verified_params.question_limit == 0 {
         verified_params.question_limit = 50; // Default limit
     }
 
     match start_evaluation_run(pool, verified_params).await {
-        Ok(run_id) => {
-            (
-                axum::http::StatusCode::ACCEPTED,
-                Json(serde_json::json!({ "run_id": run_id }))
-            ).into_response()
-        },
-        Err(e) => {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() }))
-            ).into_response()
-        }
+        Ok(run_id) => (
+            axum::http::StatusCode::ACCEPTED,
+            Json(serde_json::json!({ "run_id": run_id })),
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }

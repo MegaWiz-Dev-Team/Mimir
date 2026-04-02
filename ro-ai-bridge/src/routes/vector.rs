@@ -7,20 +7,29 @@ use axum::{
 };
 use tracing::{error, info};
 
+use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::{
-    services::{db::DbPool, qdrant::QdrantService},
     qa_qc::indexer::run_indexer,
+    services::{db::DbPool, qdrant::QdrantService},
 };
 use serde::Deserialize;
-use crate::routes::tenant::extract_tenant_id;
 
 /// Batch embed texts via Heimdall /v1/embeddings (OpenAI-compatible)
 pub async fn embed_texts(texts: &[String], model: &str) -> Result<Vec<Vec<f32>>, String> {
     let embed_base_url = std::env::var("EMBEDDING_API_URL")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("HEIMDALL_API_URL").ok().filter(|s| !s.is_empty()))
-        .or_else(|| std::env::var("OLLAMA_URL").ok().filter(|s| !s.is_empty()).map(|u| format!("{}/v1", u)))
+        .or_else(|| {
+            std::env::var("HEIMDALL_API_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            std::env::var("OLLAMA_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|u| format!("{}/v1", u))
+        })
         .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
     let embed_url = format!("{}/embeddings", embed_base_url.trim_end_matches('/'));
     let api_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
@@ -43,21 +52,28 @@ pub async fn embed_texts(texts: &[String], model: &str) -> Result<Vec<Vec<f32>>,
         return Err(format!("Embedding API error: {}", err));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse embedding response: {}", e))?;
 
-    let data = body["data"].as_array().ok_or("No 'data' array in response")?;
+    let data = body["data"]
+        .as_array()
+        .ok_or("No 'data' array in response")?;
     let mut vectors = Vec::with_capacity(data.len());
     for item in data {
         let vec: Vec<f32> = item["embedding"]
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect()
+            })
             .unwrap_or_default();
         vectors.push(vec);
     }
     Ok(vectors)
 }
-
 
 #[derive(Deserialize)]
 pub struct SearchRequest {
@@ -102,43 +118,14 @@ async fn get_vector_stats(headers: HeaderMap, State(pool): State<DbPool>) -> imp
     let tenant_id = extract_tenant_id(&headers).to_string();
 
     // 1. Get Qdrant stats
-    let qdrant_info = qdrant.get_collection_info(collection_name).await.unwrap_or(serde_json::Value::Null);
+    let qdrant_info = qdrant
+        .get_collection_info(collection_name)
+        .await
+        .unwrap_or(serde_json::Value::Null);
     let qdrant_points = qdrant_info["result"]["points_count"].as_i64().unwrap_or(0);
 
     // 2. Count QA stats (tenant-scoped)
     let total_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE tenant_id = ?")
-        .bind(&tenant_id)
-        .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get::<i64, _>("count") }).unwrap_or(0);
-
-    let indexed_qa = sqlx::query("SELECT count(*) as count FROM qa_results WHERE tenant_id = ? AND indexed_at IS NOT NULL")
-        .bind(&tenant_id)
-        .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get::<i64, _>("count") }).unwrap_or(0);
-
-    let pending_results: i64 = sqlx::query(
-        "SELECT count(*) as count FROM qa_results \
-         WHERE tenant_id = ? AND qc_scanned = 1 \
-         AND id NOT IN (SELECT qa_id FROM qa_cluster_items) \
-         AND indexed_at IS NULL"
-    )
-    .bind(&tenant_id)
-    .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get("count") }).unwrap_or(0);
-
-    let pending_clusters: i64 = sqlx::query(
-        "SELECT count(*) as count FROM qa_clusters \
-         WHERE tenant_id = ? AND status != 'PENDING' \
-         AND indexed_at IS NULL AND golden_answer IS NOT NULL"
-    )
-    .bind(&tenant_id)
-    .fetch_one(&pool).await.map(|r| { use sqlx::Row; r.get("count") }).unwrap_or(0);
-
-    let pending_golden = pending_results + pending_clusters;
-
-    // 3. Get chunk stats (tenant-scoped via source ownership)
-    let total_chunks = sqlx::query(
-        "SELECT count(*) as count FROM chunks c \
-         JOIN data_sources ds ON c.source_id = ds.id \
-         WHERE ds.tenant_id = ?"
-    )
         .bind(&tenant_id)
         .fetch_one(&pool)
         .await
@@ -147,6 +134,64 @@ async fn get_vector_stats(headers: HeaderMap, State(pool): State<DbPool>) -> imp
             r.get::<i64, _>("count")
         })
         .unwrap_or(0);
+
+    let indexed_qa = sqlx::query(
+        "SELECT count(*) as count FROM qa_results WHERE tenant_id = ? AND indexed_at IS NOT NULL",
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool)
+    .await
+    .map(|r| {
+        use sqlx::Row;
+        r.get::<i64, _>("count")
+    })
+    .unwrap_or(0);
+
+    let pending_results: i64 = sqlx::query(
+        "SELECT count(*) as count FROM qa_results \
+         WHERE tenant_id = ? AND qc_scanned = 1 \
+         AND id NOT IN (SELECT qa_id FROM qa_cluster_items) \
+         AND indexed_at IS NULL",
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool)
+    .await
+    .map(|r| {
+        use sqlx::Row;
+        r.get("count")
+    })
+    .unwrap_or(0);
+
+    let pending_clusters: i64 = sqlx::query(
+        "SELECT count(*) as count FROM qa_clusters \
+         WHERE tenant_id = ? AND status != 'PENDING' \
+         AND indexed_at IS NULL AND golden_answer IS NOT NULL",
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool)
+    .await
+    .map(|r| {
+        use sqlx::Row;
+        r.get("count")
+    })
+    .unwrap_or(0);
+
+    let pending_golden = pending_results + pending_clusters;
+
+    // 3. Get chunk stats (tenant-scoped via source ownership)
+    let total_chunks = sqlx::query(
+        "SELECT count(*) as count FROM chunks c \
+         JOIN data_sources ds ON c.source_id = ds.id \
+         WHERE ds.tenant_id = ?",
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool)
+    .await
+    .map(|r| {
+        use sqlx::Row;
+        r.get::<i64, _>("count")
+    })
+    .unwrap_or(0);
 
     let chunk_sync_pct = if total_chunks > 0 {
         ((qdrant_points as f64 / total_chunks as f64) * 100.0).min(100.0)
@@ -190,7 +235,8 @@ async fn search_vectors(
     // Resolve embedding model from tenant config
     let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.as_ref()
+    let llm_config = tenant_config
+        .as_ref()
         .and_then(|c| c.llm_config.as_ref())
         .map(|c| c.0.clone())
         .unwrap_or_default();
@@ -201,14 +247,19 @@ async fn search_vectors(
     let embed_base_url = std::env::var("HEIMDALL_API_URL")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("OLLAMA_URL").ok().filter(|s| !s.is_empty()).map(|u| format!("{}/v1", u)))
+        .or_else(|| {
+            std::env::var("OLLAMA_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|u| format!("{}/v1", u))
+        })
         .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
     let embed_url = format!("{}/embeddings", embed_base_url.trim_end_matches('/'));
 
     // Call OpenAI-compatible /v1/embeddings endpoint via HTTP POST
     let client = reqwest::Client::new();
     let api_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
-    
+
     let embed_response = client
         .post(&embed_url)
         .header("Content-Type", "application/json")
@@ -229,12 +280,14 @@ async fn search_vectors(
                 ).into_response();
             }
             match resp.json::<serde_json::Value>().await {
-                Ok(body) => {
-                    body["data"][0]["embedding"]
-                        .as_array()
-                        .map(|arr| arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
-                        .unwrap_or_default()
-                }
+                Ok(body) => body["data"][0]["embedding"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_f64().map(|f| f as f32))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 Err(e) => {
                     return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                         Json(serde_json::json!({"error": format!("Failed to parse embedding response: {}", e)}))
@@ -250,25 +303,61 @@ async fn search_vectors(
     };
 
     if vector_f32.is_empty() {
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Empty embedding vector returned"}))
-        ).into_response();
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Empty embedding vector returned"})),
+        )
+            .into_response();
     }
 
     let target_tenant = payload.tenant_id.unwrap_or(tenant_id);
     let show_expired = payload.show_expired.unwrap_or(false);
 
+    // Wire search_settings from tenant config (Phase 2.1)
+    let search_settings = tenant_config
+        .as_ref()
+        .and_then(|c| c.search_settings.as_ref())
+        .map(|s| s.0.clone())
+        .unwrap_or(serde_json::json!({}));
+    let config_top_k = search_settings
+        .get("top_k")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    let limit = payload.limit.or(config_top_k).unwrap_or(5);
+
     // Generate BM25 sparse vector from query for hybrid search
     let sparse = mimir_core_ai::services::bm25::text_to_sparse_vector(&payload.query);
 
     // Try hybrid search first (source_chunks with named vectors)
-    match qdrant.search_hybrid("source_chunks", vector_f32.clone(), &sparse, payload.limit.unwrap_or(5), &target_tenant).await {
+    match qdrant
+        .search_hybrid(
+            "source_chunks",
+            vector_f32.clone(),
+            &sparse,
+            limit,
+            &target_tenant,
+        )
+        .await
+    {
         Ok(results) => Json(results).into_response(),
         Err(_) => {
             // Fallback to legacy dense-only search
-            match qdrant.search("source_chunks", vector_f32, payload.limit.unwrap_or(5), &target_tenant, show_expired).await {
+            match qdrant
+                .search(
+                    "source_chunks",
+                    vector_f32,
+                    limit,
+                    &target_tenant,
+                    show_expired,
+                )
+                .await
+            {
                 Ok(results) => Json(results).into_response(),
-                Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+                Err(e) => (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e.to_string()})),
+                )
+                    .into_response(),
             }
         }
     }
@@ -283,12 +372,20 @@ async fn delete_vector_handler(
     let _tenant_id = extract_tenant_id(&headers);
 
     match qdrant.delete_point("source_chunks", id).await {
-        Ok(_) => (axum::http::StatusCode::OK, Json(serde_json::json!({"status": "success"}))).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        Ok(_) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "success"})),
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
-/// POST /vector/qa/bulk — batch embed QA pairs and upsert into wiki_qa
+/// POST /vector/qa/bulk — batch embed QA pairs and upsert into golden_qa
 async fn bulk_index_qa(
     headers: HeaderMap,
     State(pool): State<DbPool>,
@@ -300,7 +397,8 @@ async fn bulk_index_qa(
     // Resolve embedding model
     let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.as_ref()
+    let llm_config = tenant_config
+        .as_ref()
         .and_then(|c| c.llm_config.as_ref())
         .map(|c| c.0.clone())
         .unwrap_or_default();
@@ -318,9 +416,11 @@ async fn bulk_index_qa(
         match embed_texts(&texts, &embed_model).await {
             Ok(vecs) => all_vectors.extend(vecs),
             Err(e) => {
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e}))
-                ).into_response();
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e})),
+                )
+                    .into_response();
             }
         }
     }
@@ -331,7 +431,7 @@ async fn bulk_index_qa(
         let point_id = uuid::Uuid::new_v4().as_u128() as u64;
         points.push(serde_json::json!({
             "id": point_id,
-            "vector": all_vectors[i],
+            "vector": { "dense": all_vectors[i] },
             "payload": {
                 "question": item.question,
                 "answer": item.answer,
@@ -348,18 +448,23 @@ async fn bulk_index_qa(
     let mut inserted = 0;
     for chunk in points.chunks(upsert_batch) {
         let body = serde_json::json!({ "points": chunk });
-        match qdrant.upsert_points("wiki_qa", body).await {
+        match qdrant.upsert_points("golden_qa", body).await {
             Ok(_) => inserted += chunk.len(),
             Err(e) => {
                 error!("Qdrant upsert error: {}", e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"inserted": inserted, "error": e.to_string()}))
-                ).into_response();
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"inserted": inserted, "error": e.to_string()})),
+                )
+                    .into_response();
             }
         }
     }
 
-    info!("✅ Indexed {} QA pairs into wiki_qa for tenant {}", inserted, tenant_id);
+    info!(
+        "✅ Indexed {} QA pairs into golden_qa for tenant {}",
+        inserted, tenant_id
+    );
     Json(serde_json::json!({"inserted": inserted, "error": null})).into_response()
 }
 
@@ -371,12 +476,15 @@ async fn embed_chunks(
 ) -> impl IntoResponse {
     let tenant_id = extract_tenant_id(&headers).to_string();
     let qdrant = QdrantService::new();
-    let collection = payload.collection.unwrap_or_else(|| "source_chunks".to_string());
+    let collection = payload
+        .collection
+        .unwrap_or_else(|| "source_chunks".to_string());
 
     // Resolve embedding model
     let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool.clone());
     let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
-    let llm_config = tenant_config.as_ref()
+    let llm_config = tenant_config
+        .as_ref()
         .and_then(|c| c.llm_config.as_ref())
         .map(|c| c.0.clone())
         .unwrap_or_default();
@@ -385,7 +493,7 @@ async fn embed_chunks(
     // Fetch chunks from DB
     let chunks: Vec<(i64, String, i64)> = if let Some(sid) = payload.source_id {
         sqlx::query_as(
-            "SELECT id, content, source_id FROM chunks WHERE source_id = ? AND tenant_id = ?"
+            "SELECT id, content, source_id FROM chunks WHERE source_id = ? AND tenant_id = ?",
         )
         .bind(sid)
         .bind(&tenant_id)
@@ -393,30 +501,34 @@ async fn embed_chunks(
         .await
         .unwrap_or_default()
     } else {
-        sqlx::query_as(
-            "SELECT id, content, source_id FROM chunks WHERE tenant_id = ?"
-        )
-        .bind(&tenant_id)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default()
+        sqlx::query_as("SELECT id, content, source_id FROM chunks WHERE tenant_id = ?")
+            .bind(&tenant_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default()
     };
 
     if chunks.is_empty() {
-        return Json(serde_json::json!({"embedded": 0, "message": "No chunks found"})).into_response();
+        return Json(serde_json::json!({"embedded": 0, "message": "No chunks found"}))
+            .into_response();
     }
 
     // Batch embed
     let batch_size = 64;
     let mut all_vectors: Vec<Vec<f32>> = Vec::new();
     for chunk_batch in chunks.chunks(batch_size) {
-        let texts: Vec<String> = chunk_batch.iter().map(|(_, content, _)| content.clone()).collect();
+        let texts: Vec<String> = chunk_batch
+            .iter()
+            .map(|(_, content, _)| content.clone())
+            .collect();
         match embed_texts(&texts, &embed_model).await {
             Ok(vecs) => all_vectors.extend(vecs),
             Err(e) => {
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e, "embedded": all_vectors.len()}))
-                ).into_response();
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e, "embedded": all_vectors.len()})),
+                )
+                    .into_response();
             }
         }
     }
@@ -426,7 +538,7 @@ async fn embed_chunks(
     for (i, (chunk_id, content, source_id)) in chunks.iter().enumerate() {
         points.push(serde_json::json!({
             "id": *chunk_id as u64,
-            "vector": all_vectors[i],
+            "vector": { "dense": all_vectors[i] },
             "payload": {
                 "content": content,
                 "chunk_id": chunk_id,
@@ -445,14 +557,19 @@ async fn embed_chunks(
             Ok(_) => embedded += batch.len(),
             Err(e) => {
                 error!("Qdrant upsert error: {}", e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"embedded": embedded, "error": e.to_string()}))
-                ).into_response();
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"embedded": embedded, "error": e.to_string()})),
+                )
+                    .into_response();
             }
         }
     }
 
-    info!("✅ Embedded {} chunks into {} for tenant {}", embedded, collection, tenant_id);
+    info!(
+        "✅ Embedded {} chunks into {} for tenant {}",
+        embedded, collection, tenant_id
+    );
     Json(serde_json::json!({"embedded": embedded, "collection": collection})).into_response()
 }
 
@@ -463,7 +580,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
-    
+
     #[tokio::test]
     async fn test_vector_routes_build() {
         assert!(true);

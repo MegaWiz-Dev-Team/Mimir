@@ -1,8 +1,8 @@
 use anyhow::Result;
 use dotenvy::dotenv;
+use mimir_core_ai::qa_qc::indexer::run_indexer;
 use mimir_core_ai::services::db::init_db;
 use mimir_core_ai::services::qdrant::QdrantService;
-use mimir_core_ai::qa_qc::indexer::run_indexer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -11,8 +11,8 @@ async fn main() -> Result<()> {
 
     let db_pool = init_db().await?;
     let qdrant = QdrantService::new();
-    
-    let collection_name = "wiki_qa";
+
+    let collection_name = "golden_qa";
 
     run_indexer(&db_pool, &qdrant, collection_name).await?;
 

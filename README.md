@@ -9,23 +9,24 @@
 
 ## ✨ Features
 
-### ✅ Implemented (Sprint 1-8)
-- 🔐 **Multi-Tenant IAM** — JWT auth, Argon2id password, role-based access
-- 📊 **Admin Dashboard** — Tenant switcher, user management, settings
+### ✅ Implemented (Sprint 1-17)
+- 🔐 **Multi-Tenant IAM** — JWT auth, Argon2id password, RBAC with dynamic custom roles
+- 📊 **Admin Dashboard** — Tenant switcher, user management, 5-tab settings (General / AI Models / Pipeline / Search / Security)
 - 📥 **Unified Data Ingress** — File upload (PDF/CSV/XLSX/HTML), web scraper, MCP connector
 - 📁 **Smart Upload** — Auto-detect source type from file extension
 - 🗄️ **Dual-mode Tabular Import** — Markdown preview or SQL table creation
-- 🧪 **Quality Control** — LLM data clustering, conflict resolution Kanban
+- 🧪 **Quality Control** — LLM data clustering, conflict resolution Kanban, iteration guards
 - 🎯 **Agent Evaluations** — LLM-as-a-judge, heatmap scoring, human override
-- 🧭 **Pipeline Traceability** — Source → Vector → Answer end-to-end tracking
+- 🧭 **Pipeline Traceability** — Source → Vector → Answer end-to-end tracking with step-level status
 - 🎮 **NPC Playground** — Tier 1 (simple chat) & Tier 2 (RAG) with streaming
 - 📡 **Real-time Monitoring** — WebSocket/SSE streaming logs
+- 🧠 **Dynamic LLM Routing** — Per-tenant slot configuration (chat/rag/judge/embedding) with multi-provider support
+- 🔑 **Vault-First Security** — HashiCorp Vault integration for tenant-specific API keys (Vault → ENV fallback)
+- 🕸️ **Knowledge Graph** — Neo4j entity extraction, graph visualization, path finding
+- 🔍 **Hybrid Search** — Vector + Graph + SQL → merged context with configurable search modes
+- ☸️ **K3s Deployment** — Automated build & deploy script for Kubernetes (OrbStack/K3s)
 
-### 🚧 Roadmap (Sprint 9-16)
-- 🔧 **Real Extraction Pipeline** — PDF/CSV/HTML extraction, configurable chunking
-- 🧠 **Embedding Service** — Multi-model (Ollama/Gemini/Qwen), pipeline lock
-- 🕸️ **Knowledge Graph** — Neo4j, LLM entity extraction, Sigma.js visualization
-- 🔍 **Hybrid Search** — Vector + Graph + SQL → merged context
+### 🚧 Roadmap
 - 🤖 **Multi-Agent System** — Router Agent, Tool Registry, Synthesis Agent
 - 📈 **Coverage Intelligence** — ACU per source, blind-spot detection, closed-loop
 - 🏭 **AI Agent Studio** — No-code visual builder, templates, deploy API/widget
@@ -39,15 +40,17 @@
 | Layer                | Technology                                          |
 | -------------------- | --------------------------------------------------- |
 | **Backend**          | Rust 🦀 (Axum + [Rig.rs](https://rig.rs))            |
-| **Frontend**         | Next.js 14 + TailwindCSS + shadcn/ui                |
+| **Frontend**         | Next.js 16 + TailwindCSS + shadcn/ui                |
 | **Database**         | MariaDB (relational)                                |
 | **Vector DB**        | Qdrant (semantic search)                            |
-| **Graph DB**         | Neo4j Community (knowledge graph) — *Sprint 11*     |
-| **Graph Viz**        | Sigma.js + graphology (WebGL) — *Sprint 11*         |
-| **LLM Providers**    | Ollama (local), Google Gemini, Qwen API             |
-| **Embedding Models** | nomic-embed-text, text-embedding-004, bge-m3        |
+| **Graph DB**         | Neo4j Community (knowledge graph)                   |
+| **Graph Viz**        | Sigma.js + graphology (WebGL)                       |
+| **LLM Gateway**      | Heimdall (self-hosted MLX/GGUF) + Ollama (local)    |
+| **LLM Cloud**        | Google Gemini, OpenAI, Azure OpenAI                 |
+| **Embedding Models** | BGE-M3 (Heimdall 1024d), nomic-embed-text, text-embedding-004 |
+| **Secrets**          | HashiCorp Vault (KV v2)                             |
 | **Game Server**      | [rAthena](https://github.com/rathena/rathena) (C++) |
-| **Infrastructure**   | Docker Compose                                      |
+| **Infrastructure**   | K3s (OrbStack) / Docker Compose                     |
 | **Hardware Target**  | Mac Air M3 / Mac mini M4 Pro                        |
 
 ---
@@ -96,21 +99,28 @@ Project-Mimir/
 ├── ro-ai-bridge/              # 🦀 Rust AI Backend (Axum)
 │   ├── src/
 │   │   ├── routes/            # API endpoints (auth, sources, eval, chat...)
-│   │   └── services/          # Business logic (ingress, extraction, sql_import...)
-│   ├── Cargo.toml
-│   └── .env
+│   │   └── services/          # Business logic (ingress, vault, llm_router...)
+│   ├── mimir-core-ai/
+│   │   ├── src/models/        # Data models (iam, pipeline, sources...)
+│   │   ├── src/services/      # Core services (db, iam, vault, llm_router...)
+│   │   └── migrations/        # SQLx database migrations
+│   ├── Dockerfile             # Multi-stage Docker build
+│   └── Cargo.toml
 ├── ro-ai-dashboard/           # ⚛️ Next.js Admin Dashboard
 │   ├── src/app/               # Pages (sources, playground, settings...)
 │   ├── src/components/        # UI components (shadcn/ui based)
-│   └── src/lib/               # API client, utils
+│   ├── src/lib/               # API client, utils
+│   └── Dockerfile             # Multi-stage Docker build
 ├── rathena/                   # 🎮 rAthena Game Server (C++)
+├── scripts/
+│   ├── deploy.sh              # Local development (docker-compose)
+│   └── k3s-deploy.sh          # K3s production deploy (build + rollout)
 ├── docs/
-│   ├── iso_29110/             # 📋 ISO 29110 Documents
-│   │   ├── pm/                # PM-01 Project Plan, PM-02 Sprint Reports
-│   │   └── si/                # SI-01 SRS, SI-02 SDD, SI-03 Traceability, SI-04 Tests
-│   └── ...
-├── tests/                     # 🧪 Integration tests
-├── docker-compose.yml         # 🐳 Full stack (MariaDB + Qdrant + rAthena)
+│   ├── deployment/            # Deployment guides
+│   ├── iso_29110/             # ISO 29110 compliance documents
+│   └── INDEX.md               # Full documentation index
+├── docker-compose.yml         # 🐳 Dev stack (MariaDB + Qdrant + Vault + ...)
+├── k8s/                       # ☸️ Kubernetes manifests (K3s/OrbStack)
 └── README.md
 ```
 
@@ -120,42 +130,58 @@ Project-Mimir/
 
 ### Prerequisites
 - Docker & Docker Compose
-- Rust (1.75+)
-- Node.js (18+)
-- Ollama (for local LLM)
+- Rust (1.85+)
+- Node.js (22+)
+- Ollama or Heimdall (for local LLM)
 
-### 1. Start Infrastructure
+### Option A: Local Development (Docker Compose)
+
 ```bash
+# 1. Start infrastructure
 docker compose up -d
-# MariaDB (3306) + Qdrant (6333) + rAthena (6900/6121/5121)
-```
+# MariaDB, Qdrant, Redis, Vault, Neo4j, MinIO
 
-### 2. Start AI Backend
-```bash
+# 2. Start AI Backend
 cd ro-ai-bridge
 cp .env.example .env        # Configure DB, Qdrant, LLM settings
-cargo run --bin monitor
-```
+cargo run
 
-### 3. Start Dashboard
-```bash
+# 3. Start Dashboard
 cd ro-ai-dashboard
 npm install
 npm run dev                  # http://localhost:3000
 ```
 
-### 4. Connect Game Client (Optional)
-Edit `data/clientinfo.xml`:
-```xml
-<connection>
-    <display>Project Mimir Local</display>
-    <address>127.0.0.1</address>
-    <port>6900</port>
-    <version>46</version>
-    <langtype>0</langtype>
-</connection>
+Or use the automated script:
+```bash
+./scripts/deploy.sh --dev
 ```
-Test account: `test` / `test`
+
+### Option B: K3s Deployment (OrbStack)
+
+For production-like deployment on K3s (OrbStack):
+
+```bash
+# Deploy everything (build + rollout)
+./scripts/k3s-deploy.sh all
+
+# Or deploy individually
+./scripts/k3s-deploy.sh api
+./scripts/k3s-deploy.sh dashboard
+
+# Override API URL for non-localhost access
+NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ./scripts/k3s-deploy.sh dashboard
+```
+
+**K3s Service Ports:**
+
+| Service         | NodePort | URL                      |
+| --------------- | -------- | ------------------------ |
+| Mimir API       | 30000    | http://localhost:30000   |
+| Mimir Dashboard | 30001    | http://localhost:30001   |
+| Yggdrasil (SSO) | 30085    | http://localhost:30085   |
+| Bifrost         | 30100    | http://localhost:30100   |
+| Fenrir          | 30200    | http://localhost:30200   |
 
 ---
 
@@ -171,14 +197,18 @@ Test account: `test` / `test`
 | 6      | Agent Evaluations System                   | ✅ Done    |
 | 7      | UX/UI Pipeline & Traceability              | ✅ Done    |
 | 8      | Unified Data Ingress & File Upload         | ✅ Done    |
-| 9      | Real Pipeline & Navigation                 | 📋 Planned |
-| 10     | Embedding & Vector Store                   | 📋 Planned |
-| 11     | Knowledge Graph & GraphRAG                 | 📋 Planned |
-| 12     | Multi-Agent & Coverage Intelligence        | 📋 Planned |
-| 13     | AI Agent Studio                            | 📋 Planned |
-| 14     | Production Ready                           | 📋 Planned |
-| 15     | Dataset Studio                             | 📋 Planned |
-| 16     | Training Integration                       | 📋 Planned |
+| 9      | Real Extraction Pipeline                   | ✅ Done    |
+| 10     | Embedding & Vector Store                   | ✅ Done    |
+| 11     | Knowledge Graph & GraphRAG                 | ✅ Done    |
+| 12     | Hybrid Search & Retrieval                  | ✅ Done    |
+| 13     | Asgard K3s Platform & SSO                  | ✅ Done    |
+| 14     | Dynamic LLM Routing                        | ✅ Done    |
+| 15     | Medical RAG (Eir/OpenEMR)                  | ✅ Done    |
+| 16     | Pipeline Orchestration & Step Tracking     | ✅ Done    |
+| 17     | Vault-First Security & Settings UX         | ✅ Done    |
+| 18     | Multi-Agent System                         | 📋 Planned |
+| 19     | AI Agent Studio                            | 📋 Planned |
+| 20     | Dataset Studio & Training                  | 📋 Planned |
 
 ---
 

@@ -70,6 +70,7 @@ impl GraphRetriever for SqlGraphRetriever {
     ) -> Result<Vec<GraphSearchResult>, String> {
         // 1. Extract key terms from question for entity search
         let terms = extract_search_terms(question);
+        tracing::info!("Graph search terms: {:?}", terms);
         if terms.is_empty() {
             return Ok(vec![]);
         }
@@ -80,7 +81,9 @@ impl GraphRetriever for SqlGraphRetriever {
             let pattern = format!("%{}%", term);
 
             // Search entities matching the term
-            let entities: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
+            // NOTE: properties column is JSON/BLOB in MariaDB — decode as raw bytes
+            //       to avoid sqlx type mismatch crash, then convert to string.
+            let entities: Vec<(i64, String, String, Option<Vec<u8>>)> = sqlx::query_as(
                 "SELECT id, name, entity_type, properties \
                  FROM kg_entities \
                  WHERE tenant_id = ? AND (LOWER(name) LIKE LOWER(?) OR LOWER(entity_type) LIKE LOWER(?)) \
@@ -94,7 +97,13 @@ impl GraphRetriever for SqlGraphRetriever {
             .await
             .map_err(|e| format!("Entity search failed: {}", e))?;
 
-            for (entity_id, name, entity_type, props) in &entities {
+            tracing::info!("Graph search entities found: {}", entities.len());
+
+            for (entity_id, name, entity_type, props_raw) in &entities {
+                // Convert BLOB bytes to string for JSON parsing
+                let props = props_raw
+                    .as_ref()
+                    .and_then(|bytes| String::from_utf8(bytes.clone()).ok());
                 // Get 1-hop neighbors
                 let outgoing: Vec<(String, String, String)> = sqlx::query_as(
                     "SELECT e.name, e.entity_type, r.relation_type \
@@ -141,9 +150,7 @@ impl GraphRetriever for SqlGraphRetriever {
                 }
 
                 let score = compute_match_score(name, term);
-                let properties = props
-                    .as_ref()
-                    .and_then(|p| serde_json::from_str(p).ok());
+                let properties = props.as_ref().and_then(|p| serde_json::from_str(p).ok());
 
                 results.push(GraphSearchResult {
                     entity_name: name.clone(),
@@ -156,7 +163,11 @@ impl GraphRetriever for SqlGraphRetriever {
         }
 
         // Sort by score descending, deduplicate by entity name
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.dedup_by(|a, b| a.entity_name == b.entity_name);
         results.truncate(limit);
 
@@ -208,17 +219,86 @@ pub fn graph_to_retrieval_results(graph_results: &[GraphSearchResult]) -> Vec<Re
 /// Strips common stop words and short words.
 pub fn extract_search_terms(question: &str) -> Vec<String> {
     let stop_words: std::collections::HashSet<&str> = [
-        "the", "a", "an", "is", "are", "was", "were", "what", "how",
-        "who", "when", "where", "which", "does", "do", "did", "can",
-        "will", "would", "should", "could", "has", "have", "had",
-        "this", "that", "these", "those", "of", "in", "on", "at",
-        "to", "for", "with", "by", "from", "about", "into", "and",
-        "or", "not", "but", "if", "then", "than", "so", "it", "its",
-        "my", "me", "we", "our", "you", "your", "they", "their",
-        "him", "her", "his", "she", "he", "been", "being",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "what",
+        "how",
+        "who",
+        "when",
+        "where",
+        "which",
+        "does",
+        "do",
+        "did",
+        "can",
+        "will",
+        "would",
+        "should",
+        "could",
+        "has",
+        "have",
+        "had",
+        "this",
+        "that",
+        "these",
+        "those",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "with",
+        "by",
+        "from",
+        "about",
+        "into",
+        "and",
+        "or",
+        "not",
+        "but",
+        "if",
+        "then",
+        "than",
+        "so",
+        "it",
+        "its",
+        "my",
+        "me",
+        "we",
+        "our",
+        "you",
+        "your",
+        "they",
+        "their",
+        "him",
+        "her",
+        "his",
+        "she",
+        "he",
+        "been",
+        "being",
         // Thai stop words
-        "คือ", "อะไร", "เป็น", "ไหม", "มี", "ของ", "ที่", "ใน",
-        "จาก", "ให้", "ได้", "และ", "หรือ", "กับ", "นี้",
+        "คือ",
+        "อะไร",
+        "เป็น",
+        "ไหม",
+        "มี",
+        "ของ",
+        "ที่",
+        "ใน",
+        "จาก",
+        "ให้",
+        "ได้",
+        "และ",
+        "หรือ",
+        "กับ",
+        "นี้",
     ]
     .iter()
     .copied()
@@ -261,9 +341,19 @@ mod tests {
     fn test_extract_terms_basic() {
         let terms = extract_search_terms("What is Aspirin used for?");
         assert!(!terms.is_empty());
-        assert!(terms.contains(&"Aspirin".to_string()), "Should keep 'Aspirin': {:?}", terms);
-        assert!(!terms.contains(&"is".to_string()), "Should remove stop word 'is'");
-        assert!(!terms.contains(&"What".to_string()), "Should remove stop word 'What'");
+        assert!(
+            terms.contains(&"Aspirin".to_string()),
+            "Should keep 'Aspirin': {:?}",
+            terms
+        );
+        assert!(
+            !terms.contains(&"is".to_string()),
+            "Should remove stop word 'is'"
+        );
+        assert!(
+            !terms.contains(&"What".to_string()),
+            "Should remove stop word 'What'"
+        );
     }
 
     #[test]
@@ -275,7 +365,11 @@ mod tests {
     #[test]
     fn test_extract_terms_empty() {
         let terms = extract_search_terms("is the a");
-        assert!(terms.is_empty(), "All stop words should produce empty: {:?}", terms);
+        assert!(
+            terms.is_empty(),
+            "All stop words should produce empty: {:?}",
+            terms
+        );
     }
 
     #[test]
@@ -296,7 +390,11 @@ mod tests {
     #[test]
     fn test_score_prefix_match() {
         let score = compute_match_score("Aspirin", "Asp");
-        assert!(score > 0.8 && score <= 0.9, "Prefix should score ~0.9: {}", score);
+        assert!(
+            score > 0.8 && score <= 0.9,
+            "Prefix should score ~0.9: {}",
+            score
+        );
     }
 
     #[test]
@@ -319,14 +417,12 @@ mod tests {
             entity_name: "Aspirin".to_string(),
             entity_type: "Drug".to_string(),
             properties: Some(json!({"category": "NSAID"})),
-            neighbors: vec![
-                GraphNeighbor {
-                    name: "Headache".to_string(),
-                    entity_type: "Symptom".to_string(),
-                    relation_type: "treats".to_string(),
-                    direction: "outgoing".to_string(),
-                },
-            ],
+            neighbors: vec![GraphNeighbor {
+                name: "Headache".to_string(),
+                entity_type: "Symptom".to_string(),
+                relation_type: "treats".to_string(),
+                direction: "outgoing".to_string(),
+            }],
             score: 0.95,
         };
 
@@ -352,22 +448,18 @@ mod tests {
 
     #[test]
     fn test_graph_to_retrieval_basic() {
-        let graph_results = vec![
-            GraphSearchResult {
-                entity_name: "Aspirin".to_string(),
+        let graph_results = vec![GraphSearchResult {
+            entity_name: "Aspirin".to_string(),
+            entity_type: "Drug".to_string(),
+            properties: None,
+            neighbors: vec![GraphNeighbor {
+                name: "Ibuprofen".to_string(),
                 entity_type: "Drug".to_string(),
-                properties: None,
-                neighbors: vec![
-                    GraphNeighbor {
-                        name: "Ibuprofen".to_string(),
-                        entity_type: "Drug".to_string(),
-                        relation_type: "interacts_with".to_string(),
-                        direction: "outgoing".to_string(),
-                    },
-                ],
-                score: 0.95,
-            },
-        ];
+                relation_type: "interacts_with".to_string(),
+                direction: "outgoing".to_string(),
+            }],
+            score: 0.95,
+        }];
 
         let results = graph_to_retrieval_results(&graph_results);
         assert_eq!(results.len(), 1);
@@ -380,32 +472,31 @@ mod tests {
 
     #[test]
     fn test_graph_to_retrieval_no_neighbors() {
-        let graph_results = vec![
-            GraphSearchResult {
-                entity_name: "Orphan".to_string(),
-                entity_type: "Concept".to_string(),
-                properties: None,
-                neighbors: vec![],
-                score: 0.5,
-            },
-        ];
+        let graph_results = vec![GraphSearchResult {
+            entity_name: "Orphan".to_string(),
+            entity_type: "Concept".to_string(),
+            properties: None,
+            neighbors: vec![],
+            score: 0.5,
+        }];
 
         let results = graph_to_retrieval_results(&graph_results);
         assert_eq!(results.len(), 1);
-        assert!(!results[0].content.contains("Relations:"), "No neighbors = no relations line");
+        assert!(
+            !results[0].content.contains("Relations:"),
+            "No neighbors = no relations line"
+        );
     }
 
     #[test]
     fn test_graph_to_retrieval_metadata_has_entity_type() {
-        let graph_results = vec![
-            GraphSearchResult {
-                entity_name: "Test".to_string(),
-                entity_type: "Person".to_string(),
-                properties: Some(json!({"role": "doctor"})),
-                neighbors: vec![],
-                score: 0.8,
-            },
-        ];
+        let graph_results = vec![GraphSearchResult {
+            entity_name: "Test".to_string(),
+            entity_type: "Person".to_string(),
+            properties: Some(json!({"role": "doctor"})),
+            neighbors: vec![],
+            score: 0.8,
+        }];
 
         let results = graph_to_retrieval_results(&graph_results);
         assert_eq!(results[0].metadata["entity_type"], "Person");

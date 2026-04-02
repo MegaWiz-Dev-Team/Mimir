@@ -3,11 +3,14 @@
 //! GET /api/v1/backup/status — backup status
 //! POST /api/v1/backup/trigger — trigger backup
 
-use axum::{routing::{get, post}, Router, Json};
-use sqlx::MySqlPool;
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::{json, Value};
+use sqlx::MySqlPool;
 
-use mimir_core_ai::services::backup::{BackupConfig, build_backup_status};
+use mimir_core_ai::services::backup::{build_backup_status, BackupConfig};
 
 pub fn backup_routes() -> Router<MySqlPool> {
     Router::new()

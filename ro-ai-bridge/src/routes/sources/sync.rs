@@ -1,25 +1,26 @@
 //! Sync orchestration: trigger source sync and SSE log streaming.
 
+use crate::config::Config;
+use crate::routes::tenant::extract_tenant_id;
 use axum::{
-    Json, Extension, extract::{Path, State},
-    http::{StatusCode, HeaderMap},
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
     response::sse::{Event, Sse},
+    Extension, Json,
 };
-use std::sync::Arc;
+use futures::stream::Stream;
+use mimir_core_ai::models::sources::DataSource;
+use mimir_core_ai::services::chunking;
+use mimir_core_ai::services::db::DbPool;
+use mimir_core_ai::services::dedup;
+use mimir_core_ai::services::ingress::IngressManager;
+use mimir_core_ai::services::link_discovery;
+use serde_json::{json, Value};
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use futures::stream::Stream;
-use crate::config::Config;
-use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::models::sources::DataSource;
-use mimir_core_ai::services::ingress::IngressManager;
-use mimir_core_ai::services::chunking;
-use mimir_core_ai::services::link_discovery;
-use mimir_core_ai::services::dedup;
-use serde_json::{json, Value};
-use tracing::{info, error};
-use crate::routes::tenant::extract_tenant_id;
+use tracing::{error, info};
 
 use super::upload::download_from_s3;
 
@@ -32,27 +33,38 @@ pub(crate) async fn sync_source(
     let tenant_id = extract_tenant_id(&headers);
 
     // Check if source exists
-    let source = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?")
-        .bind(id)
-        .bind(tenant_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let source = sqlx::query_as::<_, DataSource>(
+        "SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?",
+    )
+    .bind(id)
+    .bind(tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     if source.is_none() {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Source not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Source not found"})),
+        ));
     }
 
     // Update status to RUNNING
-    sqlx::query(
-        "UPDATE data_sources SET last_sync_status = 'RUNNING' WHERE id = ?"
-    )
-    .bind(id)
-    .execute(&pool)
-    .await
-    .map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
-    })?;
+    sqlx::query("UPDATE data_sources SET last_sync_status = 'RUNNING' WHERE id = ?")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     let pool_clone = pool.clone();
     let config_clone = config.clone();
@@ -70,18 +82,21 @@ pub(crate) async fn sync_source(
                         // Download file from RustFS
                         match download_from_s3(&config_clone, s3_key).await {
                             Ok(data) => {
-                                info!("Downloaded {} bytes from S3, running extraction", data.len());
+                                info!(
+                                    "Downloaded {} bytes from S3, running extraction",
+                                    data.len()
+                                );
                                 IngressManager::process_source_with_data(&source_clone, &data)
-                            },
+                            }
                             Err(e) => Err(anyhow::anyhow!("S3 download failed: {}", e)),
                         }
-                    },
+                    }
                     _ => Err(anyhow::anyhow!(
                         "No S3 key found for source '{}' — file may not have been uploaded",
                         source_clone.name
                     )),
                 }
-            },
+            }
             // Network sources: fetch + extract
             _ => IngressManager::process_source(&source_clone).await,
         };
@@ -90,12 +105,46 @@ pub(crate) async fn sync_source(
             Ok(raw_text) => {
                 let mb_size = raw_text.len() as f64 / 1_048_576.0;
 
-                // ─── Chunk the extracted text ────────────────────────
-                let strategy = chunking::auto_recommend(&raw_text);
+                // ─── Chunk the extracted text (A2: use tenant config if set) ────
+                let strategy = {
+                    let iam =
+                        mimir_core_ai::services::iam::IamService::new_with_env(pool_clone.clone());
+                    let tenant_cfg = iam.get_tenant_config(&source_clone.tenant_id).await.ok();
+                    let pipeline_settings = tenant_cfg
+                        .as_ref()
+                        .and_then(|c| c.pipeline_settings.as_ref());
+
+                    match pipeline_settings
+                        .and_then(|p| p.get("chunk_strategy").and_then(|v| v.as_str()))
+                    {
+                        Some("fixed") => {
+                            let size = pipeline_settings
+                                .and_then(|p| p.get("chunk_size").and_then(|v| v.as_u64()))
+                                .unwrap_or(512) as usize;
+                            let overlap = pipeline_settings
+                                .and_then(|p| p.get("chunk_overlap").and_then(|v| v.as_u64()))
+                                .unwrap_or(50) as usize;
+                            chunking::ChunkStrategy::Fixed { size, overlap }
+                        }
+                        Some("recursive") => {
+                            let max_size = pipeline_settings
+                                .and_then(|p| p.get("chunk_size").and_then(|v| v.as_u64()))
+                                .unwrap_or(512) as usize;
+                            chunking::ChunkStrategy::Recursive { max_size }
+                        }
+                        _ => chunking::auto_recommend(&raw_text), // "auto" or unset
+                    }
+                };
                 let chunk_results = chunking::chunk(&raw_text, &strategy).unwrap_or_default();
                 let total_chunks = chunk_results.len() as i32;
 
-                info!("Sync completed for {} ({}): {} bytes, {} chunks", source_clone.name, id, raw_text.len(), total_chunks);
+                info!(
+                    "Sync completed for {} ({}): {} bytes, {} chunks",
+                    source_clone.name,
+                    id,
+                    raw_text.len(),
+                    total_chunks
+                );
 
                 // Store chunks in DB (with dedup)
                 let mut dedup_tracker = dedup::DedupTracker::new();
@@ -104,7 +153,7 @@ pub(crate) async fn sync_source(
 
                     // Check for existing fingerprint in DB
                     let existing: Option<(i64,)> = sqlx::query_as(
-                        "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1"
+                        "SELECT source_id FROM content_fingerprints WHERE content_hash = ? LIMIT 1",
                     )
                     .bind(&content_hash)
                     .fetch_optional(&pool_clone)
@@ -112,7 +161,11 @@ pub(crate) async fn sync_source(
                     .unwrap_or(None);
 
                     if let Some((existing_source_id,)) = existing {
-                        dedup_tracker.record_duplicate(cr.chunk_index, &content_hash, existing_source_id);
+                        dedup_tracker.record_duplicate(
+                            cr.chunk_index,
+                            &content_hash,
+                            existing_source_id,
+                        );
                         continue; // Skip duplicate chunk
                     }
 
@@ -155,15 +208,21 @@ pub(crate) async fn sync_source(
                 }
 
                 if dedup_tracker.report.duplicate_chunks > 0 {
-                    info!("Dedup report for source {}: {} unique, {} duplicates skipped",
-                        id, dedup_tracker.report.unique_chunks, dedup_tracker.report.duplicate_chunks);
+                    info!(
+                        "Dedup report for source {}: {} unique, {} duplicates skipped",
+                        id,
+                        dedup_tracker.report.unique_chunks,
+                        dedup_tracker.report.duplicate_chunks
+                    );
                 }
                 let total_chunks = dedup_tracker.report.unique_chunks as i32;
 
                 // ─── Link Discovery for web sources ─────────────────
                 if source_clone.source_type == "web" {
                     let content_hash = link_discovery::compute_content_hash(&raw_text);
-                    let source_url = source_clone.config_json.get("url")
+                    let source_url = source_clone
+                        .config_json
+                        .get("url")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
 
@@ -178,8 +237,19 @@ pub(crate) async fn sync_source(
                     .await
                     .map_err(|e| error!("Failed to insert crawled_page for source {}: {}", id, e));
 
-                    // Discover linked pages (same domain, max 50)
-                    let discovered = link_discovery::discover_links(&raw_text, source_url, 50);
+                    // Discover linked pages (same domain, respecting tenant config)
+                    let max_pages = {
+                        let iam = mimir_core_ai::services::iam::IamService::new_with_env(
+                            pool_clone.clone(),
+                        );
+                        let tid = &source_clone.tenant_id;
+                        iam.get_tenant_config(tid)
+                            .await
+                            .map(|c| c.max_crawl_pages as usize)
+                            .unwrap_or(50)
+                    };
+                    let discovered =
+                        link_discovery::discover_links(&raw_text, source_url, max_pages);
                     info!("Discovered {} links for source {}", discovered.len(), id);
 
                     for link in &discovered {
@@ -203,10 +273,13 @@ pub(crate) async fn sync_source(
                 .execute(&pool_clone)
                 .await
                 .map_err(|e| error!("Failed to update source {} to COMPLETED: {}", id, e));
-            },
+            }
             Err(e) => {
                 let error_msg = format!("{}", e);
-                error!("Sync failed for {} ({}): {}", source_clone.name, id, error_msg);
+                error!(
+                    "Sync failed for {} ({}): {}",
+                    source_clone.name, id, error_msg
+                );
                 let _ = sqlx::query(
                     "UPDATE data_sources SET last_sync_status = 'FAILED', raw_markdown = ? WHERE id = ?"
                 )
@@ -221,10 +294,13 @@ pub(crate) async fn sync_source(
 
     info!("Triggered sync for source id {}", id);
 
-    Ok((StatusCode::ACCEPTED, Json(json!({
-        "message": "Sync job triggered successfully",
-        "source_id": id
-    }))))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "message": "Sync job triggered successfully",
+            "source_id": id
+        })),
+    ))
 }
 
 // Simulated SSE stream for real-time logs

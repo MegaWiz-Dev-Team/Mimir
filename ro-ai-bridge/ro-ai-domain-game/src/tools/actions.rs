@@ -1,5 +1,5 @@
-use rig::tool::Tool;
 use rig::completion::ToolDefinition;
+use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -90,7 +90,7 @@ impl Tool for HealTool {
                 "amount": args.amount
             }
         }));
-        
+
         Ok(HealResult {
             command: "heal".to_string(),
             amount: args.amount,

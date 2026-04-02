@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use tracing_subscriber;
 
 // ─── YAML Data Structures ──────────────────────────────────
@@ -136,7 +136,12 @@ struct EmbedResponse {
     embeddings: Vec<Vec<f32>>,
 }
 
-async fn get_embeddings(client: &Client, ollama_url: &str, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+async fn get_embeddings(
+    client: &Client,
+    ollama_url: &str,
+    model: &str,
+    texts: &[String],
+) -> Result<Vec<Vec<f32>>> {
     let req = EmbedRequest {
         model: model.to_string(),
         input: texts.to_vec(),
@@ -162,27 +167,69 @@ async fn get_embeddings(client: &Client, ollama_url: &str, model: &str, texts: &
 fn item_to_text(item: &YamlItem) -> String {
     let name = item.name.as_deref().unwrap_or("Unknown");
     let item_type = item.item_type.as_deref().unwrap_or("Etc");
-    let sub_type = item.sub_type.as_ref().map(|s| format!(" ({})", s)).unwrap_or_default();
+    let sub_type = item
+        .sub_type
+        .as_ref()
+        .map(|s| format!(" ({})", s))
+        .unwrap_or_default();
 
     let mut parts = vec![format!("{} — Type: {}{}", name, item_type, sub_type)];
 
-    if let Some(atk) = item.attack { if atk > 0 { parts.push(format!("ATK: {}", atk)); } }
-    if let Some(matk) = item.magic_attack { if matk > 0 { parts.push(format!("MATK: {}", matk)); } }
-    if let Some(def) = item.defense { if def > 0 { parts.push(format!("DEF: {}", def)); } }
-    if let Some(w) = item.weight { parts.push(format!("Weight: {}", w as f32 / 10.0)); }
-    if let Some(s) = item.slots { if s > 0 { parts.push(format!("Slots: {}", s)); } }
-    if let Some(b) = item.buy { if b > 0 { parts.push(format!("Price: {} zeny", b)); } }
-    if let Some(wl) = item.weapon_level { parts.push(format!("Weapon Lv: {}", wl)); }
-    if let Some(al) = item.armor_level { parts.push(format!("Armor Lv: {}", al)); }
-    if let Some(el) = item.equip_level_min { if el > 0 { parts.push(format!("Req Lv: {}", el)); } }
-    if let Some(r) = item.range { if r > 0 { parts.push(format!("Range: {}", r)); } }
-    if item.refineable == Some(true) { parts.push("Refineable".to_string()); }
+    if let Some(atk) = item.attack {
+        if atk > 0 {
+            parts.push(format!("ATK: {}", atk));
+        }
+    }
+    if let Some(matk) = item.magic_attack {
+        if matk > 0 {
+            parts.push(format!("MATK: {}", matk));
+        }
+    }
+    if let Some(def) = item.defense {
+        if def > 0 {
+            parts.push(format!("DEF: {}", def));
+        }
+    }
+    if let Some(w) = item.weight {
+        parts.push(format!("Weight: {}", w as f32 / 10.0));
+    }
+    if let Some(s) = item.slots {
+        if s > 0 {
+            parts.push(format!("Slots: {}", s));
+        }
+    }
+    if let Some(b) = item.buy {
+        if b > 0 {
+            parts.push(format!("Price: {} zeny", b));
+        }
+    }
+    if let Some(wl) = item.weapon_level {
+        parts.push(format!("Weapon Lv: {}", wl));
+    }
+    if let Some(al) = item.armor_level {
+        parts.push(format!("Armor Lv: {}", al));
+    }
+    if let Some(el) = item.equip_level_min {
+        if el > 0 {
+            parts.push(format!("Req Lv: {}", el));
+        }
+    }
+    if let Some(r) = item.range {
+        if r > 0 {
+            parts.push(format!("Range: {}", r));
+        }
+    }
+    if item.refineable == Some(true) {
+        parts.push("Refineable".to_string());
+    }
 
     // Locations
     if let Some(locs) = &item.locations {
         if let Some(obj) = locs.as_object() {
             let loc_names: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
-            if !loc_names.is_empty() { parts.push(format!("Equip: {}", loc_names.join(", "))); }
+            if !loc_names.is_empty() {
+                parts.push(format!("Equip: {}", loc_names.join(", ")));
+            }
         }
     }
 
@@ -205,43 +252,92 @@ fn mob_to_text(mob: &YamlMob) -> String {
 
     let mut parts = vec![format!("{} — Level {}", name, level)];
 
-    if let Some(hp) = mob.hp { parts.push(format!("HP: {}", hp)); }
-    if let Some(atk) = mob.attack { parts.push(format!("ATK: {}", atk)); }
-    if let Some(def) = mob.defense { if def > 0 { parts.push(format!("DEF: {}", def)); } }
-    if let Some(mdef) = mob.magic_defense { if mdef > 0 { parts.push(format!("MDEF: {}", mdef)); } }
-    if let Some(bexp) = mob.base_exp { if bexp > 0 { parts.push(format!("Base EXP: {}", bexp)); } }
-    if let Some(jexp) = mob.job_exp { if jexp > 0 { parts.push(format!("Job EXP: {}", jexp)); } }
-    if let Some(mexp) = mob.mvp_exp { if mexp > 0 { parts.push(format!("MVP EXP: {}", mexp)); } }
-    if let Some(s) = &mob.size { parts.push(format!("Size: {}", s)); }
-    if let Some(r) = &mob.race { parts.push(format!("Race: {}", r)); }
+    if let Some(hp) = mob.hp {
+        parts.push(format!("HP: {}", hp));
+    }
+    if let Some(atk) = mob.attack {
+        parts.push(format!("ATK: {}", atk));
+    }
+    if let Some(def) = mob.defense {
+        if def > 0 {
+            parts.push(format!("DEF: {}", def));
+        }
+    }
+    if let Some(mdef) = mob.magic_defense {
+        if mdef > 0 {
+            parts.push(format!("MDEF: {}", mdef));
+        }
+    }
+    if let Some(bexp) = mob.base_exp {
+        if bexp > 0 {
+            parts.push(format!("Base EXP: {}", bexp));
+        }
+    }
+    if let Some(jexp) = mob.job_exp {
+        if jexp > 0 {
+            parts.push(format!("Job EXP: {}", jexp));
+        }
+    }
+    if let Some(mexp) = mob.mvp_exp {
+        if mexp > 0 {
+            parts.push(format!("MVP EXP: {}", mexp));
+        }
+    }
+    if let Some(s) = &mob.size {
+        parts.push(format!("Size: {}", s));
+    }
+    if let Some(r) = &mob.race {
+        parts.push(format!("Race: {}", r));
+    }
     if let Some(e) = &mob.element {
         let el = mob.element_level.unwrap_or(1);
         parts.push(format!("Element: {} Lv{}", e, el));
     }
-    if let Some(ar) = mob.attack_range { if ar > 0 { parts.push(format!("ATK Range: {}", ar)); } }
+    if let Some(ar) = mob.attack_range {
+        if ar > 0 {
+            parts.push(format!("ATK Range: {}", ar));
+        }
+    }
 
     // Stats summary
     let stats: Vec<String> = [
-        ("STR", mob.str_stat), ("AGI", mob.agi), ("VIT", mob.vit),
-        ("INT", mob.int_stat), ("DEX", mob.dex), ("LUK", mob.luk),
-    ].iter()
-        .filter(|(_, v)| v.is_some() && v.unwrap() > 1)
-        .map(|(n, v)| format!("{}: {}", n, v.unwrap()))
-        .collect();
-    if !stats.is_empty() { parts.push(format!("Stats: {}", stats.join(", "))); }
+        ("STR", mob.str_stat),
+        ("AGI", mob.agi),
+        ("VIT", mob.vit),
+        ("INT", mob.int_stat),
+        ("DEX", mob.dex),
+        ("LUK", mob.luk),
+    ]
+    .iter()
+    .filter(|(_, v)| v.is_some() && v.unwrap() > 1)
+    .map(|(n, v)| format!("{}: {}", n, v.unwrap()))
+    .collect();
+    if !stats.is_empty() {
+        parts.push(format!("Stats: {}", stats.join(", ")));
+    }
 
-    if let Some(c) = &mob.mob_class { parts.push(format!("Class: {}", c)); }
+    if let Some(c) = &mob.mob_class {
+        parts.push(format!("Class: {}", c));
+    }
 
     parts.join(", ")
 }
 
 // ─── Qdrant Helpers ────────────────────────────────────────
 
-async fn ensure_collection(client: &Client, qdrant_url: &str, name: &str, vector_size: u64) -> Result<()> {
+async fn ensure_collection(
+    client: &Client,
+    qdrant_url: &str,
+    name: &str,
+    vector_size: u64,
+) -> Result<()> {
     let url = format!("{}/collections/{}", qdrant_url, name);
     let resp = client.get(&url).send().await?;
     if resp.status().is_success() {
-        info!("✅ Collection '{}' already exists, deleting for re-ingestion...", name);
+        info!(
+            "✅ Collection '{}' already exists, deleting for re-ingestion...",
+            name
+        );
         client.delete(&url).send().await?;
     }
 
@@ -255,12 +351,21 @@ async fn ensure_collection(client: &Client, qdrant_url: &str, name: &str, vector
     let resp = client.put(&url).json(&body).send().await?;
     if !resp.status().is_success() {
         let err = resp.text().await?;
-        return Err(anyhow::anyhow!("Failed to create collection '{}': {}", name, err));
+        return Err(anyhow::anyhow!(
+            "Failed to create collection '{}': {}",
+            name,
+            err
+        ));
     }
     Ok(())
 }
 
-async fn upsert_batch(client: &Client, qdrant_url: &str, collection: &str, points: serde_json::Value) -> Result<()> {
+async fn upsert_batch(
+    client: &Client,
+    qdrant_url: &str,
+    collection: &str,
+    points: serde_json::Value,
+) -> Result<()> {
     let url = format!("{}/collections/{}/points", qdrant_url, collection);
     let body = json!({ "points": points });
     let resp = client.put(&url).json(&body).send().await?;
@@ -280,16 +385,19 @@ async fn main() -> Result<()> {
     dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    let ollama_url = env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let ollama_url =
+        env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
     let qdrant_url = env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string());
     let embed_model = env::var("EMBED_MODEL").unwrap_or_else(|_| "nomic-embed-text".to_string());
-    let rathena_db_path = env::var("RATHENA_DB_PATH").unwrap_or_else(|_| "../rathena/db/re".to_string());
+    let rathena_db_path =
+        env::var("RATHENA_DB_PATH").unwrap_or_else(|_| "../rathena/db/re".to_string());
 
     let client = Client::new();
 
     // Test Ollama connectivity & get vector size
     info!("🔌 Testing Ollama embedding model '{}'...", embed_model);
-    let test_embeddings = get_embeddings(&client, &ollama_url, &embed_model, &["test".to_string()]).await?;
+    let test_embeddings =
+        get_embeddings(&client, &ollama_url, &embed_model, &["test".to_string()]).await?;
     let vector_size = test_embeddings[0].len() as u64;
     info!("✅ Embedding model ready, vector size: {}", vector_size);
 
@@ -301,18 +409,16 @@ async fn main() -> Result<()> {
     for file in &item_files {
         let path = format!("{}/{}", rathena_db_path, file);
         match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                match serde_yaml::from_str::<YamlItemRoot>(&content) {
-                    Ok(root) => {
-                        let count = root.body.as_ref().map(|b| b.len()).unwrap_or(0);
-                        info!("  📄 {}: {} items", file, count);
-                        if let Some(body) = root.body {
-                            all_items.extend(body);
-                        }
+            Ok(content) => match serde_yaml::from_str::<YamlItemRoot>(&content) {
+                Ok(root) => {
+                    let count = root.body.as_ref().map(|b| b.len()).unwrap_or(0);
+                    info!("  📄 {}: {} items", file, count);
+                    if let Some(body) = root.body {
+                        all_items.extend(body);
                     }
-                    Err(e) => warn!("  ⚠️ Failed to parse {}: {}", file, e),
                 }
-            }
+                Err(e) => warn!("  ⚠️ Failed to parse {}: {}", file, e),
+            },
             Err(e) => warn!("  ⚠️ Failed to read {}: {}", file, e),
         }
     }
@@ -346,7 +452,8 @@ async fn main() -> Result<()> {
                     })
                 }).collect();
 
-                if let Err(e) = upsert_batch(&client, &qdrant_url, "ro_items", json!(points)).await {
+                if let Err(e) = upsert_batch(&client, &qdrant_url, "ro_items", json!(points)).await
+                {
                     error!("❌ Failed to upsert item batch: {}", e);
                 } else {
                     ingested_items += batch.len();
@@ -398,7 +505,9 @@ async fn main() -> Result<()> {
                     })
                 }).collect();
 
-                if let Err(e) = upsert_batch(&client, &qdrant_url, "ro_monsters", json!(points)).await {
+                if let Err(e) =
+                    upsert_batch(&client, &qdrant_url, "ro_monsters", json!(points)).await
+                {
                     error!("❌ Failed to upsert mob batch: {}", e);
                 } else {
                     ingested_mobs += batch.len();

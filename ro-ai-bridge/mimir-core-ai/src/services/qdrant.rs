@@ -24,7 +24,7 @@ impl QdrantService {
                 format!("http://{}:{}", host, port)
             }
         });
-        
+
         Self {
             client: Client::new(),
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -33,26 +33,33 @@ impl QdrantService {
 
     pub async fn init_collection(&self, collection_name: &str, vector_size: u64) -> Result<()> {
         info!("🔍 Checking Qdrant collection: {}", collection_name);
-        
+
         // Check if exists
         let url = format!("{}/collections/{}", self.base_url, collection_name);
         let resp = self.client.get(&url).send().await?;
 
         if resp.status().is_success() {
             let info: serde_json::Value = resp.json().await?;
-            let current_size = info.pointer("/result/config/params/vectors/dense/size")
+            let current_size = info
+                .pointer("/result/config/params/vectors/dense/size")
                 .or_else(|| info.pointer("/result/config/params/vectors/size"))
                 .and_then(|v| v.as_u64());
 
             if let Some(size) = current_size {
                 if size != vector_size {
-                    info!("⚠️ Dimension mismatch in {}: found {}d, need {}d. Recreating collection automatically...", collection_name, size, vector_size);
+                    info!(
+                        "⚠️ Dimension mismatch in {}: found {}d, need {}d. Recreating collection automatically...",
+                        collection_name, size, vector_size
+                    );
                     self.delete_collection(collection_name).await?;
                     return self.create_collection(collection_name, vector_size).await;
                 }
             }
 
-            info!("✅ Collection {} already exists and matches dimensions ({}d)", collection_name, vector_size);
+            info!(
+                "✅ Collection {} already exists and matches dimensions ({}d)",
+                collection_name, vector_size
+            );
             return Ok(());
         }
 
@@ -63,7 +70,7 @@ impl QdrantService {
         info!("🗑️ Deleting Qdrant collection: {}", collection_name);
         let url = format!("{}/collections/{}", self.base_url, collection_name);
         let resp = self.client.delete(&url).send().await?;
-        
+
         if !resp.status().is_success() {
             // It's okay if it doesn't exist, but log error if other issues
             if resp.status() != 404 {
@@ -75,7 +82,10 @@ impl QdrantService {
     }
 
     async fn create_collection(&self, collection_name: &str, vector_size: u64) -> Result<()> {
-        info!("🏗️ Creating Qdrant collection: {} (hybrid: dense={}d + sparse bm25)", collection_name, vector_size);
+        info!(
+            "🏗️ Creating Qdrant collection: {} (hybrid: dense={}d + sparse bm25)",
+            collection_name, vector_size
+        );
         let create_url = format!("{}/collections/{}", self.base_url, collection_name);
         let body = json!({
             "vectors": {
@@ -91,26 +101,27 @@ impl QdrantService {
             }
         });
 
-        let create_resp = self.client.put(&create_url)
-            .json(&body)
-            .send()
-            .await?;
+        let create_resp = self.client.put(&create_url).json(&body).send().await?;
 
         if !create_resp.status().is_success() {
             let error = create_resp.text().await?;
             return Err(anyhow::anyhow!("Failed to create collection: {}", error));
         }
 
-        info!("✅ Collection {} created successfully (hybrid mode)", collection_name);
+        info!(
+            "✅ Collection {} created successfully (hybrid mode)",
+            collection_name
+        );
         Ok(())
     }
 
-    pub async fn upsert_points(&self, collection_name: &str, points: serde_json::Value) -> Result<()> {
+    pub async fn upsert_points(
+        &self,
+        collection_name: &str,
+        points: serde_json::Value,
+    ) -> Result<()> {
         let url = format!("{}/collections/{}/points", self.base_url, collection_name);
-        let resp = self.client.put(&url)
-            .json(&points)
-            .send()
-            .await?;
+        let resp = self.client.put(&url).json(&points).send().await?;
 
         if !resp.status().is_success() {
             let error = resp.text().await?;
@@ -134,19 +145,29 @@ impl QdrantService {
     }
 
     /// Dense-only search (legacy, used by wiki_qa)
-    pub async fn search(&self, collection_name: &str, vector: Vec<f32>, limit: usize, tenant_id: &str, show_expired: bool) -> Result<serde_json::Value> {
-        let url = format!("{}/collections/{}/points/search", self.base_url, collection_name);
-        
-        let mut must_conditions = vec![
-            json!({ "key": "tenant_id", "match": { "value": tenant_id } })
-        ];
-        
+    pub async fn search(
+        &self,
+        collection_name: &str,
+        vector: Vec<f32>,
+        limit: usize,
+        tenant_id: &str,
+        show_expired: bool,
+    ) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/collections/{}/points/search",
+            self.base_url, collection_name
+        );
+
+        let mut must_conditions =
+            vec![json!({ "key": "tenant_id", "match": { "value": tenant_id } })];
+
         if !show_expired {
             must_conditions.push(json!({ "key": "is_active", "match": { "value": true } }));
         }
 
         let body = json!({
             "vector": vector,
+            "vector_name": "dense",
             "limit": limit,
             "with_payload": true,
             "filter": {
@@ -154,10 +175,7 @@ impl QdrantService {
             }
         });
 
-        let resp = self.client.post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&body).send().await?;
 
         if !resp.status().is_success() {
             let error = resp.text().await?;
@@ -178,8 +196,11 @@ impl QdrantService {
         limit: usize,
         tenant_id: &str,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/collections/{}/points/query", self.base_url, collection_name);
-        
+        let url = format!(
+            "{}/collections/{}/points/query",
+            self.base_url, collection_name
+        );
+
         let filter = json!({
             "must": [
                 { "key": "tenant_id", "match": { "value": tenant_id } },
@@ -210,10 +231,7 @@ impl QdrantService {
             "with_payload": true,
         });
 
-        let resp = self.client.post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&body).send().await?;
 
         if !resp.status().is_success() {
             let error = resp.text().await?;
@@ -225,15 +243,15 @@ impl QdrantService {
     }
 
     pub async fn delete_point(&self, collection_name: &str, point_id: u64) -> Result<()> {
-        let url = format!("{}/collections/{}/points/delete", self.base_url, collection_name);
+        let url = format!(
+            "{}/collections/{}/points/delete",
+            self.base_url, collection_name
+        );
         let body = json!({
             "points": [point_id]
         });
 
-        let resp = self.client.post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&body).send().await?;
 
         if !resp.status().is_success() {
             let error = resp.text().await?;

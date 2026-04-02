@@ -12,13 +12,11 @@ use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
 use std::env;
 use tokio::fs;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use mimir_core_ai::services::db;
-use ro_ai_bridge::agents::eval::{
-    evaluate_agent, judge_response, available_agents, is_compatible,
-};
+use ro_ai_bridge::agents::eval::{available_agents, evaluate_agent, is_compatible, judge_response};
 
 #[derive(Debug, Deserialize)]
 struct QAPair {
@@ -106,8 +104,12 @@ async fn main() -> Result<()> {
     .await?;
 
     info!("🚀 Started run: {} ({})", run_name, run_id);
-    info!("   Total evaluations: {} agents × {} models × {} questions = {}",
-        agents.len(), models.len(), dataset.len(), total_evals
+    info!(
+        "   Total evaluations: {} agents × {} models × {} questions = {}",
+        agents.len(),
+        models.len(),
+        dataset.len(),
+        total_evals
     );
 
     // ─── 5. Run Evaluations ────────────────────────────────────────────
@@ -117,7 +119,10 @@ async fn main() -> Result<()> {
     for agent_name in &agents {
         for model in &models {
             if !is_compatible(agent_name, &model.model_id) {
-                info!("⏭️  Skipping incompatible: {} × {}", agent_name, model.model_id);
+                info!(
+                    "⏭️  Skipping incompatible: {} × {}",
+                    agent_name, model.model_id
+                );
                 continue;
             }
 
@@ -125,8 +130,12 @@ async fn main() -> Result<()> {
             info!("🧪 Evaluating: {} × {}", agent_name, model.model_id);
 
             for (qi, qa) in dataset.iter().enumerate() {
-                info!("   📝 Q{}/{}: {:.60}...", qi + 1, dataset.len(),
-                    qa.question.chars().take(60).collect::<String>());
+                info!(
+                    "   📝 Q{}/{}: {:.60}...",
+                    qi + 1,
+                    dataset.len(),
+                    qa.question.chars().take(60).collect::<String>()
+                );
 
                 // Run the agent
                 let eval_result = match evaluate_agent(
@@ -135,12 +144,14 @@ async fn main() -> Result<()> {
                     &qa.question,
                     Some(&pool),
                     None, // Qdrant: will use default
-                ).await {
+                )
+                .await
+                {
                     Ok(r) => r,
                     Err(e) => {
                         error!("   ❌ Agent error: {}", e);
                         errors += 1;
-                        
+
                         // Insert error row
                         sqlx::query(
                             "INSERT INTO eval_scores (run_id, agent_name, model_id, question, expected_answer, actual_answer) VALUES (?, ?, ?, ?, ?, ?)"
@@ -153,28 +164,43 @@ async fn main() -> Result<()> {
                         .bind(format!("[ERROR] {}", e))
                         .execute(&pool)
                         .await?;
-                        
+
                         continue;
                     }
                 };
 
                 info!("   ⏱️  Latency: {}ms", eval_result.latency_ms);
-                info!("   📖 Answer: {:.80}...",
-                    eval_result.answer.chars().take(80).collect::<String>());
+                info!(
+                    "   📖 Answer: {:.80}...",
+                    eval_result.answer.chars().take(80).collect::<String>()
+                );
 
                 // LLM-as-Judge scoring
-                let (accuracy, completeness, relevance, judge_reasoning) = 
-                    match judge_response(&qa.question, &qa.answer, &eval_result.answer, &judge_model).await {
-                        Ok(scores) => {
-                            info!("   🎯 Scores: acc={} comp={} rel={}",
-                                scores.accuracy, scores.completeness, scores.relevance);
-                            (Some(scores.accuracy), Some(scores.completeness), Some(scores.relevance), Some(scores.reasoning))
-                        }
-                        Err(e) => {
-                            warn!("   ⚠️  Judge failed: {} — scores will be NULL", e);
-                            (None, None, None, None)
-                        }
-                    };
+                let (accuracy, completeness, relevance, judge_reasoning) = match judge_response(
+                    &qa.question,
+                    &qa.answer,
+                    &eval_result.answer,
+                    &judge_model,
+                )
+                .await
+                {
+                    Ok(scores) => {
+                        info!(
+                            "   🎯 Scores: acc={} comp={} rel={}",
+                            scores.accuracy, scores.completeness, scores.relevance
+                        );
+                        (
+                            Some(scores.accuracy),
+                            Some(scores.completeness),
+                            Some(scores.relevance),
+                            Some(scores.reasoning),
+                        )
+                    }
+                    Err(e) => {
+                        warn!("   ⚠️  Judge failed: {} — scores will be NULL", e);
+                        (None, None, None, None)
+                    }
+                };
 
                 // Store result
                 sqlx::query(
@@ -182,7 +208,7 @@ async fn main() -> Result<()> {
                         (run_id, agent_name, model_id, question, expected_answer, actual_answer,
                          accuracy_score, completeness_score, relevance_score, latency_ms,
                          judge_model, judge_reasoning)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 )
                 .bind(&run_id)
                 .bind(agent_name)
@@ -222,7 +248,7 @@ async fn main() -> Result<()> {
 
     // ─── 6. Compute Summaries ──────────────────────────────────────────
     info!("📊 Computing evaluation summaries...");
-    
+
     sqlx::query(
         r#"INSERT INTO eval_summary (run_id, agent_name, model_id, total_questions, avg_accuracy, avg_completeness, avg_relevance, avg_latency_ms, overall_score)
         SELECT 
