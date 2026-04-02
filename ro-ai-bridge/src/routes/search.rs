@@ -18,7 +18,7 @@ use tracing::{info, warn};
 
 use crate::retrieval::graph::{graph_to_retrieval_results, GraphRetriever, SqlGraphRetriever};
 use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult, VectorRetriever};
-use crate::retrieval::tree::{tree_to_retrieval_results, PageIndexRetriever, TreeRetriever};
+use crate::retrieval::tree::{tree_to_retrieval_results, NativeTreeRetriever, TreeRetriever};
 use crate::retrieval::{determine_mode_used, rerank_results, source_distribution, EnsembleWeights};
 use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::middleware::tenant::TenantContext;
@@ -334,11 +334,18 @@ async fn fetch_graph(
     }
 }
 
-/// Fetch results from the PageIndex tree search sidecar.
+/// Fetch results from the Native tree search (LLM).
 async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool) -> Vec<RetrievalResult> {
-    let pageindex_url =
-        std::env::var("PAGEINDEX_URL").unwrap_or_else(|_| "http://localhost:8600".to_string());
-    let retriever = PageIndexRetriever::new(pageindex_url);
+    use mimir_core_ai::services::llm_router::LlmRouter;
+    let router = match LlmRouter::new(pool.clone(), tenant_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Failed to init LlmRouter for tree search: {}", e);
+            return vec![];
+        }
+    };
+    
+    let retriever = crate::retrieval::tree::NativeTreeRetriever::new();
 
     // Load data sources with tree indexes (migrated from legacy tenant_documents)
     let docs: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
@@ -364,7 +371,7 @@ async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool) -> Vec<Retrieva
         return vec![];
     }
 
-    let tree_results = retriever.search_parallel(&searchable, query).await;
+    let tree_results = retriever.search_parallel(&router, &searchable, query).await;
     tree_to_retrieval_results(&tree_results)
 }
 
