@@ -37,6 +37,10 @@ pub struct OptimizeRequest {
     /// Number of suggestions to generate. Default: 5, Max: 10.
     #[serde(default = "default_count")]
     pub count: usize,
+    /// Override Provider
+    pub provider: Option<String>,
+    /// Override Model ID
+    pub model_id: Option<String>,
 }
 
 fn default_strategy() -> String {
@@ -163,7 +167,11 @@ async fn optimize_handler(
         }
     };
 
-    let (client, model) = match router.resolve_client("chat") {
+    let (client, model) = match router.resolve_client_with_overrides(
+        "chat",
+        payload.provider.as_deref(),
+        payload.model_id.as_deref(),
+    ) {
         Ok(cm) => cm,
         Err(e) => {
             warn!(error = %e, "Failed to resolve chat client, using fallback");

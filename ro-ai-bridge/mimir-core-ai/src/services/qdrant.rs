@@ -190,6 +190,7 @@ impl QdrantService {
 
     /// Hybrid search using dense + sparse vectors with Reciprocal Rank Fusion (RRF).
     /// Uses Qdrant's /points/query endpoint with prefetch + fusion.
+    /// Optionally filters by source_ids at Qdrant level for efficient retrieval.
     pub async fn search_hybrid(
         &self,
         collection_name: &str,
@@ -198,17 +199,37 @@ impl QdrantService {
         limit: usize,
         tenant_id: &str,
     ) -> Result<serde_json::Value> {
+        self.search_hybrid_filtered(collection_name, dense_vector, sparse_vector, limit, tenant_id, None).await
+    }
+
+    /// Hybrid search with optional source_id pre-filtering at Qdrant level.
+    pub async fn search_hybrid_filtered(
+        &self,
+        collection_name: &str,
+        dense_vector: Vec<f32>,
+        sparse_vector: &SparseVector,
+        limit: usize,
+        tenant_id: &str,
+        source_ids: Option<&[i64]>,
+    ) -> Result<serde_json::Value> {
         let url = format!(
             "{}/collections/{}/points/query",
             self.base_url, collection_name
         );
 
-        let filter = json!({
-            "must": [
-                { "key": "tenant_id", "match": { "value": tenant_id } },
-                { "key": "is_active", "match": { "value": true } }
-            ]
-        });
+        let mut must_conditions = vec![
+            json!({ "key": "tenant_id", "match": { "value": tenant_id } }),
+            json!({ "key": "is_active", "match": { "value": true } }),
+        ];
+        if let Some(ids) = source_ids {
+            if !ids.is_empty() {
+                must_conditions.push(json!({
+                    "key": "source_id",
+                    "match": { "any": ids }
+                }));
+            }
+        }
+        let filter = json!({ "must": must_conditions });
 
         let body = json!({
             "prefetch": [

@@ -361,6 +361,14 @@ Rules:
 
     // 5. Try to parse the response as JSON array
     let eval_set: Value = serde_json::from_str(&content).unwrap_or_else(|_| {
+        if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
+            if start <= end {
+                let extracted = &content[start..=end];
+                if let Ok(parsed) = serde_json::from_str(extracted) {
+                    return parsed;
+                }
+            }
+        }
         // Try extracting JSON from markdown code blocks
         let cleaned = content
             .trim()

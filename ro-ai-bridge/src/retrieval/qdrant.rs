@@ -108,13 +108,14 @@ impl QdrantRetriever {
     }
 }
 
-#[async_trait]
-impl VectorRetriever for QdrantRetriever {
-    async fn search(
+impl QdrantRetriever {
+    /// Search with optional source_id filtering pushed to Qdrant query level.
+    pub async fn search_filtered(
         &self,
         query: &str,
         tenant_id: &str,
         limit: usize,
+        source_ids: Option<&[i64]>,
     ) -> Result<Vec<RetrievalResult>, String> {
         // Step 1: Embed query via Heimdall/Ollama (Dense)
         let vectors =
@@ -132,15 +133,27 @@ impl VectorRetriever for QdrantRetriever {
         // Step 1.5: Generate Sparse Vector (BM25)
         let sparse_vector = mimir_core_ai::services::bm25::text_to_sparse_vector(query);
 
-        // Step 2: Search Qdrant with tenant filter using Hybrid Search (Dense + Sparse RRF)
+        // Step 2: Search Qdrant with tenant + source_id filter using Hybrid Search
         let response = self
             .qdrant
-            .search_hybrid(&self.collection, vector, &sparse_vector, limit, tenant_id)
+            .search_hybrid_filtered(&self.collection, vector, &sparse_vector, limit, tenant_id, source_ids)
             .await
             .map_err(|e| format!("Qdrant search failed: {}", e))?;
 
         // Step 3: Parse response into RetrievalResults
         Ok(Self::parse_qdrant_response(&response))
+    }
+}
+
+#[async_trait]
+impl VectorRetriever for QdrantRetriever {
+    async fn search(
+        &self,
+        query: &str,
+        tenant_id: &str,
+        limit: usize,
+    ) -> Result<Vec<RetrievalResult>, String> {
+        self.search_filtered(query, tenant_id, limit, None).await
     }
 }
 

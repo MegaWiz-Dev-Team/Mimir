@@ -467,7 +467,7 @@ function PlaygroundContent() {
             userMsgContent = messages[index - 1].content;
         }
 
-        const formattedLog = `=== Project Mimir AI Debug Log ===\n` +
+        const formattedLog = `=== Asgard Mimir AI Debug Log ===\n` +
             `Time: ${new Date().toISOString()}\n` +
             `Persona: ${selectedPersona?.name} (Tier ${tier})\n` +
             `Model: ${assistantMsg.provider || provider} / ${assistantMsg.model || model}\n` +
