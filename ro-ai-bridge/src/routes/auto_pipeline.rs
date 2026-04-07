@@ -11,7 +11,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;

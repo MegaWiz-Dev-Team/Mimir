@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::routes::tenant::extract_tenant_id;
-use mimir_core_ai::models::chunks::Chunk;
 use mimir_core_ai::services::db::DbPool;
 
 #[derive(Debug, Deserialize)]

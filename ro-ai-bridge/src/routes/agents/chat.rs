@@ -1,6 +1,5 @@
 //! Agent chat and conversation listing.
 
-use crate::retrieval::graph::GraphRetriever;
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
     extract::{Path, Query, State},
@@ -14,7 +13,7 @@ use uuid::Uuid;
 
 use crate::config::Config;
 use crate::routes::llm_usage::insert_llm_usage_log;
-use crate::routes::sources::{infer_api_base, resolve_llm_credentials};
+use crate::routes::sources::resolve_llm_credentials;
 use mimir_core_ai::services::db::DbPool;
 
 use super::crud::{

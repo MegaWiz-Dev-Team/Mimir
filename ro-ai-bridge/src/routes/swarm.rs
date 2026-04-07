@@ -36,7 +36,7 @@ async fn swarm_search(
     let qdrant = Arc::new(QdrantService::new());
     
     // Fallback/standard resolving of dynamic config
-    let mut router = match LlmRouter::new(pool.clone(), &tenant_id).await {
+    let router = match LlmRouter::new(pool.clone(), &tenant_id).await {
         Ok(r) => r,
         Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,

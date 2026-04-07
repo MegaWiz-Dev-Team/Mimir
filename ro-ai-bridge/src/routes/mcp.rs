@@ -8,7 +8,7 @@
 //! to connect and query the Mimir knowledge base.
 
 use axum::{
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     response::sse::{Event, Sse},
     routing::{get, post},
     Json, Router,

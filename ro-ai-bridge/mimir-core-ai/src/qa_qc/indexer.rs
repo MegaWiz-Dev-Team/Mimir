@@ -67,7 +67,7 @@ pub async fn run_indexer(
             }
 
             match router.embed_texts_strict(&texts_to_embed).await {
-                Ok(mut matrix) if matrix.len() == chunk.len() => {
+                Ok(matrix) if matrix.len() == chunk.len() => {
                     let mut points = Vec::new();
                     let mut ids_to_update = Vec::new();
 
@@ -175,7 +175,7 @@ pub async fn run_indexer(
             }
 
             match router.embed_texts_strict(&texts_to_embed).await {
-                Ok(mut matrix) if matrix.len() == chunk.len() => {
+                Ok(matrix) if matrix.len() == chunk.len() => {
                     let mut points = Vec::new();
                     let mut ids_to_update = Vec::new();
 

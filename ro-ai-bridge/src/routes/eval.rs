@@ -10,7 +10,7 @@
 use axum::{
     extract::{Extension, Path, Query, State},
     response::IntoResponse,
-    routing::{get, patch, post},
+    routing::{get, patch},
     Json, Router,
 };
 use chrono::NaiveDateTime;

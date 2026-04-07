@@ -178,7 +178,7 @@ async fn search_entities(
     let mut query_str = "SELECT id, name, entity_type, CAST(properties AS CHAR), source_id, chunk_id, neo4j_node_id FROM kg_entities WHERE tenant_id = ?".to_string();
     let mut count_str = "SELECT COUNT(*) FROM kg_entities WHERE tenant_id = ?".to_string();
 
-    if let Some(ref q) = params.q {
+    if let Some(ref _q) = params.q {
         let filter = " AND (name LIKE ? OR entity_type LIKE ?)";
         query_str.push_str(filter);
         count_str.push_str(filter);
@@ -206,7 +206,7 @@ async fn search_entities(
             Option<String>,
         ),
     >(&query_str)
-    .bind(tenant_id.clone());
+    .bind(tenant_id);
 
     let mut count_query = sqlx::query_as::<_, (i64,)>(&count_str).bind(tenant_id);
 
@@ -266,7 +266,7 @@ async fn get_neighbors(
     Query(params): Query<NeighborQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
-    let depth = params.depth.unwrap_or(1).min(5);
+    let _depth = params.depth.unwrap_or(1).min(5);
     let limit = params.limit.unwrap_or(50).min(200) as i64;
 
     // Get entity name

@@ -250,7 +250,7 @@ async fn get_overview(
             .unwrap_or((0,));
 
     // KG extracted count (from extraction runs)
-    let kg_extracted: (i64,) = sqlx::query_as(
+    let _kg_extracted: (i64,) = sqlx::query_as(
         "SELECT COUNT(DISTINCT source_id) FROM kg_extraction_runs WHERE tenant_id = ? AND status = 'completed'"
     )
     .bind(tenant_id)

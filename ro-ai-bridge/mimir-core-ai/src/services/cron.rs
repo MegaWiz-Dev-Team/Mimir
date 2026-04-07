@@ -146,6 +146,7 @@ async fn cron_tick(pool: &MySqlPool, state: &CronState) {
 
 /// Minimal source info for the cron query
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 struct DueSource {
     id: i64,
     tenant_id: String,

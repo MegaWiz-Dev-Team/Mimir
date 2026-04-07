@@ -21,8 +21,10 @@ pub struct ExtractorArgs {
 // 1. Vector Search Tool
 // -----------------------------------------------------------------------------
 pub struct VectorSearchTool {
+    #[allow(dead_code)]
     db_pool: DbPool,
     qdrant: Arc<QdrantService>,
+    #[allow(dead_code)]
     router: Arc<LlmRouter>,
     embedding_model: String,
     collection: String,
@@ -68,7 +70,7 @@ impl Tool for VectorSearchTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let db_pool = self.db_pool.clone();
+        let _db_pool = self.db_pool.clone();
         let qdrant = self.qdrant.clone();
         let embedding_model = self.embedding_model.clone();
         let collection = self.collection.clone();
