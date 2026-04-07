@@ -1,4 +1,5 @@
 # System
+.tmp/
 .DS_Store
 .AppleDouble
 .LSOverride
