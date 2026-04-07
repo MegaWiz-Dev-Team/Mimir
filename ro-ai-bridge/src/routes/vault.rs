@@ -11,7 +11,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use mimir_core_ai::services::vault::{self, RotateSecretRequest, VaultStatus};
+use mimir_core_ai::services::vault::{self, RotateSecretRequest};
 use serde_json::json;
 use sqlx::MySqlPool;
 use tracing::{error, info};

@@ -24,7 +24,7 @@ pub use crud::{
 pub use templates::AgentTemplate;
 
 use axum::{
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Router,
 };
 use mimir_core_ai::services::db::DbPool;

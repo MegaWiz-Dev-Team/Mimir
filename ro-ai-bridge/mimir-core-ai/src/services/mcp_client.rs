@@ -14,6 +14,7 @@ pub struct McpClient {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct SseEndpointEvent {
     uri: String,
 }
@@ -27,6 +28,7 @@ struct JsonRpcRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JsonRpcResponse {
     result: Option<Value>,
     error: Option<Value>,

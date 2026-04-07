@@ -86,7 +86,7 @@ async fn tuning_loop(
     job_id: String,
     tenant_id: String,
     pool: DbPool,
-    mut req: AutoTuneRequest,
+    req: AutoTuneRequest,
 ) -> Result<(), anyhow::Error> {
     let mut current_params = req.base_params.clone();
     let mut best_score = -1.0;
@@ -366,7 +366,7 @@ You cannot change parameters directly via chat yet, but you can advise the user 
 
     // Call LLM using raw reqwest for simplicity and consistency with our async environment
     let client = reqwest::Client::new();
-    let mut messages = vec![
+    let messages = vec![
         json!({"role": "system", "content": system_prompt}),
         json!({"role": "user", "content": payload.message})
     ];

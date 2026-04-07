@@ -6,7 +6,7 @@
 
 use crate::config::Config;
 use crate::routes::llm_usage::insert_llm_usage_log;
-use crate::routes::sources::{infer_api_base, resolve_llm_credentials};
+use crate::routes::sources::resolve_llm_credentials;
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
     extract::State,

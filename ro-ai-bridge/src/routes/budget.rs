@@ -8,15 +8,15 @@
 
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
-    extract::{Query, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
-    routing::{get, put},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use tracing::{error, info};
+use tracing::info;
 
 use mimir_core_ai::services::db::DbPool;
 

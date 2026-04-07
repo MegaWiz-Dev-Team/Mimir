@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     middleware,
     response::IntoResponse,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch},
     Extension, Json, Router,
 };
 use sqlx::MySqlPool;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::models::iam::{
-    CreateRoleRequest, CreateTenantRequest, CreateUserRequest, TenantConfig, UpdateRoleRequest,
+    CreateRoleRequest, CreateTenantRequest, CreateUserRequest, UpdateRoleRequest,
     UpdateTenantConfigRequest, UpdateTenantRequest, UpdateUserPasswordRequest,
     UpdateUserRoleRequest,
 };

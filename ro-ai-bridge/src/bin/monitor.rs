@@ -52,6 +52,7 @@ struct SearchRequest {
 
 /// Chat request for agent interactions
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ChatRequest {
     /// Agent tier: 1 = Simple NPC (no RAG), 2 = Oracle RAG
     tier: i8,
