@@ -19,7 +19,7 @@ use tracing::{info, warn};
 use crate::retrieval::graph::{graph_to_retrieval_results, GraphRetriever, SqlGraphRetriever};
 use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult, VectorRetriever};
 use crate::retrieval::tree::{tree_to_retrieval_results, NativeTreeRetriever, TreeRetriever};
-use crate::retrieval::{determine_mode_used, rerank_results, source_distribution, EnsembleWeights};
+use crate::retrieval::{determine_mode_used, rerank_results, rerank_results_rrf, source_distribution, EnsembleWeights};
 use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::db::DbPool;
@@ -177,9 +177,9 @@ async fn search_handler(
 
     let filters = payload.filters.unwrap_or_default();
 
-    // ── Fire all 3 sources in parallel via tokio::join! ──
+    // ── Stage 1: Vector + Graph in parallel via tokio::join! ──
 
-    let (vector_results, graph_results, tree_results) = tokio::join!(
+    let (vector_results, graph_results) = tokio::join!(
         // Vector search (with timeout)
         async {
             if !active_sources.vector {
@@ -222,28 +222,34 @@ async fn search_handler(
                 }
             }
         },
-        // Tree search (with timeout)
-        async {
-            if !active_sources.tree {
-                return vec![];
-            }
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_tree(&query, &tenant_id, &pool, &filters),
-            )
-            .await
-            {
-                Ok(results) => results,
-                Err(_) => {
-                    warn!(
-                        source = "tree",
-                        "⏰ Tree search timed out after {}s", SOURCE_TIMEOUT_SECS
-                    );
-                    vec![]
-                }
-            }
-        },
     );
+
+    // ── Stage 2: Tree search using Vector candidates as pre-filter ──
+    let tree_results = if active_sources.tree {
+        let vector_candidate_titles: Vec<String> = vector_results.iter()
+            .map(|r| r.title.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS * 2),
+            fetch_tree(&query, &tenant_id, &pool, &filters, &vector_candidate_titles),
+        )
+        .await
+        {
+            Ok(results) => results,
+            Err(_) => {
+                warn!(
+                    source = "tree",
+                    "⏰ Tree search timed out after {}s", SOURCE_TIMEOUT_SECS * 2
+                );
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    };
 
     // Merge all results
     let mut all_results = Vec::new();
@@ -269,19 +275,22 @@ async fn search_handler(
                         .await
                         .unwrap_or_else(|e| {
                             tracing::warn!("Cross-encoder failed: {}. Falling back to RRF.", e);
-                            rerank_results(&all_results, &weights, limit)
+                            rerank_results_rrf(&all_results, &weights, limit)
                         })
                 } else {
-                    rerank_results(&all_results, &weights, limit)
+                    rerank_results_rrf(&all_results, &weights, limit)
                 }
             } else {
-                rerank_results(&all_results, &weights, limit)
+                rerank_results_rrf(&all_results, &weights, limit)
             }
+        } else if rc.enabled && rc.strategy == "rrf" {
+            // True Reciprocal Rank Fusion
+            rerank_results_rrf(&all_results, &weights, limit)
         } else {
             rerank_results(&all_results, &weights, limit)
         }
     } else {
-        // Fallback to simple Reciprocal Rank Fusion
+        // Default: weighted score reranking
         rerank_results(&all_results, &weights, limit)
     };
 
@@ -341,7 +350,7 @@ fn resolve_active_sources(sources: &Option<Vec<String>>) -> ActiveSources {
 }
 
 /// Fetch results from Qdrant vector search across specified collections.
-/// Applies source_id filtering via Qdrant payload filter when filters are set.
+/// Source_id filtering is pushed to Qdrant query level for correct top-K at scale.
 async fn fetch_vector(
     query: &str,
     tenant_id: &str,
@@ -353,25 +362,14 @@ async fn fetch_vector(
     let mut results = Vec::new();
     let qdrant = QdrantService::new();
 
+    let source_ids = filters.source_ids.as_deref();
+
     for collection in collections {
         let retriever =
             QdrantRetriever::new(qdrant.clone(), embed_model.to_string(), collection.clone());
-        match retriever.search(query, tenant_id, limit).await {
+        match retriever.search_filtered(query, tenant_id, limit, source_ids).await {
             Ok(r) => {
-                // Apply source_id filter post-retrieval (Qdrant payload has source_id)
-                let filtered: Vec<RetrievalResult> = if let Some(ref ids) = filters.source_ids {
-                    r.into_iter()
-                        .filter(|result| {
-                            result.metadata.get("source_id")
-                                .and_then(|v| v.as_i64())
-                                .map(|sid| ids.contains(&sid))
-                                .unwrap_or(false)
-                        })
-                        .collect()
-                } else {
-                    r
-                };
-                results.extend(filtered);
+                results.extend(r);
             }
             Err(e) => warn!(collection = %collection, error = %e, "Vector search failed"),
         }
@@ -416,7 +414,14 @@ async fn fetch_graph(
 
 /// Fetch results from the Native tree search (LLM).
 /// Applies source_id filtering by restricting which data_sources are queried.
-async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool, filters: &SearchFilters) -> Vec<RetrievalResult> {
+/// When vector_candidate_titles is provided, only searches those documents (pre-filter for scale).
+async fn fetch_tree(
+    query: &str,
+    tenant_id: &str,
+    pool: &DbPool,
+    filters: &SearchFilters,
+    vector_candidate_titles: &[String],
+) -> Vec<RetrievalResult> {
     use mimir_core_ai::services::llm_router::LlmRouter;
     let router = match LlmRouter::new(pool.clone(), tenant_id).await {
         Ok(r) => r,
@@ -470,7 +475,35 @@ async fn fetch_tree(query: &str, tenant_id: &str, pool: &DbPool, filters: &Searc
         return vec![];
     }
 
-    let tree_results = retriever.search_parallel(&router, &searchable, query).await;
+    // Apply vector pre-filter: only search docs whose names match vector results.
+    // This limits LLM calls from N docs to max 10 for scalability.
+    let filtered_docs: Vec<(String, String, String)> = if !vector_candidate_titles.is_empty() {
+        let (matched, rest): (Vec<_>, Vec<_>) = searchable.into_iter()
+            .partition(|(name, _, _)| {
+                let name_lower = name.to_lowercase();
+                vector_candidate_titles.iter().any(|vt| {
+                    let vt_lower = vt.to_lowercase();
+                    name_lower.contains(&vt_lower) || vt_lower.contains(&name_lower)
+                })
+            });
+        if matched.is_empty() {
+            // Fallback: if no vector candidates matched doc names, take first 5
+            rest.into_iter().take(5).collect()
+        } else {
+            matched.into_iter().take(10).collect()
+        }
+    } else {
+        // No pre-filter available, limit to prevent massive fan-out
+        searchable.into_iter().take(10).collect()
+    };
+
+    tracing::info!(
+        tree_docs = filtered_docs.len(),
+        "🌲 Tree search: searching {} candidate documents",
+        filtered_docs.len()
+    );
+
+    let tree_results = retriever.search_parallel(&router, &filtered_docs, query).await;
     tree_to_retrieval_results(&tree_results)
 }
 
@@ -491,6 +524,9 @@ pub async fn run_parallel_search(
 }
 
 /// Run the parallel multi-source search with source-level filters.
+/// Uses a 2-stage approach:
+///   Stage 1: Vector + Graph in parallel
+///   Stage 2: Tree search using Vector candidates as pre-filter (max 10 docs)
 pub async fn run_parallel_search_filtered(
     pool: &DbPool,
     query: &str,
@@ -512,8 +548,8 @@ pub async fn run_parallel_search_filtered(
 
     let collections: Vec<String> = DEFAULT_COLLECTIONS.iter().map(|s| s.to_string()).collect();
 
-    // Fire all 3 sources in parallel
-    let (vector_results, graph_results, tree_results) = tokio::join!(
+    // Stage 1: Fire Vector + Graph in parallel
+    let (vector_results, graph_results) = tokio::join!(
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
@@ -536,18 +572,24 @@ pub async fn run_parallel_search_filtered(
                 Err(_) => vec![],
             }
         },
-        async {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_tree(query, tenant_id, pool, filters),
-            )
-            .await
-            {
-                Ok(results) => results,
-                Err(_) => vec![],
-            }
-        },
     );
+
+    // Stage 2: Extract candidate document titles from Vector results for Tree pre-filter
+    let vector_candidate_titles: Vec<String> = vector_results.iter()
+        .map(|r| r.title.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let tree_results = match tokio::time::timeout(
+        std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS * 2), // Tree gets more time
+        fetch_tree(query, tenant_id, pool, filters, &vector_candidate_titles),
+    )
+    .await
+    {
+        Ok(results) => results,
+        Err(_) => vec![],
+    };
 
     let mut all_results = Vec::new();
     all_results.extend(vector_results);
@@ -564,10 +606,12 @@ pub async fn run_parallel_search_filtered(
                         .await
                         .unwrap_or_else(|e| {
                             tracing::warn!("Cross-encoder failed in parallel search: {}. Falling back to RRF.", e);
-                            rerank_results(&all_results, weights, limit)
+                            rerank_results_rrf(&all_results, weights, limit)
                         });
                 }
             }
+        } else if rc.enabled && rc.strategy == "rrf" {
+            return rerank_results_rrf(&all_results, weights, limit);
         }
     }
     

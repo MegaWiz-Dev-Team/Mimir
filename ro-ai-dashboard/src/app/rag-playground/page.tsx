@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SourceBadge, SourceLegend } from "@/components/ui/source-badge";
 import { WeightSlider } from "@/components/ui/weight-slider";
 import { GraphStatus } from "@/components/ui/graph-status";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Send, Loader2, Search, Sparkles, Database, TreePine, Share2,
   BarChart3, Wand2, Zap, Target, TrendingUp, CheckCircle2, XCircle,
@@ -67,15 +68,12 @@ interface QueryBenchmarkResult {
   matched_at_rank: number | null;
 }
 
-interface BenchmarkResponse {
-  benchmark_id: string;
-  total_queries: number;
+interface EvalRunResponse {
+  run_id: string;
   hit_rate: number;
   mrr: number;
-  avg_latency_ms: number;
-  weights_used: { vector: number; tree: number; graph: number };
-  per_query: QueryBenchmarkResult[];
-  label: string | null;
+  ndcg: number;
+  map: number;
 }
 
 // ── Strategy Badge Colors ──────────────────────────
@@ -106,6 +104,7 @@ export default function RAGPlaygroundPage() {
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weights, setWeights] = useState({ vector: 0.5, tree: 0.3, graph: 0.2 });
+  const [rerankStrategy, setRerankStrategy] = useState<string>("none");
   const [searchHistory, setSearchHistory] = useState<{ question: string; mode: string; resultCount: number }[]>([]);
 
   // Optimizer state
@@ -117,12 +116,57 @@ export default function RAGPlaygroundPage() {
   const [activeTab, setActiveTab] = useState<"search" | "benchmark" | "evaluation">("search");
   const [benchmarkItems, setBenchmarkItems] = useState<string>("");
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
-  const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResponse | null>(null);
+  const [benchmarkResults, setBenchmarkResults] = useState<EvalRunResponse | null>(null);
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
-  const [showBenchmarkDetails, setShowBenchmarkDetails] = useState(false);
   const [benchmarkLabel, setBenchmarkLabel] = useState("");
+  const [evaluateGeneration, setEvaluateGeneration] = useState(false);
+
+  // Generate Set Modal state
+  const [genModalOpen, setGenModalOpen] = useState(false);
+  const [genPrompt, setGenPrompt] = useState("");
+  const [genCount, setGenCount] = useState(5);
+  const [genMultiTurn, setGenMultiTurn] = useState(false);
+  const [genProvider, setGenProvider] = useState<string>("default");
+  const [genModelId, setGenModelId] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [availableModels, setAvailableModels] = useState<any[]>([]);
+
+  // Analytics / Datasets
+  const [datasets, setDatasets] = useState<any[]>([]);
+  const [activeDatasetId, setActiveDatasetId] = useState<string>("none");
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveDatasetName, setSaveDatasetName] = useState("");
+
+  // LLM Overrides
+  const [searchProvider, setSearchProvider] = useState<string>("default");
+  const [searchModelId, setSearchModelId] = useState<string>("");
+  const [evalProvider, setEvalProvider] = useState<string>("default");
+  const [evalModelId, setEvalModelId] = useState<string>("");
 
   const apiOrigin = API_BASE_URL.replace(/\/api\/v1$/, "");
+
+  const fetchDatasets = useCallback(async () => {
+    try {
+      const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/datasets`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setDatasets(data.datasets || []);
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  }, [apiOrigin]);
+
+  useEffect(() => {
+    fetchDatasets();
+  }, [fetchDatasets]);
+
+  useEffect(() => {
+    authFetch(`${apiOrigin}/api/v1/models`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setAvailableModels(Array.isArray(data) ? data : []))
+      .catch(console.error);
+  }, [apiOrigin]);
 
   // ── Search Handler ──────────────────────────────
 
@@ -141,6 +185,14 @@ export default function RAGPlaygroundPage() {
       // Single-source mode: only enable that source
       if (mode !== "hybrid") {
         body.sources = [mode];
+      }
+
+      if (rerankStrategy !== "none") {
+        body.rerank = {
+          enabled: true,
+          strategy: rerankStrategy,
+          final_top_k: 10,
+        };
       }
 
       const resp = await authFetch(`${apiOrigin}/api/search`, {
@@ -173,7 +225,12 @@ export default function RAGPlaygroundPage() {
       const resp = await authFetch(`${apiOrigin}/api/search/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: question.trim(), count: 5 }),
+        body: JSON.stringify({ 
+          query: question.trim(), 
+          count: 5,
+          provider: searchProvider !== "default" ? searchProvider : undefined,
+          model_id: searchModelId.trim() ? searchModelId.trim() : undefined 
+        }),
       });
 
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -189,6 +246,23 @@ export default function RAGPlaygroundPage() {
 
   // ── Benchmark Handler ───────────────────────────
 
+  const autoRunLabel = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    let stratStr = "Vector";
+    if (weights.tree > 0 || weights.graph > 0) stratStr = "Hybrid";
+    if (weights.vector === 0 && weights.tree > 0) stratStr = "Tree";
+    if (weights.vector === 0 && weights.graph > 0) stratStr = "Graph";
+
+    let modelStr = evalModelId.trim() || evalProvider;
+    if (modelStr === "default" || !modelStr) modelStr = "DefaultModel";
+    else modelStr = modelStr.split("/").pop() || modelStr; // Shorten model names like ollama/llama3
+
+    const rankStr = rerankStrategy !== "none" ? `-${rerankStrategy}` : "";
+    const genStr = evaluateGeneration ? "-Judge" : "";
+    
+    return `${today}-${modelStr}-${stratStr}${rankStr}${genStr}`;
+  }, [weights, evalProvider, evalModelId, rerankStrategy, evaluateGeneration]);
+
   const handleBenchmark = useCallback(async () => {
     setBenchmarkLoading(true);
     setBenchmarkError(null);
@@ -197,32 +271,133 @@ export default function RAGPlaygroundPage() {
     try {
       let items: BenchmarkItem[];
       try {
-        items = JSON.parse(benchmarkItems);
-        if (!Array.isArray(items)) throw new Error("Must be an array");
+        const parsed = JSON.parse(benchmarkItems);
+        // Auto-extract if user pastes object wrapper
+        items = Array.isArray(parsed) ? parsed : (parsed.eval_set || [parsed]);
+        if (!Array.isArray(items) || items.length === 0) throw new Error("Must be a non-empty array");
+        // Lightweight verification
+        if (!items[0]?.query || !items[0]?.expected_titles) {
+           throw new Error("Missing query or expected_titles in items");
+        }
       } catch (e) {
-        throw new Error("Invalid JSON. Expected: [{\"query\": \"...\", \"expected_titles\": [\"...\"]}]");
+        throw new Error("Invalid format. Expected: [{\"query\": \"...\", \"expected_titles\": [\"...\"]}]");
       }
 
-      const resp = await authFetch(`${apiOrigin}/api/search/benchmark`, {
+      const payload: Record<string, any> = {
+        name: benchmarkLabel || autoRunLabel,
+        eval_set: items,
+        params: {
+          weights,
+          top_k: 5,
+          vector_alpha: 0.5,
+          vector_threshold: 0.0,
+          graph_hops: 1,
+          rerank_config: rerankStrategy !== "none" ? {
+            enabled: true,
+            strategy: rerankStrategy,
+            final_top_k: 5
+          } : null
+        },
+        judge_provider: evalProvider !== "default" ? evalProvider : undefined,
+        judge_model: evalModelId.trim() ? evalModelId.trim() : undefined,
+        evaluate_generation: evaluateGeneration
+      };
+
+      if (activeDatasetId !== "none") {
+        payload.dataset_id = activeDatasetId;
+        payload.dataset_name = datasets.find((d) => d.id === activeDatasetId)?.name;
+      }
+
+      const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items,
-          weights,
-          limit: 5,
-          label: benchmarkLabel || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-      const data: BenchmarkResponse = await resp.json();
-      setBenchmarkResults(data);
+      const initData = await resp.json();
+      
+      if (initData.status === "completed") {
+         setBenchmarkResults(initData);
+      } else {
+         let currentRunId = initData.run_id;
+         while (true) {
+            await new Promise(r => setTimeout(r, 5000));
+            const pollResp = await authFetch(`${apiOrigin}/api/v1/rag-eval/runs/${currentRunId}`);
+            if (!pollResp.ok) continue;
+            const pollData = await pollResp.json();
+            if (pollData.status === "completed") {
+              setBenchmarkResults(pollData);
+              break;
+            } else if (pollData.status === "error") {
+              throw new Error("Benchmark evaluation failed in background.");
+            }
+         }
+      }
     } catch (err) {
       setBenchmarkError(err instanceof Error ? err.message : "Benchmark failed");
     } finally {
       setBenchmarkLoading(false);
     }
-  }, [benchmarkItems, weights, benchmarkLabel, apiOrigin]);
+  }, [benchmarkItems, weights, benchmarkLabel, autoRunLabel, evaluateGeneration, rerankStrategy, evalProvider, evalModelId, apiOrigin, activeDatasetId, datasets]);
+
+  const handleSaveDataset = async () => {
+    if (!benchmarkItems.trim() || !saveDatasetName.trim()) return;
+    try {
+      const parsed = JSON.parse(benchmarkItems);
+
+      const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/datasets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: saveDatasetName, description: "", eval_set: parsed }),
+      });
+
+      if (resp.ok) {
+        await fetchDatasets();
+        const data = await resp.json();
+        setActiveDatasetId(data.id);
+        setSaveModalOpen(false);
+        setSaveDatasetName("");
+      } else {
+        alert("Failed to save dataset");
+      }
+    } catch (e) {
+      alert("Invalid JSON data");
+    }
+  };
+
+
+
+  // ── Generate Set Handler ────────────────────────
+
+  const handleGenerateSet = useCallback(async () => {
+    if (!genPrompt.trim() || isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/generate-set`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: genPrompt.trim(),
+          count: genCount,
+          multi_turn: genMultiTurn,
+          provider: genProvider !== "default" ? genProvider : undefined,
+          model_id: genModelId.trim() ? genModelId.trim() : undefined
+        }),
+      });
+
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      const data = await resp.json();
+      const evalArray = Array.isArray(data) ? data : (data.eval_set || data);
+      setBenchmarkItems(JSON.stringify(evalArray, null, 2));
+      setGenModalOpen(false);
+    } catch (err) {
+      console.error("Generate failed:", err);
+      alert("Failed to generate set: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [genPrompt, genCount, genMultiTurn, genProvider, genModelId, isGenerating, apiOrigin]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -290,6 +465,55 @@ export default function RAGPlaygroundPage() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* ── Left Panel — Controls ──────────────── */}
         <div className="space-y-6">
+          {/* LLM Configuration - Search */}
+          {activeTab === "search" && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Generation Model</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Provider</Label>
+                  <Select value={searchProvider} onValueChange={(val) => { setSearchProvider(val); setSearchModelId(""); }}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select Provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Tenant Default</SelectItem>
+                      {Array.from(new Set(availableModels.map(m => m.provider))).map(p => (
+                         <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-1">
+                  <Label className="text-xs">Model ID</Label>
+                  {searchProvider === "default" ? (
+                    <Input 
+                      placeholder="Default for slot" 
+                      value={searchModelId}
+                      onChange={(e) => setSearchModelId(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  ) : (
+                    <Select value={searchModelId || "default"} onValueChange={(val) => setSearchModelId(val === "default" ? "" : val)}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Model Check..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default for Provider</SelectItem>
+                        {availableModels.filter(m => m.provider === searchProvider).map(m => (
+                          <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Search Mode */}
           <Card>
             <CardHeader className="pb-3">
@@ -344,6 +568,25 @@ export default function RAGPlaygroundPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Re-ranking Options */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Re-ranking Strategy</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Select value={rerankStrategy} onValueChange={setRerankStrategy}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Fast (No Re-ranking)</SelectItem>
+                  <SelectItem value="rrf">RRF (Reciprocal Rank Fusion)</SelectItem>
+                  <SelectItem value="cross-encoder">Cross-Encoder (Accurate / Slower)</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
 
           {/* Data Sources */}
           <Card>
@@ -618,36 +861,135 @@ export default function RAGPlaygroundPage() {
                   {/* Label */}
                   <div className="flex gap-3">
                     <div className="flex-1">
-                      <Label className="text-xs mb-1.5 block">Run Label (optional)</Label>
+                      <Label className="text-xs mb-1.5 block">Run Label (Leave blank to use auto-generated name)</Label>
                       <Input
                         id="benchmark-label"
                         value={benchmarkLabel}
                         onChange={(e) => setBenchmarkLabel(e.target.value)}
-                        placeholder="e.g. benchmark-round-1"
-                        className="h-9"
+                        placeholder={`Auto: ${autoRunLabel}`}
+                        className="h-9 placeholder:text-purple-500/50"
                       />
                     </div>
+                    <div className="flex items-end mb-1">
+                      <div className="flex items-center space-x-2 bg-muted/30 p-2 border rounded-md">
+                        <input
+                          type="checkbox"
+                          id="eval-generation"
+                          checked={evaluateGeneration}
+                          onChange={(e) => setEvaluateGeneration(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300 text-primary"
+                        />
+                        <Label htmlFor="eval-generation" className="text-xs cursor-pointer m-0 leading-none">
+                          Evaluate Generation (Judge LLM)
+                        </Label>
+                      </div>
+                    </div>
                   </div>
+                  
+                  {evaluateGeneration && (
+                    <div className="flex gap-3 pt-2">
+                       <div className="flex-1 space-y-1">
+                         <Label className="text-xs">Judge Provider</Label>
+                         <Select value={evalProvider} onValueChange={(val) => { setEvalProvider(val); setEvalModelId(""); }}>
+                           <SelectTrigger className="h-8 text-xs">
+                             <SelectValue placeholder="Select Provider" />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="default">Tenant Default</SelectItem>
+                             {Array.from(new Set(availableModels.map(m => m.provider))).map(p => (
+                                <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                       </div>
+                       
+                       <div className="flex-1 space-y-1">
+                         <Label className="text-xs">Judge Model ID</Label>
+                         {evalProvider === "default" ? (
+                           <Input 
+                             placeholder="Default for slot" 
+                             value={evalModelId}
+                             onChange={(e) => setEvalModelId(e.target.value)}
+                             className="h-8 text-xs"
+                           />
+                         ) : (
+                           <Select value={evalModelId || "default"} onValueChange={(val) => setEvalModelId(val === "default" ? "" : val)}>
+                             <SelectTrigger className="h-8 text-xs">
+                               <SelectValue placeholder="Model Check..." />
+                             </SelectTrigger>
+                             <SelectContent>
+                               <SelectItem value="default">Default for Provider</SelectItem>
+                               {availableModels.filter(m => m.provider === evalProvider).map(m => (
+                                 <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                               ))}
+                             </SelectContent>
+                           </Select>
+                         )}
+                       </div>
+                    </div>
+                  )}
 
                   {/* Eval Set Input */}
                   <div>
                     <Label className="text-xs mb-1.5 block">
                       Evaluation Set (JSON)
-                      <button
-                        className="ml-2 text-primary hover:underline"
-                        onClick={() => setBenchmarkItems(JSON.stringify([
-                          { query: "What are the side effects of Aspirin?", expected_titles: ["Aspirin"] },
-                          { query: "How does ibuprofen work?", expected_titles: ["Ibuprofen", "NSAID"] },
-                          { query: "Drug interactions with Warfarin", expected_titles: ["Warfarin", "Drug Interactions"] },
-                        ], null, 2))}
-                      >
-                        Load Example
-                      </button>
+                      <div className="mt-2 mb-2 flex items-center justify-between">
+                        <div className="flex gap-2">
+                          <Select 
+                            value={activeDatasetId} 
+                            onValueChange={(val) => {
+                              setActiveDatasetId(val);
+                              if (val !== "none") {
+                                const ds = datasets.find(d => d.id === val);
+                                if (ds) setBenchmarkItems(JSON.stringify(ds.eval_set, null, 2));
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-[200px] h-8 text-xs">
+                              <SelectValue placeholder="Load Dataset..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Custom / Inline Data</SelectItem>
+                              {datasets.map((d) => (
+                                <SelectItem key={d.id} value={d.id}>{d.name} ({d.items_count})</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          
+                          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setSaveModalOpen(true)} disabled={!benchmarkItems.trim()}>
+                            <Database className="w-3 h-3 mr-1" /> Save
+                          </Button>
+                        </div>
+                        <div className="flex gap-4">
+                          <button
+                            className="text-primary hover:underline font-medium"
+                            onClick={() => {
+                              setActiveDatasetId("none");
+                              setBenchmarkItems(JSON.stringify([
+                                { query: "What are the side effects of Aspirin?", expected_titles: ["Aspirin"] },
+                                { query: "How does ibuprofen work?", expected_titles: ["Ibuprofen", "NSAID"] },
+                                { query: "Drug interactions with Warfarin", expected_titles: ["Warfarin", "Drug Interactions"] },
+                              ], null, 2));
+                            }}
+                          >
+                            Load Example
+                          </button>
+                          <button
+                            className="text-purple-500 hover:text-purple-400 hover:underline inline-flex items-center gap-1 font-medium"
+                            onClick={() => setGenModalOpen(true)}
+                          >
+                            ✨ Generate with AI
+                          </button>
+                        </div>
+                      </div>
                     </Label>
                     <textarea
                       id="benchmark-input"
                       value={benchmarkItems}
-                      onChange={(e) => setBenchmarkItems(e.target.value)}
+                      onChange={(e) => {
+                        setBenchmarkItems(e.target.value);
+                        setActiveDatasetId("none"); // switch to custom if they type
+                      }}
                       placeholder={`[\n  {"query": "What is Aspirin?", "expected_titles": ["Aspirin Guide"]},\n  {"query": "Drug interactions", "expected_titles": ["Drug Info"]}\n]`}
                       className="w-full h-40 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
                     />
@@ -701,111 +1043,50 @@ export default function RAGPlaygroundPage() {
                           {benchmarkResults.mrr.toFixed(3)}
                         </span>
                         <span className="text-[10px] text-muted-foreground font-medium">
-                          MRR
+                          MRR @5
                         </span>
                       </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="border-blue-500/20">
                       <CardContent className="p-4 flex flex-col items-center justify-center">
-                        <Clock className="h-5 w-5 text-muted-foreground mb-1" />
+                        <BarChart3 className="h-5 w-5 text-blue-500 mb-1" />
                         <span className="text-3xl font-bold">
-                          {benchmarkResults.avg_latency_ms.toFixed(0)}
+                          {benchmarkResults.ndcg.toFixed(3)}
                         </span>
                         <span className="text-[10px] text-muted-foreground font-medium">
-                          Avg ms
+                          NDCG
                         </span>
                       </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="border-purple-500/20">
                       <CardContent className="p-4 flex flex-col items-center justify-center">
-                        <FlaskConical className="h-5 w-5 text-muted-foreground mb-1" />
+                        <FlaskConical className="h-5 w-5 text-purple-500 mb-1" />
                         <span className="text-3xl font-bold">
-                          {benchmarkResults.total_queries}
+                          {benchmarkResults.map.toFixed(3)}
                         </span>
                         <span className="text-[10px] text-muted-foreground font-medium">
-                          Queries tested
+                          MAP
                         </span>
                       </CardContent>
                     </Card>
                   </div>
 
-                  {/* Per-Query Breakdown */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <button
-                        onClick={() => setShowBenchmarkDetails(!showBenchmarkDetails)}
-                        className="flex items-center justify-between w-full"
-                      >
-                        <CardTitle className="text-sm flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4" />
-                          Per-Query Results
-                        </CardTitle>
-                        {showBenchmarkDetails
-                          ? <ChevronUp className="h-4 w-4" />
-                          : <ChevronDown className="h-4 w-4" />
-                        }
-                      </button>
-                    </CardHeader>
-                    {showBenchmarkDetails && (
-                      <CardContent>
-                        <div className="space-y-2">
-                          {benchmarkResults.per_query.map((qr, i) => (
-                            <div
-                              key={i}
-                              className={`flex items-center gap-3 p-3 rounded-lg text-sm
-                                ${qr.hit ? "bg-green-500/5 border border-green-500/20" : "bg-red-500/5 border border-red-500/20"}`}
-                            >
-                              {qr.hit ? (
-                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                              ) : (
-                                <XCircle className="h-4 w-4 text-red-500 shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium truncate">{qr.query}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  Top results: {qr.top_results.slice(0, 3).join(", ") || "none"}
-                                </p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                {qr.matched_at_rank ? (
-                                  <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20">
-                                    Rank #{qr.matched_at_rank}
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-400 border-red-500/20">
-                                    Miss
-                                  </Badge>
-                                )}
-                                <span className="text-[10px] text-muted-foreground ml-2">{qr.latency_ms}ms</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    )}
-                  </Card>
-
-                  {/* Weights Used */}
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Benchmark ID:</span>
-                        <code className="text-xs bg-muted px-2 py-0.5 rounded">{benchmarkResults.benchmark_id}</code>
-                      </div>
-                      {benchmarkResults.label && (
-                        <div className="flex items-center justify-between text-sm mt-2">
-                          <span className="text-muted-foreground">Label:</span>
-                          <Badge variant="outline">{benchmarkResults.label}</Badge>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between text-sm mt-2">
-                        <span className="text-muted-foreground">Weights:</span>
-                        <span className="text-xs font-mono">
-                          V:{(benchmarkResults.weights_used.vector * 100).toFixed(0)}%
-                          T:{(benchmarkResults.weights_used.tree * 100).toFixed(0)}%
-                          G:{(benchmarkResults.weights_used.graph * 100).toFixed(0)}%
-                        </span>
-                      </div>
+                  {/* Run Info */}
+                  <Card className="bg-primary/5 border-primary/20">
+                    <CardContent className="p-4 flex flex-col items-center justify-center space-y-2">
+                       <p className="text-sm">Evaluation run created successfully.</p>
+                       <div className="flex items-center gap-2">
+                         <span className="text-xs text-muted-foreground">Run ID:</span>
+                         <code className="text-xs bg-background px-2 py-1 rounded border">{benchmarkResults.run_id}</code>
+                       </div>
+                       <Button 
+                         variant="outline" 
+                         size="sm" 
+                         className="mt-2"
+                         onClick={() => setActiveTab("evaluation")}
+                       >
+                         View Details in Evaluation Matrix ➜
+                       </Button>
                     </CardContent>
                   </Card>
                 </>
@@ -831,6 +1112,143 @@ export default function RAGPlaygroundPage() {
           ) : null}
         </div>
       </div>
+
+      {/* ── Save Dataset Modal ────────────────────── */}
+      <Dialog open={saveModalOpen} onOpenChange={setSaveModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-primary" />
+              Save Evaluation Dataset
+            </DialogTitle>
+            <DialogDescription>
+              Assign a recognizable name to quickly load this benchmark set later.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="dataset-name">Dataset Name</Label>
+              <Input
+                id="dataset-name"
+                placeholder="e.g. Clinical Protocol Eval V1"
+                value={saveDatasetName}
+                onChange={(e) => setSaveDatasetName(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSaveDataset();
+                  }
+                }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              A snapshot of your JSON will be saved under this name.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveDataset} disabled={!saveDatasetName.trim()}>
+              Save Dataset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Generate Set Modal ────────────────────── */}
+      <Dialog open={genModalOpen} onOpenChange={setGenModalOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-purple-500" />
+              AI Prompt Generator
+            </DialogTitle>
+            <DialogDescription>
+              Using the underlying LLM to generate an evaluation set from real knowledge base documents.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Generation Prompt / Topic</Label>
+              <Input 
+                placeholder="e.g. Extract common questions about antibiotics side effects..." 
+                value={genPrompt}
+                onChange={(e) => setGenPrompt(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-4">
+              <div className="space-y-2 flex-1">
+                <Label>Provider</Label>
+                <Select value={genProvider} onValueChange={(val) => { setGenProvider(val); setGenModelId(""); }}>
+                  <SelectTrigger><SelectValue placeholder="Select Provider" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Tenant Default</SelectItem>
+                    {Array.from(new Set(availableModels.map(m => m.provider))).map(p => (
+                       <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 flex-1">
+                <Label>Model ID (optional)</Label>
+                {genProvider === "default" ? (
+                  <Input 
+                    placeholder="Leave blank for slot default" 
+                    value={genModelId}
+                    onChange={(e) => setGenModelId(e.target.value)}
+                  />
+                ) : (
+                  <Select value={genModelId || "default"} onValueChange={(val) => setGenModelId(val === "default" ? "" : val)}>
+                    <SelectTrigger><SelectValue placeholder="Model Name" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default for Provider</SelectItem>
+                      {availableModels.filter(m => m.provider === genProvider).map(m => (
+                        <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <div className="space-y-2 flex-1">
+                <Label>Count</Label>
+                <Input 
+                  type="number" 
+                  min={1} max={20}
+                  value={genCount}
+                  onChange={(e) => setGenCount(Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2 flex-[2] flex flex-col justify-end pb-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="gen-multi"
+                    checked={genMultiTurn}
+                    onChange={(e) => setGenMultiTurn(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-600"
+                  />
+                  <Label htmlFor="gen-multi" className="text-sm cursor-pointer mb-0">Multi-turn Conversation</Label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGenModalOpen(false)}>Cancel</Button>
+            <Button 
+              className="bg-purple-600 hover:bg-purple-700 text-white" 
+              onClick={handleGenerateSet}
+              disabled={isGenerating || !genPrompt.trim()}
+            >
+              {isGenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+              Generate Tasks
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

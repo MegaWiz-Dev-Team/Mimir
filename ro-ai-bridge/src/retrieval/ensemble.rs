@@ -98,6 +98,74 @@ pub fn rerank_results(
     weighted
 }
 
+/// Reciprocal Rank Fusion (RRF) reranking — source-type-agnostic.
+///
+/// Algorithm:
+/// 1. Rank results within each source type by their original score
+/// 2. Compute RRF score: weight / (k + rank) for each result per source
+/// 3. Sum RRF scores for results appearing in multiple sources
+/// 4. Sort by total RRF score descending, dedup, truncate
+///
+/// This is superior to weighted-score when source score scales differ
+/// (e.g., vector 0-1 vs tree hardcoded 0.8).
+pub fn rerank_results_rrf(
+    results: &[RetrievalResult],
+    weights: &EnsembleWeights,
+    limit: usize,
+) -> Vec<RetrievalResult> {
+    use std::collections::HashMap;
+
+    if results.is_empty() {
+        return vec![];
+    }
+
+    const RRF_K: f32 = 60.0; // Standard RRF tuning constant
+
+    // Group results by source type and rank within each
+    let source_types = ["vector", "tree", "graph"];
+    let mut rrf_scores: HashMap<String, (f32, RetrievalResult)> = HashMap::new();
+
+    for src in &source_types {
+        let weight = match *src {
+            "vector" => weights.vector,
+            "tree" => weights.tree,
+            "graph" => weights.graph,
+            _ => 0.0,
+        };
+
+        if weight <= 0.0 {
+            continue;
+        }
+
+        // Get results from this source, sorted by score descending
+        let mut src_results: Vec<&RetrievalResult> = results.iter()
+            .filter(|r| r.source_type == *src)
+            .collect();
+        src_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Assign RRF scores based on rank
+        for (rank_0, result) in src_results.iter().enumerate() {
+            let rank = (rank_0 + 1) as f32; // 1-indexed
+            let rrf_score = weight / (RRF_K + rank);
+
+            rrf_scores.entry(result.title.clone())
+                .and_modify(|(score, _)| *score += rrf_score)
+                .or_insert((rrf_score, (*result).clone()));
+        }
+    }
+
+    // Sort by total RRF score descending
+    let mut final_results: Vec<RetrievalResult> = rrf_scores.into_values()
+        .map(|(score, mut r)| {
+            r.score = score;
+            r
+        })
+        .collect();
+    final_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    final_results.truncate(limit);
+    final_results
+}
+
 /// Reranks the given pre-filtered results using an actual Cross-Encoder machine learning model.
 pub async fn cross_encoder_rerank(
     client: &UniversalClient,

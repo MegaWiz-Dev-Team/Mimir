@@ -29,11 +29,13 @@ use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::eval::eval_routes;
 use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
 use ro_ai_bridge::routes::feedback::feedback_routes;
+use ro_ai_bridge::routes::assistant::assistant_routes;
 use ro_ai_bridge::routes::graph::graph_routes;
 use ro_ai_bridge::routes::iam::iam_routes;
 use ro_ai_bridge::routes::ingest::ingest_routes;
 use ro_ai_bridge::routes::llm_usage::llm_usage_routes;
 use ro_ai_bridge::routes::mcp::mcp_routes;
+use ro_ai_bridge::routes::models::models_routes;
 use ro_ai_bridge::routes::ocr::ocr_routes;
 use ro_ai_bridge::routes::pipeline::pipeline_routes;
 use ro_ai_bridge::routes::prompts::prompts_routes;
@@ -164,8 +166,10 @@ async fn main() {
         .nest("/api/v1", cron_routes())
         .nest("/api/v1", cron_status_routes())
         .nest("/api/v1/feedback", feedback_routes())
+        .nest("/api/v1/assistant", assistant_routes())
         .nest("/api/v1", ocr_routes())
         .nest("/api/v1/db-connector", db_connector_routes())
+        .nest("/api/v1", models_routes())
         .nest("/api/v1/vault", vault_routes())
         .nest("/api/v1/mcp", mcp_routes())
         .nest("/api/v1/backup", backup_routes())

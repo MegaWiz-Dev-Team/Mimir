@@ -228,7 +228,17 @@ impl LlmRouter {
     /// Resolves the LLM client configured for a specific purpose (slot).
     /// Purpose examples: "pipeline_generator", "pipeline_evaluator", "judge", "chat"
     pub fn resolve_client(&self, purpose: &str) -> Result<(UniversalClient, String)> {
-        let slot = self.config.resolve_slot(purpose, None, None);
+        self.resolve_client_with_overrides(purpose, None, None)
+    }
+
+    /// Resolves the LLM client configured for a specific purpose (slot) with optional overrides.
+    pub fn resolve_client_with_overrides(
+        &self,
+        purpose: &str,
+        provider_override: Option<&str>,
+        model_override: Option<&str>,
+    ) -> Result<(UniversalClient, String)> {
+        let slot = self.config.resolve_slot(purpose, provider_override, model_override);
 
         match slot.provider.to_lowercase().as_str() {
             "gemini" => {

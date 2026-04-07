@@ -35,21 +35,42 @@ export default function QualityControlPage() {
     const [generatingStatus, setGeneratingStatus] = useState({ is_generating: false, processed_count: 0, total_count: 0 });
     const [pendingGolden, setPendingGolden] = useState<number>(0);
     const [indexing, setIndexing] = useState(false);
+    const [indexingError, setIndexingError] = useState<string | null>(null);
+    const [totalGoldenAtStart, setTotalGoldenAtStart] = useState<number>(0);
 
     // Dialog state
     const [selectedCluster, setSelectedCluster] = useState<any | null>(null);
     const [goldenAnswerText, setGoldenAnswerText] = useState("");
 
+    const filterClusters = (data: any[], col: KanbanColumn) =>
+        data.filter((c: any) => col.status.includes(c.status));
+
     const loadData = async () => {
-        setLoading(true);
         try {
             const [clusterData, vectorStats] = await Promise.all([
                 fetchQcClusters(""),
                 fetchVectorStats().catch(() => null)
             ]);
-            setClusters(Array.isArray(clusterData) ? clusterData : clusterData.clusters || []);
+            
+            // Only update clusters if not currently generating or dragging to prevent jittering
+            if (!generatingStatus.is_generating) {
+                setClusters(Array.isArray(clusterData) ? clusterData : clusterData.clusters || []);
+            }
+
             if (vectorStats?.database?.pending_golden !== undefined) {
-                setPendingGolden(vectorStats.database.pending_golden);
+                const pending = vectorStats.database.pending_golden;
+                setPendingGolden(pending);
+                
+                if (vectorStats.database.indexing_error) {
+                    setIndexingError(vectorStats.database.indexing_error);
+                    setIndexing(false);
+                } else if (vectorStats.database.indexing_active) {
+                    setIndexing(true);
+                    setIndexingError(null);
+                    setTotalGoldenAtStart(prev => Math.max(prev, pending));
+                } else if (pending === 0 && indexing) {
+                    setIndexing(false);
+                }
             }
         } catch (e) {
             console.warn("[QC]", e);
@@ -60,19 +81,37 @@ export default function QualityControlPage() {
 
     const handleIndex = async () => {
         setIndexing(true);
+        setIndexingError(null);
+        setTotalGoldenAtStart(pendingGolden);
         try {
             await triggerIndexing();
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Start polling
             await loadData();
         } catch (error) {
             alert("Failed to trigger indexing");
-        } finally {
-            setIndexing(false);
+            setIndexing(false); // Reset if failed
         }
     };
 
+    // Polling effect for Indexing state
+    useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (indexing && pendingGolden > 0) {
+            timer = setInterval(() => {
+                loadData();
+            }, 3000);
+        } else if (indexing && pendingGolden === 0) {
+            setIndexing(false);
+        }
+
+        return () => {
+            if (timer) clearInterval(timer);
+        };
+    }, [indexing, pendingGolden]);
+
     useEffect(() => {
         loadData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleResolve = async (clusterId: string, resolutionType: string, goldenAnswer?: string) => {
@@ -208,12 +247,29 @@ export default function QualityControlPage() {
                             ? `Scanning (${generatingStatus.processed_count} / ${generatingStatus.total_count})`
                             : "Auto-scan QC Issues"}
                     </Button>
-                    <Button onClick={handleIndex} disabled={indexing || pendingGolden === 0} className="bg-amber-600 hover:bg-amber-700 text-white">
-                        <Database className="mr-2 h-4 w-4" />
-                        {indexing ? "Indexing..." : `Index Golden QA (${pendingGolden})`}
+                    <Button onClick={handleIndex} disabled={indexing} className="bg-amber-600 hover:bg-amber-700 text-white relative overflow-hidden">
+                        {indexing && (
+                            <div 
+                                className="absolute left-0 top-0 bottom-0 bg-white/20 transition-all duration-500 ease-in-out" 
+                                style={{ width: `${totalGoldenAtStart > 0 ? Math.max(0, Math.min(100, ((totalGoldenAtStart - pendingGolden) / totalGoldenAtStart) * 100)) : 100}%` }}
+                            />
+                        )}
+                        <Database className={`mr-2 h-4 w-4 relative z-10 ${indexing ? 'animate-pulse' : ''}`} />
+                        <span className="relative z-10">{indexing ? `Indexing (${Math.max(0, totalGoldenAtStart - pendingGolden)}/${totalGoldenAtStart})` : `Index Golden QA (${pendingGolden} pending)`}</span>
                     </Button>
                 </div>
             </div>
+
+            {indexingError && (
+                <div className="mb-6 p-4 border border-red-500 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 rounded-md flex items-center shrink-0 shadow-sm">
+                    <AlertTriangle className="w-5 h-5 mr-3 shrink-0" />
+                    <div>
+                        <h4 className="font-semibold text-sm">Indexing Failed</h4>
+                        <p className="text-sm">{indexingError}</p>
+                    </div>
+                    <Button variant="outline" size="sm" className="ml-auto dark:border-red-800 dark:hover:bg-red-900/30" onClick={() => setIndexingError(null)}>Dismiss</Button>
+                </div>
+            )}
 
             {/* Kanban Board Area */}
             <DragDropContext onDragEnd={onDragEnd}>
