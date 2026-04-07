@@ -178,6 +178,33 @@ async fn get_vector_stats(headers: HeaderMap, State(pool): State<DbPool>) -> imp
 
     let pending_golden = pending_results + pending_clusters;
 
+    let unscanned_raw: i64 = sqlx::query(
+        "SELECT count(*) as count FROM qa_results WHERE tenant_id = ? AND qc_scanned = 0",
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool)
+    .await
+    .map(|r| {
+        use sqlx::Row;
+        r.get("count")
+    })
+    .unwrap_or(0);
+
+    let pending_cluster_items: i64 = sqlx::query(
+        "SELECT count(*) as count FROM qa_results qr \
+         JOIN qa_cluster_items ci ON qr.id = ci.qa_id \
+         JOIN qa_clusters c ON ci.cluster_id = c.id \
+         WHERE qr.tenant_id = ? AND c.status = 'PENDING'",
+    )
+    .bind(&tenant_id)
+    .fetch_one(&pool)
+    .await
+    .map(|r| {
+        use sqlx::Row;
+        r.get("count")
+    })
+    .unwrap_or(0);
+
     // 3. Get chunk stats (tenant-scoped via source ownership)
     let total_chunks = sqlx::query(
         "SELECT count(*) as count FROM chunks c \
@@ -199,15 +226,47 @@ async fn get_vector_stats(headers: HeaderMap, State(pool): State<DbPool>) -> imp
         0.0
     };
 
+    // 4. Get active status & potential error from tenant_configs.search_settings
+    let settings_row = sqlx::query(
+        r#"SELECT 
+           CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(search_settings, '$.indexing_active')) = 'true', 0) AS SIGNED) as indexing_active,
+           CAST(JSON_UNQUOTE(JSON_EXTRACT(search_settings, '$.indexing_error')) AS CHAR) as indexing_error
+           FROM tenant_configs WHERE tenant_id = ?"#
+    )
+    .bind(&tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None);
+
+    let (indexing_active, indexing_error): (i32, Option<String>) = if let Some(row) = settings_row {
+        use sqlx::Row;
+        // Depending on MariaDB version, CAST AS SIGNED might yield an i64 instead.
+        let active_val: i32 = row.try_get("indexing_active").unwrap_or_else(|_| row.try_get::<i64, _>("indexing_active").unwrap_or(0) as i32);
+        
+        let err_val: Option<String> = row.try_get("indexing_error").unwrap_or_else(|_| {
+            row.try_get::<Vec<u8>, _>("indexing_error").ok().and_then(|v| String::from_utf8(v).ok())
+        });
+        let err_val = err_val.filter(|s| s != "null" && s != "NULL" && !s.is_empty());
+        
+        (active_val, err_val)
+    } else {
+        (0, None)
+    };
+
     Json(serde_json::json!({
         "qdrant": qdrant_info,
         "database": {
             "total_qa": total_qa,
             "indexed_qa": indexed_qa,
             "pending_golden": pending_golden,
+            "unscanned_raw": unscanned_raw,
+            "pending_cluster_items": pending_cluster_items,
             "total_chunks": total_chunks,
             "qdrant_points": qdrant_points,
-            "chunk_sync_pct": chunk_sync_pct
+            "chunk_sync_pct": chunk_sync_pct,
+            "indexing_active": indexing_active == 1,
+            "indexing_error": indexing_error
+
         }
     }))
 }
@@ -215,9 +274,26 @@ async fn get_vector_stats(headers: HeaderMap, State(pool): State<DbPool>) -> imp
 async fn trigger_indexing(State(pool): State<DbPool>) -> impl IntoResponse {
     let qdrant = QdrantService::new();
 
+    let pool_clone = pool.clone();
     tokio::spawn(async move {
-        if let Err(e) = run_indexer(&pool, &qdrant, "golden_qa").await {
+        // Clear errors and set active
+        let _ = sqlx::query("UPDATE tenant_configs SET search_settings = JSON_SET(COALESCE(search_settings, '{}'), '$.indexing_active', 'true', '$.indexing_error', null)")
+           .execute(&pool_clone)
+           .await;
+
+        let result = run_indexer(&pool_clone, &qdrant, "golden_qa").await;
+        
+        if let Err(e) = result {
             error!("Background indexing failed: {}", e);
+            let err_msg = e.to_string();
+            let _ = sqlx::query("UPDATE tenant_configs SET search_settings = JSON_SET(search_settings, '$.indexing_active', 'false', '$.indexing_error', ?)")
+               .bind(err_msg)
+               .execute(&pool_clone)
+               .await;
+        } else {
+            let _ = sqlx::query("UPDATE tenant_configs SET search_settings = JSON_SET(search_settings, '$.indexing_active', 'false', '$.indexing_error', null)")
+               .execute(&pool_clone)
+               .await;
         }
     });
 

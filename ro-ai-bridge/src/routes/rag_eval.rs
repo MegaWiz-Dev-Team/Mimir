@@ -12,7 +12,8 @@
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
+    response::IntoResponse,
+    routing::{get, post, delete},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,10 @@ pub struct RagEvalRunRequest {
     /// Whether to also generate answers and judge them.
     #[serde(default = "default_true")]
     pub evaluate_generation: bool,
+
+    /// Optional reference to the saved dataset this was run from
+    pub dataset_id: Option<String>,
+    pub dataset_name: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -206,11 +211,14 @@ pub fn rag_eval_routes() -> Router<DbPool> {
     Router::new()
         .route("/run", post(run_rag_eval))
         .route("/runs", get(list_rag_eval_runs))
-        .route("/runs/{id}", get(get_rag_eval_run))
+        .route("/runs/{id}", get(get_rag_eval_run).delete(delete_eval_run))
         .route("/runs/{id}/deploy", post(deploy_eval_config))
         .route("/generate-set", post(generate_eval_set_v2))
         .route("/auto-tune", post(super::rag_eval_tuner::run_auto_tune))
         .route("/auto-tune/{job_id}", get(super::rag_eval_tuner::get_auto_tune_job))
+        .route("/auto-tune/{job_id}/chat", post(super::rag_eval_tuner::auto_tune_chat))
+        .route("/datasets", post(super::rag_eval_dataset::create_dataset).get(super::rag_eval_dataset::list_datasets))
+        .route("/datasets/{id}", axum::routing::delete(super::rag_eval_dataset::delete_dataset))
 }
 
 // ─── Scoring Functions ─────────────────────────────────────────────────────────
@@ -379,13 +387,23 @@ Respond ONLY as JSON:
                 .as_str()
                 .unwrap_or("{}")
                 .to_string();
-            let cleaned = content
-                .trim()
-                .trim_start_matches("```json")
-                .trim_start_matches("```")
-                .trim_end_matches("```")
-                .trim();
-            let scores: Value = serde_json::from_str(cleaned).unwrap_or(json!({}));
+            let scores: Value = serde_json::from_str(&content).unwrap_or_else(|_| {
+                if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+                    if start <= end {
+                        let extracted = &content[start..=end];
+                        if let Ok(parsed) = serde_json::from_str(extracted) {
+                            return parsed;
+                        }
+                    }
+                }
+                let cleaned = content
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                serde_json::from_str(cleaned).unwrap_or(json!({}))
+            });
             (
                 Some(answer),
                 scores["faithfulness"].as_f64(),
@@ -405,11 +423,11 @@ Respond ONLY as JSON:
 
 /// POST /api/v1/rag-eval/run — Run full RAG evaluation
 pub async fn execute_evaluation_run(
+    run_id: String,
     tenant_id: String,
     pool: DbPool,
     payload: RagEvalRunRequest,
 ) -> Result<Value, String> {
-    let run_id = Uuid::new_v4().to_string();
     let start = Instant::now();
     let params = &payload.params;
 
@@ -428,10 +446,13 @@ pub async fn execute_evaluation_run(
     let judge_model = payload.judge_model.unwrap_or(slot.model.clone());
     let judge_provider = payload.judge_provider.unwrap_or(slot.provider.clone());
     let api_base = crate::routes::sources::infer_api_base(&judge_provider);
-    let api_key = llm_config
-        .heimdall_api_key
-        .clone()
-        .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".into()));
+    let api_key = match judge_provider.to_lowercase().as_str() {
+        "google" | "gemini" => llm_config.google_api_key.clone(),
+        "openai" => llm_config.openai_api_key.clone(),
+        "azure" => llm_config.azure_api_key.clone(),
+        _ => llm_config.heimdall_api_key.clone(),
+    }
+    .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".into()));
 
     let embed_model = llm_config.resolve_slot("embedding", None, None).model;
 
@@ -453,13 +474,13 @@ pub async fn execute_evaluation_run(
              top_k, vector_alpha, vector_threshold, graph_hops,
              rerank_enabled, rerank_strategy, rerank_model, rerank_final_k,
              source_filter, collections, embed_model, judge_model, judge_provider,
-             total_queries)
+             total_queries, dataset_id, dataset_name)
         VALUES (?, ?, ?, 'running',
                 ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
-                ?)"#
+                ?, ?, ?)"#
     )
     .bind(&run_id)
     .bind(&tenant_id)
@@ -481,6 +502,8 @@ pub async fn execute_evaluation_run(
     .bind(&judge_model)
     .bind(&judge_provider)
     .bind(payload.eval_set.len() as i32)
+    .bind(&payload.dataset_id)
+    .bind(&payload.dataset_name)
     .execute(&pool)
     .await;
 
@@ -492,149 +515,178 @@ pub async fn execute_evaluation_run(
         "📊 Starting RAG evaluation run"
     );
 
-    // Run each query
-    let mut per_query_results: Vec<RagEvalQueryResult> = Vec::new();
+    // Run queries in parallel with bounded concurrency for speed
+    use futures::stream::{self, StreamExt};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
     let filters = params.filters.clone().unwrap_or_default();
     let top_k = params.top_k;
 
-    let mut total_vector_hits = 0u64;
-    let mut total_tree_hits = 0u64;
-    let mut total_graph_hits = 0u64;
-    let mut total_vector_queries = 0u64;
-    let mut total_tree_queries = 0u64;
-    let mut total_graph_queries = 0u64;
+    let total_vector_hits = Arc::new(AtomicU64::new(0));
+    let total_tree_hits = Arc::new(AtomicU64::new(0));
+    let total_graph_hits = Arc::new(AtomicU64::new(0));
+    let total_vector_queries = Arc::new(AtomicU64::new(0));
+    let total_tree_queries = Arc::new(AtomicU64::new(0));
+    let total_graph_queries = Arc::new(AtomicU64::new(0));
 
-    for item in &payload.eval_set {
-        let query_start = Instant::now();
+    const EVAL_CONCURRENCY: usize = 5;
 
-        // 1. Retrieval
-        let search_results = run_parallel_search_filtered(
-            &pool,
-            &item.query,
-            &tenant_id,
-            &params.weights,
-            top_k,
-            &filters,
-            params.rerank.as_ref(),
-        )
-        .await;
+    let per_query_results: Vec<RagEvalQueryResult> = stream::iter(payload.eval_set.clone().into_iter())
+        .map(|item| {
+            let pool = pool.clone();
+            let tenant_id = tenant_id.clone();
+            let run_id = run_id.clone();
+            let filters = filters.clone();
+            let weights = params.weights.clone();
+            let rerank = params.rerank.clone();
+            let api_base = api_base.clone();
+            let api_key = api_key.clone();
+            let judge_model = judge_model.clone();
+            let evaluate_generation = payload.evaluate_generation;
 
-        let retrieval_latency = query_start.elapsed().as_millis() as u64;
+            let vh = total_vector_hits.clone();
+            let th = total_tree_hits.clone();
+            let gh = total_graph_hits.clone();
+            let vq = total_vector_queries.clone();
+            let tq = total_tree_queries.clone();
+            let gq = total_graph_queries.clone();
 
-        // 2. Retrieval metrics
-        let (hit, rr, matched_rank) = evaluate_query_results(&search_results, &item.expected_titles);
-        let ndcg = calculate_ndcg_single(&search_results, &item.expected_titles, top_k);
-        let precision = calculate_precision(&search_results, &item.expected_titles, top_k);
-        let recall = calculate_recall(&search_results, &item.expected_titles, top_k);
+            async move {
+                let query_start = Instant::now();
 
-        // 3. Per-source contribution
-        let v_contrib = source_contributed(&search_results, &item.expected_titles, "vector");
-        let t_contrib = source_contributed(&search_results, &item.expected_titles, "tree");
-        let g_contrib = source_contributed(&search_results, &item.expected_titles, "graph");
-
-        // Track per-source hit rates
-        let has_vector = search_results.iter().any(|r| r.source_type == "vector");
-        let has_tree = search_results.iter().any(|r| r.source_type == "tree");
-        let has_graph = search_results.iter().any(|r| r.source_type == "graph");
-        if has_vector { total_vector_queries += 1; if v_contrib { total_vector_hits += 1; } }
-        if has_tree { total_tree_queries += 1; if t_contrib { total_tree_hits += 1; } }
-        if has_graph { total_graph_queries += 1; if g_contrib { total_graph_hits += 1; } }
-
-        // 4. Top results snapshot
-        let top_results: Vec<TopResultEntry> = search_results.iter().take(top_k).map(|r| {
-            TopResultEntry {
-                title: r.title.clone(),
-                score: r.score,
-                source_type: r.source_type.clone(),
-            }
-        }).collect();
-
-        // 5. Generation + Judge (if enabled)
-        let (gen_answer, faithfulness, answer_rel, ctx_prec, judge_reasoning, gen_latency) =
-            if payload.evaluate_generation {
-                let gen_start = Instant::now();
-                let (answer, faith, rel, prec, reasoning) = generate_and_judge(
+                // 1. Retrieval
+                let search_results = run_parallel_search_filtered(
+                    &pool,
                     &item.query,
-                    &search_results,
-                    item.expected_content.as_deref(),
-                    item.context.as_deref(),
-                    &api_base,
-                    &api_key,
-                    &judge_model,
-                ).await;
-                let gen_lat = gen_start.elapsed().as_millis() as u64;
-                (answer, faith, rel, prec, reasoning, Some(gen_lat))
-            } else {
-                (None, None, None, None, None, None)
-            };
+                    &tenant_id,
+                    &weights,
+                    top_k,
+                    &filters,
+                    rerank.as_ref(),
+                )
+                .await;
 
-        let total_latency = query_start.elapsed().as_millis() as u64;
+                let retrieval_latency = query_start.elapsed().as_millis() as u64;
 
-        // 6. Persist per-query result
-        let top_results_json = serde_json::to_string(&top_results).unwrap_or_default();
-        let _ = sqlx::query(
-            r#"INSERT INTO rag_eval_queries
-                (run_id, tenant_id, query, expected_titles, expected_content,
-                 hit, reciprocal_rank, ndcg_score, precision_score, recall_score, matched_at_rank,
-                 vector_contributed, tree_contributed, graph_contributed,
-                 top_results, generated_answer,
-                 faithfulness, answer_relevancy, context_precision, judge_reasoning,
-                 retrieval_latency_ms, generation_latency_ms, total_latency_ms)
-            VALUES (?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?,
-                    ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?)"#
-        )
-        .bind(&run_id)
-        .bind(&tenant_id)
-        .bind(&item.query)
-        .bind(serde_json::to_string(&item.expected_titles).unwrap_or_default())
-        .bind(&item.expected_content)
-        .bind(hit as i8)
-        .bind(rr)
-        .bind(ndcg)
-        .bind(precision)
-        .bind(recall)
-        .bind(matched_rank.map(|r| r as i32))
-        .bind(v_contrib as i8)
-        .bind(t_contrib as i8)
-        .bind(g_contrib as i8)
-        .bind(&top_results_json)
-        .bind(&gen_answer)
-        .bind(faithfulness)
-        .bind(answer_rel)
-        .bind(ctx_prec)
-        .bind(&judge_reasoning)
-        .bind(retrieval_latency as i32)
-        .bind(gen_latency.map(|l| l as i32))
-        .bind(total_latency as i32)
-        .execute(&pool)
+                // 2. Retrieval metrics
+                let (hit, rr, matched_rank) = evaluate_query_results(&search_results, &item.expected_titles);
+                let ndcg = calculate_ndcg_single(&search_results, &item.expected_titles, top_k);
+                let precision = calculate_precision(&search_results, &item.expected_titles, top_k);
+                let recall = calculate_recall(&search_results, &item.expected_titles, top_k);
+
+                // 3. Per-source contribution
+                let v_contrib = source_contributed(&search_results, &item.expected_titles, "vector");
+                let t_contrib = source_contributed(&search_results, &item.expected_titles, "tree");
+                let g_contrib = source_contributed(&search_results, &item.expected_titles, "graph");
+
+                // Track per-source hit rates (atomic)
+                let has_vector = search_results.iter().any(|r| r.source_type == "vector");
+                let has_tree = search_results.iter().any(|r| r.source_type == "tree");
+                let has_graph = search_results.iter().any(|r| r.source_type == "graph");
+                if has_vector { vq.fetch_add(1, Ordering::Relaxed); if v_contrib { vh.fetch_add(1, Ordering::Relaxed); } }
+                if has_tree { tq.fetch_add(1, Ordering::Relaxed); if t_contrib { th.fetch_add(1, Ordering::Relaxed); } }
+                if has_graph { gq.fetch_add(1, Ordering::Relaxed); if g_contrib { gh.fetch_add(1, Ordering::Relaxed); } }
+
+                // 4. Top results snapshot
+                let top_results: Vec<TopResultEntry> = search_results.iter().take(top_k).map(|r| {
+                    TopResultEntry {
+                        title: r.title.clone(),
+                        score: r.score,
+                        source_type: r.source_type.clone(),
+                    }
+                }).collect();
+
+                // 5. Generation + Judge (if enabled)
+                let (gen_answer, faithfulness, answer_rel, ctx_prec, judge_reasoning, gen_latency) =
+                    if evaluate_generation {
+                        let gen_start = Instant::now();
+                        let (answer, faith, rel, prec, reasoning) = generate_and_judge(
+                            &item.query,
+                            &search_results,
+                            item.expected_content.as_deref(),
+                            item.context.as_deref(),
+                            &api_base,
+                            &api_key,
+                            &judge_model,
+                        ).await;
+                        let gen_lat = gen_start.elapsed().as_millis() as u64;
+                        (answer, faith, rel, prec, reasoning, Some(gen_lat))
+                    } else {
+                        (None, None, None, None, None, None)
+                    };
+
+                let total_latency = query_start.elapsed().as_millis() as u64;
+
+                // 6. Persist per-query result
+                let top_results_json = serde_json::to_string(&top_results).unwrap_or_default();
+                let _ = sqlx::query(
+                    r#"INSERT INTO rag_eval_queries
+                        (run_id, tenant_id, query, expected_titles, expected_content,
+                         hit, reciprocal_rank, ndcg_score, precision_score, recall_score, matched_at_rank,
+                         vector_contributed, tree_contributed, graph_contributed,
+                         top_results, generated_answer,
+                         faithfulness, answer_relevancy, context_precision, judge_reasoning,
+                         retrieval_latency_ms, generation_latency_ms, total_latency_ms)
+                    VALUES (?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?,
+                            ?, ?,
+                            ?, ?, ?, ?,
+                            ?, ?, ?)"#
+                )
+                .bind(&run_id)
+                .bind(&tenant_id)
+                .bind(&item.query)
+                .bind(serde_json::to_string(&item.expected_titles).unwrap_or_default())
+                .bind(&item.expected_content)
+                .bind(hit as i8)
+                .bind(rr)
+                .bind(ndcg)
+                .bind(precision)
+                .bind(recall)
+                .bind(matched_rank.map(|r| r as i32))
+                .bind(v_contrib as i8)
+                .bind(t_contrib as i8)
+                .bind(g_contrib as i8)
+                .bind(&top_results_json)
+                .bind(&gen_answer)
+                .bind(faithfulness)
+                .bind(answer_rel)
+                .bind(ctx_prec)
+                .bind(&judge_reasoning)
+                .bind(retrieval_latency as i32)
+                .bind(gen_latency.map(|l| l as i32))
+                .bind(total_latency as i32)
+                .execute(&pool)
+                .await;
+
+                RagEvalQueryResult {
+                    query: item.query.clone(),
+                    hit,
+                    reciprocal_rank: rr,
+                    ndcg_score: ndcg,
+                    precision,
+                    recall,
+                    matched_at_rank: matched_rank,
+                    vector_contributed: v_contrib,
+                    tree_contributed: t_contrib,
+                    graph_contributed: g_contrib,
+                    top_results,
+                    generated_answer: gen_answer,
+                    faithfulness,
+                    answer_relevancy: answer_rel,
+                    context_precision: ctx_prec,
+                    judge_reasoning,
+                    retrieval_latency_ms: retrieval_latency,
+                    generation_latency_ms: gen_latency,
+                    total_latency_ms: total_latency,
+                }
+            }
+        })
+        .buffer_unordered(EVAL_CONCURRENCY)
+        .collect()
         .await;
-
-        per_query_results.push(RagEvalQueryResult {
-            query: item.query.clone(),
-            hit,
-            reciprocal_rank: rr,
-            ndcg_score: ndcg,
-            precision,
-            recall,
-            matched_at_rank: matched_rank,
-            vector_contributed: v_contrib,
-            tree_contributed: t_contrib,
-            graph_contributed: g_contrib,
-            top_results,
-            generated_answer: gen_answer,
-            faithfulness,
-            answer_relevancy: answer_rel,
-            context_precision: ctx_prec,
-            judge_reasoning,
-            retrieval_latency_ms: retrieval_latency,
-            generation_latency_ms: gen_latency,
-            total_latency_ms: total_latency,
-        });
-    }
 
     // Aggregate metrics
     let n = per_query_results.len() as f64;
@@ -655,9 +707,15 @@ pub async fn execute_evaluation_run(
         if vals.is_empty() { None } else { Some(vals.iter().sum::<f64>() / vals.len() as f64) }
     } else { None };
 
-    let v_hr = if total_vector_queries > 0 { total_vector_hits as f64 / total_vector_queries as f64 } else { 0.0 };
-    let t_hr = if total_tree_queries > 0 { total_tree_hits as f64 / total_tree_queries as f64 } else { 0.0 };
-    let g_hr = if total_graph_queries > 0 { total_graph_hits as f64 / total_graph_queries as f64 } else { 0.0 };
+    let tvh = total_vector_hits.load(Ordering::Relaxed);
+    let tvq = total_vector_queries.load(Ordering::Relaxed);
+    let tth = total_tree_hits.load(Ordering::Relaxed);
+    let ttq = total_tree_queries.load(Ordering::Relaxed);
+    let tgh = total_graph_hits.load(Ordering::Relaxed);
+    let tgq = total_graph_queries.load(Ordering::Relaxed);
+    let v_hr = if tvq > 0 { tvh as f64 / tvq as f64 } else { 0.0 };
+    let t_hr = if ttq > 0 { tth as f64 / ttq as f64 } else { 0.0 };
+    let g_hr = if tgq > 0 { tgh as f64 / tgq as f64 } else { 0.0 };
 
     // Update run record with aggregate scores
     let _ = sqlx::query(
@@ -747,12 +805,27 @@ pub async fn run_rag_eval(
     headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<RagEvalRunRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = extract_tenant_id(&headers);
-    match execute_evaluation_run(tenant_id.to_string(), pool, payload).await {
-        Ok(val) => Ok(Json(val)),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e})))),
-    }
+) -> impl axum::response::IntoResponse {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let run_id = Uuid::new_v4().to_string();
+    
+    // Spawn evaluation in background
+    let run_id_clone = run_id.clone();
+    tokio::spawn(async move {
+        if let Err(e) = execute_evaluation_run(run_id_clone.clone(), tenant_id, pool.clone(), payload).await {
+            tracing::error!("Background evaluation run failed: {}", e);
+            let _ = sqlx::query("UPDATE rag_eval_runs SET status = 'error' WHERE id = ?")
+                .bind(run_id_clone)
+                .execute(&pool)
+                .await;
+        }
+    });
+
+    (StatusCode::ACCEPTED, Json(json!({
+        "run_id": run_id,
+        "status": "running",
+        "message": "Evaluation started in background"
+    })))
 }
 
 /// GET /api/v1/rag-eval/runs — List all evaluation runs for comparison
@@ -769,13 +842,13 @@ async fn list_rag_eval_runs(
     let rows = sqlx::query(
         r#"SELECT id, name, status,
             weight_vector, weight_tree, weight_graph,
-            COALESCE(hit_rate, 0) as hit_rate, COALESCE(mrr, 0) as mrr, COALESCE(ndcg, 0) as ndcg,
-            COALESCE(precision_at_k, 0) as precision_at_k, COALESCE(recall_at_k, 0) as recall_at_k,
-            top_k, COALESCE(avg_latency_ms, 0) as avg_latency_ms,
+            hit_rate, mrr, ndcg,
+            precision_at_k, recall_at_k,
+            top_k, avg_latency_ms,
             avg_faithfulness, avg_answer_relevancy,
             vector_hit_rate, tree_hit_rate, graph_hit_rate,
             total_queries, vector_alpha, vector_threshold, graph_hops,
-            started_at, finished_at
+            started_at, finished_at, dataset_id, dataset_name
         FROM rag_eval_runs WHERE tenant_id = ?
         ORDER BY started_at DESC LIMIT ? OFFSET ?"#
     )
@@ -789,36 +862,38 @@ async fn list_rag_eval_runs(
     use sqlx::Row;
     let run_list: Vec<Value> = rows.iter().map(|r| {
         json!({
-            "id": r.get::<String, _>("id"),
-            "name": r.get::<Option<String>, _>("name"),
-            "status": r.get::<String, _>("status"),
+            "id": r.try_get::<String, _>("id").unwrap_or_default(),
+            "name": r.try_get::<Option<String>, _>("name").unwrap_or(None),
+            "status": r.try_get::<String, _>("status").unwrap_or_default(),
             "params": {
                 "weights": {
-                    "vector": r.get::<f64, _>("weight_vector"),
-                    "tree": r.get::<f64, _>("weight_tree"),
-                    "graph": r.get::<f64, _>("weight_graph")
+                    "vector": r.try_get::<f32, _>("weight_vector").unwrap_or(0.0) as f64,
+                    "tree": r.try_get::<f32, _>("weight_tree").unwrap_or(0.0) as f64,
+                    "graph": r.try_get::<f32, _>("weight_graph").unwrap_or(0.0) as f64
                 },
-                "top_k": r.get::<i32, _>("top_k"),
-                "vector_alpha": r.get::<f64, _>("vector_alpha"),
-                "vector_threshold": r.get::<f64, _>("vector_threshold"),
-                "graph_hops": r.get::<i32, _>("graph_hops")
+                "top_k": r.try_get::<i32, _>("top_k").unwrap_or(10),
+                "vector_alpha": r.try_get::<Option<f32>, _>("vector_alpha").unwrap_or(None).map(|v| v as f64),
+                "vector_threshold": r.try_get::<Option<f32>, _>("vector_threshold").unwrap_or(None).map(|v| v as f64),
+                "graph_hops": r.try_get::<Option<i32>, _>("graph_hops").unwrap_or(None)
             },
             "scores": {
-                "hit_rate": r.get::<f64, _>("hit_rate"),
-                "mrr": r.get::<f64, _>("mrr"),
-                "ndcg": r.get::<f64, _>("ndcg"),
-                "precision_at_k": r.get::<f64, _>("precision_at_k"),
-                "recall_at_k": r.get::<f64, _>("recall_at_k"),
-                "avg_latency_ms": r.get::<f64, _>("avg_latency_ms"),
-                "faithfulness": r.get::<Option<f64>, _>("avg_faithfulness"),
-                "answer_relevancy": r.get::<Option<f64>, _>("avg_answer_relevancy"),
-                "vector_hit_rate": r.get::<Option<f64>, _>("vector_hit_rate"),
-                "tree_hit_rate": r.get::<Option<f64>, _>("tree_hit_rate"),
-                "graph_hit_rate": r.get::<Option<f64>, _>("graph_hit_rate")
+                "hit_rate": r.try_get::<Option<f32>, _>("hit_rate").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "mrr": r.try_get::<Option<f32>, _>("mrr").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "ndcg": r.try_get::<Option<f32>, _>("ndcg").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "precision_at_k": r.try_get::<Option<f32>, _>("precision_at_k").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "recall_at_k": r.try_get::<Option<f32>, _>("recall_at_k").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "avg_latency_ms": r.try_get::<Option<f32>, _>("avg_latency_ms").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "faithfulness": r.try_get::<Option<f32>, _>("avg_faithfulness").unwrap_or(None).map(|v| v as f64),
+                "answer_relevancy": r.try_get::<Option<f32>, _>("avg_answer_relevancy").unwrap_or(None).map(|v| v as f64),
+                "vector_hit_rate": r.try_get::<Option<f32>, _>("vector_hit_rate").unwrap_or(None).map(|v| v as f64),
+                "tree_hit_rate": r.try_get::<Option<f32>, _>("tree_hit_rate").unwrap_or(None).map(|v| v as f64),
+                "graph_hit_rate": r.try_get::<Option<f32>, _>("graph_hit_rate").unwrap_or(None).map(|v| v as f64)
             },
-            "total_queries": r.get::<i32, _>("total_queries"),
-            "started_at": r.get::<Option<chrono::NaiveDateTime>, _>("started_at"),
-            "finished_at": r.get::<Option<chrono::NaiveDateTime>, _>("finished_at")
+            "total_queries": r.try_get::<Option<i32>, _>("total_queries").unwrap_or(None),
+            "started_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("started_at").unwrap_or(None),
+            "finished_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("finished_at").unwrap_or(None),
+            "dataset_id": r.try_get::<Option<String>, _>("dataset_id").unwrap_or(None),
+            "dataset_name": r.try_get::<Option<String>, _>("dataset_name").unwrap_or(None)
         })
     }).collect();
 
@@ -849,7 +924,7 @@ async fn get_rag_eval_run(
             total_queries, COALESCE(avg_latency_ms, 0) as avg_latency_ms,
             avg_faithfulness, avg_answer_relevancy, avg_context_precision,
             embed_model, judge_model,
-            started_at, finished_at
+            started_at, finished_at, dataset_id, dataset_name
         FROM rag_eval_runs WHERE id = ? AND tenant_id = ?"#
     )
     .bind(&run_id)
@@ -880,79 +955,81 @@ async fn get_rag_eval_run(
     .unwrap_or_default();
 
     let per_query: Vec<Value> = query_rows.iter().map(|q| {
-        let top_results_str: Option<String> = q.get("top_results");
+        let top_results_str: Option<String> = q.try_get("top_results").unwrap_or(None);
         let top_results: Value = top_results_str
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or(json!([]));
-        let expected_titles_str: Option<String> = q.get("expected_titles");
+        let expected_titles_str: Option<String> = q.try_get("expected_titles").unwrap_or(None);
         let expected_titles: Value = expected_titles_str
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or(json!([]));
         json!({
-            "query": q.get::<String, _>("query"),
+            "query": q.try_get::<String, _>("query").unwrap_or_default(),
             "expected_titles": expected_titles,
-            "expected_content": q.get::<Option<String>, _>("expected_content"),
-            "hit": q.get::<i8, _>("hit") != 0,
-            "reciprocal_rank": q.get::<f64, _>("reciprocal_rank"),
-            "ndcg_score": q.get::<f64, _>("ndcg_score"),
-            "precision": q.get::<f64, _>("precision_score"),
-            "recall": q.get::<f64, _>("recall_score"),
-            "matched_at_rank": q.get::<Option<i32>, _>("matched_at_rank"),
-            "vector_contributed": q.get::<i8, _>("vector_contributed") != 0,
-            "tree_contributed": q.get::<i8, _>("tree_contributed") != 0,
-            "graph_contributed": q.get::<i8, _>("graph_contributed") != 0,
+            "expected_content": q.try_get::<Option<String>, _>("expected_content").unwrap_or(None),
+            "hit": q.try_get::<Option<i8>, _>("hit").unwrap_or(Some(0)).unwrap_or(0) != 0,
+            "reciprocal_rank": q.try_get::<Option<f32>, _>("reciprocal_rank").unwrap_or(Some(0.0)).unwrap_or(0.0) as f64,
+            "ndcg_score": q.try_get::<Option<f32>, _>("ndcg_score").unwrap_or(Some(0.0)).unwrap_or(0.0) as f64,
+            "precision": q.try_get::<Option<f32>, _>("precision_score").unwrap_or(Some(0.0)).unwrap_or(0.0) as f64,
+            "recall": q.try_get::<Option<f32>, _>("recall_score").unwrap_or(Some(0.0)).unwrap_or(0.0) as f64,
+            "matched_at_rank": q.try_get::<Option<i32>, _>("matched_at_rank").unwrap_or(None),
+            "vector_contributed": q.try_get::<Option<i8>, _>("vector_contributed").unwrap_or(Some(0)).unwrap_or(0) != 0,
+            "tree_contributed": q.try_get::<Option<i8>, _>("tree_contributed").unwrap_or(Some(0)).unwrap_or(0) != 0,
+            "graph_contributed": q.try_get::<Option<i8>, _>("graph_contributed").unwrap_or(Some(0)).unwrap_or(0) != 0,
             "top_results": top_results,
-            "generated_answer": q.get::<Option<String>, _>("generated_answer"),
-            "faithfulness": q.get::<Option<f64>, _>("faithfulness"),
-            "answer_relevancy": q.get::<Option<f64>, _>("answer_relevancy"),
-            "context_precision": q.get::<Option<f64>, _>("context_precision"),
-            "judge_reasoning": q.get::<Option<String>, _>("judge_reasoning"),
-            "retrieval_latency_ms": q.get::<Option<i32>, _>("retrieval_latency_ms"),
-            "generation_latency_ms": q.get::<Option<i32>, _>("generation_latency_ms"),
-            "total_latency_ms": q.get::<Option<i32>, _>("total_latency_ms")
+            "generated_answer": q.try_get::<Option<String>, _>("generated_answer").unwrap_or(None),
+            "faithfulness": q.try_get::<Option<f32>, _>("faithfulness").unwrap_or(None).map(|v| v as f64),
+            "answer_relevancy": q.try_get::<Option<f32>, _>("answer_relevancy").unwrap_or(None).map(|v| v as f64),
+            "context_precision": q.try_get::<Option<f32>, _>("context_precision").unwrap_or(None).map(|v| v as f64),
+            "judge_reasoning": q.try_get::<Option<String>, _>("judge_reasoning").unwrap_or(None),
+            "retrieval_latency_ms": q.try_get::<Option<i32>, _>("retrieval_latency_ms").unwrap_or(None),
+            "generation_latency_ms": q.try_get::<Option<i32>, _>("generation_latency_ms").unwrap_or(None),
+            "total_latency_ms": q.try_get::<Option<i32>, _>("total_latency_ms").unwrap_or(None),
         })
     }).collect();
 
     Ok(Json(json!({
         "run": {
             "id": r.get::<String, _>("id"),
-            "name": r.get::<Option<String>, _>("name"),
-            "status": r.get::<String, _>("status"),
+            "name": r.try_get::<Option<String>, _>("name").unwrap_or(None),
+            "status": r.try_get::<String, _>("status").unwrap_or_default(),
             "params": {
                 "weights": {
-                    "vector": r.get::<f64, _>("weight_vector"),
-                    "tree": r.get::<f64, _>("weight_tree"),
-                    "graph": r.get::<f64, _>("weight_graph")
+                    "vector": r.try_get::<f32, _>("weight_vector").unwrap_or(0.0) as f64,
+                    "tree": r.try_get::<f32, _>("weight_tree").unwrap_or(0.0) as f64,
+                    "graph": r.try_get::<f32, _>("weight_graph").unwrap_or(0.0) as f64
                 },
-                "top_k": r.get::<i32, _>("top_k"),
-                "vector_alpha": r.get::<f64, _>("vector_alpha"),
-                "vector_threshold": r.get::<f64, _>("vector_threshold"),
-                "graph_hops": r.get::<i32, _>("graph_hops"),
+                "top_k": r.try_get::<i32, _>("top_k").unwrap_or(10),
+                "vector_alpha": r.try_get::<Option<f32>, _>("vector_alpha").unwrap_or(None).map(|v| v as f64),
+                "vector_threshold": r.try_get::<Option<f32>, _>("vector_threshold").unwrap_or(None).map(|v| v as f64),
+                "graph_hops": r.try_get::<Option<i32>, _>("graph_hops").unwrap_or(None),
                 "rerank": {
-                    "enabled": r.get::<i8, _>("rerank_enabled") != 0,
-                    "strategy": r.get::<String, _>("rerank_strategy"),
-                    "model": r.get::<Option<String>, _>("rerank_model"),
-                    "final_top_k": r.get::<i32, _>("rerank_final_k")
+                    "enabled": r.try_get::<Option<i8>, _>("rerank_enabled").unwrap_or(Some(0)).unwrap_or(0) != 0,
+                    "strategy": r.try_get::<Option<String>, _>("rerank_strategy").unwrap_or(None),
+                    "model": r.try_get::<Option<String>, _>("rerank_model").unwrap_or(None),
+                    "final_top_k": r.try_get::<Option<i32>, _>("rerank_final_k").unwrap_or(None)
                 }
             },
             "scores": {
-                "hit_rate": r.get::<Option<f64>, _>("hit_rate"),
-                "mrr": r.get::<Option<f64>, _>("mrr"),
-                "ndcg": r.get::<Option<f64>, _>("ndcg"),
-                "precision_at_k": r.get::<Option<f64>, _>("precision_at_k"),
-                "recall_at_k": r.get::<Option<f64>, _>("recall_at_k"),
-                "avg_latency_ms": r.get::<f64, _>("avg_latency_ms"),
-                "faithfulness": r.get::<Option<f64>, _>("avg_faithfulness"),
-                "answer_relevancy": r.get::<Option<f64>, _>("avg_answer_relevancy"),
-                "context_precision": r.get::<Option<f64>, _>("avg_context_precision")
+                "hit_rate": r.try_get::<Option<f32>, _>("hit_rate").unwrap_or(None).map(|v| v as f64),
+                "mrr": r.try_get::<Option<f32>, _>("mrr").unwrap_or(None).map(|v| v as f64),
+                "ndcg": r.try_get::<Option<f32>, _>("ndcg").unwrap_or(None).map(|v| v as f64),
+                "precision_at_k": r.try_get::<Option<f32>, _>("precision_at_k").unwrap_or(None).map(|v| v as f64),
+                "recall_at_k": r.try_get::<Option<f32>, _>("recall_at_k").unwrap_or(None).map(|v| v as f64),
+                "avg_latency_ms": r.try_get::<Option<f32>, _>("avg_latency_ms").unwrap_or(None).map(|v| v as f64),
+                "faithfulness": r.try_get::<Option<f32>, _>("avg_faithfulness").unwrap_or(None).map(|v| v as f64),
+                "answer_relevancy": r.try_get::<Option<f32>, _>("avg_answer_relevancy").unwrap_or(None).map(|v| v as f64),
+                "context_precision": r.try_get::<Option<f32>, _>("avg_context_precision").unwrap_or(None).map(|v| v as f64)
             },
-            "total_queries": r.get::<i32, _>("total_queries"),
-            "embed_model": r.get::<Option<String>, _>("embed_model"),
-            "judge_model": r.get::<Option<String>, _>("judge_model"),
-            "started_at": r.get::<Option<chrono::NaiveDateTime>, _>("started_at"),
-            "finished_at": r.get::<Option<chrono::NaiveDateTime>, _>("finished_at")
+            "total_queries": r.try_get::<Option<i32>, _>("total_queries").unwrap_or(None),
+            "embed_model": r.try_get::<Option<String>, _>("embed_model").unwrap_or(None),
+            "judge_model": r.try_get::<Option<String>, _>("judge_model").unwrap_or(None),
+            "started_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("started_at").unwrap_or(None),
+            "finished_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("finished_at").unwrap_or(None),
+            "dataset_id": r.try_get::<Option<String>, _>("dataset_id").unwrap_or(None),
+            "dataset_name": r.try_get::<Option<String>, _>("dataset_name").unwrap_or(None)
         },
         "per_query": per_query
     })))
@@ -967,7 +1044,7 @@ async fn deploy_eval_config(
     let tenant_id = extract_tenant_id(&headers);
 
     // Fetch the run's parameters
-    let run: Option<(f64, f64, f64, i32, f64, f64, i32, i8, String, Option<String>, i32)> =
+    let run: Option<(f32, f32, f32, i32, Option<f32>, Option<f32>, Option<i32>, Option<i8>, Option<String>, Option<String>, Option<i32>)> =
         sqlx::query_as(
             r#"SELECT weight_vector, weight_tree, weight_graph,
                 top_k, vector_alpha, vector_threshold, graph_hops,
@@ -1001,7 +1078,7 @@ async fn deploy_eval_config(
     });
 
     let rerank_config = json!({
-        "enabled": run.7 != 0,
+        "enabled": run.7.unwrap_or(0) != 0,
         "strategy": run.8,
         "model": run.9,
         "final_top_k": run.10
@@ -1091,8 +1168,13 @@ async fn generate_eval_set_v2(
     let model_id = payload.model_id.unwrap_or(slot.model.clone());
     let provider = payload.provider.unwrap_or(slot.provider.clone());
     let api_base = crate::routes::sources::infer_api_base(&provider);
-    let api_key = llm_config.heimdall_api_key.clone()
-        .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".into()));
+    let api_key = match provider.to_lowercase().as_str() {
+        "google" | "gemini" => llm_config.google_api_key.clone(),
+        "openai" => llm_config.openai_api_key.clone(),
+        "azure" => llm_config.azure_api_key.clone(),
+        _ => llm_config.heimdall_api_key.clone(),
+    }
+    .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".into()));
 
     // 4. Build prompt
     let multi_turn_instruction = if payload.multi_turn {
@@ -1172,6 +1254,17 @@ Rules:
         .to_string();
 
     let eval_set: Value = serde_json::from_str(&content).unwrap_or_else(|_| {
+        // Try to extract JSON array if there's markdown or conversational wrapper text
+        if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
+            if start <= end {
+                let extracted = &content[start..=end];
+                if let Ok(parsed) = serde_json::from_str(extracted) {
+                    return parsed;
+                }
+            }
+        }
+        
+        // Fallback to basic markdown block trimming
         let cleaned = content.trim()
             .trim_start_matches("```json")
             .trim_start_matches("```")
@@ -1196,6 +1289,33 @@ Rules:
         "multi_turn": payload.multi_turn,
         "count_requested": count
     })))
+}
+
+/// DELETE /api/v1/rag-eval/runs/:id — Delete an evaluation run and its results
+pub async fn delete_eval_run(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let tenant_id = extract_tenant_id(&headers);
+
+    match sqlx::query("DELETE FROM rag_eval_runs WHERE id = ? AND tenant_id = ?")
+        .bind(&id)
+        .bind(&tenant_id)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => {
+            (StatusCode::OK, Json(json!({ "message": "Evaluation run deleted successfully" })))
+        }
+        Err(e) => {
+            error!(event = "eval_run_delete_failed", error = %e, run_id = %id, "Failed to delete eval run");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to delete evaluation run: {}", e) })),
+            )
+        }
+    }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────────

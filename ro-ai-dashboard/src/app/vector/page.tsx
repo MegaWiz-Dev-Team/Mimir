@@ -119,9 +119,24 @@ export default function VectorPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{stats?.database?.total_qa ?? "-"}</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                            {stats?.database?.indexed_qa ?? 0} indexed, {stats?.database?.pending_golden ?? 0} golden pending
-                        </p>
+                        <div className="text-xs text-muted-foreground mt-2 space-y-1">
+                            <div className="flex justify-between items-center text-green-600 dark:text-green-400">
+                                <span>Indexed via Golden QA & Clusters</span>
+                                <span>{stats?.database?.indexed_qa ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-yellow-600 dark:text-yellow-400 border-t pt-1 border-gray-100 dark:border-gray-800">
+                                <span>Ready to Index (Golden Pending)</span>
+                                <span>{stats?.database?.pending_golden ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-orange-500 border-t pt-1 border-gray-100 dark:border-gray-800">
+                                <span>On Kanban Board (Pending Clusters)</span>
+                                <span>{stats?.database?.pending_cluster_items ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-gray-500 border-t pt-1 border-gray-100 dark:border-gray-800">
+                                <span>Raw Extracted (Awaiting QC Scan)</span>
+                                <span>{stats?.database?.unscanned_raw ?? 0}</span>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             </div>

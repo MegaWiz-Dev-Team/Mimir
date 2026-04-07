@@ -14,6 +14,8 @@ pub struct TreeSearchResult {
     pub relevant_sections: Vec<String>,
     /// Parent headings that provide broader context for the matched sections.
     pub parent_context: Vec<String>,
+    /// LLM-assessed confidence score (0.0 - 1.0) for this result.
+    pub confidence: f32,
 }
 
 // ── Trait ──────────────────────────────────────────────
@@ -71,15 +73,23 @@ impl NativeTreeRetriever {
         let tree_index: Value =
             serde_json::from_str(tree_json).map_err(|e| format!("Invalid tree JSON: {}", e))?;
 
-        let system_prompt = "You are a document search agent. Given a tree index of a document, find the most relevant sections for the user's question. Return exactly a valid JSON with fields: 'answer' (string or null), 'relevant_sections' (list of strings representing node titles), 'reasoning' (string).";
+        let system_prompt = "You are a document search agent. Given a tree index of a document, find the most relevant sections for the user's question. Return exactly a valid JSON with fields: 'answer' (string or null), 'relevant_sections' (list of strings representing node titles), 'confidence' (float 0.0-1.0 representing how confident you are this document answers the question), 'reasoning' (string).";
         
         let mut truncated_tree = tree_json;
         if tree_json.len() > 8000 {
-            truncated_tree = &tree_json[..8000];
+            let mut end = 8000;
+            while end > 0 && !tree_json.is_char_boundary(end) {
+                end -= 1;
+            }
+            truncated_tree = &tree_json[..end];
         }
         let mut truncated_content = content;
         if content.len() > 12000 {
-            truncated_content = &content[..12000];
+            let mut end = 12000;
+            while end > 0 && !content.is_char_boundary(end) {
+                end -= 1;
+            }
+            truncated_content = &content[..end];
         }
 
         let user_prompt = format!(
@@ -119,6 +129,15 @@ impl NativeTreeRetriever {
             .and_then(|a| a.as_str())
             .map(|s| s.to_string());
 
+        let confidence = result
+            .get("confidence")
+            .and_then(|c| c.as_f64())
+            .map(|c| (c as f32).clamp(0.1, 1.0))
+            .unwrap_or_else(|| {
+                // Heuristic fallback: confidence based on sections found
+                if sections.is_empty() { 0.2 } else { 0.5 + (sections.len() as f32 * 0.1).min(0.4) }
+            });
+
         let parent_context = extract_parent_context(&tree_index, &sections);
 
         Ok(TreeSearchResult {
@@ -126,6 +145,7 @@ impl NativeTreeRetriever {
             answer,
             relevant_sections: sections,
             parent_context,
+            confidence,
         })
     }
 }
@@ -138,7 +158,6 @@ impl TreeRetriever for NativeTreeRetriever {
         docs: &[(String, String, String)],
         question: &str,
     ) -> Vec<TreeSearchResult> {
-        use futures::future::join_all;
 
         let (client, model) = match router.resolve_client("generation") {
             Ok(res) => res,
@@ -148,27 +167,47 @@ impl TreeRetriever for NativeTreeRetriever {
             }
         };
 
-        // Build futures for all docs
-        let futures: Vec<_> = docs
-            .iter()
-            .map(|(title, content, tree_json)| self.search_one(&client, &model, title, tree_json, content, question))
-            .collect();
+        let concurrency = self.concurrency_limit;
+        tracing::info!(
+            docs = docs.len(),
+            concurrency = concurrency,
+            "🌲 Tree search: processing {} docs with concurrency {}",
+            docs.len(),
+            concurrency
+        );
 
-        // Execute all in parallel
-        let results = join_all(futures).await;
-
-        // Collect successful results, log failures
-        results
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, r)| match r {
-                Ok(result) => Some(result),
-                Err(e) => {
-                    tracing::warn!("Native tree search failed for doc {}: {}", docs[i].0, e);
-                    None
+        // Execute with bounded concurrency via buffer_unordered.
+        // Clone owned copies to avoid lifetime generalization errors with async closures.
+        let mut results = Vec::new();
+        let chunks: Vec<_> = docs.iter().enumerate().collect();
+        for chunk in chunks.chunks(concurrency) {
+            let mut handles = Vec::new();
+            for &(i, (title, content, tree_json)) in chunk {
+                let client_c = client.clone();
+                let model_c = model.clone();
+                let title_c = title.clone();
+                let content_c = content.clone();
+                let tree_json_c = tree_json.clone();
+                let question_c = question.to_string();
+                handles.push(tokio::spawn(async move {
+                    let retriever = NativeTreeRetriever::new();
+                    match retriever.search_one(&client_c, &model_c, &title_c, &tree_json_c, &content_c, &question_c).await {
+                        Ok(result) => Some(result),
+                        Err(e) => {
+                            tracing::warn!("Native tree search failed for doc {} ({}): {}", i, title_c, e);
+                            None
+                        }
+                    }
+                }));
+            }
+            for handle in handles {
+                if let Ok(Some(result)) = handle.await {
+                    results.push(result);
                 }
-            })
-            .collect()
+            }
+        }
+
+        results
     }
 }
 
@@ -187,7 +226,7 @@ pub fn tree_to_retrieval_results(tree_results: &[TreeSearchResult]) -> Vec<Retri
             Some(RetrievalResult {
                 content,
                 title: tr.document_title.clone(),
-                score: 0.8, // Default score for tree results (reranker will re-score)
+                score: tr.confidence, // Dynamic LLM confidence score
                 source_type: "tree".to_string(),
                 metadata: json!({
                     "parent_context": tr.parent_context,
@@ -340,6 +379,7 @@ mod tests {
             answer: Some("The API has 3 endpoints".to_string()),
             relevant_sections: vec!["POST /api".to_string(), "GET /health".to_string()],
             parent_context: vec!["# Main".to_string(), "## API".to_string()],
+            confidence: 0.8,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -355,6 +395,7 @@ mod tests {
             answer: None,
             relevant_sections: vec!["section1".to_string()],
             parent_context: vec![],
+            confidence: 0.5,
         };
         assert!(result.answer.is_none());
         assert_eq!(result.relevant_sections.len(), 1);
@@ -443,6 +484,7 @@ mod tests {
             answer: Some("Use POST /search endpoint".to_string()),
             relevant_sections: vec!["Details here".to_string()],
             parent_context: vec!["## API".to_string()],
+            confidence: 0.8,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
@@ -460,6 +502,7 @@ mod tests {
             answer: None,
             relevant_sections: vec!["Section A".to_string(), "Section B".to_string()],
             parent_context: vec![],
+            confidence: 0.6,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
@@ -475,6 +518,7 @@ mod tests {
             answer: None,
             relevant_sections: vec![],
             parent_context: vec![],
+            confidence: 0.2,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
@@ -488,6 +532,7 @@ mod tests {
             answer: Some("answer".to_string()),
             relevant_sections: vec!["sec1".to_string()],
             parent_context: vec!["# Heading".to_string(), "## Sub".to_string()],
+            confidence: 0.9,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
