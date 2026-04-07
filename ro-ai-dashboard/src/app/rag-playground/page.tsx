@@ -101,6 +101,7 @@ export default function RAGPlaygroundPage() {
   const [question, setQuestion] = useState("");
   const [mode, setMode] = useState<string>("hybrid");
   const [loading, setLoading] = useState(false);
+  const sessionIdRef = useRef<string | null>(null);
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weights, setWeights] = useState({ vector: 0.5, tree: 0.3, graph: 0.2 });
@@ -199,8 +200,11 @@ export default function RAGPlaygroundPage() {
       let requestBody: any = body;
 
       if (mode === "swarm") {
+        if (!sessionIdRef.current) {
+          sessionIdRef.current = crypto.randomUUID();
+        }
         endpoint = `${apiOrigin}/api/v1/tenants/default_tenant/swarm`;
-        requestBody = { query: question.trim(), session_id: null };
+        requestBody = { query: question.trim(), session_id: sessionIdRef.current };
       }
 
       const resp = await authFetch(endpoint, {
