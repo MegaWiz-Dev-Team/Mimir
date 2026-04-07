@@ -254,6 +254,27 @@ async fn generate_qa_for_chunks(
     let chunk_ids = req.chunk_ids.clone();
     let tenant_clone = tenant_id.clone();
 
+    struct QaGenerationGuard {
+        chunk_id: i64,
+        pool: DbPool,
+        completed: bool,
+    }
+
+    impl Drop for QaGenerationGuard {
+        fn drop(&mut self) {
+            if !self.completed {
+                let pool = self.pool.clone();
+                let chunk_id = self.chunk_id;
+                tokio::spawn(async move {
+                    let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'failed') WHERE id = ?")
+                        .bind(chunk_id)
+                        .execute(&pool)
+                        .await;
+                });
+            }
+        }
+    }
+
     tokio::spawn(async move {
         tracing::info!(
             "Starting QA generation for {} chunks (tenant: {})",
@@ -261,7 +282,6 @@ async fn generate_qa_for_chunks(
             tenant_clone
         );
         for chunk_id in &chunk_ids {
-            // Fetch chunk content
             let chunk_result: Option<(String,)> = sqlx::query_as(
                 "SELECT c.content FROM chunks c JOIN data_sources d ON c.source_id = d.id WHERE c.id = ? AND d.tenant_id = ?"
             )
@@ -272,39 +292,50 @@ async fn generate_qa_for_chunks(
             .unwrap_or(None);
 
             if let Some((content,)) = chunk_result {
-                // Mark chunk as QA in-progress via metadata
                 let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'processing') WHERE id = ?")
                     .bind(chunk_id)
                     .execute(&pool_clone)
                     .await;
 
-                // Use clustering service to generate QA for this chunk content
-                match mimir_core_ai::qa_qc::clustering::ClusteringService::generate_qa_for_content(
-                    &pool_clone,
-                    &tenant_clone,
-                    *chunk_id,
-                    &content,
-                )
-                .await
-                {
-                    Ok(_) => {
+                let mut guard = QaGenerationGuard {
+                    chunk_id: *chunk_id,
+                    pool: pool_clone.clone(),
+                    completed: false,
+                };
+
+                let timeout_duration = std::time::Duration::from_secs(300); // 5 mins timeout per chunk
+                
+                let result = tokio::time::timeout(
+                    timeout_duration,
+                    mimir_core_ai::qa_qc::clustering::ClusteringService::generate_qa_for_content(
+                        &pool_clone,
+                        &tenant_clone,
+                        *chunk_id,
+                        &content,
+                    )
+                ).await;
+
+                match result {
+                    Ok(Ok(_)) => {
                         let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'completed') WHERE id = ?")
                             .bind(chunk_id)
                             .execute(&pool_clone)
                             .await;
+                        guard.completed = true;
                         tracing::info!("QA generated for chunk {}", chunk_id);
                     }
-                    Err(e) => {
-                        let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'failed') WHERE id = ?")
-                            .bind(chunk_id)
-                            .execute(&pool_clone)
-                            .await;
-                        tracing::error!("QA generation failed for chunk {}: {}", chunk_id, e);
+                    Ok(Err(e)) => {
+                        // Will trigger Drop guard to set failed
+                        tracing::error!("QA generation error for chunk {}: {}", chunk_id, e);
+                    }
+                    Err(_) => {
+                        // Timeout
+                        tracing::error!("QA generation timed out for chunk {}", chunk_id);
                     }
                 }
             }
         }
-        tracing::info!("QA generation completed for {} chunks", chunk_ids.len());
+        tracing::info!("QA generation batch completed for {} chunks", chunk_ids.len());
     });
 
     Ok(Json(json!({

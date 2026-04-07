@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod ask;
+pub mod assistant;
 pub mod auth;
 pub mod auto_pipeline;
 pub mod backup;
@@ -26,6 +27,7 @@ pub mod pipeline;
 pub mod prompts;
 pub mod qc;
 pub mod rag_eval;
+pub mod rag_eval_dataset;
 pub mod rag_eval_tuner;
 pub mod sources;
 pub mod stats;

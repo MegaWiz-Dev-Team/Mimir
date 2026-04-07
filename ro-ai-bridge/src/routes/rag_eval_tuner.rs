@@ -22,6 +22,7 @@ pub struct AutoTuneRequest {
     pub judge_model: Option<String>,
     pub judge_provider: Option<String>,
     pub tuner_model: Option<String>,
+    pub tuner_provider: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -32,6 +33,12 @@ pub struct SuggestedParams {
     pub top_k: usize,
     pub vector_alpha: f64,
     pub vector_threshold: f64,
+    /// Optional: number of graph hops (1-3). Default: 2.
+    #[serde(default)]
+    pub graph_hops: Option<i32>,
+    /// Optional: rerank strategy ("weighted", "rrf", "cross-encoder"). Default: "weighted".
+    #[serde(default)]
+    pub rerank_strategy: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -96,7 +103,7 @@ async fn tuning_loop(
         .map(|c| c.0.clone())
         .unwrap_or_default();
         
-    let slot = llm_config.resolve_slot("generation", None, req.tuner_model.as_deref());
+    let slot = llm_config.resolve_slot("generation", req.tuner_provider.as_deref(), req.tuner_model.as_deref());
     let api_key = llm_config
         .heimdall_api_key
         .clone()
@@ -116,6 +123,9 @@ async fn tuning_loop(
 
     let agent = client.agent(&slot.model).preamble(&system_prompt).build();
 
+    let mut no_improvement_count = 0;
+    const EARLY_STOP_PATIENCE: i32 = 2;
+
     for it in 1..=req.iterations {
         // 1. Run Evaluation
         let run_name = format!("AutoTune Job {} - Iteration {}", &job_id[..8], it);
@@ -125,10 +135,12 @@ async fn tuning_loop(
             params: current_params.clone(),
             judge_model: req.judge_model.clone(),
             judge_provider: req.judge_provider.clone(),
-            evaluate_generation: true, 
+            evaluate_generation: true,
+            dataset_id: None,
+            dataset_name: None,
         };
 
-        if let Ok(eval_result) = execute_evaluation_run(tenant_id.clone(), pool.clone(), eval_req).await {
+        if let Ok(eval_result) = execute_evaluation_run(uuid::Uuid::new_v4().to_string(), tenant_id.clone(), pool.clone(), eval_req).await {
             let run_id = eval_result["run_id"].as_str().unwrap_or_default().to_string();
             let current_score = eval_result[&target].as_f64().unwrap_or(0.0);
             
@@ -142,11 +154,26 @@ async fn tuning_loop(
             if current_score > best_score {
                 best_score = current_score;
                 best_run_id = Some(run_id.clone());
+                no_improvement_count = 0;
+            } else {
+                no_improvement_count += 1;
             }
 
             // Update progress
             let _ = sqlx::query("UPDATE rag_auto_tuner_jobs SET current_iteration = ?, best_run_id = ? WHERE id = ?")
                 .bind(it).bind(&best_run_id).bind(&job_id).execute(&pool).await;
+
+            // Early stopping: no improvement for EARLY_STOP_PATIENCE iterations
+            if no_improvement_count >= EARLY_STOP_PATIENCE {
+                tracing::info!(
+                    job_id = %job_id,
+                    iteration = it,
+                    best_score = best_score,
+                    "🛑 Auto-Tuner early stopping: no improvement for {} consecutive iterations",
+                    EARLY_STOP_PATIENCE
+                );
+                break;
+            }
 
             if it == req.iterations {
                 break; // Last iteration
@@ -201,6 +228,23 @@ async fn tuning_loop(
                     current_params.top_k = suggestion.suggested_params.top_k;
                     current_params.vector_alpha = suggestion.suggested_params.vector_alpha;
                     current_params.vector_threshold = suggestion.suggested_params.vector_threshold;
+                    // Apply extended params
+                    if let Some(hops) = suggestion.suggested_params.graph_hops {
+                        current_params.graph_hops = hops.clamp(1, 3);
+                    }
+                    if let Some(ref strategy) = suggestion.suggested_params.rerank_strategy {
+                        if let Some(ref mut rerank) = current_params.rerank {
+                            rerank.strategy = strategy.clone();
+                            rerank.enabled = true;
+                        } else {
+                            current_params.rerank = Some(super::rag_eval::RerankConfig {
+                                enabled: true,
+                                strategy: strategy.clone(),
+                                model: None,
+                                final_top_k: 5,
+                            });
+                        }
+                    }
                 } else {
                     tracing::warn!("Tuner agent failed to return JSON schema. Reusing current params.");
                 }
@@ -241,4 +285,112 @@ pub async fn get_auto_tune_job(
     } else {
         Err((StatusCode::NOT_FOUND, Json(json!({"error": "Job not found"}))))
     }
+}
+
+// ─── Chat with Overseer ───────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct AutoTuneChatRequest {
+    pub message: String,
+    pub tuner_provider: Option<String>,
+    pub tuner_model: Option<String>,
+}
+
+/// POST /api/v1/rag-eval/auto-tune/:job_id/chat
+pub async fn auto_tune_chat(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Path(job_id): Path<String>,
+    Json(payload): Json<AutoTuneChatRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    use mimir_core_ai::services::iam::IamService;
+    
+    let tenant_id = extract_tenant_id(&headers);
+
+    // Get current job state
+    let job: Option<(String, i32, i32)> = sqlx::query_as(
+        "SELECT status, iterations, current_iteration FROM rag_auto_tuner_jobs WHERE id = ? AND tenant_id = ?"
+    )
+    .bind(&job_id)
+    .bind(&tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    let (status, total_iters, current_iter) = match job {
+        Some(j) => j,
+        None => return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Job not found"})))),
+    };
+
+    // Get the latest run (simplified context)
+    let latest_run_name = format!("AutoTune Job {}%", &job_id[..8]);
+    let latest_run: Option<(String, f64)> = sqlx::query_as(
+        "SELECT id, ndcg FROM rag_eval_runs WHERE name LIKE ? ORDER BY created_at DESC LIMIT 1"
+    )
+    .bind(&latest_run_name)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None);
+
+    let mut context_msg = format!("Status: {}. Iteration: {}/{}. ", status, current_iter, total_iters);
+    if let Some((_, ndcg)) = latest_run {
+        context_msg.push_str(&format!("Latest NDCG: {:.4}.", ndcg));
+    }
+
+    // Resolve LLM Client
+    let iam = IamService::new_with_env(pool.clone());
+    let tenant_config = iam.get_tenant_config(&tenant_id).await.ok();
+    let llm_config = tenant_config
+        .as_ref()
+        .and_then(|c| c.llm_config.as_ref())
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+    
+    let slot = llm_config.resolve_slot("judge", payload.tuner_provider.as_deref(), payload.tuner_model.as_deref());
+    
+    // We'll use the LlmRouter directly via a UniversalClient if possible, or build basic Rig client
+    let provider = slot.provider;
+    let model = slot.model;
+    
+    let api_key = llm_config.heimdall_api_key.unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "none".into()));
+    let api_base = crate::routes::sources::infer_api_base(&provider);
+    
+    let system_prompt = format!(
+        r#"You are The Overseer, an autonomous meta-agent tuning a medical RAG pipeline.
+The user is asking you a question about the active tuning job.
+Current job state: {}
+Answer concisely, directly, and use bullet points where helpful.
+You cannot change parameters directly via chat yet, but you can advise the user on what strategies work best based on your tuning search so far."#,
+        context_msg
+    );
+
+    // Call LLM using raw reqwest for simplicity and consistency with our async environment
+    let client = reqwest::Client::new();
+    let mut messages = vec![
+        json!({"role": "system", "content": system_prompt}),
+        json!({"role": "user", "content": payload.message})
+    ];
+
+    let resp = client
+        .post(format!("{}chat/completions", api_base))
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "model": model,
+            "messages": messages,
+            "temperature": 0.5,
+            "max_tokens": 1024
+        }))
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": e.to_string()}))))?;
+
+    let json_resp: Value = resp.json().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    
+    let reply = json_resp["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("No reply generated.")
+        .to_string();
+
+    Ok(Json(json!({ "reply": reply })))
 }

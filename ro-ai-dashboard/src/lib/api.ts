@@ -1,7 +1,19 @@
 import { PipelineRun, RunDetails, QAResult, EvaluationReport } from "@/types/pipeline";
 import Cookies from "js-cookie";
 
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api") + "/v1";
+export const API_BASE_URL = (() => {
+    const defaultUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:30000/api";
+    if (typeof window !== "undefined") {
+        // If the build bound to localhost, but the user is accessing via an external IP/Domain
+        if ((defaultUrl.includes("localhost") || defaultUrl.includes("127.0.0.1")) && 
+             window.location.hostname !== "localhost" && 
+             window.location.hostname !== "127.0.0.1") {
+            // Port 30000 is our standardized K3s NodePort for the API
+            return `http://${window.location.hostname}:30000/api/v1`;
+        }
+    }
+    return defaultUrl + "/v1";
+})();
 
 function getAuthHeaders(): HeadersInit {
     const token = Cookies.get("access_token");
