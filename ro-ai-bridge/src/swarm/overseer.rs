@@ -176,7 +176,7 @@ impl OverseerManager {
                 r#"
                 INSERT INTO swarm_checkpoints (session_id, tenant_id, state_json)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (session_id) DO UPDATE 
+                ON CONFLICT (session_id, tenant_id) DO UPDATE 
                 SET state_json = EXCLUDED.state_json, updated_at = NOW()
                 "#
             )
