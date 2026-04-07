@@ -41,15 +41,15 @@ check_status() {
         resp=$(curl -s -o /tmp/mimir_test_body -w "%{http_code}" \
             -X POST "$url" \
             -H "Content-Type: application/json" \
-            -H "X-Tenant-ID: test" \
+            -H "X-Tenant-ID: default_tenant" \
             -d "$body" 2>/dev/null || echo "000")
     elif [ "$method" = "POST" ]; then
         resp=$(curl -s -o /tmp/mimir_test_body -w "%{http_code}" \
             -X POST "$url" \
-            -H "X-Tenant-ID: test" 2>/dev/null || echo "000")
+            -H "X-Tenant-ID: default_tenant" 2>/dev/null || echo "000")
     else
         resp=$(curl -s -o /tmp/mimir_test_body -w "%{http_code}" \
-            -H "X-Tenant-ID: test" \
+            -H "X-Tenant-ID: default_tenant" \
             "$url" 2>/dev/null || echo "000")
     fi
 
@@ -116,8 +116,8 @@ check_status "GET /api/v1/agents" GET "$API/api/v1/agents"
 check_json_field "Agents list is array" ".agents"
 
 # Create agent with RAG params
-check_status "POST /api/v1/agents (create with RAG params)" POST "$API/api/v1/agents" "200" \
-    '{"name":"smoke-test-agent","system_prompt":"You are a test agent.","model_id":"llama3","use_rag":true,"use_knowledge_graph":true,"use_pageindex":true,"rag_params":{"weights":{"vector":0.5,"tree":0.3,"graph":0.2},"advanced":{"top_k_per_source":5}},"rerank_config":{"enabled":false,"strategy":"rrf","final_top_k":5}}'
+check_status "POST /api/v1/agents (create with RAG params)" POST "$API/api/v1/agents" "201" \
+    '{"name":"smoke-test-agent-'$RANDOM'","system_prompt":"You are a test agent.","model_id":"llama3","use_rag":true,"use_knowledge_graph":true,"use_pageindex":true,"rag_params":{"weights":{"vector":0.5,"tree":0.3,"graph":0.2},"advanced":{"top_k_per_source":5}},"rerank_config":{"enabled":false,"strategy":"rrf","final_top_k":5}}'
 
 # ── 4. RAG Evaluation Framework ─────────────────────────────
 header "4. RAG Evaluation Framework"
@@ -125,14 +125,26 @@ header "4. RAG Evaluation Framework"
 check_status "GET /api/v1/rag-eval/runs (list)" GET "$API/api/v1/rag-eval/runs"
 check_json_field "Eval runs list" ".runs"
 
-# Run a mini evaluation
-check_status "POST /api/v1/rag-eval/run (mini eval)" POST "$API/api/v1/rag-eval/run" "200" \
+# Run a mini evaluation (Async)
+check_status "POST /api/v1/rag-eval/run (mini eval)" POST "$API/api/v1/rag-eval/run" "202" \
     '{"name":"smoke-test-eval","eval_set":[{"query":"test question","expected_titles":["nonexistent"]}],"params":{"weights":{"vector":0.5,"tree":0.3,"graph":0.2},"top_k":5,"vector_alpha":0.7,"vector_threshold":0.3,"graph_hops":2},"evaluate_generation":false}'
 
 check_json_field "Eval run_id returned" ".run_id"
-check_json_field "Eval hit_rate returned" ".hit_rate"
-check_json_field "Eval mrr returned" ".mrr"
-check_json_field "Eval ndcg returned" ".ndcg"
+
+if command -v jq >/dev/null 2>&1; then
+    RUN_ID=$(jq -r '.run_id' /tmp/mimir_test_body 2>/dev/null)
+    if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+        # Wait for async background process (smoke test has only 1 query so it should be fast)
+        sleep 2
+        
+        # Check the run details
+        check_status "GET /api/v1/rag-eval/runs/$RUN_ID (poll)" GET "$API/api/v1/rag-eval/runs/$RUN_ID" "200"
+        
+        check_json_field "Eval hit_rate returned" ".run.scores.hit_rate"
+        check_json_field "Eval mrr returned" ".run.scores.mrr"
+        check_json_field "Eval ndcg returned" ".run.scores.ndcg"
+    fi
+fi
 
 # ── 5. Auto-Tuner ───────────────────────────────────────────
 header "5. Auto-Tuner (Background Job)"
