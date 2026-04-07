@@ -1,5 +1,21 @@
 # Release Notes — Mimir
 
+## v1.0.0 — Enterprise RAG & Agentic Release (2026-04-07)
+
+### ✨ New Features (Sprints 31-35)
+- **Agentic RAG (Swarm):** Introduced the Overseer Metacontroller enabling multi-step, multi-agent (Skill & Soul) operations directly from the Dashboard.
+- **Auto-Tuner:** Automated Hyperparameter Optimization via Genetic Algorithms for optimal vector vs. tree weights and thresholding.
+- **Cross-Encoder Re-Ranking:** Highly accurate pairwise re-ranking available in the RAG Playground as a `🚀` strategy option.
+- **Flash-MoE Inference:** Qwen3.5-397B ultra-large model operational at 1.5 TPS via new `LlmRouter` integration.
+- **2-Hop Knowledge Graph:** Complex query relationship awareness via deep `UNION ALL` SQL traversal.
+
+### 🐛 Fixes & Polish
+- 100% Pass Rate on `test-deploy.sh` (28/28 E2E Scenarios).
+- Fixed database deadlocks for the Swarm `ON CONFLICT` JSON checkpoint saves.
+- Fully extracted React components with unified Dashboard toggles.
+
+---
+
 ## v0.29.0 — Sprint 29: Docker Build & Compose (2026-03-13)
 
 ### 🐳 Infrastructure

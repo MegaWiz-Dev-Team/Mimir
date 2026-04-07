@@ -195,19 +195,44 @@ export default function RAGPlaygroundPage() {
         };
       }
 
-      const resp = await authFetch(`${apiOrigin}/api/search`, {
+      let endpoint = `${apiOrigin}/api/search`;
+      let requestBody: any = body;
+
+      if (mode === "swarm") {
+        endpoint = `${apiOrigin}/api/v1/tenants/default_tenant/swarm`;
+        requestBody = { query: question.trim(), session_id: null };
+      }
+
+      const resp = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(requestBody),
       });
 
       if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-      const data: SearchResponse = await resp.json();
-      setResults(data);
-      setSearchHistory((prev) => [
-        { question: question.trim(), mode: data.mode_used || mode, resultCount: data.results?.length || 0 },
-        ...prev.slice(0, 9),
-      ]);
+      
+      if (mode === "swarm") {
+        const data = await resp.json();
+        setResults({
+          results: [{ content: data.answer, title: "Autonomous Agent Response", score: 1.0, source_type: "tree" }],
+          distribution: { vector: 0, tree: 0, graph: 0, total: 0 },
+          weights_used: { vector: 0, tree: 0, graph: 0 },
+          mode_used: "swarm",
+          latency_ms: 0,
+          query: question.trim()
+        });
+        setSearchHistory((prev) => [
+          { question: question.trim(), mode: "swarm", resultCount: 1 },
+          ...prev.slice(0, 9),
+        ]);
+      } else {
+        const data: SearchResponse = await resp.json();
+        setResults(data);
+        setSearchHistory((prev) => [
+          { question: question.trim(), mode: data.mode_used || mode, resultCount: data.results?.length || 0 },
+          ...prev.slice(0, 9),
+        ]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {
@@ -549,6 +574,12 @@ export default function RAGPlaygroundPage() {
                       Graph Only
                     </div>
                   </SelectItem>
+                  <SelectItem value="swarm">
+                    <div className="flex items-center gap-2">
+                      <Wand2 className="h-4 w-4 text-orange-500" />
+                      Autonomous Agent (Swarm)
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </CardContent>
@@ -582,7 +613,7 @@ export default function RAGPlaygroundPage() {
                 <SelectContent>
                   <SelectItem value="none">Fast (No Re-ranking)</SelectItem>
                   <SelectItem value="rrf">RRF (Reciprocal Rank Fusion)</SelectItem>
-                  <SelectItem value="cross-encoder">Cross-Encoder (Accurate / Slower)</SelectItem>
+                  <SelectItem value="cross-encoder">Cross-Encoder (Accurate / Slower) 🚀</SelectItem>
                 </SelectContent>
               </Select>
             </CardContent>
