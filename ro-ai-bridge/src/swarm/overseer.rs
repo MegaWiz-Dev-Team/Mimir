@@ -1,9 +1,8 @@
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Result, anyhow};
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::llm_router::LlmRouter;
 use mimir_core_ai::services::qdrant::QdrantService;
 use std::sync::Arc;
-use rig::agent::Agent;
 use rig::completion::Prompt;
 use tracing::{info, instrument};
 use serde::{Deserialize, Serialize};

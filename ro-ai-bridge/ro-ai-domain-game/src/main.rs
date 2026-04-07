@@ -7,7 +7,6 @@ use mimir_core_ai::config::Config;
 use mimir_core_ai::services::db;
 
 use ro_ai_domain_game::api::rathena_gateway::rathena_routes;
-use ro_ai_domain_game::simple_npc::SimpleNpcAgent;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

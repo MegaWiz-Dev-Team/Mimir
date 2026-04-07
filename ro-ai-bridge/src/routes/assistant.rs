@@ -11,7 +11,7 @@ use tracing::error;
 
 use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::services::db::DbPool;
-use mimir_core_ai::services::llm_router::{LlmRouter, UniversalClient};
+use mimir_core_ai::services::llm_router::LlmRouter;
 
 #[derive(Deserialize, Debug)]
 pub struct AssistantRequest {

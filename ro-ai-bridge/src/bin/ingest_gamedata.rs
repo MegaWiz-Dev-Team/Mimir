@@ -62,6 +62,7 @@ struct YamlMobRoot {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct YamlMob {
     #[serde(rename = "Id")]
     id: u32,

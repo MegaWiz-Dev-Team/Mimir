@@ -13,11 +13,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{error, info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::routes::sources::config::{
-    call_llm_api_with_logging, infer_api_base, resolve_llm_credentials,
+    call_llm_api_with_logging, infer_api_base,
 };
 use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::services::db::DbPool;
@@ -396,7 +396,7 @@ async fn extract_kg_from_chunk(
 async fn extract_qa_from_chunk(
     pool: &DbPool,
     tenant_id: &str,
-    source_id: i64,
+    _source_id: i64,
     chunk_id: i64,
     content: &str,
     api_key: &str,

@@ -17,8 +17,8 @@ use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::retrieval::graph::{graph_to_retrieval_results, GraphRetriever, SqlGraphRetriever};
-use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult, VectorRetriever};
-use crate::retrieval::tree::{tree_to_retrieval_results, NativeTreeRetriever, TreeRetriever};
+use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult};
+use crate::retrieval::tree::{tree_to_retrieval_results, TreeRetriever};
 use crate::retrieval::{determine_mode_used, rerank_results, rerank_results_rrf, source_distribution, EnsembleWeights};
 use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::middleware::tenant::TenantContext;

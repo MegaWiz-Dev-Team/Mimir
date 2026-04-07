@@ -20,7 +20,7 @@ use sqlx::FromRow;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::agents::eval::{evaluate_agent, judge_response, JudgeScores};
+use crate::agents::eval::{evaluate_agent, judge_response};
 use mimir_core_ai::services::db::DbPool;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -480,7 +480,7 @@ async fn compare_models(
 
     let mut base_query = "SELECT model_id, AVG(accuracy) as avg_accuracy, AVG(completeness) as avg_completeness, AVG(relevance) as avg_relevance, AVG(latency_ms) as avg_latency, COUNT(*) as total FROM evaluation_reports WHERE tenant_id = ? AND model_id IN (?, ?)".to_string();
 
-    if let Some(ref batch) = params.batch_id {
+    if let Some(ref _batch) = params.batch_id {
         base_query.push_str(" AND batch_id = ?");
     }
     base_query.push_str(" GROUP BY model_id");
@@ -593,7 +593,7 @@ pub struct ExtractionCompareQuery {
 async fn extraction_summary(
     headers: HeaderMap,
     State(pool): State<DbPool>,
-    Query(params): Query<ExtractionQuery>,
+    Query(_params): Query<ExtractionQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
