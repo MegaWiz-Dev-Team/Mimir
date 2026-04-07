@@ -10,12 +10,19 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { Send } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────
+
+interface BootstrapCI {
+  mean: number;
+  ci_lower: number;
+  ci_upper: number;
+}
 
 interface RagEvalRun {
   id: string;
@@ -42,6 +49,14 @@ interface RagEvalRun {
     vector_hit_rate: number | null;
     tree_hit_rate: number | null;
     graph_hit_rate: number | null;
+  };
+  bootstrap_ci?: {
+    hit_rate: BootstrapCI;
+    mrr: BootstrapCI;
+    ndcg: BootstrapCI;
+    n_queries: number;
+    n_resamples: number;
+    confidence_level: number;
   };
   total_queries: number;
   eval_mode?: string;
@@ -398,11 +413,44 @@ export function RagEvalDashboard() {
 
   if (loading && !runs.length) {
     return (
-      <div className="flex justify-center p-8">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Loading evaluation runs...</span>
-        </div>
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-72 mt-2" />
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2 mb-6">
+              {[1,2,3,4].map(i => <Skeleton key={i} className="h-6 w-24 rounded-full" />)}
+            </div>
+            <div className="border rounded-xl overflow-hidden">
+              <div className="bg-muted/50 px-4 py-3 flex gap-16">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="px-4 py-3 flex gap-16 border-t">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-6 w-36" /></CardHeader>
+          <CardContent>
+            {[1,2,3].map(i => (
+              <div key={i} className="flex items-center gap-3 py-3 border-b last:border-0">
+                <Skeleton className="h-5 w-5 rounded-full" />
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-4 w-12 ml-auto" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -538,7 +586,7 @@ export function RagEvalDashboard() {
           </div>
 
           {selectedRunsData.length > 0 && (
-            <div className="overflow-x-auto border rounded-xl">
+            <div className="overflow-x-auto overflow-y-auto max-h-[520px] border rounded-xl relative">
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/50 text-muted-foreground border-b uppercase text-xs sticky top-0 z-10 backdrop-blur-sm">
                   <tr>
@@ -608,6 +656,33 @@ export function RagEvalDashboard() {
                       </td>
                     ))}
                   </tr>
+
+                  {/* Bootstrap CI row — shown when drill-down data has CI info */}
+                  {drillDownData?.run?.bootstrap_ci && selectedRunsData.some(r => r.id === drillDownData?.run?.id) && (
+                    <>
+                      <tr className="bg-muted/10"><td colSpan={selectedRunsData.length + 1} className="px-4 py-2 font-semibold">📊 95% Confidence Intervals (Bootstrap)</td></tr>
+                      {['hit_rate', 'mrr', 'ndcg'].map(metric => {
+                        const ci = (drillDownData.run as any).bootstrap_ci?.[metric];
+                        if (!ci) return null;
+                        return (
+                          <tr key={`ci-${metric}`}>
+                            <td className="px-4 py-3 font-medium">{metric === 'hit_rate' ? 'Hit Rate CI' : metric === 'mrr' ? 'MRR CI' : 'NDCG CI'}</td>
+                            {selectedRunsData.map(r => (
+                              <td key={r.id} className="px-4 py-3">
+                                {r.id === drillDownData.run.id ? (
+                                  <span className="text-xs font-mono bg-muted/80 px-2 py-1 rounded">
+                                    [{(ci.ci_lower * 100).toFixed(1)}%, {(ci.ci_upper * 100).toFixed(1)}%]
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">drill down to see</span>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </>
+                  )}
 
                   {/* Generation metrics */}
                   <tr className="bg-muted/10"><td colSpan={selectedRunsData.length + 1} className="px-4 py-2 font-semibold">🧠 LLM Judge (Generation)</td></tr>
