@@ -78,24 +78,50 @@ impl GraphRetriever for SqlGraphRetriever {
         let mut results = Vec::new();
 
         for term in &terms {
-            let pattern = format!("%{}%", term);
+            // Use FULLTEXT search for terms >= 3 chars, fallback to LIKE for shorter terms
+            let entities: Vec<(i64, String, String, Option<Vec<u8>>)> = if term.len() >= 3 {
+                // FULLTEXT MATCH/AGAINST with BOOLEAN MODE for prefix matching
+                let ft_term = format!("{}*", term);
+                sqlx::query_as(
+                    "SELECT id, name, entity_type, properties \
+                     FROM kg_entities \
+                     WHERE tenant_id = ? AND (MATCH(name) AGAINST(? IN BOOLEAN MODE) OR LOWER(entity_type) LIKE LOWER(?)) \
+                     LIMIT ?",
+                )
+                .bind(tenant_id)
+                .bind(&ft_term)
+                .bind(&format!("%{}%", term))
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_else(|e| {
+                    // Fallback to LIKE if FULLTEXT index doesn't exist yet
+                    tracing::warn!("FULLTEXT search failed, will retry with LIKE: {}", e);
+                    vec![]
+                })
+            } else {
+                vec![]
+            };
 
-            // Search entities matching the term
-            // NOTE: properties column is JSON/BLOB in MariaDB — decode as raw bytes
-            //       to avoid sqlx type mismatch crash, then convert to string.
-            let entities: Vec<(i64, String, String, Option<Vec<u8>>)> = sqlx::query_as(
-                "SELECT id, name, entity_type, properties \
-                 FROM kg_entities \
-                 WHERE tenant_id = ? AND (LOWER(name) LIKE LOWER(?) OR LOWER(entity_type) LIKE LOWER(?)) \
-                 LIMIT ?",
-            )
-            .bind(tenant_id)
-            .bind(&pattern)
-            .bind(&pattern)
-            .bind(limit as i64)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Entity search failed: {}", e))?;
+            // Fallback to LIKE if FULLTEXT returned nothing (index may not exist yet)
+            let entities = if entities.is_empty() {
+                let pattern = format!("%{}%", term);
+                sqlx::query_as(
+                    "SELECT id, name, entity_type, properties \
+                     FROM kg_entities \
+                     WHERE tenant_id = ? AND (LOWER(name) LIKE LOWER(?) OR LOWER(entity_type) LIKE LOWER(?)) \
+                     LIMIT ?",
+                )
+                .bind(tenant_id)
+                .bind(&pattern)
+                .bind(&pattern)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("Entity search failed: {}", e))?
+            } else {
+                entities
+            };
 
             tracing::info!("Graph search entities found: {}", entities.len());
 

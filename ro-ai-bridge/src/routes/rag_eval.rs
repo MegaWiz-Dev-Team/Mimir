@@ -990,6 +990,59 @@ async fn get_rag_eval_run(
         })
     }).collect();
 
+    // ── Bootstrap Confidence Intervals ──────────────────────────────────────
+    // Compute 95% CI for key metrics using 1000 bootstrap resamples
+    let bootstrap_ci = {
+        use std::collections::HashMap;
+
+        let hits: Vec<f64> = query_rows.iter().map(|q| {
+            if q.try_get::<Option<i8>, _>("hit").unwrap_or(Some(0)).unwrap_or(0) != 0 { 1.0 } else { 0.0 }
+        }).collect();
+        let rrs: Vec<f64> = query_rows.iter().map(|q| {
+            q.try_get::<Option<f32>, _>("reciprocal_rank").unwrap_or(Some(0.0)).unwrap_or(0.0) as f64
+        }).collect();
+        let ndcgs: Vec<f64> = query_rows.iter().map(|q| {
+            q.try_get::<Option<f32>, _>("ndcg_score").unwrap_or(Some(0.0)).unwrap_or(0.0) as f64
+        }).collect();
+
+        fn bootstrap_95ci(values: &[f64], n_resamples: usize) -> (f64, f64, f64) {
+            if values.is_empty() {
+                return (0.0, 0.0, 0.0);
+            }
+            let n = values.len();
+            // Simple LCG pseudo-random for reproducibility without external crate
+            let mut rng_state: u64 = 42;
+            let mut means = Vec::with_capacity(n_resamples);
+            for _ in 0..n_resamples {
+                let mut sum = 0.0;
+                for _ in 0..n {
+                    rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    let idx = (rng_state >> 33) as usize % n;
+                    sum += values[idx];
+                }
+                means.push(sum / n as f64);
+            }
+            means.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let lo = means[n_resamples * 25 / 1000]; // 2.5th percentile
+            let hi = means[n_resamples * 975 / 1000]; // 97.5th percentile
+            let mean = means.iter().sum::<f64>() / means.len() as f64;
+            (mean, lo, hi)
+        }
+
+        let (hr_mean, hr_lo, hr_hi) = bootstrap_95ci(&hits, 1000);
+        let (mrr_mean, mrr_lo, mrr_hi) = bootstrap_95ci(&rrs, 1000);
+        let (ndcg_mean, ndcg_lo, ndcg_hi) = bootstrap_95ci(&ndcgs, 1000);
+
+        json!({
+            "hit_rate":  { "mean": hr_mean,   "ci_lower": hr_lo,   "ci_upper": hr_hi },
+            "mrr":       { "mean": mrr_mean,  "ci_lower": mrr_lo,  "ci_upper": mrr_hi },
+            "ndcg":      { "mean": ndcg_mean, "ci_lower": ndcg_lo, "ci_upper": ndcg_hi },
+            "n_queries": hits.len(),
+            "n_resamples": 1000,
+            "confidence_level": 0.95
+        })
+    };
+
     Ok(Json(json!({
         "run": {
             "id": r.get::<String, _>("id"),
@@ -1023,6 +1076,7 @@ async fn get_rag_eval_run(
                 "answer_relevancy": r.try_get::<Option<f32>, _>("avg_answer_relevancy").unwrap_or(None).map(|v| v as f64),
                 "context_precision": r.try_get::<Option<f32>, _>("avg_context_precision").unwrap_or(None).map(|v| v as f64)
             },
+            "bootstrap_ci": bootstrap_ci,
             "total_queries": r.try_get::<Option<i32>, _>("total_queries").unwrap_or(None),
             "embed_model": r.try_get::<Option<String>, _>("embed_model").unwrap_or(None),
             "judge_model": r.try_get::<Option<String>, _>("judge_model").unwrap_or(None),
