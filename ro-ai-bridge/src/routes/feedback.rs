@@ -10,7 +10,7 @@ use axum::{
     extract::{Extension, Json, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{get, post, put},
+    routing::{post, put},
     Router,
 };
 use mimir_core_ai::services::feedback::{
@@ -102,7 +102,7 @@ async fn submit_feedback(
 
 /// Create a GitHub issue for a feedback report
 async fn create_github_issue_for_feedback(
-    config: &Config,
+    _config: &Config,
     pool: &MySqlPool,
     feedback_id: i64,
     req: &CreateFeedbackRequest,

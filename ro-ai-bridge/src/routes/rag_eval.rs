@@ -13,7 +13,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{get, post, delete},
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -993,7 +993,7 @@ async fn get_rag_eval_run(
     // ── Bootstrap Confidence Intervals ──────────────────────────────────────
     // Compute 95% CI for key metrics using 1000 bootstrap resamples
     let bootstrap_ci = {
-        use std::collections::HashMap;
+        
 
         let hits: Vec<f64> = query_rows.iter().map(|q| {
             if q.try_get::<Option<i8>, _>("hit").unwrap_or(Some(0)).unwrap_or(0) != 0 { 1.0 } else { 0.0 }

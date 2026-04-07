@@ -18,7 +18,7 @@ pub use config::{
 pub use upload::download_from_s3_public;
 
 use axum::{
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Router,
 };
 use mimir_core_ai::services::db::DbPool;

@@ -240,7 +240,7 @@ pub fn tree_to_retrieval_results(tree_results: &[TreeSearchResult]) -> Vec<Retri
 // ── Native Tree Builder ─────────────────────────────
 
 pub fn build_native_tree(content: &str, title: &str) -> Value {
-    let mut root = json!({
+    let root = json!({
         "title": title,
         "children": [],
         "level": 0

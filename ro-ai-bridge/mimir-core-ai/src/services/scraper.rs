@@ -19,8 +19,8 @@ struct ScrapeRequest {
 
 /// Response from Ratatoskr scrape API.
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ScrapeResponse {
-    #[allow(dead_code)]
     url: String,
     html: String,
     text: Option<String>,
