@@ -453,7 +453,9 @@ async fn fetch_tree(
     } else {
         sqlx::query_as(
             "SELECT id, name, CAST(raw_markdown AS CHAR), CAST(pageindex_tree AS CHAR) \
-             FROM data_sources WHERE tenant_id = ?",
+             FROM data_sources WHERE tenant_id = ? \
+             AND pageindex_tree IS NOT NULL AND raw_markdown IS NOT NULL \
+             LIMIT 50",
         )
         .bind(tenant_id)
         .fetch_all(pool)
