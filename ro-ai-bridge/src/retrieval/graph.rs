@@ -130,48 +130,69 @@ impl GraphRetriever for SqlGraphRetriever {
                 let props = props_raw
                     .as_ref()
                     .and_then(|bytes| String::from_utf8(bytes.clone()).ok());
-                // Get 1-hop neighbors
-                let outgoing: Vec<(String, String, String)> = sqlx::query_as(
-                    "SELECT e.name, e.entity_type, r.relation_type \
-                     FROM kg_relations r \
-                     JOIN kg_entities e ON e.id = r.to_entity_id \
-                     WHERE r.from_entity_id = ? AND r.tenant_id = ? \
-                     LIMIT 10",
+                // Get 1-hop and 2-hop outgoing neighbors
+                let outgoing: Vec<(String, String, String, i32)> = sqlx::query_as(
+                    "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
+                     FROM kg_relations r1 \
+                     JOIN kg_entities e1 ON e1.id = r1.to_entity_id \
+                     WHERE r1.from_entity_id = ? AND r1.tenant_id = ? \
+                     UNION ALL \
+                     SELECT e2.name, e2.entity_type, CONCAT(r1.relation_type, ' -> ', r2.relation_type) AS relation_type, 2 AS hop \
+                     FROM kg_relations r1 \
+                     JOIN kg_relations r2 ON r1.to_entity_id = r2.from_entity_id \
+                     JOIN kg_entities e2 ON e2.id = r2.to_entity_id \
+                     WHERE r1.from_entity_id = ? AND r1.tenant_id = ? AND r2.tenant_id = ? \
+                     LIMIT 20",
                 )
                 .bind(entity_id)
+                .bind(tenant_id)
+                .bind(entity_id)
+                .bind(tenant_id)
                 .bind(tenant_id)
                 .fetch_all(&self.pool)
                 .await
                 .unwrap_or_default();
 
-                let incoming: Vec<(String, String, String)> = sqlx::query_as(
-                    "SELECT e.name, e.entity_type, r.relation_type \
-                     FROM kg_relations r \
-                     JOIN kg_entities e ON e.id = r.from_entity_id \
-                     WHERE r.to_entity_id = ? AND r.tenant_id = ? \
-                     LIMIT 10",
+                // Get 1-hop and 2-hop incoming neighbors
+                let incoming: Vec<(String, String, String, i32)> = sqlx::query_as(
+                    "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
+                     FROM kg_relations r1 \
+                     JOIN kg_entities e1 ON e1.id = r1.from_entity_id \
+                     WHERE r1.to_entity_id = ? AND r1.tenant_id = ? \
+                     UNION ALL \
+                     SELECT e2.name, e2.entity_type, CONCAT(r2.relation_type, ' -> ', r1.relation_type) AS relation_type, 2 AS hop \
+                     FROM kg_relations r1 \
+                     JOIN kg_relations r2 ON r1.from_entity_id = r2.to_entity_id \
+                     JOIN kg_entities e2 ON e2.id = r2.from_entity_id \
+                     WHERE r1.to_entity_id = ? AND r1.tenant_id = ? AND r2.tenant_id = ? \
+                     LIMIT 20",
                 )
                 .bind(entity_id)
+                .bind(tenant_id)
+                .bind(entity_id)
+                .bind(tenant_id)
                 .bind(tenant_id)
                 .fetch_all(&self.pool)
                 .await
                 .unwrap_or_default();
 
                 let mut neighbors = Vec::new();
-                for (n, et, rt) in outgoing {
+                for (n, et, rt, hop) in outgoing {
+                    let dir = if hop == 1 { "outgoing".to_string() } else { "outgoing_2hop".to_string() };
                     neighbors.push(GraphNeighbor {
                         name: n,
                         entity_type: et,
                         relation_type: rt,
-                        direction: "outgoing".to_string(),
+                        direction: dir,
                     });
                 }
-                for (n, et, rt) in incoming {
+                for (n, et, rt, hop) in incoming {
+                    let dir = if hop == 1 { "incoming".to_string() } else { "incoming_2hop".to_string() };
                     neighbors.push(GraphNeighbor {
                         name: n,
                         entity_type: et,
                         relation_type: rt,
-                        direction: "incoming".to_string(),
+                        direction: dir,
                     });
                 }
 
