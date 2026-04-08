@@ -874,6 +874,7 @@ export interface DataSource {
     total_chunks?: number | null;
     pageindex_tree?: any | null;
     last_sync_at: string | null;
+    s3_key?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -917,16 +918,34 @@ export interface AiExtractResponse {
 export async function extractWithAi(
     sourceId: number,
     model: string,
-    outputFormat: string
+    outputFormat: string,
+    provider?: string
 ): Promise<AiExtractResponse> {
     const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/extract-ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, output_format: outputFormat }),
+        body: JSON.stringify({ model, output_format: outputFormat, provider }),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Unknown error" }));
         throw new Error(err.error || "AI extraction failed");
+    }
+    return res.json();
+}
+
+export async function extractSourceOcrWithAi(
+    sourceId: number,
+    provider?: string,
+    model?: string
+): Promise<AiExtractResponse> {
+    const res = await authFetch(`${API_BASE_URL}/ocr/extract-source/${sourceId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, model }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || "Vision OCR extraction failed");
     }
     return res.json();
 }
@@ -1901,6 +1920,8 @@ export async function runAutoPipeline(sourceId: number, options?: {
     model?: string;
     enablePageIndex?: boolean;
     skipKg?: boolean;
+    skipEmbedding?: boolean;
+    skipQa?: boolean;
 }): Promise<{ pipeline_run_id: string; source_id: number; status: string; message: string }> {
     const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/auto-pipeline`, {
         method: "POST",
@@ -1910,6 +1931,8 @@ export async function runAutoPipeline(sourceId: number, options?: {
             model: options?.model || "gemini-2.5-flash",
             enable_pageindex: options?.enablePageIndex,
             skip_kg: options?.skipKg,
+            skip_embedding: options?.skipEmbedding,
+            skip_qa: options?.skipQa,
         }),
     });
     if (!res.ok) throw new Error("Failed to start auto-pipeline");
