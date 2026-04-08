@@ -7,6 +7,7 @@
 #   ./scripts/k3s-deploy.sh all          # Build + deploy everything
 #   ./scripts/k3s-deploy.sh api          # Build + deploy API only
 #   ./scripts/k3s-deploy.sh dashboard    # Build + deploy dashboard only
+#   ./scripts/k3s-deploy.sh bifrost      # Build + deploy bifrost only
 #   ./scripts/k3s-deploy.sh all --no-build  # Just rollout restart (no rebuild)
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -91,6 +92,30 @@ deploy_api() {
     fi
 }
 
+# ─── Build & Deploy Bifrost ─────────────────────────────────────
+build_bifrost() {
+    step "Building asgard-bifrost:${TAG}"
+    cd "$ROOT_DIR/.."
+    docker build \
+        -t "asgard-bifrost:${TAG}" \
+        -f Bifrost/Dockerfile \
+        .
+    ok "Built asgard-bifrost:${TAG}"
+}
+
+deploy_bifrost() {
+    step "Deploying bifrost"
+    kubectl set image "deployment/bifrost" \
+        "bifrost=asgard-bifrost:${TAG}" \
+        -n "$NAMESPACE"
+    
+    info "Waiting for rollout..."
+    kubectl rollout status "deployment/bifrost" \
+        -n "$NAMESPACE" \
+        --timeout=120s
+    ok "bifrost deployed"
+}
+
 # ─── Build & Deploy Dashboard ───────────────────────────────────
 build_dashboard() {
     step "Building mimir-dashboard:${TAG}"
@@ -134,16 +159,22 @@ case "$TARGET" in
         if [ "$NO_BUILD" != "--no-build" ]; then build_dashboard; fi
         deploy_dashboard
         ;;
+    bifrost)
+        if [ "$NO_BUILD" != "--no-build" ]; then build_bifrost; fi
+        deploy_bifrost
+        ;;
     all)
         if [ "$NO_BUILD" != "--no-build" ]; then
+            build_bifrost
             build_api
             build_dashboard
         fi
+        deploy_bifrost
         deploy_api
         deploy_dashboard
         ;;
     *)
-        fail "Unknown target: $TARGET (use: api, dashboard, or all)"
+        fail "Unknown target: $TARGET (use: api, dashboard, bifrost, or all)"
         ;;
 esac
 
@@ -157,6 +188,6 @@ echo "  API:       http://localhost:30000/health"
 echo "  Dashboard: http://localhost:30001"
 echo ""
 echo "  Pods:"
-kubectl get pods -n "$NAMESPACE" -l "app in (mimir-api,mimir-dashboard)" \
+kubectl get pods -A -l "app in (mimir-api,mimir-dashboard,bifrost)" \
     --no-headers 2>/dev/null | sed 's/^/    /'
 echo ""
