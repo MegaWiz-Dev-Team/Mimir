@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Globe, Upload, Plug } from "lucide-react";
+import { Globe, Upload } from "lucide-react";
 
 export type IngressType = "web" | "file" | "mcp";
 
@@ -24,12 +24,6 @@ const OPTIONS: IngressOption[] = [
         icon: <Globe className="w-8 h-8 text-green-500" />,
         title: "Web Scraper",
         description: "Fetch and extract content from a URL",
-    },
-    {
-        type: "mcp",
-        icon: <Plug className="w-8 h-8 text-purple-500" />,
-        title: "MCP Connection",
-        description: "Connect via Model Context Protocol",
     },
 ];
 

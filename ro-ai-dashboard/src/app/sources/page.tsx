@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2, Search, CheckSquare, Square, ChevronRight, ChevronDown } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, discoverHierarchy, importPages, runAutoPipeline, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, extractSourceOcrWithAi, discoverHierarchy, importPages, runAutoPipeline, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -54,8 +54,10 @@ export default function SourcesPage() {
     const [pipelineConfigSource, setPipelineConfigSource] = useState<DataSource | null>(null);
     const [pipelineSelectedProvider, setPipelineSelectedProvider] = useState("google");
     const [pipelineSelectedModel, setPipelineSelectedModel] = useState("");
+    const [pipelineEnableEmbedding, setPipelineEnableEmbedding] = useState(true);
+    const [pipelineEnableKg, setPipelineEnableKg] = useState(true);
+    const [pipelineEnableQa, setPipelineEnableQa] = useState(true);
     const [pipelineEnablePageIndex, setPipelineEnablePageIndex] = useState(false);
-    const [pipelineSkipKg, setPipelineSkipKg] = useState(false);
     const [pipelineStarting, setPipelineStarting] = useState(false);
     const [pipelineRunStatus, setPipelineRunStatus] = useState<any>(null);
 
@@ -64,11 +66,13 @@ export default function SourcesPage() {
 
     // AI Extraction State
     const [aiModels, setAiModels] = useState<ModelConfig[]>([]);
+    const [aiSelectedProvider, setAiSelectedProvider] = useState("");
     const [aiSelectedModel, setAiSelectedModel] = useState("");
     const [aiOutputFormat, setAiOutputFormat] = useState<"markdown" | "table">("markdown");
     const [aiExtracting, setAiExtracting] = useState(false);
     const [aiTokensUsed, setAiTokensUsed] = useState<number | null>(null);
     const [aiError, setAiError] = useState<string | null>(null);
+    const [aiUseVisionOcr, setAiUseVisionOcr] = useState(false);
 
     // Hierarchy Discovery State
     const [hierarchyPages, setHierarchyPages] = useState<HierarchyNode[]>([]);
@@ -1055,18 +1059,20 @@ export default function SourcesPage() {
                         </div>
                         <p className="text-xs text-muted-foreground -mt-2">This AI Model will be used for both Knowledge Graph and QA Extractor steps.</p>
 
+                        <div className="text-sm font-medium mt-4 mb-2">Select pipeline steps to execute:</div>
+
                         <div className="border rounded-md p-3 bg-secondary/30 mt-2">
                             <label className="flex items-start space-x-3 cursor-pointer">
                                 <input 
                                     type="checkbox" 
-                                    className="form-checkbox mt-1" 
+                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
                                     disabled={pipelineStarting}
-                                    checked={pipelineEnablePageIndex} 
-                                    onChange={(e) => setPipelineEnablePageIndex(e.target.checked)} 
+                                    checked={pipelineEnableEmbedding} 
+                                    onChange={(e) => setPipelineEnableEmbedding(e.target.checked)} 
                                 />
                                 <div>
-                                    <span className="font-medium text-sm">Enable PageIndex Tree Generation</span>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Generates a hierarchical semantic tree. This will consume more LLM tokens.</p>
+                                    <span className="font-medium text-sm">Text Chunking & Embedding</span>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Parse, chunk, and encode document text into the vector database.</p>
                                 </div>
                             </label>
                         </div>
@@ -1075,14 +1081,46 @@ export default function SourcesPage() {
                             <label className="flex items-start space-x-3 cursor-pointer">
                                 <input 
                                     type="checkbox" 
-                                    className="form-checkbox mt-1" 
+                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
                                     disabled={pipelineStarting}
-                                    checked={pipelineSkipKg} 
-                                    onChange={(e) => setPipelineSkipKg(e.target.checked)} 
+                                    checked={pipelineEnableKg} 
+                                    onChange={(e) => setPipelineEnableKg(e.target.checked)} 
                                 />
                                 <div>
-                                    <span className="font-medium text-sm">Skip KG Extraction</span>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Skip Knowledge Graph extraction. Use when KG data already exists from a previous run.</p>
+                                    <span className="font-medium text-sm">Knowledge Graph Extraction</span>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Extract entities & relations using LLM to build a knowledge graph.</p>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
+                            <label className="flex items-start space-x-3 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
+                                    disabled={pipelineStarting}
+                                    checked={pipelineEnableQa} 
+                                    onChange={(e) => setPipelineEnableQa(e.target.checked)} 
+                                />
+                                <div>
+                                    <span className="font-medium text-sm">Synthetic Q&A Generation</span>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Generate high-quality question-answer pairs for better semantic retrieval.</p>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
+                            <label className="flex items-start space-x-3 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
+                                    disabled={pipelineStarting}
+                                    checked={pipelineEnablePageIndex} 
+                                    onChange={(e) => setPipelineEnablePageIndex(e.target.checked)} 
+                                />
+                                <div>
+                                    <span className="font-medium text-sm">Hierarchical PageIndex Tree <span className="text-orange-500 font-normal ml-1">(Advanced)</span></span>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Generate a semantic hierarchy tree of the entire document. Consumes significant LLM tokens.</p>
                                 </div>
                             </label>
                         </div>
@@ -1142,7 +1180,9 @@ export default function SourcesPage() {
                                                 provider: pipelineSelectedProvider,
                                                 model: pipelineSelectedModel,
                                                 enablePageIndex: pipelineEnablePageIndex,
-                                                skipKg: pipelineSkipKg,
+                                                skipKg: !pipelineEnableKg,
+                                                skipEmbedding: !pipelineEnableEmbedding,
+                                                skipQa: !pipelineEnableQa,
                                             });
                                             // Start Polling
                                             const intervalId = setInterval(async () => {
@@ -1181,8 +1221,16 @@ export default function SourcesPage() {
                     // Load models when dialog opens
                     fetchModels().then((models) => {
                         setAiModels(models);
-                        if (models.length > 0 && !aiSelectedModel) {
-                            setAiSelectedModel(models[0].model_id);
+                        if (models.length > 0) {
+                            const providers = Array.from(new Set(models.map(m => m.provider)));
+                            if (!aiSelectedProvider || !providers.includes(aiSelectedProvider)) {
+                                setAiSelectedProvider(providers[0] || "");
+                            }
+                            const currentProvider = aiSelectedProvider || providers[0] || "";
+                            const modelsForProvider = models.filter(m => m.provider === currentProvider);
+                            if (!aiSelectedModel || !modelsForProvider.find(m => m.model_id === aiSelectedModel)) {
+                                setAiSelectedModel(modelsForProvider[0]?.model_id || "");
+                            }
                         }
                     }).catch(() => { });
                 }
@@ -1207,20 +1255,65 @@ export default function SourcesPage() {
                             </p>
                             <div className="flex items-center gap-3 flex-wrap">
                                 <div className="grid gap-1">
+                                    <Label className="text-xs">Provider</Label>
+                                    <select
+                                        className="h-8 px-2 rounded-md border bg-background text-sm min-w-[120px]"
+                                        value={aiSelectedProvider}
+                                        onChange={(e) => {
+                                            const p = e.target.value;
+                                            setAiSelectedProvider(p);
+                                            const modelsForProvider = aiModels.filter(m => m.provider === p);
+                                            if (modelsForProvider.length > 0) {
+                                                setAiSelectedModel(modelsForProvider[0].model_id);
+                                            } else {
+                                                setAiSelectedModel("");
+                                            }
+                                        }}
+                                    >
+                                        {Array.from(new Set(aiModels.map(m => m.provider))).map(provider => (
+                                            <option key={provider} value={provider}>{provider}</option>
+                                        ))}
+                                        {aiModels.length === 0 && <option value="">Loading...</option>}
+                                    </select>
+                                </div>
+                                <div className="grid gap-1">
                                     <Label className="text-xs">Model</Label>
                                     <select
-                                        className="h-8 px-2 rounded-md border bg-background text-sm min-w-[180px]"
+                                        className="h-8 px-2 rounded-md border bg-background text-sm min-w-[200px]"
                                         value={aiSelectedModel}
                                         onChange={(e) => setAiSelectedModel(e.target.value)}
                                     >
-                                        {aiModels.map((m) => (
+                                        {aiModels.filter(m => m.provider === aiSelectedProvider).map((m) => (
                                             <option key={m.model_id} value={m.model_id}>
-                                                {m.model_id} ({m.provider})
+                                                {m.model_id}
                                             </option>
                                         ))}
-                                        {aiModels.length === 0 && <option value="">Loading models...</option>}
+                                        {aiModels.filter(m => m.provider === aiSelectedProvider).length === 0 && <option value="">No models</option>}
                                     </select>
                                 </div>
+                                {previewingSource?.s3_key?.match(/\.(png|jpe?g|gif|webp|bmp|tiff?|pdf)$/i) && (
+                                    <div className="grid gap-1">
+                                        <Label className="text-xs">Extraction Method</Label>
+                                        <div className="flex gap-1">
+                                            <Button
+                                                variant={!aiUseVisionOcr ? "default" : "outline"}
+                                                size="sm"
+                                                className="h-8 text-xs"
+                                                onClick={() => setAiUseVisionOcr(false)}
+                                            >
+                                                Text
+                                            </Button>
+                                            <Button
+                                                variant={aiUseVisionOcr ? "default" : "outline"}
+                                                size="sm"
+                                                className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white border-transparent"
+                                                onClick={() => setAiUseVisionOcr(true)}
+                                            >
+                                                Vision OCR
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="grid gap-1">
                                     <Label className="text-xs">Output Format</Label>
                                     <div className="flex gap-1">
@@ -1229,6 +1322,7 @@ export default function SourcesPage() {
                                             size="sm"
                                             className="h-8 text-xs"
                                             onClick={() => setAiOutputFormat("markdown")}
+                                            disabled={aiUseVisionOcr}
                                         >
                                             Markdown
                                         </Button>
@@ -1237,6 +1331,7 @@ export default function SourcesPage() {
                                             size="sm"
                                             className="h-8 text-xs"
                                             onClick={() => setAiOutputFormat("table")}
+                                            disabled={aiUseVisionOcr}
                                         >
                                             Table
                                         </Button>
@@ -1254,7 +1349,11 @@ export default function SourcesPage() {
                                             setAiError(null);
                                             setAiTokensUsed(null);
                                             try {
-                                                const result = await extractWithAi(previewingSource.id, aiSelectedModel, aiOutputFormat);
+                                                const useOcr = aiUseVisionOcr && previewingSource.s3_key?.match(/\.(png|jpe?g|gif|webp|bmp|tiff?|pdf)$/i);
+                                                const result = useOcr 
+                                                    ? await extractSourceOcrWithAi(previewingSource.id, aiSelectedProvider, aiSelectedModel)
+                                                    : await extractWithAi(previewingSource.id, aiSelectedModel, aiOutputFormat, aiSelectedProvider);
+                                                    
                                                 setPreviewingSource((prev) => prev ? { ...prev, raw_markdown: result.content } : null);
                                                 setAiTokensUsed(result.tokens_used);
                                             } catch (err: any) {
