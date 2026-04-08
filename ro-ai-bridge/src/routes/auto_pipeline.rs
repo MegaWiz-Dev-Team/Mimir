@@ -75,6 +75,10 @@ pub struct AutoPipelineRequest {
     pub enable_pageindex: Option<bool>,
     /// Skip KG extraction step (use existing KG data)
     pub skip_kg: Option<bool>,
+    /// Skip Chunk Embedding step
+    pub skip_embedding: Option<bool>,
+    /// Skip QA Generation step
+    pub skip_qa: Option<bool>,
 }
 
 
@@ -122,6 +126,8 @@ async fn run_auto_pipeline(
     let max_chunks = req.max_chunks.unwrap_or(10000);
     let enable_pageindex = req.enable_pageindex.unwrap_or(false);
     let skip_kg = req.skip_kg.unwrap_or(false);
+    let skip_embedding = req.skip_embedding.unwrap_or(false);
+    let skip_qa = req.skip_qa.unwrap_or(false);
 
     // Verify source exists and belongs to tenant
     let source: Option<(i64, String)> =
@@ -227,11 +233,7 @@ async fn run_auto_pipeline(
         total_steps_ok += 1;
         info!("  Step 1/5: ✅ {} chunks found", chunk_count);
 
-        // ─── Step 2: Embed Chunks → Qdrant ───────────────────────────────
-        let step2_start = std::time::Instant::now();
-        log_step(&pool_clone, &run_id_clone, 2, "embed_chunks", "running").await;
-
-        // Resolve embedding model from tenant config
+        // Resolve embedding model and configs early for entire pipeline scope
         let iam = mimir_core_ai::services::iam::IamService::new_with_env(pool_clone.clone());
         let tenant_config = iam.get_tenant_config(&tenant_clone).await.ok();
         let llm_config = tenant_config
@@ -252,6 +254,12 @@ async fn run_auto_pipeline(
             .and_then(|c| c.qa_rules.as_ref())
             .map(|r| serde_json::to_string_pretty(&r.0).unwrap_or_default())
             .unwrap_or_default();
+
+        // ─── Step 2: Embed Chunks → Qdrant ───────────────────────────────
+        if pipeline_error.is_none() && !skip_embedding {
+            let step2_start = std::time::Instant::now();
+            log_step(&pool_clone, &run_id_clone, 2, "embed_chunks", "running").await;
+
 
         let qdrant = QdrantService::new();
         // Ensure collection exists with hybrid schema (dense + sparse)
@@ -342,6 +350,21 @@ async fn run_auto_pipeline(
             .bind(source_id)
             .execute(&pool_clone)
             .await;
+        } // Close else
+        } else if skip_embedding && pipeline_error.is_none() {
+            log_step(&pool_clone, &run_id_clone, 2, "embed_chunks", "running").await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                2,
+                "skipped",
+                0,
+                0,
+                Some("Skipped by user"),
+            )
+            .await;
+            total_steps_ok += 1;
+            info!("  Step 2/5: ⏭️ Chunk embedding skipped by user");
         }
 
         // ─── Step 2.5: PageIndex Generation (Optional) ────────────────────
@@ -602,7 +625,7 @@ async fn run_auto_pipeline(
         }
 
         // ─── Step 4: QA Extraction ───────────────────────────────────────
-        if pipeline_error.is_none() {
+        if pipeline_error.is_none() && !skip_qa {
             let step4_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 4, "qa_extraction", "running").await;
 
@@ -703,10 +726,24 @@ async fn run_auto_pipeline(
             .await;
             total_steps_ok += 1;
             info!("  Step 4/5: ✅ {} QA pairs generated", qa_count);
+        } else if skip_qa && pipeline_error.is_none() {
+            log_step(&pool_clone, &run_id_clone, 4, "qa_extraction", "running").await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                4,
+                "skipped",
+                0,
+                0,
+                Some("Skipped by user"),
+            )
+            .await;
+            total_steps_ok += 1;
+            info!("  Step 4/5: ⏭️ QA extraction skipped by user");
         }
 
         // ─── Step 5: Index QA into Qdrant ────────────────────────────────
-        if pipeline_error.is_none() {
+        if pipeline_error.is_none() && !skip_qa {
             let step5_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 5, "qa_indexing", "running").await;
 
@@ -796,6 +833,20 @@ async fn run_auto_pipeline(
                 total_steps_ok += 1;
                 info!("  Step 5/5: ✅ {} QA pairs indexed to Qdrant", indexed);
             }
+        } else if skip_qa && pipeline_error.is_none() {
+            log_step(&pool_clone, &run_id_clone, 5, "qa_indexing", "running").await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                5,
+                "skipped",
+                0,
+                0,
+                Some("Skipped by user"),
+            )
+            .await;
+            total_steps_ok += 1;
+            info!("  Step 5/5: ⏭️ QA indexing skipped by user");
         }
 
         // ─── Finish pipeline ─────────────────────────────────────────────

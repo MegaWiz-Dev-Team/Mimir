@@ -10,6 +10,7 @@ use axum_extra::extract::Multipart;
 use mimir_core_ai::models::sources::DataSource;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::ocr;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -88,23 +89,28 @@ async fn ocr_extract(
         ));
     }
 
-    // Resolve Gemini credentials
-    let model = model_override.unwrap_or_else(|| config.gemini_model.clone());
-    let api_key = config.gemini_api_key.clone().ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "GEMINI_API_KEY not configured. OCR requires Gemini API access."
-            })),
-        )
-    })?;
-    let api_base = config.gemini_base_url.clone();
+    // Resolve LLM credentials using unified config
+    let target_model = model_override.unwrap_or_else(|| config.gemini_model.clone());
+    let model_config = mimir_core_ai::services::db::get_model_by_id(&pool, &target_model)
+        .await
+        .unwrap_or(None);
 
-    info!("OCR extract request: file={}, model={}", filename, model);
+    let (api_key, api_base) = crate::routes::sources::resolve_llm_credentials(
+        &config,
+        &model_config,
+        &target_model,
+    )?;
 
-    // Call Gemini vision
+    let provider = model_config
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or("unknown");
+
+    info!("OCR extract request: file={}, model={}", filename, target_model);
+
+    // Call Gemini/Vision OCR via the ocr module
     let (content, tokens_used) =
-        ocr::extract_text_from_image(&data, &filename, &api_key, &api_base, &model)
+        ocr::extract_text_from_image(&data, &filename, &api_key, &api_base, &target_model)
             .await
             .map_err(|e| {
                 error!("OCR extraction failed: {}", e);
@@ -119,8 +125,8 @@ async fn ocr_extract(
     let _ = crate::routes::llm_usage::insert_llm_usage_log(
         &pool,
         tenant_id,
-        &model,
-        "gemini",
+        &target_model,
+        provider,
         Some(&format!("{}chat/completions", api_base)),
         Some("ocr_extract"),
         0,
@@ -135,10 +141,16 @@ async fn ocr_extract(
     Ok(Json(json!({
         "content": content,
         "tokens_used": tokens_used,
-        "model": model,
+        "model": target_model,
         "filename": filename,
         "content_length": content.len()
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExtractSourceOcrRequest {
+    pub provider: Option<String>,
+    pub model: Option<String>,
 }
 
 /// POST /api/v1/ocr/extract-source/:id
@@ -150,6 +162,7 @@ async fn ocr_extract_source(
     Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     axum::extract::Path(id): axum::extract::Path<i64>,
+    payload: Option<Json<ExtractSourceOcrRequest>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
@@ -203,21 +216,33 @@ async fn ocr_extract_source(
             )
         })?;
 
-    // Resolve Gemini credentials
-    let model = config.gemini_model.clone();
-    let api_key = config.gemini_api_key.clone().ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "GEMINI_API_KEY not configured"
-            })),
-        )
-    })?;
-    let api_base = config.gemini_base_url.clone();
+    // Determine target model
+    let mut target_model = config.gemini_model.clone();
+    if let Some(p) = payload {
+        if let Some(m) = &p.model {
+            target_model = m.clone();
+        }
+    }
+
+    // Resolve LLM credentials using unified config
+    let model_config = mimir_core_ai::services::db::get_model_by_id(&pool, &target_model)
+        .await
+        .unwrap_or(None);
+
+    let (api_key, api_base) = crate::routes::sources::resolve_llm_credentials(
+        &config,
+        &model_config,
+        &target_model,
+    )?;
+
+    let provider = model_config
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or("unknown");
 
     info!(
         "OCR extract-source: id={}, s3_key={}, model={}",
-        id, s3_key, model
+        id, s3_key, target_model
     );
 
     // Update status
@@ -226,9 +251,9 @@ async fn ocr_extract_source(
         .execute(&pool)
         .await;
 
-    // Call Gemini vision
+    // Call Gemini/Vision API via OCR module
     let (content, tokens_used) =
-        ocr::extract_text_from_image(&data, s3_key, &api_key, &api_base, &model)
+        ocr::extract_text_from_image(&data, s3_key, &api_key, &api_base, &target_model)
             .await
             .map_err(|e| {
                 error!("OCR failed for source {}: {}", id, e);
@@ -267,8 +292,8 @@ async fn ocr_extract_source(
     let _ = crate::routes::llm_usage::insert_llm_usage_log(
         &pool,
         tenant_id,
-        &model,
-        "gemini",
+        &target_model,
+        provider,
         Some(&format!("{}chat/completions", api_base)),
         Some("ocr_extract_source"),
         0,
@@ -289,9 +314,10 @@ async fn ocr_extract_source(
 
     Ok(Json(json!({
         "source_id": id,
+        "content": content,
         "content_length": content.len(),
         "tokens_used": tokens_used,
-        "model": model,
+        "model": target_model,
         "status": "COMPLETED"
     })))
 }

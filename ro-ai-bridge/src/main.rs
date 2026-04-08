@@ -185,7 +185,6 @@ async fn main() {
         .nest("/api/v1/tenants", tenant_routes())
         .nest("/api/v1/tenants/{tenant_id}/ingest", ingest_routes())
         .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes())
-        .nest("/api/v1", ro_ai_bridge::routes::models::models_routes())
         .nest("/api/v1", ro_ai_bridge::routes::features::features_routes())
         // Sprint 32: RAG Ensemble Playground (Phase 2)
         .merge(search_routes())
