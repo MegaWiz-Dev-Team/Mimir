@@ -1,41 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import http from "node:http";
-
-/**
- * Server-side OIDC token exchange.
- *
- * Uses Node.js http module to set custom Host header for Zitadel.
- * After token exchange, fetches userinfo to get project roles.
- */
-
-const YGGDRASIL_ISSUER = process.env.YGGDRASIL_ISSUER || process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
-const CLIENT_ID = process.env.YGGDRASIL_CLIENT_ID || process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.YGGDRASIL_CLIENT_SECRET || "";
-const REDIRECT_URI = process.env.NEXT_PUBLIC_YGGDRASIL_REDIRECT_URI || "http://localhost:3001/login/callback";
-
-function httpRequest(method: string, url: string, body: string | null, headers: Record<string, string>): Promise<{ status: number; body: string }> {
-    return new Promise((resolve, reject) => {
-        const parsed = new URL(url);
-        const opts: http.RequestOptions = {
-            hostname: parsed.hostname,
-            port: parsed.port || 80,
-            path: parsed.pathname + parsed.search,
-            method,
-            headers: { ...headers },
-        };
-        if (body) {
-            (opts.headers as Record<string, string>)["Content-Length"] = String(Buffer.byteLength(body));
-        }
-        const req = http.request(opts, (res) => {
-            let data = "";
-            res.on("data", (chunk) => (data += chunk));
-            res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
-        });
-        req.on("error", reject);
-        if (body) req.write(body);
-        req.end();
-    });
-}
 
 export async function POST(request: NextRequest) {
     try {
@@ -45,107 +8,38 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
         }
 
-        const tokenUrl = `${YGGDRASIL_ISSUER}/oauth/v2/token`;
+        const MIMIR_API = process.env.MIMIR_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://mimir-api.asgard.svc:8080/api";
+        const ssoExchangeUrl = `${MIMIR_API}/v1/auth/sso-exchange`;
 
-        const params = new URLSearchParams({
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: redirect_uri || REDIRECT_URI,
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
+        console.log(`[OIDC] Forwarding OAuth code to backend SSO exchange: ${ssoExchangeUrl}`);
+
+        const res = await fetch(ssoExchangeUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                code,
+                code_verifier,
+                redirect_uri
+            }),
         });
 
-        if (code_verifier) {
-            params.set("code_verifier", code_verifier);
-        }
-
-        console.log(`[OIDC] Token exchange: url=${tokenUrl} client_id=${CLIENT_ID}`);
-
-        const tokenResult = await httpRequest("POST", tokenUrl, params.toString(), {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Host": "localhost:30085",
-        });
-
-        if (tokenResult.status >= 400) {
-            const errText = tokenResult.body;
-            console.error(`[OIDC] Token exchange failed: status=${tokenResult.status} body=${errText}`);
+        if (!res.ok) {
+            const errText = await res.text();
+            console.error(`[OIDC] Backend SSO exchange failed: status=${res.status} body=${errText}`);
             let errData: any = {};
             try { errData = JSON.parse(errText); } catch {}
             return NextResponse.json(
-                { error: errData.error_description || errData.error || `Token exchange failed (${tokenResult.status})` },
-                { status: tokenResult.status }
+                { error: errData.error_description || errData.error || `SSO Exchange failed (${res.status})` },
+                { status: res.status }
             );
         }
 
-        const tokens = JSON.parse(tokenResult.body);
-
-        // Fetch userinfo to get project roles (id_token doesn't include them)
-        let userRole = "viewer";
-        let userName = "";
-        let userLogin = ""; // The actual login username (email) for Mimir API auth
-        if (tokens.access_token) {
-            try {
-                const userinfoUrl = `${YGGDRASIL_ISSUER}/oidc/v1/userinfo`;
-                const userinfoResult = await httpRequest("GET", userinfoUrl, null, {
-                    "Authorization": `Bearer ${tokens.access_token}`,
-                    "Host": "localhost:30085",
-                });
-                if (userinfoResult.status === 200) {
-                    const userinfo = JSON.parse(userinfoResult.body);
-                    console.log("[OIDC] userinfo:", JSON.stringify(userinfo));
-                    userName = userinfo.name || userinfo.preferred_username || userinfo.email || "";
-                    userLogin = userinfo.preferred_username || userinfo.email || userName;
-                    
-                    // Extract roles from Zitadel userinfo
-                    const projectRoles = userinfo["urn:zitadel:iam:org:project:roles"];
-                    if (projectRoles && typeof projectRoles === "object") {
-                        if ("SuperAdmin" in projectRoles) userRole = "SuperAdmin";
-                        else if ("admin" in projectRoles) userRole = "admin";
-                    }
-                }
-            } catch (e) {
-                console.error("[OIDC] Failed to fetch userinfo:", e);
-            }
-        }
-
-        console.log(`[OIDC] Token exchange successful. userRole=${userRole} userName=${userName}`);
-
-        // Bridge: Login to Mimir API to get a Mimir JWT (the API uses its own auth, not Zitadel)
-        const MIMIR_API = process.env.MIMIR_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://mimir-api.asgard.svc:8080/api";
-        let mimirToken = tokens.access_token; // fallback to Zitadel token
-        let mimirTenantId = "";
-        try {
-            const loginBody = JSON.stringify({
-                username: userLogin || "admin",
-                password: "1qazXSW@",
-            });
-            const mimirLoginUrl = `${MIMIR_API}/v1/auth/login`;
-            console.log(`[OIDC] Mimir login: url=${mimirLoginUrl} username=${userLogin || "admin"}`);
-            const mimirResult = await httpRequest("POST", mimirLoginUrl, loginBody, {
-                "Content-Type": "application/json",
-            });
-            if (mimirResult.status === 200) {
-                const mimirData = JSON.parse(mimirResult.body);
-                mimirToken = mimirData.token;
-                mimirTenantId = mimirData.tenant_id || "";
-                console.log(`[OIDC] Mimir JWT obtained. tenant_id=${mimirTenantId}`);
-            } else {
-                console.warn(`[OIDC] Mimir login failed (${mimirResult.status}): ${mimirResult.body}`);
-            }
-        } catch (e) {
-            console.warn("[OIDC] Mimir login bridge error:", e);
-        }
-
-        return NextResponse.json({
-            access_token: mimirToken,
-            id_token: tokens.id_token,
-            refresh_token: tokens.refresh_token,
-            expires_in: tokens.expires_in,
-            token_type: tokens.token_type,
-            user_role: userRole,
-            user_name: userName,
-            tenant_id: mimirTenantId,
-        });
+        const tokenData = await res.json();
+        console.log(`[OIDC] Backend SSO exchange successful. user_name=${tokenData.user_name} role=${tokenData.user_role} tenant=${tokenData.tenant_id}`);
+        
+        return NextResponse.json(tokenData);
     } catch (e: any) {
         console.error("[OIDC] Callback error:", e);
         return NextResponse.json({ error: e.message || "Internal error" }, { status: 500 });

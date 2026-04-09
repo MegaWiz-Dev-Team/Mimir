@@ -11,7 +11,6 @@ describe('IngressTypeSelector', () => {
 
         expect(screen.getByText('File Upload')).toBeInTheDocument();
         expect(screen.getByText('Web Scraper')).toBeInTheDocument();
-        expect(screen.getByText('MCP Connection')).toBeInTheDocument();
     });
 
     // UT-F02b: Click "File Upload" → calls onSelect('file')

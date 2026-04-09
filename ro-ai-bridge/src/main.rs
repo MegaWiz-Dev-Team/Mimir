@@ -16,7 +16,7 @@ use ro_ai_bridge::config::Config;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
-use ro_ai_bridge::routes::auto_pipeline::auto_pipeline_routes;
+use ro_ai_bridge::routes::auto_pipeline::{batch_pipeline_routes};
 use ro_ai_bridge::routes::backup::backup_routes;
 use ro_ai_bridge::routes::budget::{budget_settings_routes, budget_usage_routes};
 use ro_ai_bridge::routes::chat::chat_routes;
@@ -151,7 +151,7 @@ async fn main() {
         .nest("/api/v1/vector", vector_routes())
         .nest(
             "/api/v1/sources",
-            ro_ai_bridge::routes::sources::sources_routes().merge(auto_pipeline_routes()),
+            ro_ai_bridge::routes::sources::sources_routes(),
         )
         .nest("/api/v1/chunks", chunks_routes())
         .nest("/api/v1/llm-usage", llm_usage_routes())
@@ -168,6 +168,7 @@ async fn main() {
         .nest("/api/v1/feedback", feedback_routes())
         .nest("/api/v1/assistant", assistant_routes())
         .nest("/api/v1", ocr_routes())
+        .nest("/api/v1", batch_pipeline_routes())
         .nest("/api/v1/db-connector", db_connector_routes())
         .nest("/api/v1", models_routes())
         .nest("/api/v1/vault", vault_routes())

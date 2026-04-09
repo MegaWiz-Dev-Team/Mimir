@@ -7,6 +7,7 @@
 - **Auto-Tuner:** Automated Hyperparameter Optimization via Genetic Algorithms for optimal vector vs. tree weights and thresholding.
 - **Cross-Encoder Re-Ranking:** Highly accurate pairwise re-ranking available in the RAG Playground as a `🚀` strategy option.
 - **Flash-MoE Inference:** Qwen3.5-397B ultra-large model operational at 1.5 TPS via new `LlmRouter` integration.
+- **Graph Intelligence:** Native Rust integration to analyze God Nodes and Surprising Connections via complex graph SQL computation, powered by the `graph_analyzer` routing slot in Step 6 Auto-Pipeline.
 - **2-Hop Knowledge Graph:** Complex query relationship awareness via deep `UNION ALL` SQL traversal.
 
 ### 🐛 Fixes & Polish

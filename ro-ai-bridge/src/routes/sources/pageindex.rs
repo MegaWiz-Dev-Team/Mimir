@@ -110,17 +110,6 @@ pub async fn extract_pageindex_route(
         source_id, provider, model
     );
 
-    // Prepare full text representation
-    // In a production scenario with gemini-2.5-pro or 3.1-flash-lite, we can pass up to 1M or 2M tokens.
-    // We will concatenate the chunks and ask for a semantic tree.
-    let mut full_text = String::new();
-    for (_id, content, c_index) in &chunks {
-        let idx = c_index.unwrap_or(0);
-        full_text.push_str(&format!("\n--- [Page/Chunk {}] ---\n{}\n", idx, content));
-    }
-
-    let max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
-
     let provider_clone = provider.clone();
     let model_clone = model.clone();
 
@@ -129,12 +118,10 @@ pub async fn extract_pageindex_route(
             &pool,
             &tenant_id,
             source_id,
-            &full_text,
             &api_key,
             &api_base,
             &model_clone,
             &provider_clone,
-            max_index,
         )
         .await
         {
@@ -159,13 +146,63 @@ pub async fn generate_tree(
     pool: &DbPool,
     tenant_id: &str,
     source_id: i64,
-    content: &str,
     api_key: &str,
     api_base: &str,
     model: &str,
     provider: &str,
-    max_index: i32,
 ) -> anyhow::Result<()> {
+    // 1. Fetch chunks internally
+    let chunks: Vec<(i64, String, Option<i32>)> = sqlx::query_as(
+        "SELECT id, content, chunk_index FROM chunks WHERE source_id = ? ORDER BY chunk_index ASC",
+    )
+    .bind(source_id)
+    .fetch_all(pool)
+    .await?;
+
+    if chunks.is_empty() {
+        return Ok(());
+    }
+
+    let max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
+
+    // 2. Decide Strategy (Map-Reduce vs Full Context)
+    let final_content = if chunks.len() <= 10 {
+        // Fast path for small docs (< 10 chunks)
+        let mut text = String::new();
+        for (_id, content, c_index) in &chunks {
+            let idx = c_index.unwrap_or(0);
+            text.push_str(&format!("\n--- [Page/Chunk {}] ---\n{}\n", idx, content));
+        }
+        text
+    } else {
+        // Map-Reduce path for large docs
+        let batch_size = 8;
+        let mut mapped_summaries = String::new();
+        
+        info!("Document has {} chunks. Using Map-Reduce for PageIndex.", chunks.len());
+
+        for (i, chunk_group) in chunks.chunks(batch_size).enumerate() {
+            let mut batch_text = String::new();
+            for (_id, content, c_index) in chunk_group {
+                let idx = c_index.unwrap_or(0);
+                batch_text.push_str(&format!("\n--- [Page/Chunk {}] ---\n{}\n", idx, content));
+            }
+            
+            let map_system = "You are a document outliner. Analyze the provided text segment and extract the main headings, topics, and a brief description. IMPORTANT: You MUST preserve the `[Page/Chunk X]` references for each topic so we know exactly where it is located. Be extremely concise. Use bullet points.";
+            let prompt = format!("{}\n\nDocument Segment:\n{}", map_system, batch_text);
+            
+            info!("Running Map Step {}/{}", i + 1, (chunks.len() as f32 / batch_size as f32).ceil() as i32);
+            let (summary, _) = call_llm_api_with_logging(
+                api_key, api_base, model, &prompt,
+                Some(pool), Some(tenant_id), Some(provider), Some("pageindex_map")
+            ).await?;
+            
+            mapped_summaries.push_str(&format!("\n=== Segment {} Outline ===\n{}\n", i + 1, summary));
+        }
+        
+        mapped_summaries
+    };
+
     let system_prompt = format!(
         r#"You are a document structuring assistant. Analyze the provided document, which is divided into sections annotated with [Page/Chunk X]. 
 Your objective is to generate a hierarchical "PageIndex" semantic tree that organizes the document's content logically based on its major headings and conceptual flow.
@@ -194,12 +231,15 @@ Output EXCLUSIVELY a JSON object with this shape:
      {{ "node_id": "0001", "title": "Chap 1", "start_index": 0, "end_index": 5, "summary": "...", "nodes": [] }}
   ]
 }}
-Do not include markdown blocks or any other text before/after the JSON."#,
+Do not include markdown blocks or any other text before/after the JSON.
+CRITICAL: Output ONLY valid JSON. All JSON keys MUST be quoted strings.
+Do NOT include <think>, <reasoning>, or XML-like tags."#,
         max_index, max_index, max_index
     );
 
-    let user_prompt = format!("{}\n\nDocument Context:\n{}", system_prompt, content);
+    let user_prompt = format!("{}\n\nDocument Context:\n{}", system_prompt, final_content);
 
+    info!("Running Final Reduce Step for PageIndex (max_index={})", max_index);
     // Send to LLM
     let (response, _tokens) = call_llm_api_with_logging(
         api_key,
@@ -213,14 +253,21 @@ Do not include markdown blocks or any other text before/after the JSON."#,
     )
     .await?;
 
-    let cleaned = response
-        .trim_start_matches("```json")
-        .trim_end_matches("```")
-        .trim();
-
-    // Validate JSON
-    let mut parsed: Value = serde_json::from_str(cleaned)
-        .map_err(|e| anyhow::anyhow!("Failed to parse PageIndex JSON: {}", e))?;
+    let no_think = {
+        let s = response.as_str();
+        if let Some(end) = s.find("</think>") { s[end + 8..].to_string() } else { s.to_string() }
+    };
+    let cleaned = no_think.trim_start_matches("```json").trim_start_matches("```")
+        .trim_end_matches("```").trim().to_string();
+    let json_str = if let (Some(start), Some(end)) = (cleaned.find('{'), cleaned.rfind('}')) {
+        cleaned[start..=end].to_string()
+    } else { cleaned };
+    let mut parsed: Value = serde_json::from_str(&json_str)
+        .map_err(|e| {
+            let preview: String = json_str.chars().take(500).collect();
+            tracing::warn!("PageIndex JSON parse failed. Preview: {}", preview);
+            anyhow::anyhow!("Failed to parse PageIndex JSON: {}", e)
+        })?;
 
     // Fix inverted ranges (start_index > end_index) recursively
     fn fix_ranges(node: &mut Value) {

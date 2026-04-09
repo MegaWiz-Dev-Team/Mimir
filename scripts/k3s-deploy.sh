@@ -37,7 +37,7 @@ TAG="${GIT_SHA}-${TIMESTAMP}"
 
 # ─── Configuration ───────────────────────────────────────────────
 # Override these via environment variables if needed:
-NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:30000/api}"
+NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://api.asgard.internal/api}"
 NEXT_PUBLIC_YGGDRASIL_CLIENT_ID="${NEXT_PUBLIC_YGGDRASIL_CLIENT_ID:-}"
 
 echo ""
@@ -120,17 +120,17 @@ deploy_bifrost() {
 build_dashboard() {
     step "Building mimir-dashboard:${TAG}"
     
+    cd "$ROOT_DIR/ro-ai-dashboard"
+    
     # Validate build args
     if [ -z "$NEXT_PUBLIC_API_URL" ]; then
-        warn "NEXT_PUBLIC_API_URL not set — defaulting to http://localhost:30000"
-        NEXT_PUBLIC_API_URL="http://localhost:30000"
+        warn "NEXT_PUBLIC_API_URL not set — defaulting to https://api.asgard.internal/api"
+        NEXT_PUBLIC_API_URL="https://api.asgard.internal/api"
     fi
     info "API URL baked into dashboard: $NEXT_PUBLIC_API_URL"
     
-    cd "$ROOT_DIR/ro-ai-dashboard"
     docker build \
         --build-arg "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}" \
-        --build-arg "NEXT_PUBLIC_YGGDRASIL_CLIENT_ID=${NEXT_PUBLIC_YGGDRASIL_CLIENT_ID}" \
         -t "mimir-dashboard:${TAG}" \
         .
     ok "Built mimir-dashboard:${TAG}"

@@ -82,6 +82,69 @@ impl IamService {
         Ok((token, tenant.tenant_id))
     }
 
+    /// Authenticate a user via SSO (bypassing password). Uses JIT provisioning.
+    pub async fn login_sso(&self, username: &str, role: &str) -> Result<(String, String)> {
+        // 1. Try to find the user
+        let user_opt = sqlx::query!(
+            "SELECT id FROM users WHERE username = ?",
+            username
+        )
+        .fetch_optional(&self.db)
+        .await?;
+
+        let user_id = match user_opt {
+            Some(u) => u.id,
+            None => {
+                // JIT Provisioning
+                let new_id = Uuid::new_v4().to_string();
+                let random_pass = Uuid::new_v4().to_string(); // SSO users have random unintelligible passwords
+                let hash = Self::hash_password(&random_pass)?;
+                
+                let mut tx = self.db.begin().await?;
+                sqlx::query!(
+                    "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
+                    new_id,
+                    username,
+                    hash
+                )
+                .execute(&mut *tx)
+                .await?;
+                
+                // Assuming default tenant allocation, grab the first tenant or default tenant
+                let tenant_opt = sqlx::query!("SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1").fetch_optional(&mut *tx).await?;
+                if let Some(t) = tenant_opt {
+                    sqlx::query!(
+                        "INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (?, ?, ?)",
+                        t.id,
+                        new_id,
+                        role
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                
+                tx.commit().await?;
+                new_id
+            }
+        };
+
+        // 2. Get tenant and role
+        let tenant_row = sqlx::query!(
+            "SELECT tenant_id, role FROM tenant_users WHERE user_id = ? LIMIT 1",
+            user_id
+        )
+        .fetch_optional(&self.db)
+        .await?;
+
+        let tenant = tenant_row.ok_or_else(|| anyhow!("User has no assigned tenant in Mimir database"))?;
+
+        // 3. Mint JWT payload using SSO role
+        let final_role = if role == "SuperAdmin" || tenant.role == "admin" { "admin" } else { "viewer" };
+        let token = self.generate_jwt(&user_id, &tenant.tenant_id, final_role)?;
+
+        Ok((token, tenant.tenant_id))
+    }
+
     /// Generate JWT Access Token
     fn generate_jwt(&self, user_id: &str, tenant_id: &str, role: &str) -> Result<String> {
         let expiration =

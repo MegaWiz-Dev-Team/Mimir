@@ -14,10 +14,11 @@
 - **Model Serving:** Ollama (dev) + MLX (Apple Silicon prod) + vLLM (NVIDIA GPU/cloud) — phased: Phase 1 Sprint 11a, Phase 2 Sprint 14b
 - **Embedding Models:** Configurable (nomic-embed-text / text-embedding-004 / bge-m3) พร้อม pipeline lock
 
-### Pipeline Architecture (Sprint 9-16):
+### Pipeline Architecture (Sprint 9-18):
 ```
 Sources ─┬→ File  → Extract → Chunk ─┬→ Embed → Qdrant (Vector Search)
-         │                            └→ Entity → Neo4j  (Graph Search)
+         │                            ├→ Entity → Neo4j  (Graph Search)
+         │                            └→ Graph Intel → Core Concepts
          ├→ Web   → Crawl → Extract → Chunk → (same)
          ├→ SQL/DB → Schema Sync → MariaDB     (SQL Search)
          └→ MCP   → Protocol → (varies)

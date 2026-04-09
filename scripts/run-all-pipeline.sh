@@ -11,13 +11,13 @@
 set -euo pipefail
 
 # ── Config ──────────────────────────────────────────────────
-BRIDGE_URL="http://localhost:3000"
+BRIDGE_URL="http://127.0.0.1:3001"
 TENANT_ID="127d37ee-2de2-4094-8993-f7cff046c0ec"
 USERNAME="megacare"
 PASSWORD="admin123"
 PROVIDER="heimdall"
-MODEL="mlx-community/Qwen3.5-27B-4bit"
-RUN_LABEL="production-qwen27b"
+MODEL="mlx-community/gemma-4-31b-it-4bit"
+RUN_LABEL="production-gemma31b"
 POLL_INTERVAL=30   # seconds between status checks
 
 DB_USER="mimir"

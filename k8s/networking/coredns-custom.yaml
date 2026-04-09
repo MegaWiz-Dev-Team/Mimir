@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  asgard.server: |
+    asgard.internal:53 {
+        errors
+        cache 30
+        
+        # Injected dynamically by deployment script
+        hosts {
+            ${NODE_IP} mimir.asgard.internal api.asgard.internal sso.asgard.internal ehr.asgard.internal
+            fallthrough
+        }
+        
+        forward . /etc/resolv.conf
+    }

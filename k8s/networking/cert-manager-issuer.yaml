@@ -1,0 +1,37 @@
+---
+# Step 1: Bootstrap a completely self-signed issuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: asgard-selfsigned-issuer
+spec:
+  selfSigned: {}
+
+---
+# Step 2: Generate a Root CA certificate using the self-signed issuer
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: asgard-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: Asgard Private Enterprise Root CA
+  secretName: asgard-root-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: asgard-selfsigned-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+---
+# Step 3: Create the final ClusterIssuer that issues certs using our new Root CA
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: asgard-ca-issuer
+spec:
+  ca:
+    secretName: asgard-root-secret

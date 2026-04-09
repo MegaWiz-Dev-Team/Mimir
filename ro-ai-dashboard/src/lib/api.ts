@@ -1914,30 +1914,6 @@ export async function triggerGraphExtraction(sourceId: number): Promise<{ status
     return triggerKgExtraction({ source_id: sourceId });
 }
 
-/** POST /api/v1/sources/{id}/auto-pipeline — Run full 5-step pipeline */
-export async function runAutoPipeline(sourceId: number, options?: {
-    provider?: string;
-    model?: string;
-    enablePageIndex?: boolean;
-    skipKg?: boolean;
-    skipEmbedding?: boolean;
-    skipQa?: boolean;
-}): Promise<{ pipeline_run_id: string; source_id: number; status: string; message: string }> {
-    const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/auto-pipeline`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            provider: options?.provider || "gemini",
-            model: options?.model || "gemini-2.5-flash",
-            enable_pageindex: options?.enablePageIndex,
-            skip_kg: options?.skipKg,
-            skip_embedding: options?.skipEmbedding,
-            skip_qa: options?.skipQa,
-        }),
-    });
-    if (!res.ok) throw new Error("Failed to start auto-pipeline");
-    return res.json();
-}
 
 // ─── Sprint 18: Coverage Analytics API ──────────────────────────────────────
 
@@ -2010,5 +1986,40 @@ export async function fetchCoverageGaps(): Promise<CoverageGaps> {
 export async function fetchPipelineStatus(sourceId: number): Promise<any> {
     const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/pipeline-status`);
     if (!res.ok) throw new Error("Failed to fetch pipeline status");
+    return res.json();
+}
+
+/** 
+ * GET /api/v1/pipeline-overview
+ * Returns the overview of all recent pipelines for the dashboard tab
+ */
+export async function fetchPipelineOverview(): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/pipeline-overview`);
+    if (!res.ok) throw new Error("Failed to fetch global pipeline overview");
+    return res.json();
+}
+
+/** 
+ * POST /api/v1/batch-pipeline
+ * Triggers batch sequential architecture
+ */
+export async function runBatchPipeline(sourceIds?: number[], forceAll?: boolean, provider?: string, model?: string, embeddingProvider?: string, embeddingModel?: string, enableEmbedding?: boolean, enableKg?: boolean, enableQa?: boolean, enablePageIndex?: boolean): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/batch-pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            source_ids: sourceIds,
+            process_all: forceAll || false,
+            provider,
+            model,
+            embedding_provider: embeddingProvider,
+            embedding_model: embeddingModel,
+            enable_embedding: enableEmbedding !== undefined ? enableEmbedding : true,
+            enable_kg: enableKg !== undefined ? enableKg : true,
+            enable_qa: enableQa !== undefined ? enableQa : true,
+            enable_pageindex: enablePageIndex !== undefined ? enablePageIndex : true,
+        }),
+    });
+    if (!res.ok) throw new Error("Failed to trigger batch pipeline");
     return res.json();
 }

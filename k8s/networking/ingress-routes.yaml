@@ -1,0 +1,60 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: asgard-ingress
+  namespace: asgard
+  annotations:
+    # Request cert-manager to automatically secure this ingress using our Private CA
+    cert-manager.io/cluster-issuer: "asgard-ca-issuer"
+spec:
+  # This section configures the SSL certificates dynamically
+  tls:
+    - hosts:
+        - mimir.asgard.internal
+        - api.asgard.internal
+        - sso.asgard.internal
+        - ehr.asgard.internal
+      secretName: asgard-tls-secret # Cert-manager will store the keys here
+  
+  # Standard Routing Rules
+  rules:
+    - host: mimir.asgard.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mimir-dashboard
+                port:
+                  number: 3000
+    - host: api.asgard.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mimir-api
+                port:
+                  number: 8080
+    - host: sso.asgard.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yggdrasil
+                port:
+                  number: 8080
+    - host: ehr.asgard.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: eir
+                port:
+                  number: 80

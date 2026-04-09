@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { PipelineDashboard } from "@/components/pipeline-dashboard";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2, Search, CheckSquare, Square, ChevronRight, ChevronDown } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, extractSourceOcrWithAi, discoverHierarchy, importPages, runAutoPipeline, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, extractSourceOcrWithAi, discoverHierarchy, importPages, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -22,6 +24,7 @@ import { CronScheduleSelector, ScheduleOption } from "@/components/cron-schedule
 export default function SourcesPage() {
     const [sources, setSources] = useState<DataSource[]>([]);
     const [loading, setLoading] = useState(true);
+    const [mainTab, setMainTab] = useState<"sources" | "pipeline">("sources");
     const [deletingId, setDeletingId] = useState<number | null>(null);
 
     // ─── Wizard Drawer State ────────────────────────────────────────────
@@ -51,15 +54,7 @@ export default function SourcesPage() {
     const [isSaving, setIsSaving] = useState(false);
     
     // Auto-Pipeline States
-    const [pipelineConfigSource, setPipelineConfigSource] = useState<DataSource | null>(null);
-    const [pipelineSelectedProvider, setPipelineSelectedProvider] = useState("google");
-    const [pipelineSelectedModel, setPipelineSelectedModel] = useState("");
-    const [pipelineEnableEmbedding, setPipelineEnableEmbedding] = useState(true);
-    const [pipelineEnableKg, setPipelineEnableKg] = useState(true);
-    const [pipelineEnableQa, setPipelineEnableQa] = useState(true);
-    const [pipelineEnablePageIndex, setPipelineEnablePageIndex] = useState(false);
-    const [pipelineStarting, setPipelineStarting] = useState(false);
-    const [pipelineRunStatus, setPipelineRunStatus] = useState<any>(null);
+
 
     // Markdown Preview State
     const [previewingSource, setPreviewingSource] = useState<DataSource | null>(null);
@@ -101,9 +96,6 @@ export default function SourcesPage() {
         fetchModels()
             .then(models => {
                 setAiModels(models);
-                if (models.length > 0) {
-                    setPipelineSelectedModel(models[0].model_id);
-                }
             })
             .catch(console.error);
     }, []);
@@ -730,24 +722,34 @@ export default function SourcesPage() {
     };
 
     return (
-        <div className="container mx-auto p-8 relative">
+        <Tabs defaultValue="sources" value={mainTab} onValueChange={(v) => setMainTab(v as any)} className="container mx-auto p-8 relative w-full">
             <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Data Ingress Sources</h1>
-                    <p className="text-muted-foreground">Manage and configure how data enters your tenant&apos;s vector space.</p>
+                    <h1 className="text-3xl font-bold tracking-tight">Data Integration</h1>
+                    <p className="text-muted-foreground">Manage your documents and monitor AI processing pipelines.</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setShowDbWizard(true)}>
-                        <Database className="w-4 h-4 mr-2" />
-                        External DB
-                    </Button>
-                    <Button onClick={openWizard}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Source
-                    </Button>
+                <div className="flex items-center gap-4">
+                    <TabsList>
+                        <TabsTrigger value="sources">Sources</TabsTrigger>
+                        <TabsTrigger value="pipeline">Batch Pipeline</TabsTrigger>
+                    </TabsList>
+                    
+                    {mainTab === "sources" && (
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" onClick={() => setShowDbWizard(true)}>
+                                <Database className="w-4 h-4 mr-2" />
+                                External DB
+                            </Button>
+                            <Button onClick={openWizard}>
+                                <Plus className="w-4 h-4 mr-2" />
+                                Add Source
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </div>
 
+            <TabsContent value="sources" className="mt-0">
             <div className="grid gap-6">
                 <Card>
                     <CardContent className="p-0">
@@ -967,23 +969,7 @@ export default function SourcesPage() {
                             </div>
                         </div>
                     )}
-                    {configuringSource && (
-                        <div className="pt-4 border-t mt-4 gap-2 grid">
-                            <Label className="text-[13px] font-medium text-purple-600 dark:text-purple-400">Agentic Automation</Label>
-                            <Button 
-                                variant="outline" 
-                                className="w-full sm:w-auto"
-                                onClick={() => {
-                                    const src = configuringSource;
-                                    setConfiguringSource(null);
-                                    setPipelineConfigSource(src);
-                                }}
-                            >
-                                <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
-                                Run Full Auto-Pipeline
-                            </Button>
-                        </div>
-                    )}
+
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setConfiguringSource(null)}>Cancel</Button>
                         <Button onClick={handleSaveConfig} disabled={isSaving}>
@@ -993,223 +979,6 @@ export default function SourcesPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* ═══ Configure Auto-Pipeline Dialog ═══ */}
-            <Dialog open={pipelineConfigSource !== null} onOpenChange={(open) => {
-                if (!open) {
-                    setPipelineConfigSource(null);
-                    setPipelineStarting(false);
-                    setPipelineRunStatus(null);
-                }
-            }}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Configure Auto-Pipeline</DialogTitle>
-                        <DialogDescription>Review the pipeline settings before running on {pipelineConfigSource?.name}.</DialogDescription>
-                    </DialogHeader>
-                    
-                    <div className="grid gap-4 py-4">
-                        <div className="grid gap-4">
-                            <div className="grid gap-2">
-                                <Label>Provider</Label>
-                                <select 
-                                    className="h-10 px-3 rounded-md border bg-background text-sm"
-                                    value={pipelineSelectedProvider}
-                                    disabled={pipelineStarting}
-                                    onChange={(e) => {
-                                        const p = e.target.value;
-                                        setPipelineSelectedProvider(p);
-                                        const modelsForProvider = aiModels.filter(m => m.provider === p);
-                                        if (modelsForProvider.length > 0) {
-                                            setPipelineSelectedModel(modelsForProvider[0].model_id);
-                                        } else {
-                                            setPipelineSelectedModel("");
-                                        }
-                                    }}
-                                >
-                                    {Array.from(new Set(aiModels.map(m => m.provider))).map(provider => (
-                                        <option key={provider} value={provider}>{provider}</option>
-                                    ))}
-                                    {aiModels.length === 0 && (
-                                        <>
-                                            <option value="google">google</option>
-                                            <option value="openai">openai</option>
-                                            <option value="ollama">ollama</option>
-                                            <option value="heimdall">heimdall</option>
-                                        </>
-                                    )}
-                                </select>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Model ID</Label>
-                                <select 
-                                    className="h-10 px-3 rounded-md border bg-background text-sm"
-                                    value={pipelineSelectedModel} 
-                                    disabled={pipelineStarting}
-                                    onChange={(e) => setPipelineSelectedModel(e.target.value)} 
-                                >
-                                    {aiModels.length > 0 ? (
-                                        aiModels.filter(m => m.provider === pipelineSelectedProvider).map(m => (
-                                            <option key={m.model_id} value={m.model_id}>{m.model_id}</option>
-                                        ))
-                                    ) : (
-                                        <option value="">No models available from backend</option>
-                                    )}
-                                </select>
-                            </div>
-                        </div>
-                        <p className="text-xs text-muted-foreground -mt-2">This AI Model will be used for both Knowledge Graph and QA Extractor steps.</p>
-
-                        <div className="text-sm font-medium mt-4 mb-2">Select pipeline steps to execute:</div>
-
-                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
-                            <label className="flex items-start space-x-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
-                                    disabled={pipelineStarting}
-                                    checked={pipelineEnableEmbedding} 
-                                    onChange={(e) => setPipelineEnableEmbedding(e.target.checked)} 
-                                />
-                                <div>
-                                    <span className="font-medium text-sm">Text Chunking & Embedding</span>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Parse, chunk, and encode document text into the vector database.</p>
-                                </div>
-                            </label>
-                        </div>
-
-                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
-                            <label className="flex items-start space-x-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
-                                    disabled={pipelineStarting}
-                                    checked={pipelineEnableKg} 
-                                    onChange={(e) => setPipelineEnableKg(e.target.checked)} 
-                                />
-                                <div>
-                                    <span className="font-medium text-sm">Knowledge Graph Extraction</span>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Extract entities & relations using LLM to build a knowledge graph.</p>
-                                </div>
-                            </label>
-                        </div>
-
-                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
-                            <label className="flex items-start space-x-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
-                                    disabled={pipelineStarting}
-                                    checked={pipelineEnableQa} 
-                                    onChange={(e) => setPipelineEnableQa(e.target.checked)} 
-                                />
-                                <div>
-                                    <span className="font-medium text-sm">Synthetic Q&A Generation</span>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Generate high-quality question-answer pairs for better semantic retrieval.</p>
-                                </div>
-                            </label>
-                        </div>
-
-                        <div className="border rounded-md p-3 bg-secondary/30 mt-2">
-                            <label className="flex items-start space-x-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    className="form-checkbox mt-1 text-primary focus:ring-primary h-4 w-4" 
-                                    disabled={pipelineStarting}
-                                    checked={pipelineEnablePageIndex} 
-                                    onChange={(e) => setPipelineEnablePageIndex(e.target.checked)} 
-                                />
-                                <div>
-                                    <span className="font-medium text-sm">Hierarchical PageIndex Tree <span className="text-orange-500 font-normal ml-1">(Advanced)</span></span>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Generate a semantic hierarchy tree of the entire document. Consumes significant LLM tokens.</p>
-                                </div>
-                            </label>
-                        </div>
-
-                        {pipelineStarting && (
-                            <div className="mt-4 border rounded-md p-4 bg-muted/50">
-                                <h4 className="text-sm font-semibold mb-3 flex items-center">
-                                    {pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed' ? (
-                                        (pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished') ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> : <X className="w-4 h-4 mr-2 text-red-500" />
-                                    ) : (
-                                        <Loader2 className="w-4 h-4 mr-2 animate-spin text-primary" /> 
-                                    )}
-                                    {(pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished') ? 'Pipeline Completed' : pipelineRunStatus?.status === 'failed' ? 'Pipeline Failed' : 'Pipeline Running...'}
-                                </h4>
-                                {pipelineRunStatus ? (
-                                    <div className="space-y-2 text-sm max-h-[200px] overflow-y-auto">
-                                        {pipelineRunStatus.steps?.map((step: any) => (
-                                            <div key={step.step} className="flex items-center justify-between py-1">
-                                                <div className="flex items-center">
-                                                    {step.status === 'running' ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-500" /> : 
-                                                     step.status === 'failed' ? <X className="w-4 h-4 mr-2 text-red-500" /> :
-                                                     (step.status === 'completed' || step.status === 'skipped') ? <CheckSquare className="w-4 h-4 mr-2 text-green-500" /> :
-                                                     <Square className="w-4 h-4 mr-2 text-muted-foreground" />}
-                                                    <span className={step.status === 'pending' || step.status === 'skipped' ? 'text-muted-foreground' : ''}>{step.name}</span>
-                                                </div>
-                                                {step.latency_ms > 0 && <span className="text-xs text-muted-foreground">{step.latency_ms}ms</span>}
-                                            </div>
-                                        ))}
-                                        {pipelineRunStatus.status === 'failed' && <p className="text-xs text-red-500 mt-2">{pipelineRunStatus.error}</p>}
-                                        {(pipelineRunStatus.status === 'completed' || pipelineRunStatus.status === 'finished') && <p className="text-xs text-green-600 font-medium mt-2">All extraction processes finished successfully.</p>}
-                                    </div>
-                                ) : (
-                                    <div className="text-sm text-muted-foreground">Initializing run...</div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                    
-                    <DialogFooter>
-                        {pipelineStarting && (pipelineRunStatus?.status === 'completed' || pipelineRunStatus?.status === 'finished' || pipelineRunStatus?.status === 'failed') ? (
-                            <Button onClick={() => { setPipelineConfigSource(null); setPipelineStarting(false); setPipelineRunStatus(null); loadSources(); }}>Close</Button>
-                        ) : pipelineStarting ? (
-                            <>
-                                <Button variant="outline" onClick={() => { setPipelineConfigSource(null); setPipelineStarting(false); setPipelineRunStatus(null); loadSources(); }}>Run in Background</Button>
-                                <Button disabled><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Running...</Button>
-                            </>
-                        ) : (
-                            <>
-                                <Button variant="outline" onClick={() => setPipelineConfigSource(null)}>Cancel</Button>
-                                <Button 
-                                    onClick={async () => {
-                                        if (!pipelineConfigSource?.id) return;
-                                        setPipelineStarting(true);
-                                        setPipelineRunStatus(null);
-                                        try {
-                                            const res = await runAutoPipeline(pipelineConfigSource.id, {
-                                                provider: pipelineSelectedProvider,
-                                                model: pipelineSelectedModel,
-                                                enablePageIndex: pipelineEnablePageIndex,
-                                                skipKg: !pipelineEnableKg,
-                                                skipEmbedding: !pipelineEnableEmbedding,
-                                                skipQa: !pipelineEnableQa,
-                                            });
-                                            // Start Polling
-                                            const intervalId = setInterval(async () => {
-                                                if (!pipelineConfigSource?.id) return;
-                                                try {
-                                                    const statusRes = await fetchPipelineStatus(pipelineConfigSource.id);
-                                                    setPipelineRunStatus(statusRes);
-                                                    if (statusRes.status === 'completed' || statusRes.status === 'failed') {
-                                                        clearInterval(intervalId);
-                                                        loadSources();
-                                                    }
-                                                } catch (e) { console.error(e); }
-                                            }, 2000);
-                                        } catch (err: any) {
-                                            alert(`Error: ${err.message}`);
-                                            setPipelineStarting(false);
-                                        }
-                                    }}
-                                    disabled={!pipelineSelectedModel}
-                                >
-                                    <Sparkles className="w-4 h-4 mr-2" /> Start Pipeline
-                                </Button>
-                            </>
-                        )}
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             {/* ═══ Markdown Preview & Edit Dialog ═══ */}
             <Dialog open={previewingSource !== null} onOpenChange={(open) => {
@@ -1406,6 +1175,11 @@ export default function SourcesPage() {
                     loadSources();
                 }}
             />
-        </div>
+            </TabsContent>
+            
+            <TabsContent value="pipeline" className="mt-0">
+                <PipelineDashboard />
+            </TabsContent>
+        </Tabs>
     );
 }

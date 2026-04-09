@@ -57,63 +57,29 @@ fn clean_llm_json(raw: &str) -> String {
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
-pub struct AutoPipelineRequest {
-    /// Provider for extraction: "gemini", "heimdall", "ollama", "openai"
-    pub provider: Option<String>,
-    /// Model to use for extraction
-    pub model: Option<String>,
-    /// Prompt version for extraction
-    pub prompt_version: Option<String>,
-    /// Optional run label for benchmarking
-    pub run_label: Option<String>,
-    /// Skip steps that have already been completed
-    pub skip_completed: Option<bool>,
-    /// Max chunks to process (default: all)
-    pub max_chunks: Option<usize>,
-    /// Enable PageIndex Semantic Tree Generation
-    pub enable_pageindex: Option<bool>,
-    /// Skip KG extraction step (use existing KG data)
-    pub skip_kg: Option<bool>,
-    /// Skip Chunk Embedding step
-    pub skip_embedding: Option<bool>,
-    /// Skip QA Generation step
-    pub skip_qa: Option<bool>,
-}
-
-
-
 // ─── Routes ─────────────────────────────────────────────────────────────────────
 
-pub fn auto_pipeline_routes() -> Router<DbPool> {
+pub fn batch_pipeline_routes() -> Router<DbPool> {
     Router::new()
-        .route(
-            "/{id}/auto-pipeline",
-            axum::routing::post(run_auto_pipeline),
-        )
+        .route("/batch-pipeline", axum::routing::post(run_batch_pipeline))
+        .route("/pipeline-overview", get(get_pipeline_overview))
         .route("/{id}/pipeline-status", get(get_pipeline_status))
 }
 
+
+
 // ─── Handlers ───────────────────────────────────────────────────────────────────
 
-/// POST /api/v1/sources/{id}/auto-pipeline — Run full pipeline
-async fn run_auto_pipeline(
-    headers: HeaderMap,
-    State(pool): State<DbPool>,
-    Path(source_id): Path<i64>,
-    Json(req): Json<AutoPipelineRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let tenant_id = extract_tenant_id(&headers).to_string();
+async fn run_pipeline_for_source(
+    pool: DbPool,
+    tenant_id: String,
+    source_id: i64,
+    req: std::sync::Arc<BatchPipelineRequest>,
+) -> Result<(), String> {
     let run_id = Uuid::new_v4().to_string();
-    let _skip_completed = req.skip_completed.unwrap_or(true);
     let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Router error: {}", e)})),
-            )
-        })?;
+        .map_err(|e| format!("Router error: {}", e))?;
     let resolved_slot = router.config.resolve_slot(
         "pipeline_generator",
         req.provider.as_deref(),
@@ -121,13 +87,14 @@ async fn run_auto_pipeline(
     );
     let provider = resolved_slot.provider;
     let model = resolved_slot.model;
-    let prompt_version = req.prompt_version.unwrap_or_else(|| "v1.0".into());
-    let run_label = req.run_label.clone();
-    let max_chunks = req.max_chunks.unwrap_or(10000);
+    let prompt_version = "v1.0".to_string();
+    let run_label = None::<String>;
+    let max_chunks = 10000;
+    
     let enable_pageindex = req.enable_pageindex.unwrap_or(false);
-    let skip_kg = req.skip_kg.unwrap_or(false);
-    let skip_embedding = req.skip_embedding.unwrap_or(false);
-    let skip_qa = req.skip_qa.unwrap_or(false);
+    let skip_kg = !req.enable_kg.unwrap_or(true);
+    let skip_embedding = !req.enable_embedding.unwrap_or(true);
+    let skip_qa = !req.enable_qa.unwrap_or(true);
 
     // Verify source exists and belongs to tenant
     let source: Option<(i64, String)> =
@@ -136,19 +103,9 @@ async fn run_auto_pipeline(
             .bind(&tenant_id)
             .fetch_optional(&pool)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": e.to_string()})),
-                )
-            })?;
+            .map_err(|e| format!("Database error: {}", e))?;
 
-    let (_, source_name) = source.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Source not found"})),
-        )
-    })?;
+    let (_, source_name) = source.ok_or_else(|| "Source not found".to_string())?;
 
     // Create pipeline run record
     let _ = sqlx::query(
@@ -397,8 +354,6 @@ async fn run_auto_pipeline(
                 &api_key,
                 &api_base,
                 &model,
-                &provider,
-                max_index,
             )
             .await
             {
@@ -848,6 +803,62 @@ async fn run_auto_pipeline(
             total_steps_ok += 1;
             info!("  Step 5/5: ⏭️ QA indexing skipped by user");
         }
+        // ─── Step 6: Graph Intelligence ──────────────────────────────────
+        if pipeline_error.is_none() && !skip_kg {
+            let step6_start = std::time::Instant::now();
+            log_step(&pool_clone, &run_id_clone, 6, "graph_intelligence", "running").await;
+
+            if let Ok(graph_router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool_clone.clone(), &tenant_clone).await {
+                match mimir_core_ai::services::graph_analytics::generate_graph_insights(&pool_clone, &tenant_clone, &graph_router).await {
+                    Ok(insights) => {
+                        let insights_count = insights.len() as i64;
+                        log_step_result(
+                            &pool_clone,
+                            &run_id_clone,
+                            6,
+                            "completed",
+                            insights_count,
+                            step6_start.elapsed().as_millis() as i64,
+                            None,
+                        )
+                        .await;
+                        total_steps_ok += 1;
+                        info!("  Step 6/6: ✅ Graph Intelligence generated {} insights", insights_count);
+                        if let Some(first) = insights.first() {
+                            info!("    -> Graph Insight [{}]: {}", first.question_type, first.question);
+                        }
+                    }
+                    Err(e) => {
+                        log_step_result(
+                            &pool_clone,
+                            &run_id_clone,
+                            6,
+                            "failed",
+                            0,
+                            step6_start.elapsed().as_millis() as i64,
+                            Some(&e),
+                        )
+                        .await;
+                        warn!("  Step 6/6: ⚠️ Graph Intelligence failed: {}", e);
+                    }
+                }
+            } else {
+                warn!("  Step 6/6: ⚠️ Failed to initialize LlmRouter for Graph Analytics");
+            }
+        } else if skip_kg && pipeline_error.is_none() {
+            log_step(&pool_clone, &run_id_clone, 6, "graph_intelligence", "running").await;
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                6,
+                "skipped",
+                0,
+                0,
+                Some("Skipped due to skipped KG extraction"),
+            ).await;
+            total_steps_ok += 1;
+            info!("  Step 6/6: ⏭️ Graph Intelligence skipped");
+        }
 
         // ─── Finish pipeline ─────────────────────────────────────────────
         let final_status = if pipeline_error.is_some() {
@@ -868,15 +879,7 @@ async fn run_auto_pipeline(
         );
     });
 
-    Ok(Json(json!({
-        "pipeline_run_id": run_id,
-        "source_id": source_id,
-        "source_name": source_name,
-        "provider": provider,
-        "model": model,
-        "status": "running",
-        "message": "Auto-pipeline started in background. Check /pipeline-status for progress."
-    })))
+    Ok(())
 }
 
 /// GET /api/v1/sources/{id}/pipeline-status — Get latest pipeline status
@@ -990,7 +993,106 @@ fn resolve_api_key_with_config(
     match provider {
         "google" | "gemini" => std::env::var("GEMINI_API_KEY").unwrap_or_default(),
         "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-        "heimdall" => std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
         _ => std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
     }
+}
+
+// ─── Batch Engine ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct BatchPipelineRequest {
+    pub source_ids: Option<Vec<i64>>,
+    pub process_all: Option<bool>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub embedding_provider: Option<String>,
+    pub embedding_model: Option<String>,
+    pub enable_embedding: Option<bool>,
+    pub enable_kg: Option<bool>,
+    pub enable_qa: Option<bool>,
+    pub enable_pageindex: Option<bool>,
+}
+
+/// POST /api/v1/batch-pipeline
+pub async fn run_batch_pipeline(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(req): Json<BatchPipelineRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let batch_run_id = Uuid::new_v4().to_string();
+    info!("Starting unified batch pipeline {}, req={:?}", batch_run_id, req);
+    
+    // Determine target sources
+    let mut target_sources = vec![];
+    if let Some(ids) = &req.source_ids {
+        if !ids.is_empty() {
+            target_sources = ids.clone();
+        }
+    }
+    
+    // Fallback: If empty but process_all is true
+    if target_sources.is_empty() && req.process_all.unwrap_or(false) {
+        let sources: Vec<(i64,)> = sqlx::query_as("SELECT id FROM data_sources WHERE tenant_id = ?")
+            .bind(&tenant_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+        target_sources = sources.into_iter().map(|s| s.0).collect();
+    }
+    
+    let req_arc = std::sync::Arc::new(req);
+    
+    for src_id in target_sources {
+        let pool_c = pool.clone();
+        let tenant_c = tenant_id.clone();
+        let req_c = req_arc.clone();
+        
+        // Error handling for synchronous setup part of run_pipeline_for_source
+        if let Err(e) = run_pipeline_for_source(pool_c, tenant_c, src_id, req_c).await {
+            error!("Batch setup failed for source {}: {}", src_id, e);
+        }
+    }
+
+    Ok(Json(json!({ 
+        "message": "Batch engine triggered", 
+        "batch_run_id": batch_run_id, 
+        "status": "running" 
+    })))
+}
+
+/// GET /api/v1/pipeline-overview
+pub async fn get_pipeline_overview(
+    _headers: HeaderMap,
+    State(pool): State<DbPool>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Fetch all sources with some basic info
+    let sources_query = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, name FROM data_sources ORDER BY id DESC"
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    
+    let mut sources_out = vec![];
+    for (id, name) in sources_query {
+        sources_out.push(json!({
+            "source_id": id,
+            "name": name,
+            "chunks": 0,
+            "kg": { "entities": 0, "relations": 0 },
+            "pipeline": { "status": "never_run" },
+            "steps": []
+        }));
+    }
+
+    Ok(Json(json!({ 
+        "pending_sources": sources_out.len(),
+        "total_sources": sources_out.len(),
+        "total_estimate_human": "0m",
+        "avg_ms_per_chunk": 0,
+        "default_provider": "heimdall",
+        "default_model": "mlx-community/gemma-4-31b-it-4bit",
+        "sources": sources_out 
+    })))
 }

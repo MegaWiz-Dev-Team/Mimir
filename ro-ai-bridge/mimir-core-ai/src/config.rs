@@ -19,6 +19,10 @@ pub const VAULT_MANAGED_SECRETS: &[&str] = &[
     "NEO4J_PASSWORD",
     "S3_ACCESS_KEY",
     "S3_SECRET_KEY",
+    "YGGDRASIL_CLIENT_ID",
+    "YGGDRASIL_CLIENT_SECRET",
+    "YGGDRASIL_ISSUER",
+    "YGGDRASIL_REDIRECT_URI",
 ];
 
 /// Inject Vault secrets into process environment variables.

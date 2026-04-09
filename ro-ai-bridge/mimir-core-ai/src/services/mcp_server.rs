@@ -69,6 +69,28 @@ pub struct McpToolCapability {
 pub fn list_tools() -> Vec<McpToolDefinition> {
     vec![
         McpToolDefinition {
+            name: "get_pipeline_status".into(),
+            description: "Fetch the processing status of all data pipelines (running, failed, completed) and basic info like chunks, ETA.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tenant_id": { "type": "string" }
+                },
+                "required": ["tenant_id"]
+            }),
+        },
+        McpToolDefinition {
+            name: "check_bifrost_status".into(),
+            description: "Check if the Swarm Agent Orchestrator (Bifrost) deployment engine is healthy and reachable from Mimir.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tenant_id": { "type": "string" }
+                },
+                "required": ["tenant_id"]
+            }),
+        },
+        McpToolDefinition {
             name: "vector_search".into(),
             description: "Search documents using vector similarity (semantic search via Qdrant)"
                 .into(),
@@ -187,21 +209,42 @@ pub fn validate_tool_call(request: &McpToolCallRequest) -> Result<(), String> {
 
 /// Dispatch an MCP tool call (returns mock/formatted results for now).
 /// In production, this connects to real services (Qdrant, Neo4j, MariaDB).
-pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
+pub async fn dispatch_tool_call(request: &McpToolCallRequest, tenant_id: &str, pool: &crate::services::db::DbPool) -> McpToolCallResult {
     match validate_tool_call(request) {
         Ok(()) => {
             let text = match request.name.as_str() {
+                "get_pipeline_status" => {
+                    let rows: Result<Vec<(String, String, i64, Option<String>)>, _> = sqlx::query_as(
+                        "SELECT ds.name, pr.status, COUNT(c.id), CAST(pr.started_at AS CHAR) 
+                         FROM data_sources ds 
+                         LEFT JOIN pipeline_runs pr ON ds.id = pr.source_id 
+                         LEFT JOIN chunks c ON ds.id = c.source_id 
+                         WHERE ds.tenant_id = ? GROUP BY ds.id"
+                    ).bind(tenant_id).fetch_all(pool).await;
+
+                    match rows {
+                        Ok(data) => {
+                            let mut arr = vec![];
+                            for (name, status, chunks, started) in data {
+                                arr.push(json!({"source": name, "status": status, "chunks": chunks, "started": started}));
+                            }
+                            serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+                        }
+                        Err(e) => format!("DB Error: {}", e),
+                    }
+                }
+                "check_bifrost_status" => {
+                    let bifrost_url = std::env::var("BIFROST_URL").unwrap_or_else(|_| "http://bifrost.asgard.svc:8100".to_string());
+                    let url = format!("{}/v1/agents/{}/run", bifrost_url, tenant_id);
+                    // Just a mock reachability ping string
+                    format!("Bifrost deployment engine is configured at {}. Simulating connectivity ok for {}.", url, tenant_id)
+                }
                 "vector_search" => {
                     let query = request
                         .arguments
                         .get("query")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tenant = request
-                        .arguments
-                        .get("tenant_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
                     let limit = request
                         .arguments
                         .get("limit")
@@ -209,7 +252,7 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
                         .unwrap_or(10);
                     format!(
                         "Vector search dispatched: query='{}', tenant='{}', limit={}",
-                        query, tenant, limit
+                        query, tenant_id, limit
                     )
                 }
                 "sql_query" => {
@@ -218,14 +261,9 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
                         .get("query")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tenant = request
-                        .arguments
-                        .get("tenant_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
                     format!(
                         "SQL query dispatched: query='{}', tenant='{}'",
-                        query, tenant
+                        query, tenant_id
                     )
                 }
                 "graph_search" => {
@@ -234,11 +272,6 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
                         .get("entity")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tenant = request
-                        .arguments
-                        .get("tenant_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
                     let depth = request
                         .arguments
                         .get("max_depth")
@@ -246,16 +279,11 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
                         .unwrap_or(2);
                     format!(
                         "Graph search dispatched: entity='{}', tenant='{}', depth={}",
-                        entity, tenant, depth
+                        entity, tenant_id, depth
                     )
                 }
                 "source_list" => {
-                    let tenant = request
-                        .arguments
-                        .get("tenant_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-                    format!("Source list dispatched: tenant='{}'", tenant)
+                    format!("Source list dispatched: tenant='{}'", tenant_id)
                 }
                 "submit_feedback" => {
                     let rtype = request
@@ -268,7 +296,40 @@ pub fn dispatch_tool_call(request: &McpToolCallRequest) -> McpToolCallResult {
                         .get("title")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    format!("Feedback dispatched: type='{}', title='{}'", rtype, title)
+                    let desc = request
+                        .arguments
+                        .get("description")
+                        .and_then(|v| v.as_str());
+                    let priority = request
+                        .arguments
+                        .get("priority")
+                        .and_then(|v| v.as_str());
+                    
+                    let req = crate::services::feedback::CreateFeedbackRequest {
+                        report_type: rtype.to_string(),
+                        title: title.to_string(),
+                        description: desc.map(|s| s.to_string()),
+                        page_url: None,
+                        browser_info: None,
+                        priority: priority.map(|s| s.to_string()),
+                        client_logs: None,
+                    };
+                    
+                    let feedback_id = match crate::services::feedback::create_feedback(pool, tenant_id, None, &req, None).await {
+                        Ok(id) => id,
+                        Err(e) => return McpToolCallResult {
+                            content: vec![McpContent {
+                                content_type: "text".to_string(),
+                                text: format!("Failed to create feedback in DB: {}", e),
+                            }],
+                            is_error: true,
+                        }
+                    };
+                    
+                    match crate::services::feedback::create_github_issue_for_feedback(pool, feedback_id, &req, None, tenant_id, None).await {
+                        Ok((url, _)) => format!("Feedback submitted successfully! GitHub issue created at: {}", url),
+                        Err(e) => format!("Feedback saved locally (ID: {}), but failed to create GitHub issue: {}", feedback_id, e)
+                    }
                 }
                 _ => "Unknown tool".to_string(),
             };

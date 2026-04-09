@@ -206,9 +206,10 @@ NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ./scripts/k3s-deploy.sh dashboa
 | 15     | Medical RAG (Eir/OpenEMR)                  | ✅ Done    |
 | 16     | Pipeline Orchestration & Step Tracking     | ✅ Done    |
 | 17     | Vault-First Security & Settings UX         | ✅ Done    |
-| 18     | Multi-Agent System                         | 📋 Planned |
-| 19     | AI Agent Studio                            | 📋 Planned |
-| 20     | Dataset Studio & Training                  | 📋 Planned |
+| 18     | Graph Intelligence & Analytics             | ✅ Done    |
+| 19     | Multi-Agent System                         | 📋 Planned |
+| 20     | AI Agent Studio                            | 📋 Planned |
+| 21     | Dataset Studio & Training                  | 📋 Planned |
 
 ---
 
