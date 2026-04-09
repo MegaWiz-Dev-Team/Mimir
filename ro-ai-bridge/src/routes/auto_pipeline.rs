@@ -66,6 +66,30 @@ pub fn batch_pipeline_routes() -> Router<DbPool> {
         .route("/{id}/pipeline-status", get(get_pipeline_status))
 }
 
+/// Sweep orphaned pipeline runs stuck in 'running' from a previous pod lifecycle.
+/// Call this once at application startup to prevent zombie runs from blocking new pipelines.
+pub async fn recover_orphaned_pipeline_runs(pool: &DbPool) {
+    let result = sqlx::query(
+        "UPDATE pipeline_runs SET status = 'failed', error_message = 'Orphaned: server restarted', finished_at = NOW() WHERE status = 'running' AND started_at < NOW() - INTERVAL 10 MINUTE"
+    )
+    .execute(pool)
+    .await;
+
+    match result {
+        Ok(r) => {
+            let count = r.rows_affected();
+            if count > 0 {
+                warn!("🧹 Recovered {} orphaned pipeline run(s) from previous server lifecycle", count);
+            } else {
+                info!("✅ No orphaned pipeline runs found");
+            }
+        }
+        Err(e) => {
+            error!("Failed to recover orphaned pipeline runs: {}", e);
+        }
+    }
+}
+
 
 
 // ─── Handlers ───────────────────────────────────────────────────────────────────

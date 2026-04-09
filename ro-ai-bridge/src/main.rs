@@ -16,7 +16,7 @@ use ro_ai_bridge::config::Config;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
-use ro_ai_bridge::routes::auto_pipeline::{batch_pipeline_routes};
+use ro_ai_bridge::routes::auto_pipeline::{batch_pipeline_routes, recover_orphaned_pipeline_runs};
 use ro_ai_bridge::routes::backup::backup_routes;
 use ro_ai_bridge::routes::budget::{budget_settings_routes, budget_usage_routes};
 use ro_ai_bridge::routes::chat::chat_routes;
@@ -124,6 +124,9 @@ async fn main() {
             tracing::warn!(error = %e, "Failed to seed built-in roles on startup");
         }
     }
+
+    // Recover orphaned pipeline runs from previous pod lifecycle
+    recover_orphaned_pipeline_runs(&pool).await;
 
     // Start cron worker for scheduled re-sync (Issue #150)
     let cron_tick_seconds: u64 = std::env::var("CRON_TICK_SECONDS")
