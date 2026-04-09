@@ -9,9 +9,9 @@ import { useEffect, useState } from "react";
  * Redirects immediately to Yggdrasil authorize endpoint.
  */
 
-const YGGDRASIL_ISSUER = process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
-const CLIENT_ID = process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "";
-const REDIRECT_URI = process.env.NEXT_PUBLIC_YGGDRASIL_REDIRECT_URI || "http://localhost:3001/login/callback";
+import { API_BASE_URL } from "@/lib/api";
+
+const YGGDRASIL_ISSUER_FALLBACK = process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
 
 function generateCodeVerifier(): string {
     const array = new Uint8Array(32);
@@ -33,7 +33,6 @@ async function generateCodeChallenge(verifier: string): Promise<{ challenge: str
             .replace(/=/g, "");
         return { challenge, method: "S256" };
     }
-    // Fallback for insecure contexts (HTTP)
     return { challenge: verifier, method: "plain" };
 }
 
@@ -47,7 +46,6 @@ export default function LoginPage() {
     const [error, setError] = useState("");
 
     useEffect(() => {
-        // Check for error from callback
         const params = new URLSearchParams(window.location.search);
         const errMsg = params.get("error");
         if (errMsg) {
@@ -55,34 +53,41 @@ export default function LoginPage() {
             return;
         }
 
-        // Redirect to Yggdrasil
         (async () => {
             try {
+                let ssoConfig: { issuer: string, client_id: string, redirect_uri: string };
+                try {
+                    const res = await fetch(`${API_BASE_URL}/auth/sso-config`);
+                    if (!res.ok) throw new Error("Failed to load SSO configuration");
+                    ssoConfig = await res.json();
+                } catch (e) {
+                    throw new Error("Unable to contact backend for SSO configuration");
+                }
+
+                if (!ssoConfig.client_id) {
+                    setError("SSO Client ID is not configured in Vault. Please contact Administrator.");
+                    return;
+                }
+
                 const codeVerifier = generateCodeVerifier();
                 const { challenge: codeChallenge, method } = await generateCodeChallenge(codeVerifier);
                 const state = generateState();
 
-                // Store PKCE verifier + state in sessionStorage
                 sessionStorage.setItem("oidc_code_verifier", codeVerifier);
                 sessionStorage.setItem("oidc_state", state);
                 
-                let issuer = YGGDRASIL_ISSUER;
+                let issuer = ssoConfig.issuer || YGGDRASIL_ISSUER_FALLBACK;
                 if (issuer.includes("localhost:8085")) {
                     issuer = `${window.location.protocol}//${window.location.hostname}:30085`;
                 }
 
-                let redirectUri = REDIRECT_URI;
+                let redirectUri = ssoConfig.redirect_uri;
                 if (redirectUri.includes("localhost:3001")) {
                     redirectUri = `${window.location.protocol}//${window.location.host}/login/callback`;
                 }
 
-                if (!CLIENT_ID) {
-                    setError("SSO is not configured for this environment (Missing Client ID).");
-                    return;
-                }
-
                 const authUrl = new URL(`${issuer}/oauth/v2/authorize`);
-                authUrl.searchParams.set("client_id", CLIENT_ID);
+                authUrl.searchParams.set("client_id", ssoConfig.client_id);
                 authUrl.searchParams.set("redirect_uri", redirectUri);
                 authUrl.searchParams.set("response_type", "code");
                 authUrl.searchParams.set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:project:id:365685843395920403:aud");

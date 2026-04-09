@@ -92,6 +92,8 @@ pub struct LlmConfig {
     pub pipeline_evaluator: Option<LlmSlot>,
     /// Model for LLM-as-Judge scoring
     pub judge: Option<LlmSlot>,
+    /// Model for Graph Analytics & Insights
+    pub graph_analyzer: Option<LlmSlot>,
     /// Embedding model for vector search
     pub embedding: Option<LlmSlot>,
     /// Heimdall gateway URL (stored via Vault in production)
@@ -121,6 +123,7 @@ impl LlmConfig {
             "pipeline_generator" => self.pipeline_generator.as_ref(),
             "pipeline_evaluator" => self.pipeline_evaluator.as_ref(),
             "judge" => self.judge.as_ref(),
+            "graph_analyzer" => self.graph_analyzer.as_ref(),
             "embedding" => self.embedding.as_ref(),
             _ => None,
         };

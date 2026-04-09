@@ -1,15 +1,15 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT domain FROM tenants WHERE id = ?",
+  "query": "SELECT id FROM users WHERE username = ?",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "domain",
+        "name": "id",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL",
-          "max_size": 1020
+          "flags": "NOT_NULL | PRIMARY_KEY | NO_DEFAULT_VALUE",
+          "max_size": 144
         }
       }
     ],
@@ -20,5 +20,5 @@
       false
     ]
   },
-  "hash": "665f2bc8fc31e7d19217dccd13d22c94fb47b481f955c49de3502cbed385fa12"
+  "hash": "2e61cd30a6cd3e0937dd096b4f94493e8bcb8c10687d0f8c0592fe38ed956fa6"
 }

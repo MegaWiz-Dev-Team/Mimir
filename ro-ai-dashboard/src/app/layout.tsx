@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mimir — Knowledge Platform",
+  title: "Asgard Mimir — Knowledge Platform",
   description: "AI-powered RAG and Knowledge Management Dashboard",
   icons: { icon: "/favicon.svg" },
 };

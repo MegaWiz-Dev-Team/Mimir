@@ -20,9 +20,6 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Allow overriding OIDC client_id at build time (empty = dev mode, skip SSO)
-ARG NEXT_PUBLIC_YGGDRASIL_CLIENT_ID
-ENV NEXT_PUBLIC_YGGDRASIL_CLIENT_ID=${NEXT_PUBLIC_YGGDRASIL_CLIENT_ID}
 
 # Allow overriding API URL at build time for K3s NodePort access
 ARG NEXT_PUBLIC_API_URL

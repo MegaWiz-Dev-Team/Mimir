@@ -21,6 +21,7 @@ pub mod ocr;
 pub mod performance;
 pub mod qdrant;
 pub mod scraper;
+pub mod sso;
 pub mod sql_import;
 pub mod table_parser;
 pub mod upload;
@@ -28,3 +29,4 @@ pub mod vault;
 
 #[cfg(test)]
 mod e2e_tests;
+pub mod graph_analytics;

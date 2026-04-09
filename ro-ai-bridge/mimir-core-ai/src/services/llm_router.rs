@@ -4,6 +4,24 @@ use std::env;
 
 use crate::models::iam::LlmConfig;
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum AgentResponse {
+    Text(String),
+    ToolCalls(Vec<ToolCall>),
+}
 #[derive(Clone)]
 pub enum UniversalClient {
     Ollama(ollama::Client),
@@ -93,6 +111,72 @@ impl UniversalClient {
                     .map(|s| s.to_string())
                     .ok_or_else(|| anyhow!("Rest: no content in response"))
             }
+        }
+    }
+
+    /// Agentic loop Execution with full history and JSON Tool definitions
+    pub async fn prompt_with_tools(
+        &self,
+        model: &str,
+        messages: serde_json::Value,
+        tools: Option<serde_json::Value>,
+        max_tokens: u16,
+        temperature: f32,
+    ) -> Result<AgentResponse> {
+        match self {
+            Self::Rest {
+                client,
+                endpoint,
+                api_key,
+                ..
+            } => {
+                let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+                let mut body = serde_json::json!({
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": false
+                });
+
+                if let Some(t) = tools {
+                    body.as_object_mut().unwrap().insert("tools".to_string(), t);
+                }
+
+                let resp = client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Rest request failed: {}", e))?;
+
+                let json: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Rest parse error: {}", e))?;
+
+                let message_obj = json.get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .ok_or_else(|| anyhow::anyhow!("Rest: no message in response: {:?}", json))?;
+
+                if let Some(tool_calls_arr) = message_obj.get("tool_calls") {
+                    let calls: Vec<ToolCall> = serde_json::from_value(tool_calls_arr.clone())
+                        .map_err(|e| anyhow::anyhow!("Failed to parse tool_calls: {}", e))?;
+                    if !calls.is_empty() {
+                        return Ok(AgentResponse::ToolCalls(calls));
+                    }
+                }
+
+                if let Some(content) = message_obj.get("content").and_then(|c| c.as_str()) {
+                    return Ok(AgentResponse::Text(content.to_string()));
+                }
+
+                Err(anyhow::anyhow!("Rest: neither content nor tool_calls found"))
+            }
+            _ => Err(anyhow::anyhow!("prompt_with_tools is only supported for Rest clients")),
         }
     }
 

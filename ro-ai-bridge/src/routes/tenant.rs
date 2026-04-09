@@ -33,7 +33,7 @@ pub struct CreateTenantRequest {
 /// Extract tenant_id from the X-Tenant-Id request header.
 pub fn extract_tenant_id<'a>(headers: &'a HeaderMap) -> &'a str {
     headers
-        .get("X-Tenant-Id")
+        .get("x-tenant-id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .unwrap_or("default_tenant")
@@ -47,7 +47,7 @@ pub async fn require_tenant_id(
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
     let tenant_header = headers
-        .get("X-Tenant-Id")
+        .get("x-tenant-id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty());
 

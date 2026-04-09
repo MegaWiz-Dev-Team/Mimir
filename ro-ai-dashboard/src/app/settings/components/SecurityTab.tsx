@@ -78,6 +78,22 @@ export function SecurityTab(props: SettingsTabProps) {
             description: "S3-compatible storage secret key (MinIO)",
             hint: "Default MinIO secret key: minioadmin",
         },
+        YGGDRASIL_CLIENT_ID: {
+            description: "OIDC Client ID for Yggdrasil Single Sign-On",
+            hint: "Found in Zitadel Console -> Projects -> Application",
+        },
+        YGGDRASIL_CLIENT_SECRET: {
+            description: "OIDC Client Secret for Yggdrasil Single Sign-On",
+            hint: "Generated in Zitadel Console -> Projects -> Application",
+        },
+        YGGDRASIL_ISSUER: {
+            description: "URL of the Yggdrasil SSO Issuer",
+            hint: "Example: http://localhost:8085 or https://sso.example.com",
+        },
+        YGGDRASIL_REDIRECT_URI: {
+            description: "Callback URL for Yggdrasil SSO",
+            hint: "Example: http://localhost:3001/login/callback",
+        },
     };
 
     // Count missing secrets for banner (Excluding LLM keys which are now in TenantConfig)

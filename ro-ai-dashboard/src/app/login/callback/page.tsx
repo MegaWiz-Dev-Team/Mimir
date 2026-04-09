@@ -104,7 +104,7 @@ export default function CallbackPage() {
             <div className="w-full max-w-md p-8 bg-white dark:bg-zinc-900 rounded-xl shadow-lg border border-gray-200 dark:border-zinc-800">
                 <div className="text-center mb-6">
                     <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                        Project-Mimir
+                        Asgard Mimir
                     </h1>
                 </div>
 
