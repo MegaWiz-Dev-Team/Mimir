@@ -353,7 +353,7 @@ impl LlmRouter {
         };
 
         match slot.provider.to_lowercase().as_str() {
-            "gemini" => {
+            "gemini" | "google" => {
                 // Read from llm_config.google_api_key (migrated from provider_api_keys column)
                 let api_key = self
                     .config
@@ -366,8 +366,22 @@ impl LlmRouter {
                         "GEMINI_API_KEY not set in tenant config or globally"
                     ));
                 }
-                let client = gemini::Client::new(&api_key);
-                Ok((UniversalClient::Gemini(client), slot.model))
+                // Use REST via Google's OpenAI-compatible endpoint instead of rig SDK.
+                // The rig Gemini client has deserialization issues with newer models
+                // (e.g. gemini-3-flash-preview) causing "error decoding response body".
+                let endpoint = "https://generativelanguage.googleapis.com/v1beta/openai".to_string();
+                Ok((
+                    UniversalClient::Rest {
+                        provider: "gemini".to_string(),
+                        client: reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(300))
+                            .build()
+                            .unwrap_or_default(),
+                        endpoint,
+                        api_key,
+                    },
+                    slot.model,
+                ))
             }
             "ollama" => {
                 let url = env::var("OLLAMA_URL")
