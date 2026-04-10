@@ -44,12 +44,15 @@ impl QdrantService {
                 .pointer("/result/config/params/vectors/dense/size")
                 .or_else(|| info.pointer("/result/config/params/vectors/size"))
                 .and_then(|v| v.as_u64());
+            
+            let has_sparse = info.pointer("/result/config/params/sparse_vectors/bm25").is_some();
+            let is_named_dense = info.pointer("/result/config/params/vectors/dense/size").is_some();
 
             if let Some(size) = current_size {
-                if size != vector_size {
+                if size != vector_size || !has_sparse || !is_named_dense {
                     info!(
-                        "⚠️ Dimension mismatch in {}: found {}d, need {}d. Recreating collection automatically...",
-                        collection_name, size, vector_size
+                        "⚠️ Schema mismatch in {}: found {}d (sparse={}, named={}), need {}d + sparse. Recreating...",
+                        collection_name, size, has_sparse, is_named_dense, vector_size
                     );
                     self.delete_collection(collection_name).await?;
                     return self.create_collection(collection_name, vector_size).await;
@@ -57,7 +60,7 @@ impl QdrantService {
             }
 
             info!(
-                "✅ Collection {} already exists and matches dimensions ({}d)",
+                "✅ Collection {} already exists and matches hybrid dimensions ({}d)",
                 collection_name, vector_size
             );
             return Ok(());
@@ -120,7 +123,7 @@ impl QdrantService {
         collection_name: &str,
         points: serde_json::Value,
     ) -> Result<()> {
-        let url = format!("{}/collections/{}/points", self.base_url, collection_name);
+        let url = format!("{}/collections/{}/points?wait=true", self.base_url, collection_name);
         let resp = self.client.put(&url).json(&points).send().await?;
 
         if !resp.status().is_success() {

@@ -1115,7 +1115,7 @@ async fn get_qc_clusters(
     Extension(tenant): Extension<TenantContext>,
     Query(params): Query<GetClustersQuery>,
 ) -> impl IntoResponse {
-    match ClusteringService::get_clusters(&state.db, &tenant.tenant_id, params.status.as_deref())
+    match ClusteringService::get_clusters(&state.db, &tenant.tenant_id, params.status.as_deref(), None)
         .await
     {
         Ok(clusters) => (

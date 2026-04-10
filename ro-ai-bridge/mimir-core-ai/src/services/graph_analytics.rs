@@ -111,6 +111,8 @@ pub async fn generate_graph_insights(
     pool: &DbPool,
     tenant_id: &str,
     router: &LlmRouter,
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
 ) -> Result<Vec<GraphQuestion>, String> {
     let god_nodes = get_god_nodes(pool, tenant_id, 5).await.unwrap_or_default();
     let connections = get_surprising_connections(pool, tenant_id, 5).await.unwrap_or_default();
@@ -142,21 +144,25 @@ Return EXACTLY a JSON array of objects with this schema:
         god_nodes_json, connections_json
     );
     
-    let (client, model) = match router.resolve_client("graph_analyzer") {
+    let (client, model) = match router.resolve_client_with_overrides("graph_analyzer", provider_override, model_override) {
         Ok(c) => c,
         Err(e) => return Err(format!("Failed to resolve LLM client: {}", e)),
     };
 
     let result = client.prompt(&model, system_prompt, &user_prompt, 2048, 0.7).await;
 
-    if let Ok(resp) = result {
-        let clean = clean_json_for_insights(&resp);
-        if let Ok(qs) = serde_json::from_str::<Vec<GraphQuestion>>(&clean) {
-            return Ok(qs);
-        } else {
-            return Err("Failed to parse JSON response from LLM".to_string());
+    match result {
+        Ok(resp) => {
+            let clean = clean_json_for_insights(&resp);
+            if let Ok(qs) = serde_json::from_str::<Vec<GraphQuestion>>(&clean) {
+                Ok(qs)
+            } else {
+                Err("Failed to parse JSON response from LLM".to_string())
+            }
+        }
+        Err(e) => {
+            tracing::error!("Graph Analytics Generation Error: {}", e);
+            Err(format!("LLM Generation failed for Graph Insights: {}", e))
         }
     }
-
-    Err("LLM Generation failed for Graph Insights".to_string())
 }

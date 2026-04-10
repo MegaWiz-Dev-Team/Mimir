@@ -16,21 +16,27 @@ use serde::Deserialize;
 
 /// Batch embed texts via Heimdall /v1/embeddings (OpenAI-compatible)
 pub async fn embed_texts(texts: &[String], model: &str) -> Result<Vec<Vec<f32>>, String> {
-    let embed_base_url = std::env::var("EMBEDDING_API_URL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            std::env::var("HEIMDALL_API_URL")
-                .ok()
-                .filter(|s| !s.is_empty())
-        })
-        .or_else(|| {
-            std::env::var("OLLAMA_URL")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .map(|u| format!("{}/v1", u))
-        })
-        .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+    // Fast Embedding API limits to small batches, Heimdall handles large batches
+    let embed_base_url = if texts.len() <= 4 {
+        std::env::var("FAST_EMBEDDING_API_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                std::env::var("HEIMDALL_API_URL")
+                    .unwrap_or_else(|_| "http://localhost:11434/v1".to_string())
+            })
+    } else {
+        std::env::var("HEIMDALL_API_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                std::env::var("OLLAMA_URL")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .map(|u| format!("{}/v1", u))
+            })
+            .unwrap_or_else(|| "http://localhost:11434/v1".to_string())
+    };
     let embed_url = format!("{}/embeddings", embed_base_url.trim_end_matches('/'));
     let api_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
     let client = reqwest::Client::new();
@@ -319,17 +325,14 @@ async fn search_vectors(
     let embed_slot = llm_config.resolve_slot("embedding", None, None);
     let embed_model_name = embed_slot.model;
 
-    // Determine embedding API URL: prefer Heimdall, fallback to Ollama
-    let embed_base_url = std::env::var("HEIMDALL_API_URL")
+    // Determine embedding API URL: use Fast Embedding (llama.cpp) for UI searches, else Heimdall (Rust ONNX)
+    let embed_base_url = std::env::var("FAST_EMBEDDING_API_URL")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            std::env::var("OLLAMA_URL")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .map(|u| format!("{}/v1", u))
-        })
-        .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+        .unwrap_or_else(|| {
+            std::env::var("HEIMDALL_API_URL")
+                .unwrap_or_else(|_| "http://localhost:11434/v1".to_string())
+        });
     let embed_url = format!("{}/embeddings", embed_base_url.trim_end_matches('/'));
 
     // Call OpenAI-compatible /v1/embeddings endpoint via HTTP POST

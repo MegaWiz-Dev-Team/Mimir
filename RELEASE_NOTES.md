@@ -1,5 +1,15 @@
 # Release Notes — Mimir
 
+## v1.1.0 — Pipeline Precision & ETA Upgrade (2026-04-10)
+
+### ✨ New Features & Fixes
+- **High-Precision Per-Step ETA Engine:** Completely overhauled the ETA math in `auto_pipeline.rs` to group by `step_name`, resulting in hyper-accurate predictions (e.g. tracking PageIndex generation independent of quick ML embedding operations).
+- **Step Breakdown UI:** Dashboard now dynamically renders `(~ XXm)` estimates on individual pipeline steps natively in React.
+- **QA Extraction Data Loss Fix:** Resolved a critical silent database failure where generated LLM QA Pairs were discarded due to an unbound `chunk_id` SQL parameter in Step 5.
+- **Dynamic Gateway Routing:** Standardized the `LlmRouter` architecture to eliminate legacy hardcoded LLM variables across backend services.
+- **FastEmbed Isolation:** Fixed Git repository bloat by silencing local model weight caches.
+
+
 ## v1.0.0 — Enterprise RAG & Agentic Release (2026-04-07)
 
 ### ✨ New Features (Sprints 31-35)
@@ -11,9 +21,11 @@
 - **2-Hop Knowledge Graph:** Complex query relationship awareness via deep `UNION ALL` SQL traversal.
 
 ### 🐛 Fixes & Polish
+- **Hybrid Embedding Architecture:** Replaced unstable Python MLX sidecar with native Rust ONNX (Port 8080) for robust background `Auto Pipeline` generation, and integrated `llama.cpp` (Port 8089) for 15ms zero-latency chat retrieval queries. 
 - 100% Pass Rate on `test-deploy.sh` (28/28 E2E Scenarios).
 - Fixed database deadlocks for the Swarm `ON CONFLICT` JSON checkpoint saves.
 - Fully extracted React components with unified Dashboard toggles.
+- Sweeps effectively clean up "zombie" `running` pipelines upon service startup via `auto_pipeline.rs`.
 
 ---
 

@@ -347,8 +347,11 @@ pub async fn call_llm_api_with_logging(
     }
 
     let start = std::time::Instant::now();
-    let client = reqwest::Client::new();
-    let url = format!("{}chat/completions", api_base);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .unwrap_or_default();
+    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
 
     let mut body = json!({
         "model": model,
@@ -377,12 +380,12 @@ pub async fn call_llm_api_with_logging(
 
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {}", api_key.trim()))
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("HTTP request to LLM failed: {}", e));
+        .map_err(|e| anyhow::anyhow!("HTTP request to LLM failed (url={:?}, key_len={}): {:?}", url, api_key.len(), e));
 
     let latency_ms = start.elapsed().as_millis() as i32;
 
