@@ -57,28 +57,83 @@ impl ClusteringService {
         pool: &MySqlPool,
         tenant_id: &str,
         status: Option<&str>,
+        source_id: Option<i64>,
     ) -> Result<Vec<ClusterDTO>> {
         let status_filter = status.unwrap_or("ALL");
 
-        let clusters = if status_filter == "ALL" {
-            sqlx::query(
-                r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
-                   FROM qa_clusters 
-                   WHERE tenant_id = ?"#,
-            )
-            .bind(tenant_id)
-            .fetch_all(pool)
-            .await?
+        let mut query_str = String::from(
+            "SELECT DISTINCT c.id, c.tenant_id, c.topic, c.reasoning, c.cluster_type, c.golden_answer, c.status \
+             FROM qa_clusters c "
+        );
+
+        if source_id.is_some() {
+            query_str.push_str("JOIN qa_cluster_items i ON c.id = i.cluster_id ");
+            query_str.push_str("JOIN qa_results q ON i.qa_id = q.id ");
+        }
+
+        query_str.push_str("WHERE c.tenant_id = ? ");
+
+        if status_filter != "ALL" {
+            query_str.push_str("AND c.status = ? ");
+        }
+
+        if source_id.is_some() {
+            query_str.push_str("AND q.source_id = ? ");
+        }
+
+        // We use query_as dynamically but sqlx::query allows binding to a dynamic string as long as we pass it correctly
+        // Since we need to bind dynamically, we build the query and bind conditionally.
+        // Wait, sqlx::query requires a string slice that lives long enough.
+        // Instead of dynamic builder, let's use a simpler match/if structure to satisfy sqlx types.
+        
+        let clusters = if let Some(sid) = source_id {
+            if status_filter == "ALL" {
+                sqlx::query(
+                    r#"SELECT DISTINCT c.id, c.tenant_id, c.topic, c.reasoning, c.cluster_type, c.golden_answer, c.status 
+                       FROM qa_clusters c
+                       JOIN qa_cluster_items i ON c.id = i.cluster_id
+                       JOIN qa_results q ON i.qa_id = q.id
+                       WHERE c.tenant_id = ? AND q.source_id = ?"#,
+                )
+                .bind(tenant_id)
+                .bind(sid)
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    r#"SELECT DISTINCT c.id, c.tenant_id, c.topic, c.reasoning, c.cluster_type, c.golden_answer, c.status 
+                       FROM qa_clusters c
+                       JOIN qa_cluster_items i ON c.id = i.cluster_id
+                       JOIN qa_results q ON i.qa_id = q.id
+                       WHERE c.tenant_id = ? AND c.status = ? AND q.source_id = ?"#,
+                )
+                .bind(tenant_id)
+                .bind(status_filter)
+                .bind(sid)
+                .fetch_all(pool)
+                .await?
+            }
         } else {
-            sqlx::query(
-                r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
-                   FROM qa_clusters 
-                   WHERE tenant_id = ? AND status = ?"#,
-            )
-            .bind(tenant_id)
-            .bind(status_filter)
-            .fetch_all(pool)
-            .await?
+            if status_filter == "ALL" {
+                sqlx::query(
+                    r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
+                       FROM qa_clusters 
+                       WHERE tenant_id = ?"#,
+                )
+                .bind(tenant_id)
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    r#"SELECT id, tenant_id, topic, reasoning, cluster_type, golden_answer, status 
+                       FROM qa_clusters 
+                       WHERE tenant_id = ? AND status = ?"#,
+                )
+                .bind(tenant_id)
+                .bind(status_filter)
+                .fetch_all(pool)
+                .await?
+            }
         };
 
         let mut dtos = Vec::new();

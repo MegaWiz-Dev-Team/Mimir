@@ -11,6 +11,8 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use dashmap::DashMap;
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
@@ -57,6 +59,8 @@ fn clean_llm_json(raw: &str) -> String {
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
+static PIPELINE_TASKS: Lazy<DashMap<String, tokio::task::JoinHandle<()>>> = Lazy::new(DashMap::new);
+
 // ─── Routes ─────────────────────────────────────────────────────────────────────
 
 pub fn batch_pipeline_routes() -> Router<DbPool> {
@@ -64,6 +68,7 @@ pub fn batch_pipeline_routes() -> Router<DbPool> {
         .route("/batch-pipeline", axum::routing::post(run_batch_pipeline))
         .route("/pipeline-overview", get(get_pipeline_overview))
         .route("/{id}/pipeline-status", get(get_pipeline_status))
+        .route("/{id}/pipeline-cancel", axum::routing::post(cancel_pipeline_run))
 }
 
 /// Sweep orphaned pipeline runs stuck in 'running' from a previous pod lifecycle.
@@ -104,11 +109,18 @@ async fn run_pipeline_for_source(
     let router = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id)
         .await
         .map_err(|e| format!("Router error: {}", e))?;
-    let resolved_slot = router.config.resolve_slot(
-        "pipeline_generator",
-        req.provider.as_deref(),
-        req.model.as_deref(),
-    );
+    let resolved_slot = if let (Some(ref p), Some(ref m)) = (req.provider.as_deref(), req.model.as_deref()) {
+        mimir_core_ai::models::iam::LlmSlot {
+            provider: p.to_string(),
+            model: m.to_string()
+        }
+    } else {
+        router.config.resolve_slot(
+            "pipeline_generator",
+            Some(&router.default_provider),
+            Some(&router.default_model),
+        )
+    };
     let provider = resolved_slot.provider;
     let model = resolved_slot.model;
     let prompt_version = "v1.0".to_string();
@@ -159,13 +171,29 @@ async fn run_pipeline_for_source(
     let prompt_version_clone = prompt_version.clone();
     let run_label_clone = run_label.clone();
 
-    tokio::spawn(async move {
+    let handle_run_id = run_id_clone.clone();
+    let handle = tokio::spawn(async move {
         let provider = provider_clone;
         let model = model_clone;
         let _prompt_version = prompt_version_clone;
         let _run_label = run_label_clone;
         let mut total_steps_ok = 0;
         let mut pipeline_error: Option<String> = None;
+
+        // ─── Preload steps to make them visible as pending ───────────────
+        let steps_to_preload = vec![
+            (1, "chunk_check"),
+            (2, "embed_chunks"),
+            (3, "pageindex_generation"),
+            (4, "kg_extraction"),
+            (5, "qa_extraction"),
+            (6, "auto_qc_filter"),
+            (7, "qa_indexing"),
+            (8, "graph_intelligence"),
+        ];
+        for (step_num, step_name) in steps_to_preload {
+            log_step(&pool_clone, &run_id_clone, step_num, step_name, "pending").await;
+        }
 
         // ─── Step 1: Check/Count Chunks ──────────────────────────────────
         let step1_start = std::time::Instant::now();
@@ -341,7 +369,7 @@ async fn run_pipeline_for_source(
                 "skipped",
                 0,
                 0,
-                Some("Skipped by user"),
+                None,
             )
             .await;
             total_steps_ok += 1;
@@ -350,15 +378,38 @@ async fn run_pipeline_for_source(
 
         // ─── Step 2.5: PageIndex Generation (Optional) ────────────────────
         if pipeline_error.is_none() && enable_pageindex {
-            let step25_start = std::time::Instant::now();
-            log_step(
-                &pool_clone,
-                &run_id_clone,
-                25,
-                "pageindex_generation",
-                "running",
-            )
-            .await;
+            let (existing_tree,): (Option<String>,) = sqlx::query_as("SELECT pageindex_tree FROM data_sources WHERE id = ?")
+                .bind(source_id)
+                .fetch_one(&pool_clone)
+                .await
+                .unwrap_or((None,));
+
+            let should_skip = existing_tree.map(|t| t.len() > 15).unwrap_or(false);
+
+            if should_skip {
+                log_step(&pool_clone, &run_id_clone, 3, "pageindex_generation", "running").await;
+                log_step_result(
+                    &pool_clone,
+                    &run_id_clone,
+                    3,
+                    "skipped",
+                    0,
+                    0,
+                    Some("PageIndex already exists"),
+                )
+                .await;
+                total_steps_ok += 1;
+                info!("  Step 3/7: ⏭️ PageIndex generation skipped (already exists)");
+            } else {
+                let step25_start = std::time::Instant::now();
+                log_step(
+                    &pool_clone,
+                    &run_id_clone,
+                    3,
+                    "pageindex_generation",
+                    "running",
+                )
+                .await;
 
             let mut full_text = String::new();
             for (_id, content, chunk_index) in &chunks {
@@ -374,10 +425,10 @@ async fn run_pipeline_for_source(
                 &pool_clone,
                 &tenant_clone,
                 source_id,
-                &full_text,
                 &api_key,
                 &api_base,
                 &model,
+                &provider,
             )
             .await
             {
@@ -385,7 +436,7 @@ async fn run_pipeline_for_source(
                     log_step_result(
                         &pool_clone,
                         &run_id_clone,
-                        25,
+                        3,
                         "completed",
                         1,
                         step25_start.elapsed().as_millis() as i64,
@@ -393,13 +444,13 @@ async fn run_pipeline_for_source(
                     )
                     .await;
                     total_steps_ok += 1;
-                    info!("  Step 2.5: ✅ PageIndex Semantic Tree generated");
+                    info!("  Step 3/7: ✅ PageIndex Semantic Tree generated");
                 }
                 Err(e) => {
                     log_step_result(
                         &pool_clone,
                         &run_id_clone,
-                        25,
+                        3,
                         "failed",
                         0,
                         step25_start.elapsed().as_millis() as i64,
@@ -407,15 +458,28 @@ async fn run_pipeline_for_source(
                     )
                     .await;
                     // Don't fail the whole pipeline for this optional step
-                    warn!("  Step 2.5: ⚠️ PageIndex generation failed: {}", e);
+                    warn!("  Step 3/7: ⚠️ PageIndex generation failed: {}", e);
                 }
             }
+            } // end else
+        } else if !enable_pageindex && pipeline_error.is_none() {
+            log_step_result(
+                &pool_clone,
+                &run_id_clone,
+                3,
+                "skipped",
+                0,
+                0,
+                None,
+            )
+            .await;
+            info!("  Step 3/8: ⏭️ PageIndex generation disabled");
         }
 
-        // ─── Step 3: KG Extraction ───────────────────────────────────────
+        // ─── Step 4: KG Extraction ───────────────────────────────────────
         if pipeline_error.is_none() && !skip_kg {
             let step3_start = std::time::Instant::now();
-            log_step(&pool_clone, &run_id_clone, 3, "kg_extraction", "running").await;
+            log_step(&pool_clone, &run_id_clone, 4, "kg_extraction", "running").await;
 
             let api_base = infer_api_base(&provider);
             let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
@@ -438,9 +502,9 @@ async fn run_pipeline_for_source(
             let neo4j_svc =
                 mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
             if neo4j_svc.is_some() {
-                info!("  Step 3: Neo4j connected — dual-write enabled");
+                info!("  Step 4: Neo4j connected — dual-write enabled");
             } else {
-                warn!("  Step 3: Neo4j unavailable — SQL-only mode");
+                warn!("  Step 4: Neo4j unavailable — SQL-only mode");
             }
 
             for (_chunk_id, content, _) in &chunks {
@@ -561,7 +625,7 @@ async fn run_pipeline_for_source(
             log_step_result(
                 &pool_clone,
                 &run_id_clone,
-                3,
+                4,
                 "completed",
                 kg_entities,
                 step3_start.elapsed().as_millis() as i64,
@@ -582,31 +646,31 @@ async fn run_pipeline_for_source(
 
             total_steps_ok += 1;
             info!(
-                "  Step 3/5: ✅ {} entities, {} relations extracted (Neo4j={})",
+                "  Step 4/7: ✅ {} entities, {} relations extracted (Neo4j={})",
                 kg_entities,
                 kg_relations,
                 neo4j_svc.is_some()
             );
         } else if skip_kg && pipeline_error.is_none() {
-            log_step(&pool_clone, &run_id_clone, 3, "kg_extraction", "running").await;
+            log_step(&pool_clone, &run_id_clone, 4, "kg_extraction", "running").await;
             log_step_result(
                 &pool_clone,
                 &run_id_clone,
-                3,
+                4,
                 "skipped",
                 0,
                 0,
-                Some("Skipped by user"),
+                None,
             )
             .await;
             total_steps_ok += 1;
-            info!("  Step 3/5: ⏭️ KG extraction skipped by user");
+            info!("  Step 4/7: ⏭️ KG extraction skipped by user");
         }
 
-        // ─── Step 4: QA Extraction ───────────────────────────────────────
+        // ─── Step 5: QA Extraction ───────────────────────────────────────
         if pipeline_error.is_none() && !skip_qa {
             let step4_start = std::time::Instant::now();
-            log_step(&pool_clone, &run_id_clone, 4, "qa_extraction", "running").await;
+            log_step(&pool_clone, &run_id_clone, 5, "qa_extraction", "running").await;
 
             let api_base = infer_api_base(&provider);
             let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
@@ -686,9 +750,14 @@ async fn run_pipeline_for_source(
                             .bind(content.chars().take(500).collect::<String>())
                             .bind(source_id)
                             .bind(chunk_id)
-                            .execute(&pool_clone).await;
+                                .execute(&pool_clone).await;
                             qa_count += 1;
                         }
+                        
+                        // Update chunk badge in the UI (Knowledge tab)
+                        let _ = sqlx::query("UPDATE chunks SET metadata_json = JSON_SET(COALESCE(metadata_json, '{}'), '$.qa_status', 'completed') WHERE id = ?")
+                            .bind(chunk_id)
+                            .execute(&pool_clone).await;
                     }
                 }
             }
@@ -696,7 +765,7 @@ async fn run_pipeline_for_source(
             log_step_result(
                 &pool_clone,
                 &run_id_clone,
-                4,
+                5,
                 "completed",
                 qa_count,
                 step4_start.elapsed().as_millis() as i64,
@@ -704,27 +773,92 @@ async fn run_pipeline_for_source(
             )
             .await;
             total_steps_ok += 1;
-            info!("  Step 4/5: ✅ {} QA pairs generated", qa_count);
+            info!("  Step 5/7: ✅ {} QA pairs generated", qa_count);
         } else if skip_qa && pipeline_error.is_none() {
-            log_step(&pool_clone, &run_id_clone, 4, "qa_extraction", "running").await;
+            log_step(&pool_clone, &run_id_clone, 5, "qa_extraction", "running").await;
             log_step_result(
                 &pool_clone,
                 &run_id_clone,
-                4,
+                5,
                 "skipped",
                 0,
                 0,
-                Some("Skipped by user"),
+                None,
             )
             .await;
             total_steps_ok += 1;
-            info!("  Step 4/5: ⏭️ QA extraction skipped by user");
+            info!("  Step 5/7: ⏭️ QA extraction skipped by user");
         }
 
-        // ─── Step 5: Index QA into Qdrant ────────────────────────────────
+        // ─── Step 6: Auto QC Filter ───────────────────────────────────────
         if pipeline_error.is_none() && !skip_qa {
-            let step5_start = std::time::Instant::now();
-            log_step(&pool_clone, &run_id_clone, 5, "qa_indexing", "running").await;
+            let step6_start = std::time::Instant::now();
+            log_step(&pool_clone, &run_id_clone, 6, "auto_qc_filter", "running").await;
+
+            let qa_rows: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
+                "SELECT id, question, answer, context FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
+            )
+            .bind(&tenant_clone)
+            .bind(source_id)
+            .fetch_all(&pool_clone)
+            .await
+            .unwrap_or_default();
+
+            if qa_rows.is_empty() {
+                log_step_result(&pool_clone, &run_id_clone, 6, "skipped", 0, 0, Some("No QA pairs to QC")).await;
+            } else {
+                let api_base = infer_api_base(&provider);
+                let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
+                let mut filtered_count = 0i64;
+                
+                // Batch size of 10 pairs
+                let batch_size = 10;
+                for batch in qa_rows.chunks(batch_size) {
+                    let mut batch_json = Vec::new();
+                    for (id, q, a, _c) in batch {
+                        batch_json.push(serde_json::json!({"id": id, "question": q, "answer": a}));
+                    }
+                    
+                    let context_str = batch.first().and_then(|b| b.3.clone()).unwrap_or_default();
+                    let prompt = format!("You are an AI Judge evaluating QA pairs.\nEvaluate the given QA pairs.\nReturn a strict JSON array of objects `[{{\"id\": 123, \"pass\": true/false, \"reason\": \"...\"}}]`.\nA pair passes if it is factually grounded in the context and makes grammatical sense.\n\nContext:\n{}\n\nQA Pairs to Evaluate:\n{}", context_str, serde_json::to_string_pretty(&batch_json).unwrap_or_default());
+                    
+                    let result = call_llm_api_with_logging(
+                        &api_key, &api_base, &model, &prompt,
+                        Some(&pool_clone), Some(&tenant_clone), Some(&provider), Some("auto_pipeline_qc")
+                    ).await;
+                    
+                    if let Ok((response_text, _tokens)) = result {
+                        let clean = clean_llm_json(&response_text);
+                        if let Ok(evaluations) = serde_json::from_str::<Vec<serde_json::Value>>(&clean) {
+                            for eval in evaluations {
+                                if let (Some(id), Some(pass)) = (eval["id"].as_i64(), eval["pass"].as_bool()) {
+                                    if !pass {
+                                        let _ = sqlx::query("DELETE FROM qa_results WHERE id = ?").bind(id).execute(&pool_clone).await;
+                                        filtered_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                log_step_result(
+                    &pool_clone, &run_id_clone, 6, "completed", filtered_count, step6_start.elapsed().as_millis() as i64, None
+                ).await;
+                total_steps_ok += 1;
+                info!("  Step 6/8: ✅ QC Filter rejected {} bad QA pairs out of {}", filtered_count, qa_rows.len());
+            }
+        } else if skip_qa && pipeline_error.is_none() {
+            log_step(&pool_clone, &run_id_clone, 6, "auto_qc_filter", "running").await;
+            log_step_result(&pool_clone, &run_id_clone, 6, "skipped", 0, 0, None).await;
+            total_steps_ok += 1;
+            info!("  Step 6/8: ⏭️ Auto QC Filter skipped");
+        }
+
+        // ─── Step 7: Index QA into Qdrant ────────────────────────────────
+        if pipeline_error.is_none() && !skip_qa {
+            let step7_start = std::time::Instant::now();
+            log_step(&pool_clone, &run_id_clone, 7, "qa_indexing", "running").await;
 
             let qa_rows: Vec<(i64, String, String)> = sqlx::query_as(
                 "SELECT id, question, answer FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
@@ -739,7 +873,7 @@ async fn run_pipeline_for_source(
                 log_step_result(
                     &pool_clone,
                     &run_id_clone,
-                    5,
+                    7,
                     "skipped",
                     0,
                     0,
@@ -757,6 +891,9 @@ async fn run_pipeline_for_source(
                     .unwrap_or_default();
                 let embed_model = lc.resolve_slot("embedding", None, None).model;
                 let qdrant = QdrantService::new();
+                if let Err(e) = qdrant.init_collection("golden_qa", 1024).await {
+                    warn!("Collection init warning for golden_qa: {}", e);
+                }
 
                 let mut indexed = 0i64;
                 for batch in qa_rows.chunks(64) {
@@ -802,52 +939,52 @@ async fn run_pipeline_for_source(
                 log_step_result(
                     &pool_clone,
                     &run_id_clone,
-                    5,
+                    7,
                     "completed",
                     indexed,
-                    step5_start.elapsed().as_millis() as i64,
+                    step7_start.elapsed().as_millis() as i64,
                     None,
                 )
                 .await;
                 total_steps_ok += 1;
-                info!("  Step 5/5: ✅ {} QA pairs indexed to Qdrant", indexed);
+                info!("  Step 7/8: ✅ {} QA pairs indexed to Qdrant", indexed);
             }
         } else if skip_qa && pipeline_error.is_none() {
-            log_step(&pool_clone, &run_id_clone, 5, "qa_indexing", "running").await;
+            log_step(&pool_clone, &run_id_clone, 7, "qa_indexing", "running").await;
             log_step_result(
                 &pool_clone,
                 &run_id_clone,
-                5,
+                7,
                 "skipped",
                 0,
                 0,
-                Some("Skipped by user"),
+                None,
             )
             .await;
             total_steps_ok += 1;
-            info!("  Step 5/5: ⏭️ QA indexing skipped by user");
+            info!("  Step 7/8: ⏭️ QA indexing skipped by user");
         }
-        // ─── Step 6: Graph Intelligence ──────────────────────────────────
+        // ─── Step 8: Graph Intelligence ──────────────────────────────────
         if pipeline_error.is_none() && !skip_kg {
-            let step6_start = std::time::Instant::now();
-            log_step(&pool_clone, &run_id_clone, 6, "graph_intelligence", "running").await;
+            let step8_start = std::time::Instant::now();
+            log_step(&pool_clone, &run_id_clone, 8, "graph_intelligence", "running").await;
 
             if let Ok(graph_router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool_clone.clone(), &tenant_clone).await {
-                match mimir_core_ai::services::graph_analytics::generate_graph_insights(&pool_clone, &tenant_clone, &graph_router).await {
+                match mimir_core_ai::services::graph_analytics::generate_graph_insights(&pool_clone, &tenant_clone, &graph_router, Some(&provider), Some(&model)).await {
                     Ok(insights) => {
                         let insights_count = insights.len() as i64;
                         log_step_result(
                             &pool_clone,
                             &run_id_clone,
-                            6,
+                            8,
                             "completed",
                             insights_count,
-                            step6_start.elapsed().as_millis() as i64,
+                            step8_start.elapsed().as_millis() as i64,
                             None,
                         )
                         .await;
                         total_steps_ok += 1;
-                        info!("  Step 6/6: ✅ Graph Intelligence generated {} insights", insights_count);
+                        info!("  Step 8/8: ✅ Graph Intelligence generated {} insights", insights_count);
                         if let Some(first) = insights.first() {
                             info!("    -> Graph Insight [{}]: {}", first.question_type, first.question);
                         }
@@ -856,32 +993,32 @@ async fn run_pipeline_for_source(
                         log_step_result(
                             &pool_clone,
                             &run_id_clone,
-                            6,
+                            8,
                             "failed",
                             0,
-                            step6_start.elapsed().as_millis() as i64,
+                            step8_start.elapsed().as_millis() as i64,
                             Some(&e),
                         )
                         .await;
-                        warn!("  Step 6/6: ⚠️ Graph Intelligence failed: {}", e);
+                        warn!("  Step 8/8: ⚠️ Graph Intelligence failed: {}", e);
                     }
                 }
             } else {
-                warn!("  Step 6/6: ⚠️ Failed to initialize LlmRouter for Graph Analytics");
+                warn!("  Step 8/8: ⚠️ Failed to initialize LlmRouter for Graph Analytics");
             }
         } else if skip_kg && pipeline_error.is_none() {
-            log_step(&pool_clone, &run_id_clone, 6, "graph_intelligence", "running").await;
+            log_step(&pool_clone, &run_id_clone, 8, "graph_intelligence", "running").await;
             log_step_result(
                 &pool_clone,
                 &run_id_clone,
-                6,
+                8,
                 "skipped",
                 0,
                 0,
-                Some("Skipped due to skipped KG extraction"),
+                None,
             ).await;
             total_steps_ok += 1;
-            info!("  Step 6/6: ⏭️ Graph Intelligence skipped");
+            info!("  Step 8/8: ⏭️ Graph Intelligence skipped");
         }
 
         // ─── Finish pipeline ─────────────────────────────────────────────
@@ -901,8 +1038,10 @@ async fn run_pipeline_for_source(
             "🏁 Auto-pipeline {} finished: {} steps completed, status={}",
             run_id_clone, total_steps_ok, final_status
         );
+        PIPELINE_TASKS.remove(&handle_run_id);
     });
 
+    PIPELINE_TASKS.insert(run_id.clone(), handle);
     Ok(())
 }
 
@@ -958,7 +1097,7 @@ async fn get_pipeline_status(
 
 async fn log_step(pool: &DbPool, run_id: &str, step: u8, name: &str, status: &str) {
     let _ = sqlx::query(
-        "INSERT INTO pipeline_run_steps (run_id, step_number, step_name, status) VALUES (?, ?, ?, ?)"
+        "INSERT INTO pipeline_run_steps (run_id, step_number, step_name, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status), step_name = VALUES(step_name)"
     )
     .bind(run_id).bind(step).bind(name).bind(status)
     .execute(pool).await;
@@ -1097,26 +1236,223 @@ pub async fn get_pipeline_overview(
     .fetch_all(&pool)
     .await
     .unwrap_or_default();
-    
+    let step_averages_rows: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT step_name, CAST(SUM(latency_ms) AS SIGNED), CAST(SUM(item_count) AS SIGNED) FROM pipeline_run_steps WHERE status = 'completed' AND latency_ms > 0 AND item_count > 0 GROUP BY step_name"
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    let mut step_avg_ms: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    step_avg_ms.insert("chunk_check".to_string(), 5);
+    step_avg_ms.insert("embed_chunks".to_string(), 20);
+    step_avg_ms.insert("pageindex_generation".to_string(), 15000);
+    step_avg_ms.insert("kg_extraction".to_string(), 7500);
+    step_avg_ms.insert("qa_extraction".to_string(), 7000);
+    step_avg_ms.insert("auto_qc_filter".to_string(), 100);
+    step_avg_ms.insert("qa_indexing".to_string(), 20);
+    step_avg_ms.insert("graph_intelligence".to_string(), 1000);
+
+    for (name, lat, count) in step_averages_rows {
+        if count > 0 {
+            step_avg_ms.insert(name, lat / count);
+        }
+    }
+
+    let mut pending_sources_count = 0;
+    let mut total_pending_ms = 0i64;
+
     let mut sources_out = vec![];
     for (id, name) in sources_query {
+        let (chunks,): (i64,) = sqlx::query_as("SELECT count(*) FROM chunks WHERE source_id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
+
+        let (entities,): (i64,) = sqlx::query_as("SELECT count(*) FROM kg_entities WHERE source_id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
+
+        let (relations,): (i64,) = sqlx::query_as("SELECT count(*) FROM kg_relations WHERE source_id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
+
+        let (qa_pairs,): (i64,) = sqlx::query_as("SELECT count(*) FROM qa_results WHERE source_id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
+
+        let latest_run_opt: Option<(String, String, Option<i64>, Option<i64>)> = sqlx::query_as(
+            "SELECT id, status, UNIX_TIMESTAMP(started_at), UNIX_TIMESTAMP(finished_at) FROM pipeline_runs WHERE source_id = ? ORDER BY started_at DESC LIMIT 1"
+        )
+        .bind(id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+
+        let mut status = "never_run".to_string();
+        let mut steps_out = vec![];
+        let mut estimate_human: Option<String> = None;
+        let mut actual_duration_ms: Option<i64> = None;
+        let mut p_id: Option<String> = None;
+
+        if let Some((run_id, run_status, start_ts, finish_ts)) = latest_run_opt {
+            status = run_status;
+            p_id = Some(run_id.clone());
+            
+            if status == "running" || status == "completed" || status == "failed" {
+                if let (Some(st), Some(ft)) = (start_ts, finish_ts) {
+                    actual_duration_ms = Some((ft - st) * 1000);
+                }
+            }
+            let steps = sqlx::query_as::<_, (String, String, Option<String>)>(
+                "SELECT step_name, status, error_message FROM pipeline_run_steps WHERE run_id = ? ORDER BY step_number"
+            )
+            .bind(run_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+
+            let mut source_estimate_ms = 0i64;
+
+            for (step_name, mut step_status, err) in steps {
+                if step_status == "skipped" {
+                    let has_data = match step_name.as_str() {
+                        "kg_extraction" | "graph_intelligence" => entities > 0,
+                        "qa_extraction" | "auto_qc_filter" | "qa_indexing" => qa_pairs > 0,
+                        "embed_chunks" | "pageindex_generation" => chunks > 0,
+                        _ => false,
+                    };
+                    if has_data {
+                        step_status = "completed (cached)".to_string();
+                    }
+                }
+                
+                let mut step_est_human = None;
+                if status == "running" && (step_status == "pending" || step_status == "running") && chunks > 0 {
+                    let avg = *step_avg_ms.get(&step_name).unwrap_or(&5000);
+                    let items = match step_name.as_str() {
+                        "pageindex_generation" | "graph_intelligence" => 1,
+                        _ => chunks,
+                    };
+                    let step_ms = items * avg;
+                    source_estimate_ms += step_ms;
+                    
+                    let s = step_ms / 1000;
+                    let h = s / 3600;
+                    let m = (s % 3600) / 60;
+                    step_est_human = Some(if h > 0 {
+                        if m > 0 { format!("{}h {}m", h, m) } else { format!("{}h", h) }
+                    } else if m > 0 {
+                        format!("{}m", m)
+                    } else {
+                        "<1m".to_string()
+                    });
+                }
+
+                steps_out.push(json!({
+                    "name": step_name,
+                    "status": step_status,
+                    "error": err,
+                    "estimate_human": step_est_human
+                }));
+            }
+            
+            if status == "running" && source_estimate_ms > 0 {
+                let s = source_estimate_ms / 1000;
+                let h = s / 3600;
+                let m = (s % 3600) / 60;
+                estimate_human = Some(if h > 0 {
+                    if m > 0 { format!("{}h {}m", h, m) } else { format!("{}h", h) }
+                } else if m > 0 {
+                    format!("{}m", m)
+                } else {
+                    "<1m".to_string()
+                });
+                total_pending_ms += source_estimate_ms;
+            }
+        }
+        if status != "completed" {
+            pending_sources_count += 1;
+        }
+
         sources_out.push(json!({
             "source_id": id,
             "name": name,
-            "chunks": 0,
-            "kg": { "entities": 0, "relations": 0 },
-            "pipeline": { "status": "never_run" },
-            "steps": []
+            "chunks": chunks,
+            "kg": { "entities": entities, "relations": relations },
+            "pipeline": { "status": status, "id": p_id },
+            "steps": steps_out,
+            "estimate_human": estimate_human,
+            "actual_duration_ms": actual_duration_ms
         }));
     }
+    let total_estimate_secs = total_pending_ms / 1000;
+    let hours = total_estimate_secs / 3600;
+    let minutes = (total_estimate_secs % 3600) / 60;
+    
+    let total_estimate_human = if total_estimate_secs == 0 {
+        "0m".to_string()
+    } else if hours > 0 {
+        if minutes > 0 {
+            format!("{}h {}m", hours, minutes)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if minutes > 0 {
+        format!("{}m", minutes)
+    } else {
+        "<1m".to_string()
+    };
 
     Ok(Json(json!({ 
-        "pending_sources": sources_out.len(),
+        "pending_sources": pending_sources_count,
         "total_sources": sources_out.len(),
-        "total_estimate_human": "0m",
-        "avg_ms_per_chunk": 0,
+        "total_estimate_human": total_estimate_human,
         "default_provider": "heimdall",
         "default_model": "mlx-community/gemma-4-31b-it-4bit",
         "sources": sources_out 
     })))
+}
+
+// ─── Cancel Pipeline Run ──────────────────────────────────────────────────────────
+
+async fn cancel_pipeline_run(
+    Path(run_id): Path<String>,
+    State(pool): State<DbPool>,
+) -> impl axum::response::IntoResponse {
+    // 1. Abort the underlying task if it's currently running in memory
+    if let Some((_, handle)) = PIPELINE_TASKS.remove(&run_id) {
+        handle.abort();
+        info!("🛑 Aborted in-memory task for pipeline run={}", run_id);
+    } else {
+        warn!("⚠️ Pipeline task {} not found in memory, it may have already finished or stopped.", run_id);
+    }
+
+    // 2. Mark as failed in the database
+    let res = sqlx::query(
+        "UPDATE pipeline_runs SET status = 'failed', error_message = 'Cancelled by user', finished_at = NOW() WHERE id = ?"
+    )
+    .bind(&run_id)
+    .execute(&pool)
+    .await;
+
+    match res {
+        Ok(r) if r.rows_affected() > 0 => {
+            (StatusCode::OK, Json(json!({ "message": "Pipeline run forcefully cancelled." })))
+        }
+        Ok(_) => {
+            (StatusCode::OK, Json(json!({ "message": "Pipeline forcefully marked as cancelled. No matching running record found." })))
+        }
+        Err(e) => {
+            error!("Failed to update cancellation: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() })))
+        }
+    }
 }

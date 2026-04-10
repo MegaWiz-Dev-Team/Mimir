@@ -158,8 +158,11 @@ export async function deleteModel(modelId: string) {
 
 // ─── Data Quality Control ───────────────────────────────────────────────────
 
-export async function fetchQcClusters(status?: string) {
-    const query = status ? `?status=${status}` : '';
+export async function fetchQcClusters(status?: string, sourceId?: number) {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    if (sourceId) params.append("source_id", sourceId.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
     const response = await authFetch(`${API_BASE_URL}/qc/clusters${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error("Failed to fetch QC clusters");
     return await response.json();
@@ -451,6 +454,8 @@ export const PROVIDERS: LlmProvider[] = [
         requires_api_key: true,
         models: [
             { id: "MegawizCo/Qwen3.5-27B-Opus-Reasoning-MLX-4bit", display_name: "Qwen 27B Opus-Reasoning", description: "Efficient clinical reasoning" },
+            { id: "/Users/mimir/Developer/Heimdall/models/gemma-4-26b-a4b-it-4bit", display_name: "Gemma 26B (Local)", description: "Local pre-downloaded Gemma" },
+            { id: "mlx-community/gemma-4-31b-it-4bit", display_name: "Gemma 31B (Heavy)", description: "High-end Reasoning / Requires Download" },
             { id: "mlx-community/Qwen3.5-35B-A3B-4bit", display_name: "Qwen 3.5 35B MoE", description: "Primary — RAG, Chat, QA generation" },
             { id: "mlx-community/Qwen3.5-27B-4bit", display_name: "Qwen 3.5 27B", description: "Complex reasoning tasks" },
             { id: "mlx-community/Qwen3.5-9B-MLX-4bit", display_name: "Qwen 3.5 9B", description: "Fast / low latency" },
@@ -1994,7 +1999,7 @@ export async function fetchPipelineStatus(sourceId: number): Promise<any> {
  * Returns the overview of all recent pipelines for the dashboard tab
  */
 export async function fetchPipelineOverview(): Promise<any> {
-    const res = await authFetch(`${API_BASE_URL}/pipeline-overview`);
+    const res = await authFetch(`${API_BASE_URL}/pipeline-overview`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch global pipeline overview");
     return res.json();
 }
@@ -2021,5 +2026,13 @@ export async function runBatchPipeline(sourceIds?: number[], forceAll?: boolean,
         }),
     });
     if (!res.ok) throw new Error("Failed to trigger batch pipeline");
+    return res.json();
+}
+
+export async function cancelPipelineRun(runId: string): Promise<any> {
+    const res = await authFetch(`${API_BASE_URL}/${runId}/pipeline-cancel`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to cancel pipeline run");
     return res.json();
 }

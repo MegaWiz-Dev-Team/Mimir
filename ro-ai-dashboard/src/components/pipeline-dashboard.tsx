@@ -4,9 +4,9 @@ import React, { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchPipelineOverview, runBatchPipeline, fetchModels, ModelConfig } from "@/lib/api";
+import { fetchPipelineOverview, runBatchPipeline, cancelPipelineRun, fetchModels, ModelConfig } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Play, Clock, Cpu, FileText, ChevronRight, Activity, AlertCircle } from "lucide-react";
+import { RefreshCw, Play, Clock, Cpu, FileText, ChevronRight, Activity, AlertCircle, Info, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -16,6 +16,7 @@ export function PipelineDashboard() {
     const [loading, setLoading] = useState(true);
     const [triggering, setTriggering] = useState(false);
     const [selected, setSelected] = useState<number[]>([]);
+    const [actionError, setActionError] = useState<string | null>(null);
     
     const [providerOverride, setProviderOverride] = useState("");
     const [modelOverride, setModelOverride] = useState("");
@@ -48,6 +49,7 @@ export function PipelineDashboard() {
 
     const handleTrigger = async () => {
         setTriggering(true);
+        setActionError(null);
         try {
             const p = providerOverride.trim() || undefined;
             const m = modelOverride.trim() || undefined;
@@ -65,10 +67,21 @@ export function PipelineDashboard() {
             setEmbeddingModelOverride("");
             setShowConfigModal(false);
             await load();
-        } catch (err) {
+        } catch (err: any) {
             console.error("Failed to trigger batch pipeline", err);
+            setActionError(err.message || "Failed to start batch pipeline");
         } finally {
             setTriggering(false);
+        }
+    };
+
+    const handleCancel = async (runId: string) => {
+        try {
+            await cancelPipelineRun(runId);
+            await load(); // immediately refresh
+        } catch (err: any) {
+            console.error("Failed to cancel run:", err);
+            setActionError(err.message || "Failed to cancel pipeline run");
         }
     };
 
@@ -80,7 +93,16 @@ export function PipelineDashboard() {
 
     return (
         <div className="grid gap-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {overview.sources.filter((s: any) => s.pipeline?.status === "running").length > 0 && (
+                <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 dark:text-blue-400 p-4 rounded-lg flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <div>
+                        <div className="font-semibold">Pipeline Active</div>
+                        <div className="text-sm opacity-80">Mimir is processing documents in the background. Status updates automatically.</div>
+                    </div>
+                </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                     <CardContent className="p-6 flex flex-col justify-between h-full">
                         <div className="text-sm font-medium text-muted-foreground mb-2">Pending Sources</div>
@@ -95,26 +117,23 @@ export function PipelineDashboard() {
                         <div className="text-xs text-muted-foreground mt-2">remaining processing time</div>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardContent className="p-6 flex flex-col justify-between h-full">
-                        <div className="text-sm font-medium text-muted-foreground mb-2">Speed (Avg)</div>
-                        <div className="text-3xl font-bold">{(overview.avg_ms_per_chunk / 1000).toFixed(1)}s</div>
-                        <div className="text-xs text-muted-foreground mt-2">per structural chunk</div>
-                    </CardContent>
-                </Card>
+
                 <Card className="bg-primary/5 border-primary/20">
                         <div className="flex flex-col h-full justify-center">
-                            <Dialog open={showConfigModal} onOpenChange={setShowConfigModal}>
+                            <Dialog open={showConfigModal} onOpenChange={(open) => {
+                                setShowConfigModal(open);
+                                if (!open) setActionError(null);
+                            }}>
                                 <DialogTrigger asChild>
                                     <Button 
                                         className="w-full h-12 text-sm font-semibold shadow-md border-primary/20" 
-                                        disabled={(overview.pending_sources === 0 && selected.length === 0) || triggering}
+                                        disabled={triggering}
                                     >
                                         <Play className="w-5 h-5 mr-2" />
                                         {selected.length > 0 ? `Configure & Start Selected (${selected.length})` : "Configure & Start Batch Process"}
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
+                                <DialogContent className="sm:max-w-[600px] w-[95vw]">
                                     <DialogHeader>
                                         <DialogTitle className="flex items-center gap-2"><Cpu className="w-5 h-5 text-primary"/> Batch Engine Setup</DialogTitle>
                                         <DialogDescription>
@@ -216,6 +235,13 @@ export function PipelineDashboard() {
                                         </div>
                                     </div>
                                     
+                                    {actionError && (
+                                        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-md text-sm mb-4 border border-red-200 dark:border-red-900 flex items-start gap-2">
+                                            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                            <div>{actionError}</div>
+                                        </div>
+                                    )}
+                                    
                                     <DialogFooter>
                                         <Button variant="outline" onClick={() => setShowConfigModal(false)}>Cancel</Button>
                                         <Button onClick={handleTrigger} disabled={triggering}>
@@ -291,6 +317,34 @@ export function PipelineDashboard() {
                                         </TableCell>
                                         <TableCell>
                                             <StatusBadge status={s.pipeline?.status || "never_run"} />
+                                            {s.pipeline?.status === "running" && s.pipeline?.id ? (
+                                                <div className="mt-2">
+                                                    <Button 
+                                                        variant="destructive" 
+                                                        size="sm" 
+                                                        className="h-6 text-[10px] font-semibold px-2"
+                                                        onClick={() => handleCancel(s.pipeline.id)}
+                                                    >
+                                                        <XCircle className="w-3 h-3 mr-1" />
+                                                        Stop Run
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <div className="mt-2">
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        className="h-6 text-[10px] font-semibold px-2 bg-blue-50/50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800"
+                                                        onClick={() => {
+                                                            setSelected([s.source_id]);
+                                                            setShowConfigModal(true);
+                                                        }}
+                                                    >
+                                                        <Play className="w-3 h-3 mr-1" />
+                                                        Start Run
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             {s.pipeline?.status === "never_run" ? (
@@ -300,7 +354,12 @@ export function PipelineDashboard() {
                                                     {s.steps?.map((st: any) => (
                                                         <div key={st.step} className="flex items-center gap-2 text-xs">
                                                             <div className="w-28 font-medium text-slate-600 dark:text-slate-400 truncate">{st.name}</div>
-                                                            <div className="w-20"><StatusBadge status={st.status} /></div>
+                                                            <div className="w-20 flex-shrink-0"><StatusBadge status={st.status} /></div>
+                                                            {st.estimate_human && (
+                                                                <span className="text-[10px] text-blue-500 font-medium whitespace-nowrap">
+                                                                    ~{st.estimate_human}
+                                                                </span>
+                                                            )}
                                                             
                                                             {/* STEP LEVEL MODEL/PROVIDER */}
                                                             {st.status !== "skipped" && (st.model || st.provider) && (
@@ -310,7 +369,11 @@ export function PipelineDashboard() {
                                                                     <span className="truncate max-w-[150px]">{st.model || "unknown"}</span>
                                                                 </div>
                                                             )}
-                                                            {st.error && (
+                                                            {st.error && st.status === 'skipped' ? (
+                                                                <div className="text-slate-400 text-xs truncate max-w-[150px]" title={st.error}>
+                                                                    <Info className="w-3 h-3 inline mr-1" />{st.error}
+                                                                </div>
+                                                            ) : st.error && (
                                                                 <div className="text-red-500 truncate max-w-[150px]" title={st.error}>
                                                                     <AlertCircle className="w-3 h-3 inline mr-1" />Error
                                                                 </div>

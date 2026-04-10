@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, AlertTriangle, ArrowRight, Save, Edit3, RefreshCw, Zap, GripVertical, FileText, XCircle, Database } from "lucide-react";
-import { fetchQcClusters, resolveQcCluster, triggerQcGeneration, fetchQcStatus, stopQcGeneration, fetchVectorStats, triggerIndexing } from "@/lib/api";
+import { fetchQcClusters, resolveQcCluster, triggerQcGeneration, fetchQcStatus, stopQcGeneration, fetchVectorStats, triggerIndexing, fetchSources, DataSource } from "@/lib/api";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import {
     Dialog,
@@ -38,6 +38,10 @@ export default function QualityControlPage() {
     const [indexingError, setIndexingError] = useState<string | null>(null);
     const [totalGoldenAtStart, setTotalGoldenAtStart] = useState<number>(0);
 
+    // Source Filter
+    const [sources, setSources] = useState<DataSource[]>([]);
+    const [selectedSourceId, setSelectedSourceId] = useState<string>("");
+
     // Dialog state
     const [selectedCluster, setSelectedCluster] = useState<any | null>(null);
     const [goldenAnswerText, setGoldenAnswerText] = useState("");
@@ -47,10 +51,13 @@ export default function QualityControlPage() {
 
     const loadData = async () => {
         try {
-            const [clusterData, vectorStats] = await Promise.all([
-                fetchQcClusters(""),
-                fetchVectorStats().catch(() => null)
+            const [clusterData, vectorStats, sourcesData] = await Promise.all([
+                fetchQcClusters("", selectedSourceId ? Number(selectedSourceId) : undefined),
+                fetchVectorStats().catch(() => null),
+                sources.length === 0 ? fetchSources().catch(() => []) : Promise.resolve(sources)
             ]);
+            
+            if (sourcesData.length > 0 && sources.length === 0) setSources(sourcesData);
             
             // Only update clusters if not currently generating or dragging to prevent jittering
             if (!generatingStatus.is_generating) {
@@ -112,7 +119,7 @@ export default function QualityControlPage() {
     useEffect(() => {
         loadData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [selectedSourceId]);
 
     const handleResolve = async (clusterId: string, resolutionType: string, goldenAnswer?: string) => {
         try {
@@ -232,7 +239,17 @@ export default function QualityControlPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Data Quality Kanban</h1>
                     <p className="text-muted-foreground">Drag pending issues to Resolved to review and approve Golden Answers.</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                    <select
+                        value={selectedSourceId}
+                        onChange={(e) => setSelectedSourceId(e.target.value)}
+                        className="text-sm bg-gray-50 border border-gray-300 text-gray-900 rounded-md focus:ring-blue-500 focus:border-blue-500 block h-9 px-2.5 dark:bg-zinc-900 dark:border-zinc-700 dark:text-white"
+                    >
+                        <option value="">All Sources</option>
+                        {sources.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                    </select>
                     <Button variant="outline" onClick={loadData} disabled={loading}>
                         <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
                     </Button>

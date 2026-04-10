@@ -91,12 +91,18 @@ impl UniversalClient {
 
                 let resp = client
                     .post(&url)
-                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Authorization", format!("Bearer {}", api_key.trim()))
                     .header("Content-Type", "application/json")
                     .json(&body)
                     .send()
                     .await
                     .map_err(|e| anyhow!("Rest request failed: {}", e))?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    return Err(anyhow!("Rest request failed with status {}: {}", status, text));
+                }
 
                 let json: serde_json::Value = resp
                     .json()
@@ -145,12 +151,18 @@ impl UniversalClient {
 
                 let resp = client
                     .post(&url)
-                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Authorization", format!("Bearer {}", api_key.trim()))
                     .header("Content-Type", "application/json")
                     .json(&body)
                     .send()
                     .await
                     .map_err(|e| anyhow::anyhow!("Rest request failed: {}", e))?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("Rest request failed with status {}: {}", status, text));
+                }
 
                 let json: serde_json::Value = resp
                     .json()
@@ -253,6 +265,8 @@ impl UniversalClient {
 pub struct LlmRouter {
     pub tenant_id: String,
     pub config: LlmConfig,
+    pub default_provider: String,
+    pub default_model: String,
 }
 
 impl LlmRouter {
@@ -274,6 +288,8 @@ impl LlmRouter {
                 return Ok(Self {
                     tenant_id: tenant_id.to_string(),
                     config: LlmConfig::default(),
+                    default_provider: "heimdall".to_string(),
+                    default_model: "mlx-community/gemma-4-26b-a4b-it-4bit".to_string(),
                 });
             }
         };
@@ -284,9 +300,14 @@ impl LlmRouter {
             .map(|c| c.0.clone())
             .unwrap_or_default();
 
+        let default_provider = tenant_config.default_provider.clone();
+        let default_model = tenant_config.default_model.clone();
+
         Ok(Self {
             tenant_id: tenant_id.to_string(),
             config,
+            default_provider,
+            default_model,
         })
     }
 
@@ -322,7 +343,14 @@ impl LlmRouter {
         provider_override: Option<&str>,
         model_override: Option<&str>,
     ) -> Result<(UniversalClient, String)> {
-        let slot = self.config.resolve_slot(purpose, provider_override, model_override);
+        let slot = if let (Some(p), Some(m)) = (provider_override, model_override) {
+            crate::models::iam::LlmSlot {
+                provider: p.to_string(),
+                model: m.to_string()
+            }
+        } else {
+            self.config.resolve_slot(purpose, Some(&self.default_provider), Some(&self.default_model))
+        };
 
         match slot.provider.to_lowercase().as_str() {
             "gemini" => {
@@ -358,7 +386,7 @@ impl LlmRouter {
                     Ok((
                         UniversalClient::Rest {
                             provider: "flashmoe".to_string(),
-                            client: reqwest::Client::new(),
+                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                             endpoint,
                             api_key: "flashmoe-local".to_string(),
                         },
@@ -380,7 +408,7 @@ impl LlmRouter {
                     Ok((
                         UniversalClient::Rest {
                             provider: "openai".to_string(),
-                            client: reqwest::Client::new(),
+                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                             endpoint: "https://api.openai.com/v1".to_string(),
                             api_key,
                         },
@@ -399,7 +427,7 @@ impl LlmRouter {
                     Ok((
                         UniversalClient::Rest {
                             provider: "azure".to_string(),
-                            client: reqwest::Client::new(),
+                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                             endpoint,
                             api_key,
                         },
@@ -411,7 +439,7 @@ impl LlmRouter {
                     Ok((
                         UniversalClient::Rest {
                             provider: "heimdall".to_string(),
-                            client: reqwest::Client::new(),
+                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                             endpoint,
                             api_key,
                         },
@@ -432,7 +460,7 @@ impl LlmRouter {
         Ok((
             UniversalClient::Rest {
                 provider: "heimdall".to_string(),
-                client: reqwest::Client::new(),
+                client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                 endpoint,
                 api_key,
             },
@@ -454,7 +482,7 @@ impl LlmRouter {
         let (endpoint, api_key) = self.get_heimdall_credentials()?;
         let embed_url = format!("{}/embeddings", endpoint.trim_end_matches('/'));
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default();
         let resp = client
             .post(&embed_url)
             .header("Content-Type", "application/json")

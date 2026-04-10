@@ -27,6 +27,7 @@ pub struct SeedData {
 #[derive(Debug, Deserialize)]
 pub struct QcQuery {
     pub status: Option<String>,
+    pub source_id: Option<i64>,
 }
 
 // ─── Router ────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ async fn list_clusters(
         .filter(|s| !s.is_empty())
         .unwrap_or("ALL");
 
-    match ClusteringService::get_clusters(&pool, &tenant_id, Some(status_filter)).await {
+    match ClusteringService::get_clusters(&pool, &tenant_id, Some(status_filter), q.source_id).await {
         Ok(clusters) => Json(clusters),
         Err(e) => {
             tracing::error!("Failed to fetch clusters: {}", e);
