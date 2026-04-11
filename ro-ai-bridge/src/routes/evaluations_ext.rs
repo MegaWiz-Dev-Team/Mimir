@@ -301,12 +301,13 @@ async fn generate_eval_set(
     // 3. Build the generation prompt
     let system_prompt = format!(
         r#"You are an evaluation set generator for a RAG system.
-You MUST generate exactly {count} evaluation questions as a JSON array.
+You MUST generate exactly {count} evaluation questions in JSON format.
 
 Available document titles in the knowledge base:
 {titles_list}
 
-Each question must follow this EXACT JSON structure:
+The output MUST be a JSON object with a "questions" key containing an array of objects.
+Each object must follow this EXACT schema:
 {{
   "query": "A natural question that a user might ask",
   "expected_titles": ["Exact document title from the list above"]
@@ -315,7 +316,7 @@ Each question must follow this EXACT JSON structure:
 Rules:
 1. Every "expected_titles" value MUST be an exact match from the document titles listed above.
 2. Questions should be diverse and test different retrieval strategies.
-3. Output ONLY the JSON array, no markdown, no explanation.
+3. Output ONLY valid JSON, no markdown formatting blocks, no explanations.
 4. The user's additional instructions: {prompt}"#,
         count = count,
         titles_list = titles_list,
@@ -331,11 +332,12 @@ Rules:
         .json(&json!({
             "model": model_id,
             "messages": [
-                {"role": "system", "content": "You output only valid JSON arrays."},
+                {"role": "system", "content": "You output only valid JSON objects containing the questions array."},
                 {"role": "user", "content": system_prompt}
             ],
             "max_tokens": 4096,
-            "temperature": 0.3
+            "temperature": 0.3,
+            "response_format": { "type": "json_object" }
         }))
         .send()
         .await
@@ -359,25 +361,67 @@ Rules:
         .unwrap_or("[]")
         .to_string();
 
-    // 5. Try to parse the response as JSON array
-    let eval_set: Value = serde_json::from_str(&content).unwrap_or_else(|_| {
-        if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
-            if start <= end {
-                let extracted = &content[start..=end];
-                if let Ok(parsed) = serde_json::from_str(extracted) {
-                    return parsed;
+    // 5. Try to parse the response as JSON
+    // Define a helper to extract the array from either direct array or { "questions": [...] }
+    let extract_array = |v: Value| -> Value {
+        if v.is_array() {
+            v
+        } else if v.is_object() {
+            v.get("questions").cloned().unwrap_or(json!([]))
+        } else {
+            json!([])
+        }
+    };
+
+    let eval_set: Value = match serde_json::from_str(&content) {
+        Ok(parsed) => extract_array(parsed),
+        Err(e) => {
+            tracing::warn!("Failed direct JSON parse: {}. Content: {}", e, content);
+            // Fallback 1: Extract anything between [ and ]
+            let mut extracted_arr = None;
+            if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
+                if start <= end {
+                    let extracted = &content[start..=end];
+                    if let Ok(parsed) = serde_json::from_str(extracted) {
+                         extracted_arr = Some(parsed);
+                    }
+                }
+            }
+
+            if let Some(arr) = extracted_arr {
+                arr
+            } else {
+                // Fallback 2: Extract anything between { and } in case it's an object containing the array
+                let mut extracted_obj = None;
+                if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+                    if start <= end {
+                        let extracted = &content[start..=end];
+                        if let Ok(parsed) = serde_json::from_str::<Value>(extracted) {
+                             extracted_obj = Some(extract_array(parsed));
+                        }
+                    }
+                }
+
+                if let Some(arr) = extracted_obj {
+                    arr
+                } else {
+                    // Fallback 3: remove markdown ticks
+                    let cleaned = content
+                        .trim()
+                        .trim_start_matches("```json")
+                        .trim_start_matches("```")
+                        .trim_end_matches("```")
+                        .trim();
+                    serde_json::from_str(cleaned)
+                        .map(extract_array)
+                        .unwrap_or_else(|_| {
+                            tracing::error!("All JSON parsing fallbacks failed for content.");
+                            json!([])
+                        })
                 }
             }
         }
-        // Try extracting JSON from markdown code blocks
-        let cleaned = content
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
-        serde_json::from_str(cleaned).unwrap_or(json!([]))
-    });
+    };
 
     info!(
         event = "eval_set_generated",

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 
-type ClusterStatus = "PENDING" | "RESOLVED_A" | "RESOLVED_B" | "MERGED" | "MANUAL_OVERRIDE";
+type ClusterStatus = string;
 
 interface KanbanColumn {
     id: string;
@@ -26,7 +26,7 @@ interface KanbanColumn {
 
 const COLUMNS: KanbanColumn[] = [
     { id: "pending", title: "Pending Review", status: ["PENDING"] },
-    { id: "resolved", title: "Resolved", status: ["RESOLVED_A", "RESOLVED_B", "MERGED", "MANUAL_OVERRIDE"] }
+    { id: "resolved", title: "Resolved", status: ["RESOLVED_A", "RESOLVED_B", "RESOLVED_C", "RESOLVED_D", "RESOLVED_E", "MERGED", "MANUAL_OVERRIDE"] }
 ];
 
 export default function QualityControlPage() {
@@ -45,6 +45,12 @@ export default function QualityControlPage() {
     // Dialog state
     const [selectedCluster, setSelectedCluster] = useState<any | null>(null);
     const [goldenAnswerText, setGoldenAnswerText] = useState("");
+    
+    // Stop sequence state
+    const [isStopping, setIsStopping] = useState(false);
+
+    // Confirmation dialog state
+    const [confirmAction, setConfirmAction] = useState<{clusterId: string, resolutionType: string, goldenAnswer?: string} | null>(null);
 
     const filterClusters = (data: any[], col: KanbanColumn) =>
         data.filter((c: any) => col.status.includes(c.status));
@@ -166,6 +172,7 @@ export default function QualityControlPage() {
                 const isStillGenerating = await checkStatus();
                 // If it finished generating, reload the data
                 if (!isStillGenerating) {
+                    setIsStopping(false);
                     loadData();
                 }
             }, 3000);
@@ -187,11 +194,13 @@ export default function QualityControlPage() {
     };
 
     const handleStopGenerate = async () => {
+        setIsStopping(true);
         try {
             await stopQcGeneration();
-            setGeneratingStatus(prev => ({ ...prev, is_generating: false }));
+            // Don't set is_generating false explicitly — let polling notice the backend actually stopped
         } catch (e) {
             alert("Failed to stop generation");
+            setIsStopping(false);
         }
     };
 
@@ -254,11 +263,16 @@ export default function QualityControlPage() {
                         <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
                     </Button>
                     {generatingStatus.is_generating && (
-                        <Button variant="destructive" onClick={handleStopGenerate}>
-                            <XCircle className="w-4 h-4 mr-2" /> Stop Scan
+                        <Button variant="destructive" onClick={handleStopGenerate} disabled={isStopping}>
+                            {isStopping ? (
+                                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <XCircle className="w-4 h-4 mr-2" />
+                            )}
+                            {isStopping ? "Stopping..." : "Stop Scan"}
                         </Button>
                     )}
-                    <Button onClick={handleGenerate} disabled={generatingStatus.is_generating}>
+                    <Button onClick={handleGenerate} disabled={generatingStatus.is_generating || isStopping}>
                         <Zap className={`mr-2 h-4 w-4 ${generatingStatus.is_generating ? 'animate-pulse text-yellow-500' : ''}`} />
                         {generatingStatus.is_generating
                             ? `Scanning (${generatingStatus.processed_count} / ${generatingStatus.total_count})`
@@ -415,7 +429,7 @@ export default function QualityControlPage() {
                                             <Button
                                                 variant="outline"
                                                 className="w-full justify-center"
-                                                onClick={() => handleResolve(selectedCluster.id, `ACCEPT_${item.source_label}`)}
+                                                onClick={() => setConfirmAction({ clusterId: selectedCluster.id, resolutionType: `ACCEPT_${item.source_label}` })}
                                             >
                                                 Mark as Correct Answer
                                             </Button>
@@ -437,7 +451,7 @@ export default function QualityControlPage() {
                                     <Button
                                         className="bg-green-600 hover:bg-green-700 text-white"
                                         disabled={!goldenAnswerText.trim()}
-                                        onClick={() => handleResolve(selectedCluster.id, "MERGE", goldenAnswerText)}
+                                        onClick={() => setConfirmAction({ clusterId: selectedCluster.id, resolutionType: "MERGE", goldenAnswer: goldenAnswerText })}
                                     >
                                         <Save className="w-4 h-4 mr-2" /> Save Merged Answer
                                     </Button>
@@ -445,6 +459,35 @@ export default function QualityControlPage() {
                             </div>
                         </div>
                     )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Custom Confirm Dialog (replaces window.confirm) */}
+            <Dialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Confirm Resolution</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to select {confirmAction?.resolutionType.replace("ACCEPT_", "Source ")} as the correct answer? 
+                            This will permanently mark the issue as resolved.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                        <Button variant="outline" onClick={() => setConfirmAction(null)}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => {
+                                if (confirmAction) {
+                                    handleResolve(confirmAction.clusterId, confirmAction.resolutionType, confirmAction.goldenAnswer);
+                                    setConfirmAction(null);
+                                }
+                            }}
+                        >
+                            Confirm & Resolve
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

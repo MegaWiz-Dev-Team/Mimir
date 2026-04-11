@@ -10,6 +10,12 @@
 //! This crate implements the domain-specific services that are invoked
 //! when a tenant's domain is set to "medical".
 
+pub mod pubmed;
+pub mod curation;
+pub mod graphrag;
+pub mod search;
+pub mod bigquery;
+
 /// Medical Domain Service — entry point for medical-specific operations.
 pub struct MedicalDomainService;
 

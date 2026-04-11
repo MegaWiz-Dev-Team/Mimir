@@ -5,6 +5,14 @@
 
 **Project Mimir** คือแพลตฟอร์ม AI แบบ Multi-Tenant ที่ครอบคลุมตั้งแต่ Data Ingestion → RAG Pipeline → Knowledge Graph → Multi-Agent → Model Training โดยเริ่มพัฒนาจากระบบ NPC อัจฉริยะสำหรับ Ragnarok Online แล้วขยายเป็น Domain-Agnostic AI Platform
 
+### 🏥 Role in Multi-Agent Ecosystem
+
+> **Knowledge Engine — Dual-Role (ผู้จัดการความรู้):**
+> - 📥 **Curator Mode:** รัน Batch Pipeline ดึง PubMed → กรอง → Chunk → Embed → Vector DB อัตโนมัติ
+> - 🔍 **Researcher Mode:** ตอบคำถามเชิงค้นคว้าจาก Bifrost ผ่าน GraphRAG (PrimeKG) + Hybrid Search
+>
+> 📖 [Full Architecture →](https://github.com/MegaWiz-Dev-Team/Asgard/blob/main/docs/roadmap/MultiAgent_Architecture_Plan.md) | [Sprint Plan →](https://github.com/MegaWiz-Dev-Team/Asgard/blob/main/docs/roadmap/MultiAgent_Sprint_Plan.md)
+
 ---
 
 ## ✨ Features
