@@ -214,6 +214,15 @@ pub fn build_visualization_cypher() -> &'static str {
             collect(DISTINCT {from: n.name, to: m.name, type: r.relation_type, id: elementId(r)}) AS edges"
 }
 
+/// Build Cypher for PrimeKG Drug-Disease exploration.
+pub fn build_primekg_cypher() -> &'static str {
+    "MATCH (d1:Drug)-[r]-(d2:Disease) \
+     WHERE (toLower(d1.name) CONTAINS toLower($name) OR toLower(d2.name) CONTAINS toLower($name)) \
+     AND d1.tenant_id = $tenant_id AND d2.tenant_id = $tenant_id \
+     RETURN d1.name AS drug, type(r) AS relation_type, d2.name AS disease \
+     LIMIT $limit"
+}
+
 /// Map entity type to a color for visualization.
 pub fn entity_type_color(entity_type: &str) -> &'static str {
     match entity_type.to_lowercase().as_str() {
@@ -454,6 +463,45 @@ impl Neo4jService {
             Ok(0)
         }
     }
+
+    /// Search PrimeKG for Drug-Disease relations.
+    pub async fn search_primekg(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        limit: u32,
+    ) -> Result<Vec<GraphRelation>> {
+        let query = neo4rs::query(build_primekg_cypher())
+            .param("tenant_id", tenant_id)
+            .param("name", name)
+            .param("limit", limit as i64);
+
+        let mut result = self
+            .graph
+            .execute(query)
+            .await
+            .context("Failed to execute PrimeKG search")?;
+
+        let mut relations = Vec::new();
+        while let Some(row) = result.next().await? {
+            let drug: String = row.get("drug").unwrap_or_default();
+            let disease: String = row.get("disease").unwrap_or_default();
+            let rel_type: String = row.get("relation_type").unwrap_or_default();
+
+            relations.push(GraphRelation {
+                id: None,
+                from_entity: drug,
+                to_entity: disease,
+                relation_type: rel_type,
+                properties: None,
+                tenant_id: tenant_id.to_string(),
+                source_id: None,
+                neo4j_rel_id: None,
+            });
+        }
+
+        Ok(relations)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -608,6 +656,30 @@ mod tests {
         assert!(
             cypher.contains("DETACH DELETE"),
             "Must use DETACH DELETE to remove relations"
+        );
+    }
+
+    // ========================================
+    // UT-017h-2: PrimeKG Cypher tenant isolation and nodes
+    // ========================================
+    #[test]
+    fn test_build_primekg_cypher_logic() {
+        let cypher = build_primekg_cypher();
+        assert!(
+            cypher.contains("d1.tenant_id = $tenant_id"),
+            "PrimeKG query must filter by tenant_id"
+        );
+        assert!(
+            cypher.contains("Drug"),
+            "Must query Drug nodes"
+        );
+        assert!(
+            cypher.contains("Disease"),
+            "Must query Disease nodes"
+        );
+        assert!(
+            cypher.contains("LIMIT $limit"),
+            "Must query with limit"
         );
     }
 

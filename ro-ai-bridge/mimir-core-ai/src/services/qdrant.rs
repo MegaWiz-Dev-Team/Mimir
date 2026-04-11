@@ -191,6 +191,42 @@ impl QdrantService {
         Ok(res)
     }
 
+    /// Semantic clustering recommendation based on positive IDs
+    pub async fn recommend(
+        &self,
+        collection_name: &str,
+        positive_id: u64,
+        limit: usize,
+        tenant_id: &str,
+    ) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/collections/{}/points/recommend",
+            self.base_url, collection_name
+        );
+
+        let must_conditions = vec![json!({ "key": "tenant_id", "match": { "value": tenant_id } })];
+
+        let body = json!({
+            "positive": [positive_id],
+            "using": "dense",
+            "limit": limit,
+            "with_payload": true,
+            "filter": {
+                "must": must_conditions
+            }
+        });
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+
+        if !resp.status().is_success() {
+            let error = resp.text().await?;
+            return Err(anyhow::anyhow!("Failed to recommend points: {}", error));
+        }
+
+        let res = resp.json().await?;
+        Ok(res)
+    }
+
     /// Hybrid search using dense + sparse vectors with Reciprocal Rank Fusion (RRF).
     /// Uses Qdrant's /points/query endpoint with prefetch + fusion.
     /// Optionally filters by source_ids at Qdrant level for efficient retrieval.

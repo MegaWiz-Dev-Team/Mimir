@@ -99,7 +99,7 @@ pub async fn recover_orphaned_pipeline_runs(pool: &DbPool) {
 
 // ─── Handlers ───────────────────────────────────────────────────────────────────
 
-async fn run_pipeline_for_source(
+pub async fn run_pipeline_for_source(
     pool: DbPool,
     tenant_id: String,
     source_id: i64,
@@ -481,176 +481,214 @@ async fn run_pipeline_for_source(
             let step3_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 4, "kg_extraction", "running").await;
 
-            let api_base = infer_api_base(&provider);
-            let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
-            let mut kg_entities = 0i64;
-            let mut kg_relations = 0i64;
-
-            // Log step in kg_extraction_runs to fix graph history UI
-            let kg_run_id = Uuid::new_v4().to_string();
-            let _ = sqlx::query(
-                "INSERT IGNORE INTO kg_extraction_runs (id, source_id, tenant_id, status, started_at) VALUES (?, ?, ?, 'running', NOW())"
+            let existing_kg_run: Option<(i64,)> = sqlx::query_as(
+                "SELECT ps.id FROM pipeline_steps ps JOIN pipeline_runs pr ON ps.run_id = pr.id WHERE pr.source_id = ? AND ps.step_name = 'kg_extraction' AND ps.status IN ('completed', 'completed (cached)') LIMIT 1"
             )
-            .bind(&kg_run_id)
             .bind(source_id)
-            .bind(&tenant_clone)
-            .execute(&pool_clone)
-            .await;
+            .fetch_optional(&pool_clone)
+            .await
+            .unwrap_or(None);
 
-            // Connect to Neo4j for dual-write (graceful degradation)
-            let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
-            let neo4j_svc =
-                mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
-            if neo4j_svc.is_some() {
-                info!("  Step 4: Neo4j connected — dual-write enabled");
-            } else {
-                warn!("  Step 4: Neo4j unavailable — SQL-only mode");
-            }
-
-            for (_chunk_id, content, _) in &chunks {
-                let system_prompt =
-                    mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
-                let user_prompt =
-                    mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(
-                        content, 20,
-                    );
-                let combined_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
-
-                let start = std::time::Instant::now();
-                let result = call_llm_api_with_logging(
-                    &api_key,
-                    &api_base,
-                    &model,
-                    &combined_prompt,
-                    Some(&pool_clone),
-                    Some(&tenant_clone),
-                    Some(&provider),
-                    Some("auto_pipeline_kg"),
+            if existing_kg_run.is_some() {
+                log_step_result(
+                    &pool_clone,
+                    &run_id_clone,
+                    4,
+                    "completed (cached)",
+                    chunks.len() as i64,
+                    0,
+                    Some("KG extraction already exists"),
                 )
                 .await;
-                let _latency = start.elapsed().as_millis() as i64;
+                total_steps_ok += 1;
+                info!("  Step 4/8: ⏭️ KG extraction skipped (already exists)");
+            } else {
+                let api_base = infer_api_base(&provider);
+                let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
+                let mut kg_entities = 0i64;
+                let mut kg_relations = 0i64;
 
-                if let Ok((response_text, _tokens)) = result {
-                    // Parse KG response — strip <think> tags from Qwen-style models
-                    let clean = clean_llm_json(&response_text);
-                    match serde_json::from_str::<Value>(&clean) {
-                        Ok(parsed) => {
-                            if let Some(entities) = parsed["entities"].as_array() {
-                                for ent in entities {
-                                    let ent_name = ent["name"].as_str().unwrap_or("");
-                                    let ent_type = ent["type"].as_str().unwrap_or("Concept");
-                                    let ent_props = ent.get("properties").map(|p| p.to_string());
+                // Connect to Neo4j for dual-write (graceful degradation)
+                let neo4j_config = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
+                let neo4j_svc =
+                    mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_config).await;
+                if neo4j_svc.is_some() {
+                    info!("  Step 4: Neo4j connected — dual-write enabled");
+                } else {
+                    warn!("  Step 4: Neo4j unavailable — SQL-only mode");
+                }
 
-                                    // MariaDB insert
-                                    let _ = sqlx::query(
-                                    "INSERT IGNORE INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
-                                )
-                                .bind(&tenant_clone).bind(source_id).bind(_chunk_id)
-                                .bind(ent_name)
-                                .bind(ent_type)
-                                .bind(&ent_props)
-                                .execute(&pool_clone).await;
+                for (_chunk_id, content, _) in &chunks {
+                    let system_prompt =
+                        mimir_core_ai::services::entity_extractor::build_extraction_system_prompt();
+                    let user_prompt =
+                        mimir_core_ai::services::entity_extractor::build_extraction_user_prompt(
+                            content, 20,
+                        );
+                    let combined_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
 
-                                    // Neo4j dual-write
-                                    if let Some(ref neo4j) = neo4j_svc {
-                                        let _ = neo4j
-                                            .upsert_entity(
-                                                &tenant_clone,
-                                                ent_name,
-                                                ent_type,
-                                                ent_props.as_deref(),
-                                                Some(source_id),
-                                                Some(*_chunk_id),
+                    let start = std::time::Instant::now();
+                    let result = call_llm_api_with_logging(
+                        &api_key,
+                        &api_base,
+                        &model,
+                        &combined_prompt,
+                        Some(&pool_clone),
+                        Some(&tenant_clone),
+                        Some(&provider),
+                        Some("auto_pipeline_kg"),
+                    )
+                    .await;
+                    let _latency = start.elapsed().as_millis() as i64;
+
+                    if let Ok((response_text, _tokens)) = result {
+                        // Parse KG response — strip <think> tags from Qwen-style models
+                        let clean = clean_llm_json(&response_text);
+                        match serde_json::from_str::<Value>(&clean) {
+                            Ok(parsed) => {
+                                if let Some(entities) = parsed["entities"].as_array() {
+                                    for ent in entities {
+                                        let ent_name = ent["name"].as_str().unwrap_or("");
+                                        let ent_type = ent["type"].as_str().unwrap_or("Concept");
+                                        let ent_props = ent.get("properties").map(|p| p.to_string());
+
+                                        let existing_entity: Option<(i64, Option<Vec<u8>>)> = sqlx::query_as(
+                                            "SELECT id, properties FROM kg_entities WHERE tenant_id = ? AND LOWER(name) = LOWER(?) LIMIT 1"
+                                        )
+                                        .bind(&tenant_clone)
+                                        .bind(&ent_name)
+                                        .fetch_optional(&pool_clone).await.unwrap_or(None);
+
+                                        if let Some((existing_id, raw_props)) = existing_entity {
+                                            // Handle Semantic Duplicate: append chunk_id to properties.found_in_chunks
+                                            let mut props: Value = raw_props.as_ref()
+                                                .and_then(|bytes| String::from_utf8(bytes.clone()).ok())
+                                                .and_then(|p| serde_json::from_str(&p).ok())
+                                                .unwrap_or(serde_json::json!({}));
+                                                
+                                            let mut chunks = vec![];
+                                            if let Some(arr) = props.get("found_in_chunks").and_then(|v| v.as_array()) {
+                                                for v in arr {
+                                                    if let Some(c) = v.as_i64() {
+                                                        chunks.push(c);
+                                                    }
+                                                }
+                                            }
+                                            if !chunks.contains(_chunk_id) {
+                                                chunks.push(*_chunk_id);
+                                            }
+                                            if let Some(obj) = props.as_object_mut() {
+                                                obj.insert("found_in_chunks".to_string(), serde_json::json!(chunks));
+                                            }
+                                            
+                                            // Update existing
+                                            let _ = sqlx::query("UPDATE kg_entities SET properties = ? WHERE id = ?")
+                                                .bind(props.to_string())
+                                                .bind(existing_id)
+                                                .execute(&pool_clone).await;
+                                        } else {
+                                            // MariaDB insert
+                                            let _ = sqlx::query(
+                                                "INSERT IGNORE INTO kg_entities (tenant_id, source_id, chunk_id, name, entity_type, properties) VALUES (?, ?, ?, ?, ?, ?)"
                                             )
-                                            .await;
-                                    }
-                                    kg_entities += 1;
-                                }
-                            }
-                            if let Some(relations) = parsed["relations"].as_array() {
-                                for rel in relations {
-                                    // Look up from/to entity IDs by name
-                                    let from_name = rel["from"].as_str().unwrap_or("");
-                                    let to_name = rel["to"].as_str().unwrap_or("");
-                                    let rel_type = rel["type"].as_str().unwrap_or("");
-
-                                    let from_id: Option<(i64,)> = sqlx::query_as(
-                                    "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
-                                ).bind(&tenant_clone).bind(from_name)
-                                .fetch_optional(&pool_clone).await.unwrap_or(None);
-                                    let to_id: Option<(i64,)> = sqlx::query_as(
-                                    "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
-                                ).bind(&tenant_clone).bind(to_name)
-                                .fetch_optional(&pool_clone).await.unwrap_or(None);
-                                    if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
-                                        // MariaDB insert
-                                        let _ = sqlx::query(
-                                        "INSERT IGNORE INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
-                                    )
-                                    .bind(&tenant_clone).bind(source_id)
-                                    .bind(fid).bind(tid)
-                                    .bind(rel_type)
-                                    .execute(&pool_clone).await;
+                                            .bind(&tenant_clone).bind(source_id).bind(_chunk_id)
+                                            .bind(ent_name)
+                                            .bind(ent_type)
+                                            .bind(&ent_props)
+                                            .execute(&pool_clone).await;
+                                            
+                                            kg_entities += 1;
+                                        }
 
                                         // Neo4j dual-write
                                         if let Some(ref neo4j) = neo4j_svc {
                                             let _ = neo4j
-                                                .upsert_relation(
+                                                .upsert_entity(
                                                     &tenant_clone,
-                                                    from_name,
-                                                    to_name,
-                                                    rel_type,
-                                                    None,
+                                                    ent_name,
+                                                    ent_type,
+                                                    ent_props.as_deref(),
                                                     Some(source_id),
+                                                    Some(*_chunk_id),
                                                 )
                                                 .await;
                                         }
-                                        kg_relations += 1;
+                                    }
+                                }
+                                if let Some(relations) = parsed["relations"].as_array() {
+                                    for rel in relations {
+                                        // Look up from/to entity IDs by name
+                                        let from_name = rel["from"].as_str().unwrap_or("");
+                                        let to_name = rel["to"].as_str().unwrap_or("");
+                                        let rel_type = rel["type"].as_str().unwrap_or("");
+
+                                        let from_id: Option<(i64,)> = sqlx::query_as(
+                                        "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
+                                    ).bind(&tenant_clone).bind(from_name)
+                                    .fetch_optional(&pool_clone).await.unwrap_or(None);
+                                        let to_id: Option<(i64,)> = sqlx::query_as(
+                                        "SELECT id FROM kg_entities WHERE tenant_id = ? AND name = ? LIMIT 1"
+                                    ).bind(&tenant_clone).bind(to_name)
+                                    .fetch_optional(&pool_clone).await.unwrap_or(None);
+                                        if let (Some((fid,)), Some((tid,))) = (from_id, to_id) {
+                                            // MariaDB insert
+                                            let _ = sqlx::query(
+                                            "INSERT IGNORE INTO kg_relations (tenant_id, source_id, from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?, ?, ?)"
+                                        )
+                                        .bind(&tenant_clone).bind(source_id)
+                                        .bind(fid).bind(tid)
+                                        .bind(rel_type)
+                                        .execute(&pool_clone).await;
+
+                                            // Neo4j dual-write
+                                            if let Some(ref neo4j) = neo4j_svc {
+                                                let _ = neo4j
+                                                    .upsert_relation(
+                                                        &tenant_clone,
+                                                        from_name,
+                                                        to_name,
+                                                        rel_type,
+                                                        None,
+                                                        Some(source_id),
+                                                    )
+                                                    .await;
+                                            }
+                                            kg_relations += 1;
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "KG parse failed: {}. Raw(200): {:?} Clean(200): {:?}",
-                                e,
-                                &response_text[..response_text.len().min(200)],
-                                &clean[..clean.len().min(200)]
-                            );
+                            Err(e) => {
+                                warn!(
+                                    "KG parse failed: {}. Raw(200): {:?} Clean(200): {:?}",
+                                    e,
+                                    &response_text[..response_text.len().min(200)],
+                                    &clean[..clean.len().min(200)]
+                                );
+                            }
                         }
                     }
                 }
+
+                log_step_result(
+                    &pool_clone,
+                    &run_id_clone,
+                    4,
+                    "completed",
+                    kg_entities,
+                    step3_start.elapsed().as_millis() as i64,
+                    None,
+                )
+                .await;
+
+                total_steps_ok += 1;
+                info!(
+                    "  Step 4/8: ✅ {} entities, {} relations extracted (Neo4j={})",
+                    kg_entities,
+                    kg_relations,
+                    neo4j_svc.is_some()
+                );
             }
-
-            log_step_result(
-                &pool_clone,
-                &run_id_clone,
-                4,
-                "completed",
-                kg_entities,
-                step3_start.elapsed().as_millis() as i64,
-                None,
-            )
-            .await;
-
-            // Update kg_run status
-            let _ = sqlx::query(
-                "UPDATE kg_extraction_runs SET status = 'completed', entities_found = ?, relations_found = ?, chunks_processed = ?, finished_at = NOW() WHERE id = ?"
-            )
-            .bind(kg_entities)
-            .bind(kg_relations)
-            .bind(chunks.len() as i64)
-            .bind(&kg_run_id)
-            .execute(&pool_clone)
-            .await;
-
-            total_steps_ok += 1;
-            info!(
-                "  Step 4/7: ✅ {} entities, {} relations extracted (Neo4j={})",
-                kg_entities,
-                kg_relations,
-                neo4j_svc.is_some()
-            );
         } else if skip_kg && pipeline_error.is_none() {
             log_step(&pool_clone, &run_id_clone, 4, "kg_extraction", "running").await;
             log_step_result(
@@ -696,7 +734,6 @@ async fn run_pipeline_for_source(
 
             let step_id = step_id.map(|s| s.0).unwrap_or(0);
 
-            // Fetch chunks already QA'd to skip them
             let existing_qas: Vec<i64> = sqlx::query_scalar(
                 "SELECT DISTINCT chunk_id FROM qa_results WHERE source_id = ? AND chunk_id IS NOT NULL"
             )
@@ -704,6 +741,22 @@ async fn run_pipeline_for_source(
             .fetch_all(&pool_clone)
             .await
             .unwrap_or_default();
+
+            if existing_qas.len() >= chunks.len() && !chunks.is_empty() {
+                log_step_result(
+                    &pool_clone,
+                    &run_id_clone,
+                    5,
+                    "completed (cached)",
+                    chunks.len() as i64,
+                    0,
+                    Some("QA extraction completely cached"),
+                )
+                .await;
+                total_steps_ok += 1;
+                total_steps_ok += 1;
+                info!("  Step 5/7: ⏭️ QA extraction completely skipped (already cached)");
+            } else {
 
             for (chunk_id, content, _) in &chunks {
                 if existing_qas.contains(chunk_id) {
@@ -774,6 +827,7 @@ async fn run_pipeline_for_source(
             .await;
             total_steps_ok += 1;
             info!("  Step 5/7: ✅ {} QA pairs generated", qa_count);
+            }
         } else if skip_qa && pipeline_error.is_none() {
             log_step(&pool_clone, &run_id_clone, 5, "qa_extraction", "running").await;
             log_step_result(
@@ -795,14 +849,27 @@ async fn run_pipeline_for_source(
             let step6_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 6, "auto_qc_filter", "running").await;
 
-            let qa_rows: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-                "SELECT id, question, answer, context FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
+            let previous_qc: Option<(i64,)> = sqlx::query_as(
+                "SELECT ps.id FROM pipeline_steps ps JOIN pipeline_runs pr ON ps.run_id = pr.id WHERE pr.source_id = ? AND ps.step_name = 'auto_qc_filter' AND ps.status IN ('completed', 'completed (cached)') LIMIT 1"
             )
-            .bind(&tenant_clone)
             .bind(source_id)
-            .fetch_all(&pool_clone)
+            .fetch_optional(&pool_clone)
             .await
-            .unwrap_or_default();
+            .unwrap_or(None);
+
+            if previous_qc.is_some() {
+                log_step_result(&pool_clone, &run_id_clone, 6, "completed (cached)", 0, 0, Some("QC Filter successfully cached")).await;
+                total_steps_ok += 1;
+                info!("  Step 6/8: ⏭️ Auto QC Filter skipped (already filtered)");
+            } else {
+                let qa_rows: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
+                    "SELECT id, question, answer, context FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
+                )
+                .bind(&tenant_clone)
+                .bind(source_id)
+                .fetch_all(&pool_clone)
+                .await
+                .unwrap_or_default();
 
             if qa_rows.is_empty() {
                 log_step_result(&pool_clone, &run_id_clone, 6, "skipped", 0, 0, Some("No QA pairs to QC")).await;
@@ -848,6 +915,7 @@ async fn run_pipeline_for_source(
                 total_steps_ok += 1;
                 info!("  Step 6/8: ✅ QC Filter rejected {} bad QA pairs out of {}", filtered_count, qa_rows.len());
             }
+            }
         } else if skip_qa && pipeline_error.is_none() {
             log_step(&pool_clone, &run_id_clone, 6, "auto_qc_filter", "running").await;
             log_step_result(&pool_clone, &run_id_clone, 6, "skipped", 0, 0, None).await;
@@ -860,14 +928,27 @@ async fn run_pipeline_for_source(
             let step7_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 7, "qa_indexing", "running").await;
 
-            let qa_rows: Vec<(i64, String, String)> = sqlx::query_as(
-                "SELECT id, question, answer FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
+            let previous_idx: Option<(i64,)> = sqlx::query_as(
+                "SELECT ps.id FROM pipeline_steps ps JOIN pipeline_runs pr ON ps.run_id = pr.id WHERE pr.source_id = ? AND ps.step_name = 'qa_indexing' AND ps.status IN ('completed', 'completed (cached)') LIMIT 1"
             )
-            .bind(&tenant_clone)
             .bind(source_id)
-            .fetch_all(&pool_clone)
+            .fetch_optional(&pool_clone)
             .await
-            .unwrap_or_default();
+            .unwrap_or(None);
+
+            if previous_idx.is_some() {
+                log_step_result(&pool_clone, &run_id_clone, 7, "completed (cached)", 0, 0, Some("QA Indexing successfully cached")).await;
+                total_steps_ok += 1;
+                info!("  Step 7/8: ⏭️ QA Indexing skipped (already indexed)");
+            } else {
+                let qa_rows: Vec<(i64, String, String)> = sqlx::query_as(
+                    "SELECT id, question, answer FROM qa_results WHERE tenant_id = ? AND source_id = ? ORDER BY id"
+                )
+                .bind(&tenant_clone)
+                .bind(source_id)
+                .fetch_all(&pool_clone)
+                .await
+                .unwrap_or_default();
 
             if qa_rows.is_empty() {
                 log_step_result(
@@ -949,6 +1030,7 @@ async fn run_pipeline_for_source(
                 total_steps_ok += 1;
                 info!("  Step 7/8: ✅ {} QA pairs indexed to Qdrant", indexed);
             }
+            } 
         } else if skip_qa && pipeline_error.is_none() {
             log_step(&pool_clone, &run_id_clone, 7, "qa_indexing", "running").await;
             log_step_result(
@@ -969,8 +1051,21 @@ async fn run_pipeline_for_source(
             let step8_start = std::time::Instant::now();
             log_step(&pool_clone, &run_id_clone, 8, "graph_intelligence", "running").await;
 
-            if let Ok(graph_router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool_clone.clone(), &tenant_clone).await {
-                match mimir_core_ai::services::graph_analytics::generate_graph_insights(&pool_clone, &tenant_clone, &graph_router, Some(&provider), Some(&model)).await {
+            let previous_gi: Option<(i64,)> = sqlx::query_as(
+                "SELECT ps.id FROM pipeline_steps ps JOIN pipeline_runs pr ON ps.run_id = pr.id WHERE pr.source_id = ? AND ps.step_name = 'graph_intelligence' AND ps.status IN ('completed', 'completed (cached)') LIMIT 1"
+            )
+            .bind(source_id)
+            .fetch_optional(&pool_clone)
+            .await
+            .unwrap_or(None);
+
+            if previous_gi.is_some() {
+                log_step_result(&pool_clone, &run_id_clone, 8, "completed (cached)", 0, 0, Some("Graph Intelligence successfully cached")).await;
+                total_steps_ok += 1;
+                info!("  Step 8/8: ⏭️ Graph Intelligence skipped (already optimized)");
+            } else {
+                if let Ok(graph_router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool_clone.clone(), &tenant_clone).await {
+                    match mimir_core_ai::services::graph_analytics::generate_graph_insights(&pool_clone, &tenant_clone, &graph_router, Some(&provider), Some(&model)).await {
                     Ok(insights) => {
                         let insights_count = insights.len() as i64;
                         log_step_result(
@@ -1005,6 +1100,7 @@ async fn run_pipeline_for_source(
                 }
             } else {
                 warn!("  Step 8/8: ⚠️ Failed to initialize LlmRouter for Graph Analytics");
+            }
             }
         } else if skip_kg && pipeline_error.is_none() {
             log_step(&pool_clone, &run_id_clone, 8, "graph_intelligence", "running").await;

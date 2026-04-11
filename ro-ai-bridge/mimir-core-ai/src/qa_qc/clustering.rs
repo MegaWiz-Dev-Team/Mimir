@@ -180,10 +180,10 @@ impl ClusteringService {
         cluster_id: &str,
         req: ResolveClusterRequest,
     ) -> Result<()> {
-        let status = match req.resolution_type.as_str() {
-            "ACCEPT_A" => "RESOLVED_A",
-            "ACCEPT_B" => "RESOLVED_B",
-            _ => "MERGED",
+        let status = if req.resolution_type.starts_with("ACCEPT_") {
+            format!("RESOLVED_{}", req.resolution_type.trim_start_matches("ACCEPT_"))
+        } else {
+            "MERGED".to_string()
         };
 
         sqlx::query("UPDATE qa_clusters SET status = ?, golden_answer = ? WHERE id = ?")
@@ -207,12 +207,16 @@ impl ClusteringService {
         }
 
         let _guard = ClusteringGuard;
-        PROCESSED_COUNT.store(0, Ordering::SeqCst);
+        // Fetch total overall QA count for progress tracking
+        let total_all_row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM qa_results WHERE tenant_id = ?"
+        )
+        .bind(tenant_id)
+        .fetch_one(pool)
+        .await?;
 
-        info!("Starting Clustering Job for tenant: {}", tenant_id);
-
-        // Fetch total unclustered QA count for tracking
-        let total_row: (i64,) = sqlx::query_as(
+        // Fetch remaining unclustered
+        let remaining_row: (i64,) = sqlx::query_as(
             r#"SELECT COUNT(*) 
                FROM qa_results 
                WHERE tenant_id = ? 
@@ -223,10 +227,16 @@ impl ClusteringService {
         .fetch_one(pool)
         .await?;
 
-        TOTAL_COUNT.store(total_row.0 as usize, Ordering::SeqCst);
+        let total = total_all_row.0 as usize;
+        let remaining = remaining_row.0 as usize;
+        let processed = total.saturating_sub(remaining);
 
-        if total_row.0 < 2 {
-            info!("Not enough unclustered QA pairs to form conflicts/duplicates.");
+        TOTAL_COUNT.store(total, Ordering::SeqCst);
+        PROCESSED_COUNT.store(processed, Ordering::SeqCst);
+
+        // We only care if there is at least 1 remaining to form a seed
+        if remaining < 1 {
+            info!("Not enough unclustered QA pairs remaining.");
             return Ok(());
         }
 
@@ -250,103 +260,123 @@ impl ClusteringService {
                 break;
             }
 
-            // Fetch batch of 10 unclustered QA results
-            let qas = sqlx::query(
+            // Fetch 1 unclustered QA result as the seed point
+            let qa_seed: Option<(i64, String, String)> = sqlx::query_as(
                 r#"SELECT id, question, answer 
                    FROM qa_results 
                    WHERE tenant_id = ? 
                    AND qc_scanned = FALSE
                    AND id NOT IN (SELECT qa_id FROM qa_cluster_items)
                    ORDER BY id ASC
-                   LIMIT 10"#,
+                   LIMIT 1"#,
             )
             .bind(tenant_id)
-            .fetch_all(pool)
+            .fetch_optional(pool)
             .await?;
 
-            if qas.len() < 2 {
-                info!("Finished clustering loop: Not enough unclustered QA pairs remaining.");
+            if qa_seed.is_none() {
+                info!("Finished clustering loop: No unclustered QA pairs remaining.");
                 break;
             }
 
-            let current_ids: Vec<i64> = qas.iter().map(|q| q.get::<i64, _>("id")).collect();
+            let (seed_id, seed_question, seed_answer) = qa_seed.unwrap();
+            let mut current_ids = vec![seed_id];
+            let mut gathered_qas = vec![(seed_id, seed_question, seed_answer)];
 
-            // Use TenantConfig to resolve clustering model (using pipeline_evaluator slot)
-            let router =
-                crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
-            let (client, model) = router.resolve_client("pipeline_evaluator")?;
+            // Ask Qdrant to recommend similar points
+            let qdrant = crate::services::qdrant::QdrantService::new();
+            if let Ok(res) = qdrant.recommend("golden_qa", seed_id as u64, 5, tenant_id).await {
+                if let Some(result_arr) = res.pointer("/result").and_then(|v| v.as_array()) {
+                    for hit in result_arr {
+                        let score = hit["score"].as_f64().unwrap_or(0.0);
+                        // High similarity threshold for Duplicates/Conflicts
+                        if score >= 0.88 {
+                            if let Some(id_val) = hit["id"].as_u64() {
+                                let hit_id = id_val as i64;
+                                // Ignore self if it somehow returns it
+                                if hit_id != seed_id {
+                                    // Fetch question/answer from payload
+                                    if let Some(payload) = hit["payload"].as_object() {
+                                        if let (Some(q), Some(a)) = (payload.get("question"), payload.get("answer")) {
+                                            current_ids.push(hit_id);
+                                            gathered_qas.push((hit_id, q.as_str().unwrap_or("").to_string(), a.as_str().unwrap_or("").to_string()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
-            let preamble = "You are a Data Quality AI. Analyze the list of Q/A pairs. \
-Find 1 conflict (contradicting info) AND 1 duplicate (similar info) if possible.\n\
+            // Only call LLM if we actually formed a cluster (>= 2 items)
+            if gathered_qas.len() >= 2 {
+                let router = crate::services::llm_router::LlmRouter::new(pool.clone(), tenant_id).await?;
+                if let Ok((client, model)) = router.resolve_client("pipeline_evaluator") {
+                    let preamble = format!("You are a Data Quality AI. Analyze the list of {} Q/A pairs. \
+Determine if these items represent a single DUPLICATE topic or CONFLICTING information.\n\
 Return a STRICT JSON list: \n\
 [\n\
-  {\n\
+  {{\n\
     \"type\": \"CONFLICT\" | \"DUPLICATE\",\n\
     \"topic\": \"The common topic\",\n\
     \"reasoning\": \"Why they conflict or duplicate\",\n\
-    \"qa_id_1\": ID1,\n\
-    \"qa_id_2\": ID2,\n\
     \"golden_answer\": \"(Provide a merged answer ONLY IF type is DUPLICATE, else act as if None)\"\n\
-  }\n\
-]";
+  }}\n\
+]", gathered_qas.len());
 
-            let mut input_text = String::from("QA Pairs:\n");
-            for qa in &qas {
-                input_text.push_str(&format!(
-                    "ID: {} | Q: {} | A: {}\n",
-                    qa.get::<i64, _>("id"),
-                    qa.get::<String, _>("question"),
-                    qa.get::<String, _>("answer")
-                ));
-            }
+                    let mut input_text = String::from("QA Pairs:\n");
+                    for (i, qa) in gathered_qas.iter().enumerate() {
+                        let label = (b'A' + i as u8) as char;
+                        input_text.push_str(&format!(
+                            "Item {} (ID: {}) | Q: {} | A: {}\n",
+                            label, qa.0, qa.1, qa.2
+                        ));
+                    }
 
-            let resp = client
-                .prompt(&model, preamble, &input_text, 2048, 0.3)
-                .await;
+                    let resp = client.prompt(&model, &preamble, &input_text, 2048, 0.3).await;
 
-            match resp {
-                Ok(json_str) => {
-                    if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
-                        for r in results {
-                            let c_type = r["type"].as_str().unwrap_or("DUPLICATE");
-                            let topic = r["topic"].as_str().unwrap_or("Unknown Topic");
-                            let reasoning = r["reasoning"].as_str().unwrap_or("");
-                            let golden = r["golden_answer"].as_str();
-                            let id1 = r["qa_id_1"].as_i64().unwrap_or(0);
-                            let id2 = r["qa_id_2"].as_i64().unwrap_or(0);
+                    match resp {
+                        Ok(json_str) => {
+                            if let Ok(results) = Self::parse_gemini_clustering_output(&json_str) {
+                                if let Some(r) = results.first() {
+                                    let c_type = r["type"].as_str().unwrap_or("DUPLICATE");
+                                    let topic = r["topic"].as_str().unwrap_or("Unknown Topic");
+                                    let reasoning = r["reasoning"].as_str().unwrap_or("");
+                                    let golden = r["golden_answer"].as_str();
 
-                            if id1 > 0 && id2 > 0 {
-                                let cluster_id = Uuid::new_v4().to_string();
-                                sqlx::query(
-                                    "INSERT INTO qa_clusters (id, tenant_id, topic, reasoning, cluster_type, golden_answer, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')"
-                                )
-                                .bind(&cluster_id)
-                                .bind(tenant_id)
-                                .bind(topic)
-                                .bind(reasoning)
-                                .bind(c_type)
-                                .bind(golden)
-                                .execute(pool).await?;
-
-                                sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'A')")
+                                    let cluster_id = Uuid::new_v4().to_string();
+                                    if let Ok(_) = sqlx::query(
+                                        "INSERT INTO qa_clusters (id, tenant_id, topic, reasoning, cluster_type, golden_answer, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')"
+                                    )
                                     .bind(&cluster_id)
-                                    .bind(id1)
-                                    .execute(pool)
-                                    .await?;
-                                sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, 'B')")
-                                    .bind(&cluster_id)
-                                    .bind(id2)
-                                    .execute(pool)
-                                    .await?;
-
-                                info!("Created Cluster: {}", cluster_id);
+                                    .bind(tenant_id)
+                                    .bind(topic)
+                                    .bind(reasoning)
+                                    .bind(c_type)
+                                    .bind(golden)
+                                    .execute(pool).await {
+                                        for (i, qa) in gathered_qas.iter().enumerate() {
+                                            let label = format!("{}", (b'A' + i as u8) as char);
+                                            let _ = sqlx::query("INSERT INTO qa_cluster_items (cluster_id, qa_id, source_label) VALUES (?, ?, ?)")
+                                                .bind(&cluster_id)
+                                                .bind(qa.0)
+                                                .bind(label)
+                                                .execute(pool)
+                                                .await;
+                                        }
+                                        info!("Created N-Way Cluster: {} ({} items)", cluster_id, gathered_qas.len());
+                                    }
+                                }
+                            } else {
+                                warn!("Failed to parse LLM output as JSON: {}", json_str);
                             }
                         }
-                    } else {
-                        warn!("Failed to parse LLM output as JSON: {}", json_str);
+                        Err(e) => error!("LLM prompt failed: {}", e),
                     }
                 }
-                Err(e) => error!("LLM prompt failed: {}", e),
+            } else {
+                info!("Seed {} had no similar neighbors (threshold > 0.88). Moving on.", seed_id);
             }
 
             // Mark these IDs as scanned
@@ -370,7 +400,7 @@ Return a STRICT JSON list: \n\
             }
 
             // Advance progress count, capped at total
-            let new_processed = PROCESSED_COUNT.load(Ordering::SeqCst) + qas.len();
+            let new_processed = PROCESSED_COUNT.load(Ordering::SeqCst) + current_ids.len();
             let total = TOTAL_COUNT.load(Ordering::SeqCst);
             PROCESSED_COUNT.store(new_processed.min(total), Ordering::SeqCst);
         }
