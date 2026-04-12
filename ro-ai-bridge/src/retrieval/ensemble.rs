@@ -64,20 +64,25 @@ pub fn rerank_results(
     // Apply weights
     let mut weighted: Vec<RetrievalResult> = results
         .iter()
-        .map(|r| {
+        .filter_map(|r| {
             let weight = match r.source_type.as_str() {
                 "vector" => weights.vector,
                 "tree" => weights.tree,
                 "graph" => weights.graph,
                 _ => 0.1,
             };
-            RetrievalResult {
+
+            if weight <= 0.0 {
+                return None;
+            }
+
+            Some(RetrievalResult {
                 content: r.content.clone(),
                 title: r.title.clone(),
                 score: r.score * weight,
                 source_type: r.source_type.clone(),
                 metadata: r.metadata.clone(),
-            }
+            })
         })
         .collect();
 
