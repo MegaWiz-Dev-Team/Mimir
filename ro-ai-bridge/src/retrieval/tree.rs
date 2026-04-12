@@ -16,6 +16,8 @@ pub struct TreeSearchResult {
     pub parent_context: Vec<String>,
     /// LLM-assessed confidence score (0.0 - 1.0) for this result.
     pub confidence: f32,
+    /// Language Model's reasoning step or failure explanation.
+    pub reasoning: Option<String>,
 }
 
 // ── Trait ──────────────────────────────────────────────
@@ -129,6 +131,11 @@ impl NativeTreeRetriever {
             .and_then(|a| a.as_str())
             .map(|s| s.to_string());
 
+        let reasoning = result
+            .get("reasoning")
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string());
+
         let confidence = result
             .get("confidence")
             .and_then(|c| c.as_f64())
@@ -146,6 +153,7 @@ impl NativeTreeRetriever {
             relevant_sections: sections,
             parent_context,
             confidence,
+            reasoning,
         })
     }
 }
@@ -216,13 +224,23 @@ pub fn tree_to_retrieval_results(tree_results: &[TreeSearchResult]) -> Vec<Retri
     tree_results
         .iter()
         .filter_map(|tr| {
-            let content = tr
+            let mut content = tr
                 .answer
                 .clone()
                 .unwrap_or_else(|| tr.relevant_sections.join("\n"));
+            
             if content.is_empty() {
-                return None;
+                if let Some(reasoning) = &tr.reasoning {
+                    if !reasoning.is_empty() {
+                        content = format!("[LLM Reasoning] Failed to find answer: {}", reasoning);
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
             }
+
             Some(RetrievalResult {
                 content,
                 title: tr.document_title.clone(),
@@ -380,6 +398,7 @@ mod tests {
             relevant_sections: vec!["POST /api".to_string(), "GET /health".to_string()],
             parent_context: vec!["# Main".to_string(), "## API".to_string()],
             confidence: 0.8,
+            reasoning: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -396,6 +415,7 @@ mod tests {
             relevant_sections: vec!["section1".to_string()],
             parent_context: vec![],
             confidence: 0.5,
+            reasoning: None,
         };
         assert!(result.answer.is_none());
         assert_eq!(result.relevant_sections.len(), 1);
@@ -485,6 +505,7 @@ mod tests {
             relevant_sections: vec!["Details here".to_string()],
             parent_context: vec!["## API".to_string()],
             confidence: 0.8,
+            reasoning: None,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
@@ -503,6 +524,7 @@ mod tests {
             relevant_sections: vec!["Section A".to_string(), "Section B".to_string()],
             parent_context: vec![],
             confidence: 0.6,
+            reasoning: None,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
@@ -519,6 +541,7 @@ mod tests {
             relevant_sections: vec![],
             parent_context: vec![],
             confidence: 0.2,
+            reasoning: None,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
@@ -533,6 +556,7 @@ mod tests {
             relevant_sections: vec!["sec1".to_string()],
             parent_context: vec!["# Heading".to_string(), "## Sub".to_string()],
             confidence: 0.9,
+            reasoning: None,
         }];
 
         let results = tree_to_retrieval_results(&tree_results);
