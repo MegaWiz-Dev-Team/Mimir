@@ -68,6 +68,18 @@ impl GraphRetriever for SqlGraphRetriever {
         tenant_id: &str,
         limit: usize,
     ) -> Result<Vec<GraphSearchResult>, String> {
+        self.search_with_hops(question, tenant_id, limit, 2).await
+    }
+}
+
+impl SqlGraphRetriever {
+    pub async fn search_with_hops(
+        &self,
+        question: &str,
+        tenant_id: &str,
+        limit: usize,
+        hop_limit: i32,
+    ) -> Result<Vec<GraphSearchResult>, String> {
         // 1. Extract key terms from question for entity search
         let terms = extract_search_terms(question);
         tracing::info!("Graph search terms: {:?}", terms);
@@ -130,51 +142,73 @@ impl GraphRetriever for SqlGraphRetriever {
                 let props = props_raw
                     .as_ref()
                     .and_then(|bytes| String::from_utf8(bytes.clone()).ok());
-                // Get 1-hop and 2-hop outgoing neighbors
-                let outgoing: Vec<(String, String, String, i32)> = sqlx::query_as(
-                    "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
-                     FROM kg_relations r1 \
-                     JOIN kg_entities e1 ON e1.id = r1.to_entity_id \
-                     WHERE r1.from_entity_id = ? AND r1.tenant_id = ? \
-                     UNION ALL \
-                     SELECT e2.name, e2.entity_type, CONCAT(r1.relation_type, ' -> ', r2.relation_type) AS relation_type, 2 AS hop \
-                     FROM kg_relations r1 \
-                     JOIN kg_relations r2 ON r1.to_entity_id = r2.from_entity_id \
-                     JOIN kg_entities e2 ON e2.id = r2.to_entity_id \
-                     WHERE r1.from_entity_id = ? AND r1.tenant_id = ? AND r2.tenant_id = ? \
-                     LIMIT 20",
-                )
-                .bind(entity_id)
-                .bind(tenant_id)
-                .bind(entity_id)
-                .bind(tenant_id)
-                .bind(tenant_id)
-                .fetch_all(&self.pool)
-                .await
-                .unwrap_or_default();
+                
+                // Get neighbors based on hop_limit
+                let outgoing: Vec<(String, String, String, i32)> = if hop_limit >= 2 {
+                    sqlx::query_as(
+                        "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
+                         FROM kg_relations r1 \
+                         JOIN kg_entities e1 ON e1.id = r1.to_entity_id \
+                         WHERE r1.from_entity_id = ? AND r1.tenant_id = ? \
+                         UNION ALL \
+                         SELECT e2.name, e2.entity_type, CONCAT(r1.relation_type, ' -> ', r2.relation_type) AS relation_type, 2 AS hop \
+                         FROM kg_relations r1 \
+                         JOIN kg_relations r2 ON r1.to_entity_id = r2.from_entity_id \
+                         JOIN kg_entities e2 ON e2.id = r2.to_entity_id \
+                         WHERE r1.from_entity_id = ? AND r1.tenant_id = ? AND r2.tenant_id = ? \
+                         LIMIT 20",
+                    )
+                    .bind(entity_id).bind(tenant_id)
+                    .bind(entity_id).bind(tenant_id).bind(tenant_id)
+                    .fetch_all(&self.pool)
+                    .await
+                    .unwrap_or_default()
+                } else {
+                    sqlx::query_as(
+                        "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
+                         FROM kg_relations r1 \
+                         JOIN kg_entities e1 ON e1.id = r1.to_entity_id \
+                         WHERE r1.from_entity_id = ? AND r1.tenant_id = ? \
+                         LIMIT 20",
+                    )
+                    .bind(entity_id).bind(tenant_id)
+                    .fetch_all(&self.pool)
+                    .await
+                    .unwrap_or_default()
+                };
 
-                // Get 1-hop and 2-hop incoming neighbors
-                let incoming: Vec<(String, String, String, i32)> = sqlx::query_as(
-                    "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
-                     FROM kg_relations r1 \
-                     JOIN kg_entities e1 ON e1.id = r1.from_entity_id \
-                     WHERE r1.to_entity_id = ? AND r1.tenant_id = ? \
-                     UNION ALL \
-                     SELECT e2.name, e2.entity_type, CONCAT(r2.relation_type, ' -> ', r1.relation_type) AS relation_type, 2 AS hop \
-                     FROM kg_relations r1 \
-                     JOIN kg_relations r2 ON r1.from_entity_id = r2.to_entity_id \
-                     JOIN kg_entities e2 ON e2.id = r2.from_entity_id \
-                     WHERE r1.to_entity_id = ? AND r1.tenant_id = ? AND r2.tenant_id = ? \
-                     LIMIT 20",
-                )
-                .bind(entity_id)
-                .bind(tenant_id)
-                .bind(entity_id)
-                .bind(tenant_id)
-                .bind(tenant_id)
-                .fetch_all(&self.pool)
-                .await
-                .unwrap_or_default();
+                let incoming: Vec<(String, String, String, i32)> = if hop_limit >= 2 {
+                    sqlx::query_as(
+                        "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
+                         FROM kg_relations r1 \
+                         JOIN kg_entities e1 ON e1.id = r1.from_entity_id \
+                         WHERE r1.to_entity_id = ? AND r1.tenant_id = ? \
+                         UNION ALL \
+                         SELECT e2.name, e2.entity_type, CONCAT(r2.relation_type, ' -> ', r1.relation_type) AS relation_type, 2 AS hop \
+                         FROM kg_relations r1 \
+                         JOIN kg_relations r2 ON r1.from_entity_id = r2.to_entity_id \
+                         JOIN kg_entities e2 ON e2.id = r2.from_entity_id \
+                         WHERE r1.to_entity_id = ? AND r1.tenant_id = ? AND r2.tenant_id = ? \
+                         LIMIT 20",
+                    )
+                    .bind(entity_id).bind(tenant_id)
+                    .bind(entity_id).bind(tenant_id).bind(tenant_id)
+                    .fetch_all(&self.pool)
+                    .await
+                    .unwrap_or_default()
+                } else {
+                    sqlx::query_as(
+                        "SELECT e1.name, e1.entity_type, r1.relation_type, 1 AS hop \
+                         FROM kg_relations r1 \
+                         JOIN kg_entities e1 ON e1.id = r1.from_entity_id \
+                         WHERE r1.to_entity_id = ? AND r1.tenant_id = ? \
+                         LIMIT 20",
+                    )
+                    .bind(entity_id).bind(tenant_id)
+                    .fetch_all(&self.pool)
+                    .await
+                    .unwrap_or_default()
+                };
 
                 let mut neighbors = Vec::new();
                 for (n, et, rt, hop) in outgoing {
