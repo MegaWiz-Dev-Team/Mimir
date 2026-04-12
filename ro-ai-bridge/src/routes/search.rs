@@ -19,6 +19,7 @@ use tracing::{info, warn};
 use crate::retrieval::graph::{graph_to_retrieval_results, GraphRetriever, SqlGraphRetriever};
 use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult};
 use crate::retrieval::tree::{tree_to_retrieval_results, TreeRetriever};
+use crate::retrieval::trace::{self, TraceCollector, TraceEvent};
 use crate::retrieval::{determine_mode_used, rerank_results, rerank_results_rrf, source_distribution, EnsembleWeights};
 use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::middleware::tenant::TenantContext;
@@ -55,6 +56,27 @@ pub struct SearchRequest {
     /// Optional cross-encoder rerank configuration.
     #[serde(default)]
     pub rerank: Option<crate::routes::rag_eval::RerankConfig>,
+    /// Whether to generate an LLM synthesis answer.
+    #[serde(default)]
+    pub synthesize: Option<bool>,
+    /// Optional LLM Provider override (e.g. "google", "ollama").
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Optional LLM Model ID override.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Hybrid search alpha (dense vs sparse balance). 0.0=sparse, 1.0=dense. Default: 0.7
+    #[serde(default)]
+    pub alpha: Option<f64>,
+    /// Minimum similarity threshold for vector results. Default: 0.0
+    #[serde(default)]
+    pub threshold: Option<f64>,
+    /// Maximum graph traversal hops (1-3). Default: 2
+    #[serde(default)]
+    pub hop_limit: Option<i32>,
+    /// Whether to include pipeline trace telemetry in the response.
+    #[serde(default)]
+    pub trace: Option<bool>,
 }
 
 /// Source-level filters for narrowing search scope.
@@ -84,6 +106,12 @@ pub struct SearchResponse {
     pub latency_ms: u64,
     /// The original query string.
     pub query: String,
+    /// The synthesized LLM answer, if requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synthesis: Option<String>,
+    /// Pipeline trace telemetry (only present when `trace: true` in request).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_log: Option<Vec<TraceEvent>>,
 }
 
 // ── Constants ─────────────────────────────────────────
@@ -95,7 +123,7 @@ const MAX_LIMIT: usize = 50;
 const DEFAULT_LIMIT: usize = 10;
 
 /// Per-source timeout in seconds to prevent one slow source from blocking all.
-const SOURCE_TIMEOUT_SECS: u64 = 10;
+const SOURCE_TIMEOUT_SECS: u64 = 45;
 
 /// Default Qdrant collections to search.
 const DEFAULT_COLLECTIONS: &[&str] = &["golden_qa", "source_chunks"];
@@ -176,53 +204,116 @@ async fn search_handler(
     );
 
     let filters = payload.filters.unwrap_or_default();
+    let trace_enabled = payload.trace.unwrap_or(false);
+    let mut trace_collector = TraceCollector::new(trace_enabled);
+    
+    let alpha = payload.alpha.unwrap_or(0.7);
+    let threshold = payload.threshold.unwrap_or(0.0);
+    let hop_limit = payload.hop_limit.unwrap_or(2).clamp(1, 3);
 
     // ── Stage 1: Vector + Graph in parallel via tokio::join! ──
 
-    let (vector_results, graph_results) = tokio::join!(
+    let ((vector_results, vector_trace), (graph_results, graph_trace)) = tokio::join!(
         // Vector search (with timeout)
         async {
             if !active_sources.vector {
-                return vec![];
+                return (vec![], None);
             }
+            let step_start = Instant::now();
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_vector(&query, &tenant_id, &embed_model, &collections, limit, &filters),
+                fetch_vector(&query, &tenant_id, &embed_model, &collections, limit, &filters, alpha, threshold),
             )
             .await
             {
-                Ok(results) => results,
+                Ok(results) => {
+                    let trace_ev = if trace_enabled {
+                        let output_summary = if results.is_empty() {
+                            "No results".to_string()
+                        } else {
+                            let top3: Vec<String> = results.iter().take(3)
+                                .map(|r| format!("• {} (score: {:.2})", r.title.chars().take(50).collect::<String>(), r.score))
+                                .collect();
+                            let avg_score = results.iter().map(|r| r.score as f64).sum::<f64>() / results.len() as f64;
+                            format!("{} chunks (avg score: {:.2})\n{}", results.len(), avg_score, top3.join("\n"))
+                        };
+
+                        Some(trace::trace_success(
+                            "Vector Search",
+                            step_start,
+                            json!({
+                                "top_k": limit,
+                                "embed_model": &embed_model,
+                                "collections": &collections,
+                                "weight": format!("{:.2}", weights.vector),
+                                "alpha": format!("{:.2}", alpha),
+                                "threshold": format!("{:.2}", threshold),
+                            }),
+                            &query,
+                            &output_summary,
+                            1,
+                            results.len(),
+                        ))
+                    } else { None };
+                    (results, trace_ev)
+                }
                 Err(_) => {
-                    warn!(
-                        source = "vector",
-                        "⏰ Vector search timed out after {}s", SOURCE_TIMEOUT_SECS
-                    );
-                    vec![]
+                    warn!(source = "vector", "⏰ Vector search timed out after {}s", SOURCE_TIMEOUT_SECS);
+                    let trace_ev = if trace_enabled { Some(trace::trace_timeout("Vector Search", SOURCE_TIMEOUT_SECS)) } else { None };
+                    (vec![], trace_ev)
                 }
             }
         },
         // Graph search (with timeout)
         async {
             if !active_sources.graph {
-                return vec![];
+                return (vec![], None);
             }
+            let step_start = Instant::now();
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_graph(&query, &tenant_id, &pool, limit, &filters),
+                fetch_graph(&query, &tenant_id, &pool, limit, &filters, hop_limit),
             )
             .await
             {
-                Ok(results) => results,
+                Ok(results) => {
+                    let trace_ev = if trace_enabled {
+                        let output_summary = if results.is_empty() {
+                            "No relations found".to_string()
+                        } else {
+                            let top3: Vec<String> = results.iter().take(3)
+                                .map(|r| format!("• {} (score: {:.2})", r.title.chars().take(50).collect::<String>(), r.score))
+                                .collect();
+                            format!("{} relations\n{}", results.len(), top3.join("\n"))
+                        };
+
+                        Some(trace::trace_success(
+                            "Graph Search",
+                            step_start,
+                            json!({
+                                "hop_limit": hop_limit,
+                                "weight": format!("{:.2}", weights.graph),
+                            }),
+                            &query,
+                            &output_summary,
+                            1,
+                            results.len(),
+                        ))
+                    } else { None };
+                    (results, trace_ev)
+                }
                 Err(_) => {
-                    warn!(
-                        source = "graph",
-                        "⏰ Graph search timed out after {}s", SOURCE_TIMEOUT_SECS
-                    );
-                    vec![]
+                    warn!(source = "graph", "⏰ Graph search timed out after {}s", SOURCE_TIMEOUT_SECS);
+                    let trace_ev = if trace_enabled { Some(trace::trace_timeout("Graph Search", SOURCE_TIMEOUT_SECS)) } else { None };
+                    (vec![], trace_ev)
                 }
             }
         },
     );
+
+    // Collect trace events from Stage 1
+    if let Some(ev) = vector_trace { trace_collector.push(ev); }
+    if let Some(ev) = graph_trace { trace_collector.push(ev); }
 
     // ── Stage 2: Tree search using Vector candidates as pre-filter ──
     let tree_results = if active_sources.tree {
@@ -232,21 +323,62 @@ async fn search_handler(
             .into_iter()
             .collect();
 
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS * 2),
-            fetch_tree(&query, &tenant_id, &pool, &filters, &vector_candidate_titles),
-        )
-        .await
-        {
-            Ok(results) => results,
-            Err(_) => {
-                warn!(
-                    source = "tree",
-                    "⏰ Tree search timed out after {}s", SOURCE_TIMEOUT_SECS * 2
-                );
-                vec![]
-            }
+        let pool_start = Instant::now();
+        // Trace: Unified Candidate Pool
+        if trace_enabled {
+            let top3_candidates: Vec<String> = vector_candidate_titles.iter().take(5)
+                .map(|t| format!("• {}", t))
+                .collect();
+            let summary_str = if vector_candidate_titles.is_empty() {
+                "No candidate titles found".to_string()
+            } else {
+                format!("{} unique candidate titles:\n{}", vector_candidate_titles.len(), top3_candidates.join("\n"))
+            };
+
+            trace_collector.push(trace::trace_success(
+                "Unified Candidate Pool",
+                pool_start, // near-instant
+                json!({"sources": ["vector", "graph"]}),
+                &format!("{} vector + {} graph titles", vector_results.len(), graph_results.len()),
+                &summary_str,
+                vector_results.len() + graph_results.len(),
+                vector_candidate_titles.len(),
+            ));
         }
+
+        let tree_res = fetch_tree(&pool, &tenant_id, &filters, &vector_candidate_titles, &query, &embed_model).await;
+
+        // Trace: Tree Search
+        if trace_enabled {
+            let output_summary = if tree_res.is_empty() {
+                "No results extracted".to_string()
+            } else {
+                format!(
+                    "{} results extracted\n{}",
+                    tree_res.len(),
+                    tree_res.iter().take(3)
+                        .map(|r| format!("• {}", r.title.chars().take(50).collect::<String>()))
+                        .collect::<Vec<_>>().join("\n")
+                )
+            };
+
+            trace_collector.push(trace::trace_success(
+                "Tree Search",
+                tree_start,
+                json!({
+                    "strategy": "Vector Routing",
+                    "embed_model": &embed_model,
+                    "candidate_docs": vector_candidate_titles.len(),
+                    "weight": format!("{:.2}", weights.tree),
+                }),
+                &format!("{} candidate docs", vector_candidate_titles.len()),
+                &output_summary,
+                vector_candidate_titles.len(),
+                tree_res.len(),
+            ));
+        }
+
+        tree_res
     } else {
         vec![]
     };
@@ -264,11 +396,12 @@ async fn search_handler(
     );
 
     // Apply reranking strategy
+    let rerank_start = Instant::now();
+    let rerank_strategy_name: &str;
     let ranked = if let Some(ref rc) = payload.rerank {
         if rc.enabled && rc.strategy == "cross-encoder" {
-            // Pre-filter with RRF to limit the number of documents passed to Cross-Encoder
+            rerank_strategy_name = "cross-encoder";
             let pre_filtered = rerank_results(&all_results, &weights, (limit * 2).max(20));
-            // Try to resolve cross-encoder model
             if let Ok(router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await {
                 if let Ok((reranker, model)) = router.resolve_reranker(rc.model.as_deref()) {
                     crate::retrieval::ensemble::cross_encoder_rerank(&reranker, &model, &query, pre_filtered, limit)
@@ -284,15 +417,39 @@ async fn search_handler(
                 rerank_results_rrf(&all_results, &weights, limit)
             }
         } else if rc.enabled && rc.strategy == "rrf" {
-            // True Reciprocal Rank Fusion
+            rerank_strategy_name = "rrf";
             rerank_results_rrf(&all_results, &weights, limit)
         } else {
+            rerank_strategy_name = "weighted";
             rerank_results(&all_results, &weights, limit)
         }
     } else {
-        // Default: weighted score reranking
+        rerank_strategy_name = "weighted";
         rerank_results(&all_results, &weights, limit)
     };
+
+    // Trace: Reranking
+    if trace_enabled {
+        let rerank_model_name = if let Some(ref rc) = payload.rerank { rc.model.clone() } else { None };
+        trace_collector.push(trace::trace_success(
+            "Reranking",
+            rerank_start,
+            json!({
+                "strategy": rerank_strategy_name,
+                "weights": { 
+                    "vector": format!("{:.2}", weights.vector), 
+                    "tree": format!("{:.2}", weights.tree), 
+                    "graph": format!("{:.2}", weights.graph) 
+                },
+                "rerank_model": rerank_model_name,
+                "final_top_k": limit,
+            }),
+            &format!("{} raw results", all_results.len()),
+            &format!("{} ranked results", ranked.len()),
+            all_results.len(),
+            ranked.len(),
+        ));
+    }
 
     // Compute distribution and mode
     let distribution = source_distribution(&ranked);
@@ -308,6 +465,36 @@ async fn search_handler(
         "✅ /api/search completed"
     );
 
+    let synthesis = if payload.synthesize.unwrap_or(false) && !ranked.is_empty() {
+        if let Ok(ref router) = mimir_core_ai::services::llm_router::LlmRouter::new(pool.clone(), &tenant_id).await {
+            if let Ok((client, model)) = router.resolve_client_with_overrides("generation", payload.provider.as_deref(), payload.model.as_deref()) {
+                let context_parts: Vec<String> = ranked.iter().take(10).enumerate().map(|(i, r)| {
+                    format!("Source {}:\nTitle: {}\nContent:\n{}", i+1, r.title, r.content)
+                }).collect();
+                let context_str = context_parts.join("\n\n---\n\n");
+                
+                let prompt = format!(
+                    "Based on the following retrieved context, answer the user's query comprehensively.\n\nContext:\n{}\n\nQuery: {}",
+                    context_str, query
+                );
+                
+                match client.prompt(&model, "You are a helpful expert assistant.", &prompt, 1024, 0.7).await {
+                    Ok(response) => Some(response),
+                    Err(e) => {
+                        tracing::warn!("Synthesis generation failed: {}", e);
+                        Some(format!("Failed to generate synthesis: {}", e))
+                    }
+                }
+            } else {
+                Some("Failed to resolve generation client".to_string())
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     (
         StatusCode::OK,
         Json(SearchResponse {
@@ -317,6 +504,8 @@ async fn search_handler(
             mode_used,
             latency_ms,
             query,
+            synthesis,
+            trace_log: trace_collector.finish(),
         }),
     )
         .into_response()
@@ -354,10 +543,12 @@ fn resolve_active_sources(sources: &Option<Vec<String>>) -> ActiveSources {
 async fn fetch_vector(
     query: &str,
     tenant_id: &str,
-    embed_model: &str,
+    model: &str,
     collections: &[String],
     limit: usize,
     filters: &SearchFilters,
+    alpha: f64,
+    threshold: f64,
 ) -> Vec<RetrievalResult> {
     let mut results = Vec::new();
     let qdrant = QdrantService::new();
@@ -365,9 +556,11 @@ async fn fetch_vector(
     let source_ids = filters.source_ids.as_deref();
 
     for collection in collections {
-        let retriever =
-            QdrantRetriever::new(qdrant.clone(), embed_model.to_string(), collection.clone());
-        match retriever.search_filtered(query, tenant_id, limit, source_ids).await {
+        let retriever = QdrantRetriever::new(qdrant.clone(), model.to_string(), collection.to_string());
+        let result = retriever
+            .search_filtered(query, tenant_id, limit, source_ids, alpha, threshold)
+            .await;
+        match result {
             Ok(r) => {
                 results.extend(r);
             }
@@ -386,23 +579,28 @@ async fn fetch_graph(
     pool: &DbPool,
     limit: usize,
     filters: &SearchFilters,
+    hop_limit: i32,
 ) -> Vec<RetrievalResult> {
     let retriever = SqlGraphRetriever::new(pool.clone());
-    match retriever.search(query, tenant_id, limit).await {
+    match retriever.search_with_hops(query, tenant_id, limit, hop_limit).await {
         Ok(graph_results) => {
             let all = graph_to_retrieval_results(&graph_results);
             // Apply source_id filter post-retrieval
             if let Some(ref ids) = filters.source_ids {
-                all.into_iter()
+                let mut filtered: Vec<_> = all.into_iter()
                     .filter(|r| {
                         r.metadata.get("source_id")
                             .and_then(|v| v.as_i64())
                             .map(|sid| ids.contains(&sid))
                             .unwrap_or(true) // keep if no source_id in metadata
                     })
-                    .collect()
+                    .collect();
+                filtered.truncate(limit);
+                filtered
             } else {
-                all
+                let mut limited = all;
+                limited.truncate(limit);
+                limited
             }
         }
         Err(e) => {
@@ -414,23 +612,15 @@ async fn fetch_graph(
 
 /// Fetch results from the Native tree search (LLM).
 /// Applies source_id filtering by restricting which data_sources are queried.
-/// When vector_candidate_titles is provided, only searches those documents (pre-filter for scale).
+/// Filters documents using `vector_candidate_titles` optionally, then runs the LLM tree extractor.
 async fn fetch_tree(
-    query: &str,
-    tenant_id: &str,
     pool: &DbPool,
+    tenant_id: &str,
     filters: &SearchFilters,
-    vector_candidate_titles: &[String],
+    unified_candidate_titles: &[String],
+    query: &str,
+    embed_model: &str,
 ) -> Vec<RetrievalResult> {
-    use mimir_core_ai::services::llm_router::LlmRouter;
-    let router = match LlmRouter::new(pool.clone(), tenant_id).await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("Failed to init LlmRouter for tree search: {}", e);
-            return vec![];
-        }
-    };
-    
     let retriever = crate::retrieval::tree::NativeTreeRetriever::new();
 
     // Load data sources with tree indexes, optionally filtered by source_ids
@@ -477,13 +667,13 @@ async fn fetch_tree(
         return vec![];
     }
 
-    // Apply vector pre-filter: only search docs whose names match vector results.
+    // Apply unified pre-filter: only search docs whose names match vector or graph results.
     // This limits LLM calls from N docs to max 10 for scalability.
-    let filtered_docs: Vec<(String, String, String)> = if !vector_candidate_titles.is_empty() {
+    let filtered_docs: Vec<(String, String, String)> = if !unified_candidate_titles.is_empty() {
         let (matched, rest): (Vec<_>, Vec<_>) = searchable.into_iter()
             .partition(|(name, _, _)| {
                 let name_lower = name.to_lowercase();
-                vector_candidate_titles.iter().any(|vt| {
+                unified_candidate_titles.iter().any(|vt| {
                     let vt_lower = vt.to_lowercase();
                     name_lower.contains(&vt_lower) || vt_lower.contains(&name_lower)
                 })
@@ -505,7 +695,7 @@ async fn fetch_tree(
         filtered_docs.len()
     );
 
-    let tree_results = retriever.search_parallel(&router, &filtered_docs, query).await;
+    let tree_results = retriever.search_parallel(embed_model, &filtered_docs, query).await;
     tree_to_retrieval_results(&tree_results)
 }
 
@@ -522,7 +712,7 @@ pub async fn run_parallel_search(
     weights: &EnsembleWeights,
     limit: usize,
 ) -> Vec<RetrievalResult> {
-    run_parallel_search_filtered(pool, query, tenant_id, weights, limit, &SearchFilters::default(), None).await
+    run_parallel_search_filtered(pool, query, tenant_id, weights, limit, &SearchFilters::default(), None, 0.7, 0.0, 2).await
 }
 
 /// Run the parallel multi-source search with source-level filters.
@@ -537,6 +727,9 @@ pub async fn run_parallel_search_filtered(
     limit: usize,
     filters: &SearchFilters,
     rerank_config: Option<&crate::routes::rag_eval::RerankConfig>,
+    alpha: f64,
+    threshold: f64,
+    hop_limit: i32,
 ) -> Vec<RetrievalResult> {
     // Resolve embedding model
     let iam = IamService::new_with_env(pool.clone());
@@ -555,7 +748,7 @@ pub async fn run_parallel_search_filtered(
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_vector(query, tenant_id, &embed_model, &collections, limit, filters),
+                fetch_vector(query, tenant_id, &embed_model, &collections, limit, filters, alpha, threshold),
             )
             .await
             {
@@ -566,7 +759,7 @@ pub async fn run_parallel_search_filtered(
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS),
-                fetch_graph(query, tenant_id, pool, limit, filters),
+                fetch_graph(query, tenant_id, pool, limit, filters, hop_limit),
             )
             .await
             {
@@ -576,8 +769,9 @@ pub async fn run_parallel_search_filtered(
         },
     );
 
-    // Stage 2: Extract candidate document titles from Vector results for Tree pre-filter
-    let vector_candidate_titles: Vec<String> = vector_results.iter()
+    // Stage 2: Extract candidate document titles from Vector AND Graph results for Tree pre-filter
+    let unified_candidate_titles: Vec<String> = vector_results.iter()
+        .chain(graph_results.iter())
         .map(|r| r.title.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -585,7 +779,7 @@ pub async fn run_parallel_search_filtered(
 
     let tree_results = match tokio::time::timeout(
         std::time::Duration::from_secs(SOURCE_TIMEOUT_SECS * 2), // Tree gets more time
-        fetch_tree(query, tenant_id, pool, filters, &vector_candidate_titles),
+        fetch_tree(pool, tenant_id, filters, &unified_candidate_titles, query, &embed_model),
     )
     .await
     {

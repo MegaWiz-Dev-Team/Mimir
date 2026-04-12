@@ -101,12 +101,32 @@ pub struct RagEvalParams {
     /// Qdrant collections to search.
     #[serde(default)]
     pub collections: Option<Vec<String>>,
+    /// Provider used for search.
+    #[serde(default)]
+    pub search_provider: Option<String>,
+    /// Model used for search.
+    #[serde(default)]
+    pub search_model: Option<String>,
+    /// Provider used for generation.
+    #[serde(default)]
+    pub generation_provider: Option<String>,
+    /// Model used for generation.
+    #[serde(default)]
+    pub generation_model: Option<String>,
+    /// LLM Temperature used for generation.
+    #[serde(default = "default_temperature")]
+    pub generation_temperature: f64,
+    /// LLM Max Tokens used for generation.
+    #[serde(default = "default_max_tokens")]
+    pub generation_max_tokens: usize,
 }
 
 fn default_top_k() -> usize { 10 }
 fn default_alpha() -> f64 { 0.7 }
 fn default_threshold() -> f64 { 0.3 }
 fn default_hops() -> i32 { 2 }
+fn default_temperature() -> f64 { 0.1 }
+fn default_max_tokens() -> usize { 1024 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RerankConfig {
@@ -474,12 +494,15 @@ pub async fn execute_evaluation_run(
              top_k, vector_alpha, vector_threshold, graph_hops,
              rerank_enabled, rerank_strategy, rerank_model, rerank_final_k,
              source_filter, collections, embed_model, judge_model, judge_provider,
+             search_provider, search_model, generation_provider, generation_model, 
+             generation_temperature, generation_max_tokens,
              total_queries, dataset_id, dataset_name)
         VALUES (?, ?, ?, 'running',
                 ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
                 ?, ?, ?)"#
     )
     .bind(&run_id)
@@ -501,6 +524,12 @@ pub async fn execute_evaluation_run(
     .bind(&embed_model)
     .bind(&judge_model)
     .bind(&judge_provider)
+    .bind(&params.search_provider)
+    .bind(&params.search_model)
+    .bind(&params.generation_provider)
+    .bind(&params.generation_model)
+    .bind(params.generation_temperature)
+    .bind(params.generation_max_tokens as i32)
     .bind(payload.eval_set.len() as i32)
     .bind(&payload.dataset_id)
     .bind(&payload.dataset_name)
@@ -564,6 +593,9 @@ pub async fn execute_evaluation_run(
                     top_k,
                     &filters,
                     rerank.as_ref(),
+                    params.vector_alpha,
+                    params.vector_threshold,
+                    params.graph_hops,
                 )
                 .await;
 
@@ -848,6 +880,10 @@ async fn list_rag_eval_runs(
             avg_faithfulness, avg_answer_relevancy,
             vector_hit_rate, tree_hit_rate, graph_hit_rate,
             total_queries, vector_alpha, vector_threshold, graph_hops,
+            rerank_enabled, rerank_strategy, rerank_model, rerank_final_k,
+            source_filter, collections, embed_model, judge_model, judge_provider,
+            search_provider, search_model, generation_provider, generation_model,
+            generation_temperature, generation_max_tokens,
             started_at, finished_at, dataset_id, dataset_name
         FROM rag_eval_runs WHERE tenant_id = ?
         ORDER BY started_at DESC LIMIT ? OFFSET ?"#
@@ -874,7 +910,25 @@ async fn list_rag_eval_runs(
                 "top_k": r.try_get::<i32, _>("top_k").unwrap_or(10),
                 "vector_alpha": r.try_get::<Option<f32>, _>("vector_alpha").unwrap_or(None).map(|v| v as f64),
                 "vector_threshold": r.try_get::<Option<f32>, _>("vector_threshold").unwrap_or(None).map(|v| v as f64),
-                "graph_hops": r.try_get::<Option<i32>, _>("graph_hops").unwrap_or(None)
+                "graph_hops": r.try_get::<Option<i32>, _>("graph_hops").unwrap_or(None),
+                "rerank": {
+                    "enabled": r.try_get::<bool, _>("rerank_enabled").unwrap_or(false),
+                    "strategy": r.try_get::<Option<String>, _>("rerank_strategy").unwrap_or(None),
+                    "model": r.try_get::<Option<String>, _>("rerank_model").unwrap_or(None),
+                    "final_top_k": r.try_get::<Option<i32>, _>("rerank_final_k").unwrap_or(None)
+                },
+                "collections": r.try_get::<Option<String>, _>("collections")
+                    .unwrap_or(None)
+                    .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()),
+                "search_provider": r.try_get::<Option<String>, _>("search_provider").unwrap_or(None),
+                "search_model": r.try_get::<Option<String>, _>("search_model").unwrap_or(None),
+                "generation_provider": r.try_get::<Option<String>, _>("generation_provider").unwrap_or(None),
+                "generation_model": r.try_get::<Option<String>, _>("generation_model").unwrap_or(None),
+                "generation_temperature": r.try_get::<Option<f64>, _>("generation_temperature").unwrap_or(None),
+                "generation_max_tokens": r.try_get::<Option<i32>, _>("generation_max_tokens").unwrap_or(None),
+                "embed_model": r.try_get::<Option<String>, _>("embed_model").unwrap_or(None),
+                "judge_model": r.try_get::<Option<String>, _>("judge_model").unwrap_or(None),
+                "judge_provider": r.try_get::<Option<String>, _>("judge_provider").unwrap_or(None),
             },
             "scores": {
                 "hit_rate": r.try_get::<Option<f32>, _>("hit_rate").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
@@ -923,7 +977,9 @@ async fn get_rag_eval_run(
             precision_at_k, recall_at_k,
             total_queries, COALESCE(avg_latency_ms, 0) as avg_latency_ms,
             avg_faithfulness, avg_answer_relevancy, avg_context_precision,
-            embed_model, judge_model,
+            source_filter, collections, embed_model, judge_model, judge_provider,
+            search_provider, search_model, generation_provider, generation_model,
+            generation_temperature, generation_max_tokens,
             started_at, finished_at, dataset_id, dataset_name
         FROM rag_eval_runs WHERE id = ? AND tenant_id = ?"#
     )

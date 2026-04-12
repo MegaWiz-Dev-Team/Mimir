@@ -23,6 +23,8 @@ pub struct AutoTuneRequest {
     pub judge_provider: Option<String>,
     pub tuner_model: Option<String>,
     pub tuner_provider: Option<String>,
+    pub dataset_id: Option<String>,
+    pub dataset_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -39,6 +41,12 @@ pub struct SuggestedParams {
     /// Optional: rerank strategy ("weighted", "rrf", "cross-encoder"). Default: "weighted".
     #[serde(default)]
     pub rerank_strategy: Option<String>,
+    /// Optional: generation temperature (0.0 - 1.0).
+    #[serde(default)]
+    pub generation_temperature: Option<f64>,
+    /// Optional: max tokens for generation.
+    #[serde(default)]
+    pub generation_max_tokens: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -59,12 +67,14 @@ pub async fn run_auto_tune(
     let target_metric = payload.target_metric.clone().unwrap_or_else(|| "ndcg".to_string());
     
     let _ = sqlx::query(
-        "INSERT INTO rag_auto_tuner_jobs (id, tenant_id, target_metric, iterations, current_iteration) VALUES (?, ?, ?, ?, 0)"
+        "INSERT INTO rag_auto_tuner_jobs (id, tenant_id, target_metric, iterations, current_iteration, dataset_id, dataset_name) VALUES (?, ?, ?, ?, 0, ?, ?)"
     )
     .bind(&job_id)
     .bind(&tenant_id)
     .bind(&target_metric)
     .bind(payload.iterations)
+    .bind(&payload.dataset_id)
+    .bind(&payload.dataset_name)
     .execute(&pool)
     .await;
 
@@ -136,8 +146,8 @@ async fn tuning_loop(
             judge_model: req.judge_model.clone(),
             judge_provider: req.judge_provider.clone(),
             evaluate_generation: true,
-            dataset_id: None,
-            dataset_name: None,
+            dataset_id: req.dataset_id.clone(),
+            dataset_name: req.dataset_name.clone(),
         };
 
         if let Ok(eval_result) = execute_evaluation_run(uuid::Uuid::new_v4().to_string(), tenant_id.clone(), pool.clone(), eval_req).await {
@@ -244,6 +254,12 @@ async fn tuning_loop(
                                 final_top_k: 5,
                             });
                         }
+                    }
+                    if let Some(temp) = suggestion.suggested_params.generation_temperature {
+                        current_params.generation_temperature = temp.clamp(0.0, 1.0);
+                    }
+                    if let Some(tokens) = suggestion.suggested_params.generation_max_tokens {
+                        current_params.generation_max_tokens = tokens;
                     }
                 } else {
                     tracing::warn!("Tuner agent failed to return JSON schema. Reusing current params.");

@@ -18,7 +18,12 @@ const SLIDER_CONFIG = [
 export function WeightSlider({ weights, onChange, disabled = false }: WeightSliderProps) {
   const handleChange = useCallback(
     (key: "vector" | "tree" | "graph", value: number) => {
-      const newWeights = { ...weights, [key]: value / 100 };
+      let val = value / 100;
+      
+      // Enforce direct value bounds
+      if (key === "vector" && val < 0.1) val = 0.1;
+      
+      const newWeights = { ...weights, [key]: val };
 
       // Normalize so they sum to 1.0
       const otherKeys = SLIDER_CONFIG.filter((s) => s.key !== key).map((s) => s.key);
@@ -33,6 +38,22 @@ export function WeightSlider({ weights, onChange, disabled = false }: WeightSlid
         otherKeys.forEach((k, i) => {
           newWeights[k] = remaining / otherKeys.length;
         });
+      }
+
+      // Enforce global vector minimum constraint (10%) AFTER basic distribution
+      if (newWeights.vector < 0.1) {
+         let deficit = 0.1 - newWeights.vector;
+         newWeights.vector = 0.1;
+         
+         if (key !== "vector" && newWeights[key] >= deficit) {
+             newWeights[key] -= deficit;
+         } else {
+             let totalAvail = newWeights.tree + newWeights.graph;
+             if (totalAvail > 0) {
+                 newWeights.tree -= deficit * (newWeights.tree / totalAvail);
+                 newWeights.graph -= deficit * (newWeights.graph / totalAvail);
+             }
+         }
       }
 
       onChange(newWeights);

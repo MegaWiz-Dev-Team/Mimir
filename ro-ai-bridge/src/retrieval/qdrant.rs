@@ -116,6 +116,8 @@ impl QdrantRetriever {
         tenant_id: &str,
         limit: usize,
         source_ids: Option<&[i64]>,
+        alpha: f64,
+        threshold: f64,
     ) -> Result<Vec<RetrievalResult>, String> {
         // Step 1: Embed query via Heimdall/Ollama (Dense)
         let vectors =
@@ -136,12 +138,16 @@ impl QdrantRetriever {
         // Step 2: Search Qdrant with tenant + source_id filter using Hybrid Search
         let response = self
             .qdrant
-            .search_hybrid_filtered(&self.collection, vector, &sparse_vector, limit, tenant_id, source_ids)
+            .search_hybrid_filtered(&self.collection, vector, &sparse_vector, limit, tenant_id, source_ids, alpha)
             .await
             .map_err(|e| format!("Qdrant search failed: {}", e))?;
 
-        // Step 3: Parse response into RetrievalResults
-        Ok(Self::parse_qdrant_response(&response))
+        // Step 3: Parse response into RetrievalResults and apply threshold
+        let mut results = Self::parse_qdrant_response(&response);
+        if threshold > 0.0 {
+            results.retain(|r| r.score >= (threshold as f32));
+        }
+        Ok(results)
     }
 }
 
@@ -153,7 +159,7 @@ impl VectorRetriever for QdrantRetriever {
         tenant_id: &str,
         limit: usize,
     ) -> Result<Vec<RetrievalResult>, String> {
-        self.search_filtered(query, tenant_id, limit, None).await
+        self.search_filtered(query, tenant_id, limit, None, 0.7, 0.0).await
     }
 }
 

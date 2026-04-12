@@ -238,10 +238,9 @@ impl QdrantService {
         limit: usize,
         tenant_id: &str,
     ) -> Result<serde_json::Value> {
-        self.search_hybrid_filtered(collection_name, dense_vector, sparse_vector, limit, tenant_id, None).await
+        self.search_hybrid_filtered(collection_name, dense_vector, sparse_vector, limit, tenant_id, None, 0.7).await
     }
 
-    /// Hybrid search with optional source_id pre-filtering at Qdrant level.
     pub async fn search_hybrid_filtered(
         &self,
         collection_name: &str,
@@ -250,6 +249,7 @@ impl QdrantService {
         limit: usize,
         tenant_id: &str,
         source_ids: Option<&[i64]>,
+        alpha: f64,
     ) -> Result<serde_json::Value> {
         let url = format!(
             "{}/collections/{}/points/query",
@@ -270,13 +270,17 @@ impl QdrantService {
         }
         let filter = json!({ "must": must_conditions });
 
+        let base_limit = (limit * 3) as f64;
+        let dense_limit = (base_limit * alpha).ceil() as usize;
+        let sparse_limit = (base_limit * (1.0 - alpha)).ceil() as usize;
+
         let body = json!({
             "prefetch": [
                 {
                     "query": dense_vector,
                     "using": "dense",
-                    "limit": limit * 3,
-                    "filter": filter,
+                    "limit": dense_limit,
+                    "filter": filter.clone(),
                 },
                 {
                     "query": {
@@ -284,7 +288,7 @@ impl QdrantService {
                         "values": sparse_vector.values,
                     },
                     "using": "bm25",
-                    "limit": limit * 3,
+                    "limit": sparse_limit,
                     "filter": filter,
                 }
             ],

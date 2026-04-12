@@ -22,13 +22,12 @@ pub struct TreeSearchResult {
 
 // ── Trait ──────────────────────────────────────────────
 
-/// Trait for tree-based (PageIndex) retrieval engines.
 #[async_trait]
 pub trait TreeRetriever: Send + Sync {
-    /// Search across multiple documents in parallel.
+    /// Search across multiple documents using local vector routing.
     async fn search_parallel(
         &self,
-        router: &mimir_core_ai::services::llm_router::LlmRouter,
+        embed_model: &str,
         docs: &[(String, String, String)], // (title, content, tree_json)
         question: &str,
     ) -> Vec<TreeSearchResult>;
@@ -50,6 +49,15 @@ impl Default for NativeTreeRetriever {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ExtractedNode {
+    pub title: String,
+    pub text: String,
+    pub doc_title: String,
+    pub doc_idx: usize,
+    pub parent_context: Vec<String>,
+}
+
 impl NativeTreeRetriever {
     pub fn new() -> Self {
         Self {
@@ -62,160 +70,160 @@ impl NativeTreeRetriever {
         self
     }
 
-    /// Call LLM natively for a single document's tree.
-    async fn search_one(
-        &self,
-        client: &UniversalClient,
-        model: &str,
-        title: &str,
-        tree_json: &str,
-        content: &str,
-        question: &str,
-    ) -> Result<TreeSearchResult, String> {
-        let tree_index: Value =
-            serde_json::from_str(tree_json).map_err(|e| format!("Invalid tree JSON: {}", e))?;
-
-        let system_prompt = "You are a document search agent. Given a tree index of a document, find the most relevant sections for the user's question. Return exactly a valid JSON with fields: 'answer' (string or null), 'relevant_sections' (list of strings representing node titles), 'confidence' (float 0.0-1.0 representing how confident you are this document answers the question), 'reasoning' (string).";
-        
-        let mut truncated_tree = tree_json;
-        if tree_json.len() > 8000 {
-            let mut end = 8000;
-            while end > 0 && !tree_json.is_char_boundary(end) {
-                end -= 1;
-            }
-            truncated_tree = &tree_json[..end];
-        }
-        let mut truncated_content = content;
-        if content.len() > 12000 {
-            let mut end = 12000;
-            while end > 0 && !content.is_char_boundary(end) {
-                end -= 1;
-            }
-            truncated_content = &content[..end];
+    /// Recursively flattens the JSON tree into a list of ExtractNodes representing sections and their summaries.
+    fn flatten_tree(
+        node: &Value,
+        doc_title: &str,
+        doc_idx: usize,
+        current_path: &[String],
+        nodes: &mut Vec<ExtractedNode>
+    ) {
+        let title = node.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+        let mut new_path = current_path.to_vec();
+        if !title.is_empty() {
+            new_path.push(title.clone());
         }
 
-        let user_prompt = format!(
-            "## Document Title: {}\n\n## Tree Index:\n```json\n{}\n```\n\n## Partial Document Content:\n{}\n\n## Question:\n{}\n\nPlease find the answer using the tree index to locate relevant sections.",
-            title, truncated_tree, truncated_content, question
-        );
+        let summary = node.get("summary").and_then(|t| t.as_str()).unwrap_or("");
+        let content = node.get("content").and_then(|t| t.as_str()).unwrap_or("");
 
-        let response_text = client.prompt(model, system_prompt, &user_prompt, 2048, 0.1)
-            .await
-            .map_err(|e| format!("LLM generation failed: {}", e))?;
+        let mut combined_text = String::new();
+        if !title.is_empty() {
+            combined_text.push_str(&format!("Section: {}\n", title));
+        }
+        if !summary.is_empty() {
+            combined_text.push_str(&format!("Summary: {}\n", summary));
+        } else if !content.is_empty() {
+            // Fallback to content if no summary exists, capped at ~500 chars to avoid massive text blocks
+            combined_text.push_str(&format!("Content preview: {}\n", content.chars().take(500).collect::<String>()));
+        }
 
-        // Cleanup potential markdown codeblock wrapping
-        let clean_json = response_text.trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
-
-        let result: Value = serde_json::from_str(clean_json).unwrap_or(json!({
-            "answer": null,
-            "relevant_sections": [],
-            "reasoning": "Failed to parse JSON"
-        }));
-
-        let sections: Vec<String> = result
-            .get("relevant_sections")
-            .and_then(|s| s.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<String>>()
-            })
-            .unwrap_or_default();
-
-        let answer = result
-            .get("answer")
-            .and_then(|a| a.as_str())
-            .map(|s| s.to_string());
-
-        let reasoning = result
-            .get("reasoning")
-            .and_then(|r| r.as_str())
-            .map(|s| s.to_string());
-
-        let confidence = result
-            .get("confidence")
-            .and_then(|c| c.as_f64())
-            .map(|c| (c as f32).clamp(0.1, 1.0))
-            .unwrap_or_else(|| {
-                // Heuristic fallback: confidence based on sections found
-                if sections.is_empty() { 0.2 } else { 0.5 + (sections.len() as f32 * 0.1).min(0.4) }
+        if !combined_text.trim().is_empty() {
+            nodes.push(ExtractedNode {
+                title: title.clone(),
+                text: combined_text,
+                doc_title: doc_title.to_string(),
+                doc_idx,
+                parent_context: new_path.clone(),
             });
+        }
 
-        let parent_context = extract_parent_context(&tree_index, &sections);
-
-        Ok(TreeSearchResult {
-            document_title: title.to_string(),
-            answer,
-            relevant_sections: sections,
-            parent_context,
-            confidence,
-            reasoning,
-        })
+        if let Some(children) = node.get("children").and_then(|c| c.as_array()) {
+            for child in children {
+                Self::flatten_tree(child, doc_title, doc_idx, &new_path, nodes);
+            }
+        }
     }
+}
+
+/// Compute cosine similarity between two f32 vectors.
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0;
+    let mut norm_a = 0.0;
+    let mut norm_b = 0.0;
+    for (va, vb) in a.iter().zip(b.iter()) {
+        dot += va * vb;
+        norm_a += va * va;
+        norm_b += vb * vb;
+    }
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+    dot / (norm_a.sqrt() * norm_b.sqrt())
 }
 
 #[async_trait]
 impl TreeRetriever for NativeTreeRetriever {
     async fn search_parallel(
         &self,
-        router: &mimir_core_ai::services::llm_router::LlmRouter,
+        embed_model: &str,
         docs: &[(String, String, String)],
         question: &str,
     ) -> Vec<TreeSearchResult> {
+        tracing::info!(
+            docs = docs.len(),
+            "🌲 Tree search: Pure vector routing across {} docs",
+            docs.len(),
+        );
 
-        let (client, model) = match router.resolve_client("generation") {
-            Ok(res) => res,
-            Err(e) => {
-                tracing::warn!("Failed to resolve generation client: {}", e);
+        if docs.is_empty() {
+            return vec![];
+        }
+
+        // 1. Flatten all trees into extractable nodes.
+        let mut all_nodes = Vec::new();
+        for (idx, (doc_title, _content, tree_json_str)) in docs.iter().enumerate() {
+            if let Ok(tree_index) = serde_json::from_str::<Value>(tree_json_str) {
+                Self::flatten_tree(&tree_index, doc_title, idx, &[], &mut all_nodes);
+            }
+        }
+
+        if all_nodes.is_empty() {
+            return vec![];
+        }
+
+        // Prepare texts to embed: Question is first, followed by all node texts.
+        let mut texts_to_embed = vec![question.to_string()];
+        for node in &all_nodes {
+            texts_to_embed.push(node.text.clone());
+        }
+
+        // 2. Batch embed nodes (+ question) locally via Heimdall
+        let vectors = match crate::routes::vector::embed_texts(&texts_to_embed, embed_model).await {
+            Ok(vecs) if vecs.len() == texts_to_embed.len() => vecs,
+            Ok(_) | Err(_) => {
+                tracing::warn!("Failed to embed tree nodes for vector routing.");
                 return vec![];
             }
         };
 
-        let concurrency = self.concurrency_limit;
-        tracing::info!(
-            docs = docs.len(),
-            concurrency = concurrency,
-            "🌲 Tree search: processing {} docs with concurrency {}",
-            docs.len(),
-            concurrency
-        );
+        let q_vec = &vectors[0];
+        let node_vecs = &vectors[1..];
 
-        // Execute with bounded concurrency via buffer_unordered.
-        // Clone owned copies to avoid lifetime generalization errors with async closures.
-        let mut results = Vec::new();
-        let chunks: Vec<_> = docs.iter().enumerate().collect();
-        for chunk in chunks.chunks(concurrency) {
-            let mut handles = Vec::new();
-            for &(i, (title, content, tree_json)) in chunk {
-                let client_c = client.clone();
-                let model_c = model.clone();
-                let title_c = title.clone();
-                let content_c = content.clone();
-                let tree_json_c = tree_json.clone();
-                let question_c = question.to_string();
-                handles.push(tokio::spawn(async move {
-                    let retriever = NativeTreeRetriever::new();
-                    match retriever.search_one(&client_c, &model_c, &title_c, &tree_json_c, &content_c, &question_c).await {
-                        Ok(result) => Some(result),
-                        Err(e) => {
-                            tracing::warn!("Native tree search failed for doc {} ({}): {}", i, title_c, e);
-                            None
-                        }
-                    }
-                }));
-            }
-            for handle in handles {
-                if let Ok(Some(result)) = handle.await {
-                    results.push(result);
-                }
+        // 3. Compute similarities and group by document index
+        // We will keep track of the best nodes for each document.
+        let mut best_nodes_per_doc: std::collections::HashMap<usize, Vec<(&ExtractedNode, f32)>> = std::collections::HashMap::new();
+
+        for (i, node) in all_nodes.iter().enumerate() {
+            let sim = cosine_similarity(q_vec, &node_vecs[i]);
+            if sim > 0.40 {
+                best_nodes_per_doc.entry(node.doc_idx).or_default().push((node, sim));
             }
         }
 
-        results
+        // 4. Construct TreeSearchResults for each document that had matching nodes.
+        let mut final_results = Vec::new();
+
+        for (doc_idx, mut matched_nodes) in best_nodes_per_doc {
+            // Sort by similarity descending
+            matched_nodes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            // Take top 3 best matching sections from this tree
+            matched_nodes.truncate(3);
+
+            let best_score = matched_nodes.first().map(|n| n.1).unwrap_or(0.0);
+            
+            let relevant_sections: Vec<String> = matched_nodes.iter().map(|n| n.0.title.clone()).collect();
+            // Aggregate parent context
+            let mut parent_context = std::collections::HashSet::new();
+            for n in &matched_nodes {
+                for p in &n.0.parent_context {
+                    parent_context.insert(p.clone());
+                }
+            }
+
+            let doc_title = docs[doc_idx].0.clone();
+
+            final_results.push(TreeSearchResult {
+                document_title: doc_title,
+                answer: Some(format!("Routed via semantic vector matching against tree nodes.")),
+                relevant_sections,
+                parent_context: parent_context.into_iter().collect(),
+                confidence: best_score, // Extracted pure vector cosine similarity
+                reasoning: Some("Identified relevant nodes exclusively using pure semantic routing.".to_string()),
+            });
+        }
+
+        final_results
     }
 }
 

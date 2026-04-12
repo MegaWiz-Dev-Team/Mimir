@@ -98,12 +98,11 @@ docker compose ps
 
 | Container       | Port      | Purpose                    |
 | --------------- | --------- | -------------------------- |
-| `mimir_mariadb` | 3306      | Primary database           |
+| `mimir_mariadb` | 3306      | Primary database & Relational Graph |
 | `mimir_qdrant`  | 6333/6334 | Vector database            |
 | `mimir_redis`   | 6379      | Cache & session            |
 | `mimir_rustfs`  | 9000/9001 | S3-compatible file storage |
 | `mimir_vault`   | 8200      | Secrets management         |
-| `mimir_neo4j`   | 7474/7687 | Knowledge graph            |
 
 ### Vault Token
 
@@ -220,7 +219,7 @@ cd ro-ai-bridge && cargo clean
 | `DATABASE_URL must be set` | Check `.env` file exists and `source .env` before running          |
 | Vault sealed after restart | Auto-unseals via `entrypoint.sh` — check `docker logs mimir_vault` |
 | Qdrant connection refused  | `docker compose up -d qdrant`                                      |
-| Neo4j login fails          | Default: `neo4j` / `mimir_neo4j_password`                          |
+
 | RustFS bucket not found    | Run `mc mb mimir/mimir-uploads`                                    |
 | Port conflicts             | Check `lsof -i :3001` and stop conflicting services                |
 | Source data missing (K3s)  | Rebuild dashboard with `NEXT_PUBLIC_API_URL=http://localhost:30000/api` |
@@ -263,7 +262,7 @@ NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ./scripts/k3s-deploy.sh dashboa
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
 │  │ mimir-api   │  │ mimir-dash   │  │ Supporting Services    │ │
 │  │ :30000      │  │ :30001       │  │ mariadb, qdrant, redis │ │
-│  │ (Rust/Axum) │  │ (Next.js)    │  │ neo4j, yggdrasil       │ │
+│  │ (Rust/Axum) │  │ (Next.js)    │  │ mariadb, yggdrasil     │ │
 │  └──────┬──────┘  └──────┬───────┘  └────────────────────────┘ │
 │         │                │                                      │
 │         └── API_BASE_URL: http://localhost:30000/api ──┘        │

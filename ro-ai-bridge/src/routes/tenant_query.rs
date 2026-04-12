@@ -124,19 +124,23 @@ async fn query_tenant(
 
         if !searchable_docs.is_empty() {
             use crate::retrieval::tree::TreeRetriever;
-            let tree_results = retriever
-                .search_parallel(&router, &searchable_docs, &req.question)
-                .await;
+            if let Ok((client, model)) = router.resolve_client("generation") {
+                let tree_results = retriever
+                    .search_parallel(&client, &model, &searchable_docs, &req.question)
+                    .await;
 
-            for result in &tree_results {
-                if let Some(ref answer) = result.answer {
-                    all_answers.push(answer.clone());
+                for result in &tree_results {
+                    if let Some(ref answer) = result.answer {
+                        all_answers.push(answer.clone());
+                    }
+                    all_sources.push(QuerySource {
+                        document_title: result.document_title.clone(),
+                        relevant_sections: result.relevant_sections.clone(),
+                        source_type: "tree".to_string(),
+                    });
                 }
-                all_sources.push(QuerySource {
-                    document_title: result.document_title.clone(),
-                    relevant_sections: result.relevant_sections.clone(),
-                    source_type: "tree".to_string(),
-                });
+            } else {
+                tracing::warn!("Failed to resolve generation client for tree retrieval");
             }
         }
     }

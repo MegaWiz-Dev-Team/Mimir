@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { authFetch, API_BASE_URL } from "@/lib/api";
 import { RagEvalDashboard } from "@/components/evaluations/rag-eval-dashboard";
+import { PipelineVisualizer } from "@/components/ui/pipeline-visualizer";
 
 // ── Types ──────────────────────────────────────────
 
@@ -37,6 +38,8 @@ interface SearchResponse {
   mode_used: string;
   latency_ms: number;
   query: string;
+  synthesis?: string;
+  trace_log?: any[];
 }
 
 interface QuerySuggestion {
@@ -106,7 +109,12 @@ export default function RAGPlaygroundPage() {
   const [error, setError] = useState<string | null>(null);
   const [weights, setWeights] = useState({ vector: 0.5, tree: 0.3, graph: 0.2 });
   const [rerankStrategy, setRerankStrategy] = useState<string>("none");
+  const [generateLLM, setGenerateLLM] = useState<boolean>(false);
+  const [enableTrace, setEnableTrace] = useState<boolean>(true);
   const [searchHistory, setSearchHistory] = useState<{ question: string; mode: string; resultCount: number }[]>([]);
+  const [hopLimit, setHopLimit] = useState(2);
+  const [alpha, setAlpha] = useState(0.7);
+  const [threshold, setThreshold] = useState(0.0);
 
   // Optimizer state
   const [optimizing, setOptimizing] = useState(false);
@@ -169,6 +177,20 @@ export default function RAGPlaygroundPage() {
       .catch(console.error);
   }, [apiOrigin]);
 
+  const handleConfigChange = useCallback((key: string, value: any) => {
+    switch (key) {
+      case 'weights': setWeights(value); break;
+      case 'mode': setMode(value); break;
+      case 'searchProvider': setSearchProvider(value); setSearchModelId(''); break;
+      case 'searchModelId': setSearchModelId(value); break;
+      case 'rerankStrategy': setRerankStrategy(value); break;
+      case 'hopLimit': setHopLimit(value); break;
+      case 'alpha': setAlpha(value); break;
+      case 'threshold': setThreshold(value); break;
+      case 'generateLLM': setGenerateLLM(value); break;
+    }
+  }, []);
+
   // ── Search Handler ──────────────────────────────
 
   const handleSearch = useCallback(async () => {
@@ -182,6 +204,13 @@ export default function RAGPlaygroundPage() {
         query: question.trim(),
         weights: mode === "hybrid" ? weights : undefined,
         limit: 10,
+        synthesize: generateLLM,
+        provider: searchProvider !== "default" ? searchProvider.toLowerCase() : undefined,
+        model: searchModelId || undefined,
+        trace: enableTrace,
+        alpha,
+        threshold,
+        hop_limit: hopLimit,
       };
       // Single-source mode: only enable that source
       if (mode !== "hybrid") {
@@ -242,7 +271,7 @@ export default function RAGPlaygroundPage() {
     } finally {
       setLoading(false);
     }
-  }, [question, mode, weights, loading, apiOrigin]);
+  }, [question, mode, weights, loading, apiOrigin, generateLLM, searchProvider, searchModelId, enableTrace, rerankStrategy]);
 
   // ── Optimize Handler ────────────────────────────
 
@@ -321,11 +350,17 @@ export default function RAGPlaygroundPage() {
           vector_alpha: 0.5,
           vector_threshold: 0.0,
           graph_hops: 1,
-          rerank_config: rerankStrategy !== "none" ? {
+          rerank: rerankStrategy !== "none" ? {
             enabled: true,
             strategy: rerankStrategy,
             final_top_k: 5
-          } : null
+          } : null,
+          search_provider: searchProvider !== "default" ? searchProvider : undefined,
+          search_model: searchModelId.trim() ? searchModelId.trim() : undefined,
+          generation_provider: evalProvider !== "default" ? evalProvider : undefined,
+          generation_model: evalModelId.trim() ? evalModelId.trim() : undefined,
+          generation_temperature: 0.1,
+          generation_max_tokens: 1024,
         },
         judge_provider: evalProvider !== "default" ? evalProvider : undefined,
         judge_model: evalModelId.trim() ? evalModelId.trim() : undefined,
@@ -539,6 +574,18 @@ export default function RAGPlaygroundPage() {
                     </Select>
                   )}
                 </div>
+                <div className="flex items-center space-x-2 pt-3 border-t">
+                  <input
+                    type="checkbox"
+                    id="gen-llm"
+                    checked={generateLLM}
+                    onChange={(e) => setGenerateLLM(e.target.checked)}
+                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                  />
+                  <Label htmlFor="gen-llm" className="text-xs cursor-pointer font-medium text-primary">
+                    Generate Answer using LLM
+                  </Label>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -723,6 +770,22 @@ export default function RAGPlaygroundPage() {
                       )}
                     </Button>
                   </div>
+                  
+                  {/* Trace Toggle */}
+                  <div className="flex justify-end mt-3">
+                    <div className="flex items-center space-x-2 bg-muted/20 px-2.5 py-1.5 rounded-md border border-border/50 transition-colors hover:bg-muted/30">
+                      <input
+                        type="checkbox"
+                        id="trace-toggle"
+                        checked={enableTrace}
+                        onChange={(e) => setEnableTrace(e.target.checked)}
+                        className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                      />
+                      <Label htmlFor="trace-toggle" className="text-[11px] uppercase tracking-wider cursor-pointer font-semibold text-muted-foreground transition-colors">
+                        🔬 Trace Pipeline
+                      </Label>
+                    </div>
+                  </div>
 
                   {/* AI Optimizer Suggestions */}
                   {suggestions.length > 0 && (
@@ -771,9 +834,40 @@ export default function RAGPlaygroundPage() {
                 </Card>
               )}
 
+              {/* Pipeline Trace Visualizer (Always visible to show architecture/trace) */}
+              <div className="mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <PipelineVisualizer 
+                  traceLog={results?.trace_log || []} 
+                  totalLatencyMs={results?.latency_ms || 0}
+                  isLoading={loading}
+                  playgroundState={{
+                    mode, weights, searchProvider, searchModelId,
+                    evalProvider, evalModelId, generateLLM, rerankStrategy,
+                    hopLimit, alpha, threshold, availableModels,
+                  }}
+                  onConfigChange={handleConfigChange}
+                  onReRun={handleSearch}
+                />
+              </div>
+
               {/* Results */}
               {results && (
                 <>
+                  {/* Synthesis Block */}
+                  {results.synthesis && (
+                    <Card className="border-primary/50 bg-primary/5 mb-4 shadow-sm">
+                      <CardContent className="p-5">
+                        <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-primary">
+                          <Wand2 className="h-4 w-4" />
+                          AI Synthesized Answer
+                        </div>
+                        <div className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
+                          {results.synthesis}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Source Distribution + Metrics */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <Card className="col-span-2">
@@ -810,10 +904,16 @@ export default function RAGPlaygroundPage() {
                       </CardContent>
                     </Card>
                     <Card>
-                      <CardContent className="p-4 flex flex-col items-center justify-center">
+                      <CardContent className="p-4 flex flex-col items-center justify-center relative">
                         <Clock className="h-5 w-5 text-muted-foreground mb-1" />
                         <span className="text-2xl font-bold">{results.latency_ms}</span>
                         <span className="text-[10px] text-muted-foreground">ms latency</span>
+                        {results.trace_log && (
+                          <div className="absolute top-2 right-2 flex items-center justify-center">
+                            <span className="h-2 w-2 rounded-full bg-primary animate-pulse relative"></span>
+                            <span className="absolute h-2 w-2 rounded-full bg-primary animate-ping opacity-75"></span>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                     <Card>
@@ -826,8 +926,8 @@ export default function RAGPlaygroundPage() {
                   </div>
 
                   {/* Source Cards */}
-                  {results.results.length > 0 && (
-                    <div className="space-y-3">
+                  {results.results && results.results.length > 0 && (
+                    <div className="space-y-3 mt-8">
                       <h3 className="text-sm font-medium text-muted-foreground">
                         Results ({results.results.length})
                       </h3>
@@ -854,6 +954,7 @@ export default function RAGPlaygroundPage() {
                       ))}
                     </div>
                   )}
+
                 </>
               )}
 

@@ -43,6 +43,8 @@ impl EnsembleWeights {
             self.vector /= sum;
             self.tree /= sum;
             self.graph /= sum;
+        } else {
+            *self = Self::default();
         }
     }
 }
