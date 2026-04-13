@@ -227,13 +227,13 @@ impl Tool for TreeSearchTool {
                 }
             }
 
-            let (client, model) = match router.resolve_client("generation") {
+            let (_client, embed_model) = match router.resolve_client("embedding") {
                 Ok(res) => res,
                 Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
             };
 
             let res = retriever
-                .search_parallel(&client, &model, &tree_docs, &query)
+                .search_parallel(&embed_model, &tree_docs, &query)
                 .await;
             Ok::<Vec<crate::retrieval::tree::TreeSearchResult>, std::io::Error>(res)
         })

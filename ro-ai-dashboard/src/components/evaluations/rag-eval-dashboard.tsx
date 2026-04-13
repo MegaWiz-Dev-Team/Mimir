@@ -63,6 +63,8 @@ interface RagEvalRun {
   dataset_id?: string | null;
   dataset_name?: string | null;
   started_at: string;
+  is_baseline?: boolean;
+  regression_detected?: boolean;
 }
 
 interface RagEvalQuery {
@@ -103,6 +105,7 @@ export function RagEvalDashboard() {
   const [drillDownData, setDrillDownData] = useState<RunDetailResponse | null>(null);
   const [drillDownLoading, setDrillDownLoading] = useState(false);
   const [expandedQuery, setExpandedQuery] = useState<number | null>(null);
+  const [drillDownFilter, setDrillDownFilter] = useState<"all" | "passed" | "failed">("all");
 
   const [autoTuneOpen, setAutoTuneOpen] = useState(false);
   const [tuneIterations, setTuneIterations] = useState(3);
@@ -110,6 +113,14 @@ export function RagEvalDashboard() {
   const [tunerModelId, setTunerModelId] = useState<string>("");
   const [tuningJobId, setTuningJobId] = useState<string | null>(null);
   const [tuningStatus, setTuningStatus] = useState<any>(null);
+  
+  const [tuneMaxTokens, setTuneMaxTokens] = useState<number | "">("");
+  const [tuneMinAccuracy, setTuneMinAccuracy] = useState<number | "">("");
+  const [tuneMaxLatency, setTuneMaxLatency] = useState<number | "">("");
+  const [tuneMaxTokenBudget, setTuneMaxTokenBudget] = useState<number | "">("");
+
+  const [diffModalOpen, setDiffModalOpen] = useState(false);
+  const [diffData, setDiffData] = useState<any>(null);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -139,6 +150,13 @@ export function RagEvalDashboard() {
   const [isDeploying, setIsDeploying] = useState(false);
 
   const apiOrigin = API_BASE_URL.replace(/\/api\/v1$/, "");
+
+  // ── Filtered drill-down (T3.6) ──────────────────
+  const filteredDrillDown = useMemo(() => {
+    if (!drillDownData) return [];
+    if (drillDownFilter === "all") return drillDownData.per_query;
+    return drillDownData.per_query.filter(q => drillDownFilter === "passed" ? q.hit : !q.hit);
+  }, [drillDownData, drillDownFilter]);
 
   const PER_PAGE = 20;
 
@@ -392,7 +410,11 @@ export function RagEvalDashboard() {
           iterations: tuneIterations,
           target_metric: "ndcg",
           tuner_provider: tunerProvider !== "default" ? tunerProvider : undefined,
-          tuner_model: tunerModelId.trim() ? tunerModelId.trim() : undefined
+          tuner_model: tunerModelId.trim() ? tunerModelId.trim() : undefined,
+          max_token_budget: tuneMaxTokenBudget !== "" ? Number(tuneMaxTokenBudget) : undefined,
+          min_accuracy: tuneMinAccuracy !== "" ? Number(tuneMinAccuracy) / 100 : undefined,
+          max_latency: tuneMaxLatency !== "" ? Number(tuneMaxLatency) : undefined,
+          max_tokens_per_run: tuneMaxTokens !== "" ? Number(tuneMaxTokens) : undefined,
         })
       });
       if (resp.ok) {
@@ -401,6 +423,33 @@ export function RagEvalDashboard() {
         setAutoTuneOpen(false);
       }
     } catch (e) { console.error(e); }
+  };
+
+  const handleCompareRuns = async () => {
+    if (selectedRunIds.length !== 2) return;
+    try {
+      const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/runs/compare?ids=${selectedRunIds[0]},${selectedRunIds[1]}`);
+      if (resp.ok) {
+        setDiffData(await resp.json());
+        setDiffModalOpen(true);
+      }
+    } catch (e) {
+      setNotification({ type: "error", message: "Failed to load comparison data." });
+    }
+  };
+
+  const setBaseline = async (runId: string) => {
+    try {
+      const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/runs/${runId}/set-baseline`, { method: "POST" });
+      if (resp.ok) {
+        setNotification({ type: "success", message: "Baseline set successfully!" });
+        fetchRuns();
+      } else {
+        setNotification({ type: "error", message: "Failed to set baseline." });
+      }
+    } catch (e) {
+      setNotification({ type: "error", message: "Network error setting baseline." });
+    }
   };
 
   const filteredRuns = useMemo(() => {
@@ -519,26 +568,52 @@ export function RagEvalDashboard() {
               Tuning: Iteration {tuningStatus?.current_iteration || 0}/{tuningStatus?.total_iterations || 0}
             </Badge>
           ) : (
-            <Button 
-              variant="secondary"
-              className="gap-2 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border-purple-500/20 text-purple-600 hover:bg-purple-500/20 
-                disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={selectedRunIds.length !== 1}
-              onClick={() => {
-                if (selectedRunsData.length !== 1) return;
-                if (!drillDownData || drillDownData.run.id !== selectedRunsData[0].id) {
-                  fetchDrillDown(selectedRunsData[0].id).then(() => setAutoTuneOpen(true));
-                } else {
-                  setAutoTuneOpen(true);
-                }
-              }}
-              title="Select exactly 1 run to baseline from"
-            >
-              <Wand2 className="w-4 h-4" /> Auto-Tune
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline"
+                className="gap-2"
+                disabled={selectedRunIds.length !== 2}
+                onClick={handleCompareRuns}
+                title="Select exactly 2 runs to compare differentials"
+              >
+                Diff A vs B
+              </Button>
+              <Button 
+                variant="secondary"
+                className="gap-2 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border-purple-500/20 text-purple-600 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={selectedRunIds.length !== 1}
+                onClick={() => {
+                  if (selectedRunsData.length !== 1) return;
+                  if (!drillDownData || drillDownData.run.id !== selectedRunsData[0].id) {
+                    fetchDrillDown(selectedRunsData[0].id).then(() => setAutoTuneOpen(true));
+                  } else {
+                    setAutoTuneOpen(true);
+                  }
+                }}
+                title="Select exactly 1 run to baseline from"
+              >
+                <Wand2 className="w-4 h-4" /> Auto-Tune
+              </Button>
+            </div>
           )}
         </CardHeader>
         <CardContent>
+          {datasetFilter !== "all" && runs.some(r => r.dataset_id === datasetFilter) && (
+            <div className="h-[150px] w-full mb-6 border-b pb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                 <LineChart data={
+                   [...runs.filter(r => r.dataset_id === datasetFilter)].sort((a,b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+                 }>
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                   <XAxis dataKey="name" tick={{fontSize: 10}} tickFormatter={(val) => val ? val.substring(0, 10) : ''} />
+                   <YAxis tick={{fontSize: 10}} domain={['auto', 'auto']} width={40} />
+                   <RechartsTooltip />
+                   <Line type="monotone" name="Hit Rate" dataKey={(d) => d.scores.hit_rate} stroke="#10b981" strokeWidth={2} />
+                   <Line type="monotone" name="NDCG" dataKey={(d) => d.scores.ndcg} stroke="#6366f1" strokeWidth={2} />
+                 </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
           <div className="flex items-center gap-4 mb-4">
             <Label className="text-sm shrink-0">Filter by Dataset:</Label>
             <select
@@ -594,10 +669,19 @@ export function RagEvalDashboard() {
                     {selectedRunsData.map((r) => (
                       <th key={r.id} className="px-4 py-3 font-medium">
                         <div className="flex flex-col">
-                          <span className="truncate max-w-[150px] text-foreground">{r.name || "Unnamed"}</span>
+                          <span className="truncate max-w-[150px] text-foreground flex items-center gap-1">
+                            {r.is_baseline && <span className="text-amber-500" title="Baseline Dataset Model">⭐</span>}
+                            {r.regression_detected && <span className="text-rose-500" title="Regression Detected">⚠️</span>}
+                            {r.name || "Unnamed"}
+                          </span>
                           <span className="text-[10px] font-normal opacity-70">
                             {new Date(r.started_at).toLocaleDateString()}
                           </span>
+                          {!r.is_baseline && (
+                            <Button size="sm" variant="ghost" className="h-6 mt-1 text-[10px] bg-amber-500/10 text-amber-600 hover:bg-amber-500/20" onClick={() => setBaseline(r.id)}>
+                              Set as Baseline
+                            </Button>
+                          )}
                         </div>
                       </th>
                     ))}
@@ -745,20 +829,31 @@ export function RagEvalDashboard() {
                 ({drillDownData.run.name || "Run"})
               </span>
             </CardTitle>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-rose-500 hover:text-rose-600 hover:bg-rose-50"
-              onClick={() => handleDeleteRun(drillDownData.run.id)}
-              disabled={drillDownLoading}
-              title="Delete Evaluation Run"
-            >
-              <Trash2 className="w-5 h-5" />
-            </Button>
+            <div className="flex items-center gap-4">
+              <div className="flex bg-muted rounded-md p-1">
+                <button className={`px-3 py-1 text-xs rounded-md ${drillDownFilter === 'all' ? 'bg-background shadow-sm' : ''}`} onClick={() => { setDrillDownFilter('all'); setExpandedQuery(null); }}>All</button>
+                <button className={`px-3 py-1 text-xs rounded-md ${drillDownFilter === 'passed' ? 'bg-background shadow-sm text-emerald-600' : ''}`} onClick={() => { setDrillDownFilter('passed'); setExpandedQuery(null); }}>Passed</button>
+                <button className={`px-3 py-1 text-xs rounded-md ${drillDownFilter === 'failed' ? 'bg-background shadow-sm text-rose-600' : ''}`} onClick={() => { setDrillDownFilter('failed'); setExpandedQuery(null); }}>Failed</button>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => window.open(`${API_BASE_URL.replace("/api/v1", "")}/api/v1/rag-eval/runs/${drillDownData.run.id}/export?format=csv`)}>CSV</Button>
+                <Button variant="outline" size="sm" onClick={() => window.open(`${API_BASE_URL.replace("/api/v1", "")}/api/v1/rag-eval/runs/${drillDownData.run.id}/export?format=json`)}>JSON</Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-rose-500 hover:text-rose-600 hover:bg-rose-50"
+                onClick={() => handleDeleteRun(drillDownData.run.id)}
+                disabled={drillDownLoading}
+                title="Delete Evaluation Run"
+              >
+                <Trash2 className="w-5 h-5" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
-              {drillDownData.per_query.map((q, idx) => (
+              {filteredDrillDown.map((q, idx) => (
                 <div key={idx} className="p-4 hover:bg-muted/30 transition-colors">
                   <div 
                     className="flex items-center justify-between cursor-pointer"
@@ -790,36 +885,81 @@ export function RagEvalDashboard() {
                   
                   {expandedQuery === idx && (
                     <div className="mt-4 pl-8 pr-4 grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in slide-in-from-top-2">
-                      <div className="space-y-4">
+                      {/* Left: Retrieval Scores */}
+                      <div className="space-y-4 border-r pr-4">
                         <div>
-                          <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Top Context</h4>
+                          <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Retrieval Scores</h4>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="bg-muted/50 p-2 rounded">
+                              <span className="text-muted-foreground">NDCG:</span> <span className="font-mono font-medium">{q.ndcg_score.toFixed(3)}</span>
+                            </div>
+                            <div className="bg-muted/50 p-2 rounded">
+                              <span className="text-muted-foreground">MRR:</span> <span className="font-mono font-medium">{q.reciprocal_rank.toFixed(3)}</span>
+                            </div>
+                            <div className="bg-muted/50 p-2 rounded">
+                              <span className="text-muted-foreground">Precision:</span> <span className="font-mono font-medium">{q.precision.toFixed(3)}</span>
+                            </div>
+                            <div className="bg-muted/50 p-2 rounded">
+                              <span className="text-muted-foreground">Recall:</span> <span className="font-mono font-medium">{q.recall.toFixed(3)}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Retrieved Context (Top 3)</h4>
                           <div className="space-y-2">
                             {q.top_results.slice(0, 3).map((tr, i) => (
-                              <div key={i} className="text-sm bg-muted/50 p-2 rounded border flex items-center justify-between">
-                                <span className="truncate">{tr.title}</span>
-                                <Badge variant="secondary" className="text-[10px]">{tr.score.toFixed(3)}</Badge>
+                              <div key={i} className="text-sm bg-muted/50 p-2 rounded border flex items-center justify-between overflow-hidden">
+                                <span className="truncate mr-2">{tr.title}</span>
+                                <Badge variant="secondary" className="shrink-0 text-[10px]">{tr.score.toFixed(3)}</Badge>
                               </div>
                             ))}
                           </div>
                         </div>
+                        <div className="text-xs text-muted-foreground">
+                          Latency: <span className="font-mono">{q.total_latency_ms}ms</span>
+                        </div>
                       </div>
                       
-                      {q.generated_answer && (
-                        <div className="space-y-4">
+                      {/* Right: Generated & Context */}
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Generated Answer</h4>
+                          <div className={`text-sm bg-background border p-3 rounded-md italic ${q.hit ? 'border-emerald-500/30' : 'border-rose-500/30'}`}>
+                            {q.generated_answer || "N/A"}
+                          </div>
+                        </div>
+                        {q.judge_reasoning && (
                           <div>
-                            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Generated Answer</h4>
-                            <div className="text-sm bg-background border p-3 rounded-md italic">
-                              {q.generated_answer}
+                            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Judge Reasoning</h4>
+                            <p className="text-sm text-muted-foreground">{q.judge_reasoning}</p>
+                          </div>
+                        )}
+                        {(q.faithfulness !== null || q.answer_relevancy !== null || q.context_precision !== null) && (
+                          <div>
+                            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Generation Quality</h4>
+                            <div className="grid grid-cols-3 gap-2 text-sm">
+                              {q.faithfulness !== null && (
+                                <div className="bg-muted/50 p-2 rounded text-center">
+                                  <div className="text-muted-foreground text-[10px]">Faithfulness</div>
+                                  <div className={`font-mono font-bold ${q.faithfulness >= 8 ? 'text-emerald-500' : q.faithfulness >= 5 ? 'text-amber-500' : 'text-rose-500'}`}>{q.faithfulness}/10</div>
+                                </div>
+                              )}
+                              {q.answer_relevancy !== null && (
+                                <div className="bg-muted/50 p-2 rounded text-center">
+                                  <div className="text-muted-foreground text-[10px]">Relevancy</div>
+                                  <div className={`font-mono font-bold ${q.answer_relevancy >= 8 ? 'text-emerald-500' : q.answer_relevancy >= 5 ? 'text-amber-500' : 'text-rose-500'}`}>{q.answer_relevancy}/10</div>
+                                </div>
+                              )}
+                              {q.context_precision !== null && (
+                                <div className="bg-muted/50 p-2 rounded text-center">
+                                  <div className="text-muted-foreground text-[10px]">Ctx Precision</div>
+                                  <div className="font-mono font-bold">{q.context_precision.toFixed(2)}</div>
+                                </div>
+                              )}
                             </div>
                           </div>
-                          {q.judge_reasoning && (
-                            <div>
-                              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Judge Reasoning</h4>
-                              <p className="text-sm text-muted-foreground">{q.judge_reasoning}</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -873,10 +1013,42 @@ export function RagEvalDashboard() {
                </div>
             ) : (
                 <div className="space-y-4 border rounded-md p-4 mb-4 flex-shrink-0">
-                  <div className="space-y-2">
-                    <Label>Optimization Iterations</Label>
-                    <Input type="number" min={1} max={10} value={tuneIterations} onChange={(e) => setTuneIterations(Number(e.target.value))} />
-                    <p className="text-[10px] text-muted-foreground">More iterations = better results but higher latency/cost.</p>
+                  <h4 className="text-sm font-medium mb-2">Tuning Options</h4>
+                  <div className="grid grid-cols-2 gap-4 flex-col overflow-y-auto max-h-[300px] p-1">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Iterations</Label>
+                      <Input type="number" min={1} max={10} value={tuneIterations} onChange={e => setTuneIterations(Number(e.target.value))} />
+                      <p className="text-[10px] text-muted-foreground">Max evolution cycles.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Max Run Tokens</Label>
+                      <Input type="number" placeholder="No limit" value={tuneMaxTokens} onChange={e => setTuneMaxTokens(e.target.value ? Number(e.target.value) : "")} />
+                      <p className="text-[10px] text-muted-foreground">Tokens per eval.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Max Budget Limit (Tokens)</Label>
+                      <Input type="number" placeholder="Total tuner budget" value={tuneMaxTokenBudget} onChange={e => setTuneMaxTokenBudget(e.target.value ? Number(e.target.value) : "")} />
+                      <p className="text-[10px] text-muted-foreground">Hard cap across loop.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Min Target Accuracy (%)</Label>
+                      <Input type="number" placeholder="80" value={tuneMinAccuracy} onChange={e => setTuneMinAccuracy(e.target.value ? Number(e.target.value) : "")} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Max Allowed Latency (ms)</Label>
+                      <Input type="number" placeholder="1000" value={tuneMaxLatency} onChange={e => setTuneMaxLatency(e.target.value ? Number(e.target.value) : "")} />
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded border border-purple-500/20 text-xs mt-4">
+                    <strong>Cost Estimate: </strong> 
+                    {drillDownData 
+                      ? (() => {
+                          const r = drillDownData.run;
+                          const avgTokens = Math.round(((r as any).total_prompt_tokens + (r as any).total_completion_tokens) / (r.total_queries || 1));
+                          const estimatedTokens = avgTokens * r.total_queries * tuneIterations;
+                          return `~${estimatedTokens.toLocaleString()} tokens total evaluated (approx ${avgTokens} per query)`;
+                        })()
+                      : "Calculating..."}
                   </div>
                   
                   <div className="grid grid-cols-2 gap-3 pt-2 border-t">
@@ -993,6 +1165,54 @@ export function RagEvalDashboard() {
             </Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
+      {/* Diff Comparison Modal */}
+      <Dialog open={diffModalOpen} onOpenChange={setDiffModalOpen}>
+         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col p-6">
+            <DialogHeader>
+               <DialogTitle>Version Differential (A vs B)</DialogTitle>
+               <DialogDescription>Comparing Hit Rate query changes between the two selected runs.</DialogDescription>
+            </DialogHeader>
+            <div className="overflow-y-auto flex-1 pr-2 space-y-6">
+              {diffData ? (
+                 <>
+                   <div>
+                     <h4 className="flex items-center gap-2 font-medium text-emerald-500 mb-2">
+                       <CheckCircle2 className="w-4 h-4" /> Improvements ({diffData.improvements?.length || 0})
+                     </h4>
+                     {diffData.improvements?.length > 0 ? (
+                       <div className="space-y-2">
+                          {diffData.improvements.map((q: any, i: number) => (
+                            <div key={i} className="text-sm p-3 bg-emerald-500/10 border border-emerald-500/20 rounded">
+                              <p className="font-medium">"{q.query}"</p>
+                              <p className="text-xs text-muted-foreground mt-1">NDCG: {q.previous_ndcg.toFixed(2)} → {q.new_ndcg.toFixed(2)}</p>
+                            </div>
+                          ))}
+                       </div>
+                     ) : <p className="text-sm text-muted-foreground italic">No unique improvements found.</p>}
+                   </div>
+
+                   <div>
+                     <h4 className="flex items-center gap-2 font-medium text-rose-500 mb-2">
+                       <XCircle className="w-4 h-4" /> Regressions ({diffData.regressions?.length || 0})
+                     </h4>
+                     {diffData.regressions?.length > 0 ? (
+                       <div className="space-y-2">
+                          {diffData.regressions.map((q: any, i: number) => (
+                            <div key={i} className="text-sm p-3 bg-rose-500/10 border border-rose-500/20 rounded">
+                              <p className="font-medium">"{q.query}"</p>
+                              <p className="text-xs text-muted-foreground mt-1">NDCG: {q.previous_ndcg.toFixed(2)} → {q.new_ndcg.toFixed(2)}</p>
+                            </div>
+                          ))}
+                       </div>
+                     ) : <p className="text-sm text-muted-foreground italic">No queries regressed.</p>}
+                   </div>
+                 </>
+              ) : (
+                 <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>
+              )}
+            </div>
+         </DialogContent>
       </Dialog>
     </div>
   );

@@ -346,6 +346,7 @@ async fn search_handler(
             ));
         }
 
+        let tree_start = Instant::now();
         let tree_res = fetch_tree(&pool, &tenant_id, &filters, &vector_candidate_titles, &query, &embed_model).await;
 
         // Trace: Tree Search

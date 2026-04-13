@@ -130,6 +130,9 @@ export default function RAGPlaygroundPage() {
   const [benchmarkLabel, setBenchmarkLabel] = useState("");
   const [evaluateGeneration, setEvaluateGeneration] = useState(false);
 
+  // Wizard state
+  const [wizardOpen, setWizardOpen] = useState(false);
+  
   // Generate Set Modal state
   const [genModalOpen, setGenModalOpen] = useState(false);
   const [genPrompt, setGenPrompt] = useState("");
@@ -145,6 +148,8 @@ export default function RAGPlaygroundPage() {
   const [activeDatasetId, setActiveDatasetId] = useState<string>("none");
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveDatasetName, setSaveDatasetName] = useState("");
+  const [saveDatasetDifficulty, setSaveDatasetDifficulty] = useState<string>("mixed");
+  const [saveDatasetQuestionType, setSaveDatasetQuestionType] = useState<string>("mixed");
 
   // LLM Overrides
   const [searchProvider, setSearchProvider] = useState<string>("default");
@@ -413,7 +418,13 @@ export default function RAGPlaygroundPage() {
       const resp = await authFetch(`${apiOrigin}/api/v1/rag-eval/datasets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: saveDatasetName, description: "", eval_set: parsed }),
+        body: JSON.stringify({ 
+          name: saveDatasetName, 
+          description: "", 
+          difficulty: saveDatasetDifficulty,
+          question_type: saveDatasetQuestionType,
+          eval_set: parsed 
+        }),
       });
 
       if (resp.ok) {
@@ -422,6 +433,8 @@ export default function RAGPlaygroundPage() {
         setActiveDatasetId(data.id);
         setSaveModalOpen(false);
         setSaveDatasetName("");
+        setSaveDatasetDifficulty("mixed");
+        setSaveDatasetQuestionType("mixed");
       } else {
         alert("Failed to save dataset");
       }
@@ -486,6 +499,10 @@ export default function RAGPlaygroundPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button onClick={() => setWizardOpen(true)} className="bg-primary/10 text-primary hover:bg-primary/20" variant="secondary">
+            <Zap className="h-4 w-4 mr-2" />
+            Quick Start
+          </Button>
           <SourceLegend />
           {/* Tab Toggle */}
           <div className="flex border rounded-lg overflow-hidden bg-muted/30">
@@ -645,7 +662,12 @@ export default function RAGPlaygroundPage() {
                   Adjust how much each source contributes
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <div className="flex gap-2">
+                  <Badge variant="outline" className="cursor-pointer hover:bg-muted" onClick={() => {setWeights({vector: 0.5, tree: 0.3, graph: 0.2}); setRerankStrategy("none")}}>Balanced</Badge>
+                  <Badge variant="outline" className="cursor-pointer hover:bg-muted" onClick={() => {setWeights({vector: 0.8, tree: 0.2, graph: 0.0}); setRerankStrategy("none")}}>Speed</Badge>
+                  <Badge variant="outline" className="cursor-pointer hover:bg-muted font-medium bg-purple-500/10 text-purple-600 border-purple-500/20" title="Cross-Encoder re-ranking with deep graph traversal" onClick={() => {setWeights({vector: 0.4, tree: 0.3, graph: 0.3}); setRerankStrategy("cross-encoder")}}>Max Accuracy</Badge>
+                </div>
                 <WeightSlider weights={weights} onChange={setWeights} disabled={loading} />
               </CardContent>
             </Card>
@@ -1087,14 +1109,30 @@ export default function RAGPlaygroundPage() {
                             <SelectContent>
                               <SelectItem value="none">Custom / Inline Data</SelectItem>
                               {datasets.map((d) => (
-                                <SelectItem key={d.id} value={d.id}>{d.name} ({d.items_count})</SelectItem>
+                                <SelectItem key={d.id} value={d.id}>
+                                  {d.name} v{d.version || 1} — {d.items_count} items
+                                  {d.difficulty && ` [${d.difficulty}]`}
+                                </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                           
-                          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setSaveModalOpen(true)} disabled={!benchmarkItems.trim()}>
-                            <Database className="w-3 h-3 mr-1" /> Save
+                          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setSaveModalOpen(true)} disabled={!benchmarkItems.trim() || activeDatasetId !== "none"}>
+                            <Database className="w-3 h-3 mr-1" /> Save New
                           </Button>
+                          {activeDatasetId !== "none" && (
+                            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => {
+                              const ds = datasets.find(d => d.id === activeDatasetId);
+                              if (ds) {
+                                setSaveDatasetName(ds.name);
+                                setSaveDatasetDifficulty(ds.difficulty || "mixed");
+                                setSaveDatasetQuestionType(ds.question_type || "mixed");
+                              }
+                              setSaveModalOpen(true);
+                            }}>
+                              <Database className="w-3 h-3 mr-1" /> Save as New Version
+                            </Button>
+                          )}
                         </div>
                         <div className="flex gap-4">
                           <button
@@ -1122,13 +1160,17 @@ export default function RAGPlaygroundPage() {
                     <textarea
                       id="benchmark-input"
                       value={benchmarkItems}
+                      readOnly={activeDatasetId !== "none"}
                       onChange={(e) => {
                         setBenchmarkItems(e.target.value);
                         setActiveDatasetId("none"); // switch to custom if they type
                       }}
                       placeholder={`[\n  {"query": "What is Aspirin?", "expected_titles": ["Aspirin Guide"]},\n  {"query": "Drug interactions", "expected_titles": ["Drug Info"]}\n]`}
-                      className="w-full h-40 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className={`w-full h-40 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-primary/30 ${activeDatasetId !== "none" ? "opacity-60 cursor-not-allowed" : ""}`}
                     />
+                    {activeDatasetId !== "none" && (
+                      <p className="text-[10px] text-amber-500 mt-1">📌 Read-only — loaded from saved dataset. Click &quot;Custom / Inline Data&quot; to edit.</p>
+                    )}
                   </div>
 
                   <Button
@@ -1278,6 +1320,37 @@ export default function RAGPlaygroundPage() {
                 }}
               />
             </div>
+            
+            <div className="flex gap-4">
+              <div className="space-y-2 flex-1">
+                <Label>Difficulty</Label>
+                <Select value={saveDatasetDifficulty} onValueChange={setSaveDatasetDifficulty}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Difficulty" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="beginner">Beginner</SelectItem>
+                    <SelectItem value="intermediate">Intermediate</SelectItem>
+                    <SelectItem value="advanced">Advanced</SelectItem>
+                    <SelectItem value="mixed">Mixed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 flex-1">
+                <Label>Question Type</Label>
+                <Select value={saveDatasetQuestionType} onValueChange={setSaveDatasetQuestionType}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Question Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="factual">Factual QA</SelectItem>
+                    <SelectItem value="reasoning">Reasoning</SelectItem>
+                    <SelectItem value="extraction">Extraction</SelectItem>
+                    <SelectItem value="mixed">Mixed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground">
               A snapshot of your JSON will be saved under this name.
             </p>
@@ -1383,6 +1456,70 @@ export default function RAGPlaygroundPage() {
               Generate Tasks
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick-Start Wizard Modal */}
+      <Dialog open={wizardOpen} onOpenChange={setWizardOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mimir Quick-Start Wizard</DialogTitle>
+            <DialogDescription>
+              Choose a preset configuration to begin your evaluation quickly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 py-4">
+            <button
+              onClick={() => {
+                setWeights({vector: 0.5, tree: 0.3, graph: 0.2});
+                setRerankStrategy("none");
+                setMode("hybrid");
+                setActiveTab("benchmark");
+                setWizardOpen(false);
+              }}
+              className="flex flex-col text-left p-4 border rounded-xl hover:border-emerald-500 hover:bg-emerald-500/5 transition-colors group"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold group-hover:text-emerald-600">Balanced Evaluation</span>
+                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Recommended</Badge>
+              </div>
+              <span className="text-xs text-muted-foreground">Hybrid vector + tree + graph. Best ratio of speed to accuracy for general QA datasets.</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setWeights({vector: 0.8, tree: 0.2, graph: 0.0});
+                setRerankStrategy("none");
+                setMode("hybrid");
+                setActiveTab("benchmark");
+                setWizardOpen(false);
+              }}
+              className="flex flex-col text-left p-4 border rounded-xl hover:border-blue-500 hover:bg-blue-500/5 transition-colors group"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold group-hover:text-blue-600">High-Speed Retrieval</span>
+                <Zap className="h-4 w-4 text-blue-500" />
+              </div>
+              <span className="text-xs text-muted-foreground">Disables graph hops and emphasizes vector search. Use for large datasets to minimize latency.</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setWeights({vector: 0.4, tree: 0.3, graph: 0.3});
+                setRerankStrategy("cross-encoder");
+                setMode("hybrid");
+                setActiveTab("benchmark");
+                setWizardOpen(false);
+              }}
+              className="flex flex-col text-left p-4 border rounded-xl hover:border-purple-500 hover:bg-purple-500/5 transition-colors group"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold group-hover:text-purple-600">Max Accuracy</span>
+                <Sparkles className="h-4 w-4 text-purple-500" />
+              </div>
+              <span className="text-xs text-muted-foreground">Enables dense Cross-Encoder re-ranking and deep graph traversal. Slower, but highest recall.</span>
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

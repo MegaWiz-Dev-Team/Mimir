@@ -21,6 +21,7 @@ pub async fn search_medical_literature(
         limit,
         tenant_id,
         None, // No specific source filter by default for broad literature search
+        0.7, // default alpha
     ).await.context("Failed executing medical literature hybrid search")
 }
 

@@ -124,9 +124,9 @@ async fn query_tenant(
 
         if !searchable_docs.is_empty() {
             use crate::retrieval::tree::TreeRetriever;
-            if let Ok((client, model)) = router.resolve_client("generation") {
+            if let Ok((_client, embed_model)) = router.resolve_client("embedding") {
                 let tree_results = retriever
-                    .search_parallel(&client, &model, &searchable_docs, &req.question)
+                    .search_parallel(&embed_model, &searchable_docs, &req.question)
                     .await;
 
                 for result in &tree_results {

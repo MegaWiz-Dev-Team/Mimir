@@ -537,3 +537,76 @@ impl LlmRouter {
         Ok(vectors)
     }
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub thinking_tokens: u32,
+}
+
+pub fn extract_token_usage(json: &serde_json::Value) -> TokenUsage {
+    let mut usage = TokenUsage::default();
+    if let Some(u) = json.get("usage") {
+        usage.prompt_tokens = u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        usage.completion_tokens = u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        if let Some(details) = u.get("completion_tokens_details") {
+            usage.thinking_tokens = details.get("reasoning_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        } else {
+            // Some providers might just put it at the root of usage
+            usage.thinking_tokens = u.get("reasoning_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        }
+    }
+    usage
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_token_usage_openai_format() {
+        // TDD test for extracting token usage
+        let mock_response = serde_json::json!({
+            "choices": [{
+                "message": { "content": "hello world" }
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "completion_tokens_details": {
+                    "reasoning_tokens": 5
+                }
+            }
+        });
+
+        let usage = extract_token_usage(&mock_response);
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 20);
+        assert_eq!(usage.thinking_tokens, 5);
+    }
+
+    #[test]
+    fn test_extract_token_usage_no_usage_field() {
+        let resp = serde_json::json!({"choices": [{"message": {"content": "hi"}}]});
+        let usage = extract_token_usage(&resp);
+        assert_eq!(usage.prompt_tokens, 0);
+        assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.thinking_tokens, 0);
+    }
+
+    #[test]
+    fn test_extract_token_usage_gemini_flat_reasoning() {
+        let resp = serde_json::json!({
+            "usage": {
+                "prompt_tokens": 50,
+                "completion_tokens": 100,
+                "reasoning_tokens": 30
+            }
+        });
+        let usage = extract_token_usage(&resp);
+        assert_eq!(usage.prompt_tokens, 50);
+        assert_eq!(usage.completion_tokens, 100);
+        assert_eq!(usage.thinking_tokens, 30);
+    }
+}

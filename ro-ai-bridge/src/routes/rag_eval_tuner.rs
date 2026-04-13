@@ -25,6 +25,10 @@ pub struct AutoTuneRequest {
     pub tuner_provider: Option<String>,
     pub dataset_id: Option<String>,
     pub dataset_name: Option<String>,
+    pub max_token_budget: Option<u64>,
+    pub min_accuracy: Option<f64>,
+    pub max_latency: Option<u64>,
+    pub max_tokens_per_run: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -101,6 +105,7 @@ async fn tuning_loop(
     let mut current_params = req.base_params.clone();
     let mut best_score = -1.0;
     let mut best_run_id = None;
+    let mut accumulated_tokens: u64 = 0;
 
     let target = req.target_metric.clone().unwrap_or_else(|| "ndcg".to_string());
     
@@ -154,24 +159,50 @@ async fn tuning_loop(
             let run_id = eval_result["run_id"].as_str().unwrap_or_default().to_string();
             let current_score = eval_result[&target].as_f64().unwrap_or(0.0);
             
+            let run_tokens = eval_result["total_prompt_tokens"].as_u64().unwrap_or(0) +
+                             eval_result["total_completion_tokens"].as_u64().unwrap_or(0) +
+                             eval_result["total_thinking_tokens"].as_u64().unwrap_or(0);
+            let run_latency = eval_result["avg_latency_ms"].as_f64().unwrap_or(0.0) as u64;
+
+            accumulated_tokens += run_tokens;
+
             // Mark base run id
             if it == 1 {
                 let _ = sqlx::query("UPDATE rag_auto_tuner_jobs SET base_run_id = ? WHERE id = ?")
                     .bind(&run_id).bind(&job_id).execute(&pool).await;
             }
 
+            // Constraints check
+            let meets_min_accuracy = req.min_accuracy.map(|min| current_score >= min).unwrap_or(true);
+            let meets_max_latency = req.max_latency.map(|max| run_latency <= max).unwrap_or(true);
+            let meets_max_tokens = req.max_tokens_per_run.map(|max| run_tokens <= max).unwrap_or(true);
+
             // Update best
-            if current_score > best_score {
-                best_score = current_score;
-                best_run_id = Some(run_id.clone());
-                no_improvement_count = 0;
+            if meets_min_accuracy && meets_max_latency && meets_max_tokens {
+                if current_score > best_score {
+                    best_score = current_score;
+                    best_run_id = Some(run_id.clone());
+                    no_improvement_count = 0;
+                } else {
+                    no_improvement_count += 1;
+                }
             } else {
                 no_improvement_count += 1;
             }
 
+            // Budget exhaustion check
+            let budget_exhausted = req.max_token_budget.map(|max| accumulated_tokens >= max).unwrap_or(false);
+
             // Update progress
             let _ = sqlx::query("UPDATE rag_auto_tuner_jobs SET current_iteration = ?, best_run_id = ? WHERE id = ?")
                 .bind(it).bind(&best_run_id).bind(&job_id).execute(&pool).await;
+
+            if budget_exhausted {
+                tracing::warn!(job_id = %job_id, "🛑 Auto-Tuner budget exhausted! (Tokens: {})", accumulated_tokens);
+                let _ = sqlx::query("UPDATE rag_auto_tuner_jobs SET status = 'budget_exhausted', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                    .bind(&job_id).execute(&pool).await;
+                return Ok(());
+            }
 
             // Early stopping: no improvement for EARLY_STOP_PATIENCE iterations
             if no_improvement_count >= EARLY_STOP_PATIENCE {
@@ -223,6 +254,11 @@ async fn tuning_loop(
             }
 
             if let Ok(response) = agent.prompt(prompt_content.as_str()).await {
+                // Heuristic estimation for tuner agent tokens (since rig::Agent::prompt doesn't expose usage directly):
+                let prompt_tokens = (prompt_content.len() + system_prompt.len()) / 4;
+                let completion_tokens = response.len() / 4;
+                accumulated_tokens += (prompt_tokens + completion_tokens) as u64;
+
                 let json_part = response
                     .trim()
                     .trim_start_matches("```json")
