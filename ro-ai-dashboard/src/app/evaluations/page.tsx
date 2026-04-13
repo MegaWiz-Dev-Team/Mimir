@@ -23,6 +23,9 @@ interface EvalRun {
     completed_combinations: number;
     started_at: string;
     finished_at: string | null;
+    total_prompt_tokens?: number | null;
+    total_completion_tokens?: number | null;
+    total_thinking_tokens?: number | null;
 }
 
 interface EvalSummary {
@@ -53,6 +56,15 @@ interface EvalScore {
     completeness_score: number | null;
     relevance_score: number | null;
     latency_ms: number | null;
+    retrieval_latency_ms?: number | null;
+    generation_latency_ms?: number | null;
+    total_latency_ms?: number | null;
+    ttft_ms?: number | null;
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    thinking_tokens?: number | null;
+    difficulty?: string | null;
+    question_type?: string | null;
     judge_model: string | null;
     judge_reasoning: string | null;
     human_accuracy_score: number | null;
@@ -305,7 +317,7 @@ export default function EvaluationsPage() {
 
                 {/* Summary Cards */}
                 {selectedRun && (
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 mb-8">
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">Status</CardTitle>
@@ -384,6 +396,30 @@ export default function EvaluationsPage() {
                                         : "-"}
                                 </div>
                                 <p className="text-xs text-muted-foreground">across all combinations</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">Run Tokens</CardTitle>
+                                <Workflow className="h-4 w-4 text-emerald-500" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-xl font-bold">
+                                    {selectedRun.total_prompt_tokens !== undefined && selectedRun.total_prompt_tokens !== null ?
+                                        (selectedRun.total_prompt_tokens + (selectedRun.total_completion_tokens || 0)).toLocaleString()
+                                        : "N/A"
+                                    }
+                                </div>
+                                {selectedRun.total_prompt_tokens ? (
+                                    <div className="flex gap-2 text-[10px] text-muted-foreground mt-1">
+                                        <span className="text-blue-500">↑{selectedRun.total_prompt_tokens?.toLocaleString()}</span>
+                                        <span className="text-emerald-500">↓{selectedRun.total_completion_tokens?.toLocaleString()}</span>
+                                        {selectedRun.total_thinking_tokens ? <span className="text-purple-500">💭{selectedRun.total_thinking_tokens?.toLocaleString()}</span> : null}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">No token telemetry</p>
+                                )}
                             </CardContent>
                         </Card>
                     </div>
@@ -475,13 +511,14 @@ export default function EvaluationsPage() {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead className="w-4">#</TableHead>
+                                            <TableHead className="text-center w-16">Diff</TableHead>
                                             <TableHead>Question</TableHead>
                                             <TableHead>Expected</TableHead>
                                             <TableHead>Actual</TableHead>
                                             <TableHead className="text-center">Acc</TableHead>
                                             <TableHead className="text-center">Comp</TableHead>
                                             <TableHead className="text-center">Rel</TableHead>
-                                            <TableHead className="text-center">Latency</TableHead>
+                                            <TableHead className="text-center">Latency / Tokens</TableHead>
                                             <TableHead className="text-center">Human</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -489,6 +526,18 @@ export default function EvaluationsPage() {
                                         {scores.map((s, i) => (
                                             <TableRow key={s.id}>
                                                 <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
+                                                <TableCell className="text-center">
+                                                    {s.difficulty ? (
+                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                            s.difficulty === 'advanced' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                                                            s.difficulty === 'intermediate' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                                                            s.difficulty === 'beginner' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                            'bg-zinc-500/20 text-zinc-400 border border-zinc-500/30'
+                                                        }`}>
+                                                            {s.difficulty}
+                                                        </span>
+                                                    ) : <span className="text-muted-foreground text-[10px]">—</span>}
+                                                </TableCell>
                                                 <TableCell className="max-w-[200px] truncate text-xs" title={s.question}>
                                                     {s.question}
                                                 </TableCell>
@@ -514,7 +563,23 @@ export default function EvaluationsPage() {
                                                     </span>
                                                 </TableCell>
                                                 <TableCell className="text-center text-xs">
-                                                    {formatLatency(s.latency_ms)}
+                                                    <div className="flex flex-col gap-1 items-center">
+                                                        <span className="font-semibold">{formatLatency(s.latency_ms)}</span>
+                                                        {(s.retrieval_latency_ms || s.generation_latency_ms) && (
+                                                            <div className="flex gap-1.5 text-[9px] text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded">
+                                                                <span title="Retrieval">R:{formatLatency(s.retrieval_latency_ms ?? 0)}</span>
+                                                                <span title="Generation">G:{formatLatency(s.generation_latency_ms ?? 0)}</span>
+                                                            </div>
+                                                        )}
+                                                        {s.prompt_tokens ? (
+                                                            <div className="flex gap-1.5 text-[9px]">
+                                                                <span className="text-blue-500" title="Prompt Tokens">↑{s.prompt_tokens?.toLocaleString()}</span>
+                                                                <span className="text-emerald-500" title="Completion Tokens">↓{s.completion_tokens?.toLocaleString()}</span>
+                                                                {s.thinking_tokens ? <span className="text-purple-500" title="Thinking Tokens">💭{s.thinking_tokens?.toLocaleString()}</span> : null}
+                                                                {s.ttft_ms ? <span className="text-orange-500" title="Gen round-trip (streaming not yet enabled)">⚡{formatLatency(s.ttft_ms)}</span> : null}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell className="text-center">
                                                     {s.reviewed_at ? (

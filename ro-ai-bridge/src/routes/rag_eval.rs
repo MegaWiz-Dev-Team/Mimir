@@ -68,6 +68,14 @@ pub struct RagEvalItem {
     /// Previous conversation turns for multi-turn context.
     #[serde(default)]
     pub context: Option<Vec<ConversationTurn>>,
+    #[serde(default)]
+    pub required_tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub required_routing: Option<Vec<String>>,
+    #[serde(default)]
+    pub question_type: Option<String>,
+    #[serde(default)]
+    pub difficulty: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +165,11 @@ pub struct RagEvalRunResponse {
     pub vector_hit_rate: f64,
     pub tree_hit_rate: f64,
     pub graph_hit_rate: f64,
+    pub total_prompt_tokens: Option<u32>,
+    pub total_completion_tokens: Option<u32>,
+    pub total_thinking_tokens: Option<u32>,
+    pub is_baseline: bool,
+    pub regression_detected: bool,
     pub per_query: Vec<RagEvalQueryResult>,
 }
 
@@ -181,6 +194,10 @@ pub struct RagEvalQueryResult {
     pub retrieval_latency_ms: u64,
     pub generation_latency_ms: Option<u64>,
     pub total_latency_ms: u64,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub thinking_tokens: Option<u32>,
+    pub ttft_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +237,9 @@ pub struct GenerateEvalSetV2Request {
     /// LLM to use for generation.
     pub provider: Option<String>,
     pub model_id: Option<String>,
+    /// Additional specific question types
+    #[serde(default)]
+    pub question_types: Option<Vec<String>>,
 }
 
 fn default_count() -> usize { 5 }
@@ -231,8 +251,11 @@ pub fn rag_eval_routes() -> Router<DbPool> {
     Router::new()
         .route("/run", post(run_rag_eval))
         .route("/runs", get(list_rag_eval_runs))
+        .route("/runs/{id}/export", get(export_eval_run))
+        .route("/runs/compare", get(compare_runs))
         .route("/runs/{id}", get(get_rag_eval_run).delete(delete_eval_run))
         .route("/runs/{id}/deploy", post(deploy_eval_config))
+        .route("/runs/{id}/set-baseline", post(set_baseline))
         .route("/generate-set", post(generate_eval_set_v2))
         .route("/auto-tune", post(super::rag_eval_tuner::run_auto_tune))
         .route("/auto-tune/{job_id}", get(super::rag_eval_tuner::get_auto_tune_job))
@@ -306,7 +329,7 @@ async fn generate_and_judge(
     api_base: &str,
     api_key: &str,
     model: &str,
-) -> (Option<String>, Option<f64>, Option<f64>, Option<f64>, Option<String>) {
+) -> (Option<String>, Option<f64>, Option<f64>, Option<f64>, Option<String>, Option<mimir_core_ai::services::llm_router::TokenUsage>, Option<u64>) {
     let context_text: String = context.iter()
         .map(|r| format!("[{}] {}", r.title, r.content))
         .collect::<Vec<_>>()
@@ -329,6 +352,7 @@ async fn generate_and_judge(
     messages.push(json!({"role": "user", "content": query}));
 
     // 1. Generate answer
+    let start_gen = std::time::Instant::now();
     let client = reqwest::Client::new();
     let gen_resp = client
         .post(format!("{}chat/completions", api_base))
@@ -343,22 +367,28 @@ async fn generate_and_judge(
         .send()
         .await;
 
-    let answer = match gen_resp {
+    // Note: Since this is not a streamed request, `ttft_ms` currently measures the full 
+    // round-trip generation latency instead of true Time-To-First-Token.
+    let ttft_ms = start_gen.elapsed().as_millis() as u64;
+
+    let (answer, mut token_usage) = match gen_resp {
         Ok(resp) => {
             let body: Value = resp.json().await.unwrap_or_default();
-            body["choices"][0]["message"]["content"]
+            let text = body["choices"][0]["message"]["content"]
                 .as_str()
                 .unwrap_or("")
-                .to_string()
+                .to_string();
+            let usage = mimir_core_ai::services::llm_router::extract_token_usage(&body);
+            (text, Some(usage))
         }
         Err(e) => {
             warn!("Answer generation failed: {}", e);
-            return (None, None, None, None, Some(format!("Generation error: {}", e)));
+            return (None, None, None, None, Some(format!("Generation error: {}", e)), None, None);
         }
     };
 
     if answer.is_empty() {
-        return (Some(answer), None, None, None, Some("Empty answer".into()));
+        return (Some(answer), None, None, None, Some("Empty answer".into()), token_usage, Some(ttft_ms));
     }
 
     // 2. Judge the answer
@@ -407,6 +437,16 @@ Respond ONLY as JSON:
                 .as_str()
                 .unwrap_or("{}")
                 .to_string();
+            
+            // Extract Judge Token Usage
+            let judge_usage = mimir_core_ai::services::llm_router::extract_token_usage(&body);
+            if let Some(mut prev) = token_usage.take() {
+                prev.prompt_tokens += judge_usage.prompt_tokens;
+                prev.completion_tokens += judge_usage.completion_tokens;
+                prev.thinking_tokens += judge_usage.thinking_tokens;
+                token_usage = Some(prev);
+            }
+
             let scores: Value = serde_json::from_str(&content).unwrap_or_else(|_| {
                 if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
                     if start <= end {
@@ -430,11 +470,13 @@ Respond ONLY as JSON:
                 scores["answer_relevancy"].as_f64(),
                 scores["context_precision"].as_f64(),
                 scores["reasoning"].as_str().map(String::from),
+                token_usage,
+                Some(ttft_ms)
             )
         }
         Err(e) => {
             warn!("Judge call failed: {}", e);
-            (Some(answer), None, None, None, Some(format!("Judge error: {}", e)))
+            (Some(answer), None, None, None, Some(format!("Judge error: {}", e)), token_usage, Some(ttft_ms))
         }
     }
 }
@@ -630,10 +672,10 @@ pub async fn execute_evaluation_run(
                 }).collect();
 
                 // 5. Generation + Judge (if enabled)
-                let (gen_answer, faithfulness, answer_rel, ctx_prec, judge_reasoning, gen_latency) =
+                let (gen_answer, faithfulness, answer_rel, ctx_prec, judge_reasoning, gen_latency, token_usage, ttft_ms) =
                     if evaluate_generation {
                         let gen_start = Instant::now();
-                        let (answer, faith, rel, prec, reasoning) = generate_and_judge(
+                        let (answer, faith, rel, prec, reasoning, tok, ttft) = generate_and_judge(
                             &item.query,
                             &search_results,
                             item.expected_content.as_deref(),
@@ -643,12 +685,16 @@ pub async fn execute_evaluation_run(
                             &judge_model,
                         ).await;
                         let gen_lat = gen_start.elapsed().as_millis() as u64;
-                        (answer, faith, rel, prec, reasoning, Some(gen_lat))
+                        (answer, faith, rel, prec, reasoning, Some(gen_lat), tok, ttft)
                     } else {
-                        (None, None, None, None, None, None)
+                        (None, None, None, None, None, None, None, None)
                     };
 
                 let total_latency = query_start.elapsed().as_millis() as u64;
+
+                let p_tokens = token_usage.as_ref().map(|t| t.prompt_tokens);
+                let c_tokens = token_usage.as_ref().map(|t| t.completion_tokens);
+                let t_tokens = token_usage.as_ref().map(|t| t.thinking_tokens);
 
                 // 6. Persist per-query result
                 let top_results_json = serde_json::to_string(&top_results).unwrap_or_default();
@@ -659,13 +705,16 @@ pub async fn execute_evaluation_run(
                          vector_contributed, tree_contributed, graph_contributed,
                          top_results, generated_answer,
                          faithfulness, answer_relevancy, context_precision, judge_reasoning,
-                         retrieval_latency_ms, generation_latency_ms, total_latency_ms)
+                         retrieval_latency_ms, generation_latency_ms, total_latency_ms,
+                         prompt_tokens, completion_tokens, thinking_tokens, ttft_ms,
+                         difficulty, question_type)
                     VALUES (?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?,
                             ?, ?, ?,
                             ?, ?,
                             ?, ?, ?, ?,
-                            ?, ?, ?)"#
+                            ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?)"#
                 )
                 .bind(&run_id)
                 .bind(&tenant_id)
@@ -690,6 +739,12 @@ pub async fn execute_evaluation_run(
                 .bind(retrieval_latency as i32)
                 .bind(gen_latency.map(|l| l as i32))
                 .bind(total_latency as i32)
+                .bind(p_tokens)
+                .bind(c_tokens)
+                .bind(t_tokens)
+                .bind(ttft_ms.map(|t| t as i32))
+                .bind(&item.difficulty)
+                .bind(&item.question_type)
                 .execute(&pool)
                 .await;
 
@@ -713,6 +768,10 @@ pub async fn execute_evaluation_run(
                     retrieval_latency_ms: retrieval_latency,
                     generation_latency_ms: gen_latency,
                     total_latency_ms: total_latency,
+                    prompt_tokens: p_tokens,
+                    completion_tokens: c_tokens,
+                    thinking_tokens: t_tokens,
+                    ttft_ms,
                 }
             }
         })
@@ -749,6 +808,10 @@ pub async fn execute_evaluation_run(
     let t_hr = if ttq > 0 { tth as f64 / ttq as f64 } else { 0.0 };
     let g_hr = if tgq > 0 { tgh as f64 / tgq as f64 } else { 0.0 };
 
+    let total_p_tokens: u32 = per_query_results.iter().filter_map(|r| r.prompt_tokens).sum();
+    let total_c_tokens: u32 = per_query_results.iter().filter_map(|r| r.completion_tokens).sum();
+    let total_t_tokens: u32 = per_query_results.iter().filter_map(|r| r.thinking_tokens).sum();
+
     // Update run record with aggregate scores
     let _ = sqlx::query(
         r#"UPDATE rag_eval_runs SET
@@ -758,6 +821,7 @@ pub async fn execute_evaluation_run(
             avg_latency_ms = ?,
             avg_faithfulness = ?, avg_answer_relevancy = ?,
             vector_hit_rate = ?, tree_hit_rate = ?, graph_hit_rate = ?,
+            total_prompt_tokens = ?, total_completion_tokens = ?, total_thinking_tokens = ?,
             finished_at = NOW()
         WHERE id = ?"#
     )
@@ -766,6 +830,7 @@ pub async fn execute_evaluation_run(
     .bind(avg_lat)
     .bind(avg_faith).bind(avg_ans_rel)
     .bind(v_hr).bind(t_hr).bind(g_hr)
+    .bind(total_p_tokens).bind(total_c_tokens).bind(total_t_tokens)
     .bind(&run_id)
     .execute(&pool)
     .await;
@@ -802,6 +867,26 @@ pub async fn execute_evaluation_run(
     }
 
     let elapsed = start.elapsed().as_millis() as u64;
+
+    let mut regression_detected = false;
+    let baseline_hit_rate: Option<f64> = if let Some(did) = payload.dataset_id.as_ref() {
+        sqlx::query_scalar("SELECT hit_rate FROM rag_eval_runs WHERE dataset_id = ? AND is_baseline = TRUE AND tenant_id = ? LIMIT 1")
+            .bind(did).bind(&tenant_id).fetch_optional(&pool).await
+            .unwrap_or(None)
+    } else {
+        sqlx::query_scalar("SELECT hit_rate FROM rag_eval_runs WHERE dataset_id IS NULL AND is_baseline = TRUE AND tenant_id = ? LIMIT 1")
+            .bind(&tenant_id).fetch_optional(&pool).await
+            .unwrap_or(None)
+    };
+
+    if let Some(base_hit) = baseline_hit_rate {
+        if (base_hit - hit_rate) > 0.05 {
+            regression_detected = true;
+            let _ = sqlx::query("UPDATE rag_eval_runs SET regression_detected = TRUE WHERE id = ?")
+                .bind(&run_id).execute(&pool).await;
+        }
+    }
+
     info!(
         event = "rag_eval_complete",
         run_id = %run_id,
@@ -809,6 +894,7 @@ pub async fn execute_evaluation_run(
         mrr = mrr,
         ndcg = ndcg,
         total_ms = elapsed,
+        regression_detected = regression_detected,
         "✅ RAG evaluation completed"
     );
 
@@ -827,6 +913,11 @@ pub async fn execute_evaluation_run(
         "vector_hit_rate": v_hr,
         "tree_hit_rate": t_hr,
         "graph_hit_rate": g_hr,
+        "total_prompt_tokens": total_p_tokens,
+        "total_completion_tokens": total_c_tokens,
+        "total_thinking_tokens": total_t_tokens,
+        "is_baseline": false,
+        "regression_detected": regression_detected,
         "per_query": per_query_results,
         "elapsed_ms": elapsed
     }))
@@ -884,7 +975,9 @@ async fn list_rag_eval_runs(
             source_filter, collections, embed_model, judge_model, judge_provider,
             search_provider, search_model, generation_provider, generation_model,
             generation_temperature, generation_max_tokens,
-            started_at, finished_at, dataset_id, dataset_name
+            started_at, finished_at, dataset_id, dataset_name,
+            total_prompt_tokens, total_completion_tokens, total_thinking_tokens,
+            is_baseline, regression_detected
         FROM rag_eval_runs WHERE tenant_id = ?
         ORDER BY started_at DESC LIMIT ? OFFSET ?"#
     )
@@ -939,15 +1032,20 @@ async fn list_rag_eval_runs(
                 "avg_latency_ms": r.try_get::<Option<f32>, _>("avg_latency_ms").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
                 "faithfulness": r.try_get::<Option<f32>, _>("avg_faithfulness").unwrap_or(None).map(|v| v as f64),
                 "answer_relevancy": r.try_get::<Option<f32>, _>("avg_answer_relevancy").unwrap_or(None).map(|v| v as f64),
-                "vector_hit_rate": r.try_get::<Option<f32>, _>("vector_hit_rate").unwrap_or(None).map(|v| v as f64),
-                "tree_hit_rate": r.try_get::<Option<f32>, _>("tree_hit_rate").unwrap_or(None).map(|v| v as f64),
-                "graph_hit_rate": r.try_get::<Option<f32>, _>("graph_hit_rate").unwrap_or(None).map(|v| v as f64)
+                "vector_hit_rate": r.try_get::<Option<f32>, _>("vector_hit_rate").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "tree_hit_rate": r.try_get::<Option<f32>, _>("tree_hit_rate").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0),
+                "graph_hit_rate": r.try_get::<Option<f32>, _>("graph_hit_rate").unwrap_or(None).map(|v| v as f64).unwrap_or(0.0)
             },
             "total_queries": r.try_get::<Option<i32>, _>("total_queries").unwrap_or(None),
+            "total_prompt_tokens": r.try_get::<Option<i32>, _>("total_prompt_tokens").unwrap_or(None),
+            "total_completion_tokens": r.try_get::<Option<i32>, _>("total_completion_tokens").unwrap_or(None),
+            "total_thinking_tokens": r.try_get::<Option<i32>, _>("total_thinking_tokens").unwrap_or(None),
             "started_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("started_at").unwrap_or(None),
             "finished_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("finished_at").unwrap_or(None),
             "dataset_id": r.try_get::<Option<String>, _>("dataset_id").unwrap_or(None),
-            "dataset_name": r.try_get::<Option<String>, _>("dataset_name").unwrap_or(None)
+            "dataset_name": r.try_get::<Option<String>, _>("dataset_name").unwrap_or(None),
+            "is_baseline": r.try_get::<bool, _>("is_baseline").unwrap_or(false),
+            "regression_detected": r.try_get::<bool, _>("regression_detected").unwrap_or(false)
         })
     }).collect();
 
@@ -980,7 +1078,8 @@ async fn get_rag_eval_run(
             source_filter, collections, embed_model, judge_model, judge_provider,
             search_provider, search_model, generation_provider, generation_model,
             generation_temperature, generation_max_tokens,
-            started_at, finished_at, dataset_id, dataset_name
+            started_at, finished_at, dataset_id, dataset_name,
+            total_prompt_tokens, total_completion_tokens, total_thinking_tokens
         FROM rag_eval_runs WHERE id = ? AND tenant_id = ?"#
     )
     .bind(&run_id)
@@ -1000,7 +1099,9 @@ async fn get_rag_eval_run(
             vector_contributed, tree_contributed, graph_contributed,
             top_results, generated_answer,
             faithfulness, answer_relevancy, context_precision, judge_reasoning,
-            retrieval_latency_ms, generation_latency_ms, total_latency_ms
+            retrieval_latency_ms, generation_latency_ms, total_latency_ms,
+            prompt_tokens, completion_tokens, thinking_tokens, ttft_ms,
+            difficulty, question_type
         FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?
         ORDER BY id"#
     )
@@ -1043,6 +1144,12 @@ async fn get_rag_eval_run(
             "retrieval_latency_ms": q.try_get::<Option<i32>, _>("retrieval_latency_ms").unwrap_or(None),
             "generation_latency_ms": q.try_get::<Option<i32>, _>("generation_latency_ms").unwrap_or(None),
             "total_latency_ms": q.try_get::<Option<i32>, _>("total_latency_ms").unwrap_or(None),
+            "prompt_tokens": q.try_get::<Option<i32>, _>("prompt_tokens").unwrap_or(None),
+            "completion_tokens": q.try_get::<Option<i32>, _>("completion_tokens").unwrap_or(None),
+            "thinking_tokens": q.try_get::<Option<i32>, _>("thinking_tokens").unwrap_or(None),
+            "ttft_ms": q.try_get::<Option<i32>, _>("ttft_ms").unwrap_or(None),
+            "difficulty": q.try_get::<Option<String>, _>("difficulty").unwrap_or(None),
+            "question_type": q.try_get::<Option<String>, _>("question_type").unwrap_or(None),
         })
     }).collect();
 
@@ -1134,6 +1241,9 @@ async fn get_rag_eval_run(
             },
             "bootstrap_ci": bootstrap_ci,
             "total_queries": r.try_get::<Option<i32>, _>("total_queries").unwrap_or(None),
+            "total_prompt_tokens": r.try_get::<Option<i32>, _>("total_prompt_tokens").unwrap_or(None),
+            "total_completion_tokens": r.try_get::<Option<i32>, _>("total_completion_tokens").unwrap_or(None),
+            "total_thinking_tokens": r.try_get::<Option<i32>, _>("total_thinking_tokens").unwrap_or(None),
             "embed_model": r.try_get::<Option<String>, _>("embed_model").unwrap_or(None),
             "judge_model": r.try_get::<Option<String>, _>("judge_model").unwrap_or(None),
             "started_at": r.try_get::<Option<chrono::NaiveDateTime>, _>("started_at").unwrap_or(None),
@@ -1306,6 +1416,30 @@ Golden QA samples for reference:
         String::new()
     };
 
+    let qt_instruction = if let Some(qts) = &payload.question_types {
+        if !qts.is_empty() {
+            format!("Generate questions that focus on these types: {}. Include a 'question_type' field for each.", qts.join(", "))
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    let mut example_json = String::from(r#"{
+  "query": "Natural question a user would ask",
+  "expected_titles": ["Exact title from the list"],
+  "expected_content": "Brief expected answer""#);
+    if payload.multi_turn {
+        example_json.push_str(r#",
+  "context": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]"#);
+    }
+    if payload.question_types.as_ref().map(|v| !v.is_empty()).unwrap_or(false) {
+        example_json.push_str(r#",
+  "question_type": "Specific type of the generated question""#);
+    }
+    example_json.push_str("\n}");
+
     let system_prompt = format!(
         r#"You are an evaluation set generator for a medical RAG system.
 Generate exactly {count} evaluation items as a JSON array.
@@ -1313,25 +1447,20 @@ Generate exactly {count} evaluation items as a JSON array.
 Available document titles: {titles}
 {multi_turn}
 Each item MUST follow this structure:
-{{
-  "query": "Natural question a user would ask",
-  "expected_titles": ["Exact title from the list"],
-  "expected_content": "Brief expected answer"{context_field}
-}}
+{example}
 
 Rules:
 1. expected_titles MUST be exact matches from the document titles.
 2. Rephrase questions naturally - don't copy QA pairs verbatim.
-3. Questions should test different retrieval strategies (keyword, semantic, multi-hop).
+3. Questions should test different retrieval strategies (keyword, semantic, multi-hop). {qt}
 4. User instructions: {prompt}
 5. Output ONLY the JSON array."#,
         count = count,
         titles = titles.join(", "),
         multi_turn = multi_turn_instruction,
+        example = example_json,
+        qt = qt_instruction,
         prompt = payload.prompt,
-        context_field = if payload.multi_turn {
-            ",\n  \"context\": [{\"role\": \"user\", \"content\": \"...\"}, {\"role\": \"assistant\", \"content\": \"...\"}]"
-        } else { "" },
     );
 
     // 5. Call LLM
@@ -1428,6 +1557,214 @@ pub async fn delete_eval_run(
     }
 }
 
+// ─── Sprint 2 Enhancements: Baseline Pinning & Compare Diffs ───────────────────
+
+/// POST /api/v1/rag-eval/runs/:id/set-baseline
+pub async fn set_baseline(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Path(run_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+
+    let ds_id: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT dataset_id FROM rag_eval_runs WHERE id = ? AND tenant_id = ?"
+    )
+    .bind(&run_id).bind(&tenant_id).fetch_optional(&pool).await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))))?;
+
+    if ds_id.is_none() {
+        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Run not found"}))));
+    }
+
+    let dataset_id = ds_id.unwrap();
+
+    let mut tx = pool.begin().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    if let Some(did) = dataset_id {
+        let _ = sqlx::query("UPDATE rag_eval_runs SET is_baseline = FALSE WHERE dataset_id = ? AND tenant_id = ?")
+            .bind(did).bind(&tenant_id).execute(&mut *tx).await;
+    } else {
+        let _ = sqlx::query("UPDATE rag_eval_runs SET is_baseline = FALSE WHERE dataset_id IS NULL AND tenant_id = ?")
+            .bind(&tenant_id).execute(&mut *tx).await;
+    }
+
+    let res = sqlx::query("UPDATE rag_eval_runs SET is_baseline = TRUE WHERE id = ? AND tenant_id = ?")
+        .bind(&run_id).bind(&tenant_id).execute(&mut *tx).await;
+
+    if res.is_ok() {
+        let _ = tx.commit().await;
+        Ok(Json(json!({"status": "success", "message": "Baseline set"})))
+    } else {
+        let _ = tx.rollback().await;
+        Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Update failed"}))))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompareRunsQuery {
+    pub ids: String,
+}
+
+/// GET /api/v1/rag-eval/runs/compare?ids=A,B
+pub async fn compare_runs(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Query(params): Query<CompareRunsQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let ids: Vec<&str> = params.ids.split(',').collect();
+    if ids.len() != 2 {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Exactly two run IDs required"}))));
+    }
+    let id_a = ids[0];
+    let id_b = ids[1];
+
+    let dataset_ids: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT dataset_id FROM rag_eval_runs WHERE id IN (?, ?) AND tenant_id = ?"
+    )
+    .bind(id_a).bind(id_b).bind(&tenant_id).fetch_all(&pool).await.unwrap_or_default();
+
+    if dataset_ids.len() == 2 && dataset_ids[0] != dataset_ids[1] {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Failed: Both runs must belong to the exact same dataset to be compared."}))));
+    }
+
+    #[derive(sqlx::FromRow, Clone)]
+    struct QueryHit {
+        query: String,
+        hit: bool,
+        reciprocal_rank: f64,
+        ndcg_score: f64,
+        total_latency_ms: i32,
+    }
+
+    let run_a_queries: Vec<QueryHit> = sqlx::query_as(
+        "SELECT query, hit, reciprocal_rank, ndcg_score, total_latency_ms FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?"
+    ).bind(id_a).bind(&tenant_id).fetch_all(&pool).await.unwrap_or_default();
+
+    let run_b_queries: Vec<QueryHit> = sqlx::query_as(
+        "SELECT query, hit, reciprocal_rank, ndcg_score, total_latency_ms FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?"
+    ).bind(id_b).bind(&tenant_id).fetch_all(&pool).await.unwrap_or_default();
+
+    use std::collections::HashMap;
+    let map_b: HashMap<String, QueryHit> = run_b_queries.into_iter().map(|q| (q.query.clone(), q)).collect();
+
+    let mut regressions = vec![];
+    let mut improvements = vec![];
+
+    for q_a in run_a_queries {
+        if let Some(q_b) = map_b.get(&q_a.query) {
+            if q_a.hit && !q_b.hit {
+                regressions.push(json!({
+                    "query": q_a.query,
+                    "previous_rr": q_a.reciprocal_rank,
+                    "new_rr": q_b.reciprocal_rank,
+                    "previous_ndcg": q_a.ndcg_score,
+                    "new_ndcg": q_b.ndcg_score,
+                }));
+            } else if !q_a.hit && q_b.hit {
+                improvements.push(json!({
+                    "query": q_a.query,
+                    "previous_rr": q_a.reciprocal_rank,
+                    "new_rr": q_b.reciprocal_rank,
+                    "previous_ndcg": q_a.ndcg_score,
+                    "new_ndcg": q_b.ndcg_score,
+                }));
+            }
+        }
+    }
+
+    Ok(Json(json!({
+        "base_run": id_a,
+        "comparison_run": id_b,
+        "regressions": regressions,
+        "improvements": improvements
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExportFormat {
+    pub format: Option<String>,
+}
+
+pub async fn export_eval_run(
+    Path(id): Path<String>,
+    Query(q): Query<ExportFormat>,
+    State(pool): State<DbPool>,
+) -> impl IntoResponse {
+    let queries = sqlx::query("SELECT query, hit, reciprocal_rank, ndcg_score, precision_score, recall_score, generated_answer, faithfulness, answer_relevancy, context_precision, judge_reasoning, total_latency_ms FROM rag_eval_queries WHERE run_id = ? ORDER BY id ASC")
+        .bind(&id)
+        .fetch_all(&pool)
+        .await;
+
+    use sqlx::Row;
+    let rows = match queries {
+        Ok(r) => r,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    if rows.is_empty() {
+        return (StatusCode::NOT_FOUND, "No queries found for run_id").into_response();
+    }
+
+    let is_csv = q.format.as_deref().unwrap_or("json").to_lowercase() == "csv";
+    
+    if is_csv {
+        let mut wtr = String::new();
+        // Header
+        wtr.push_str("Query,Hit,NDCG,MRR,Latency MS,Faithfulness,Relevancy,Generated Answer,Judge Reasoning\n");
+        for row in rows {
+            let hit = row.try_get::<bool, _>("hit").unwrap_or_default();
+            let q_sc = escape_csv(&row.try_get::<String, _>("query").unwrap_or_default());
+            let hit_str = if hit { "True" } else { "False" };
+            let ndcg = row.try_get::<f64, _>("ndcg_score").unwrap_or_default().to_string();
+            let mrr = row.try_get::<f64, _>("reciprocal_rank").unwrap_or_default().to_string();
+            let lat = row.try_get::<i64, _>("total_latency_ms").unwrap_or_default().to_string();
+            let faith = row.try_get::<f64, _>("faithfulness").map(|f| f.to_string()).unwrap_or_default();
+            let rel = row.try_get::<f64, _>("answer_relevancy").map(|f| f.to_string()).unwrap_or_default();
+            let ans = escape_csv(&row.try_get::<String, _>("generated_answer").unwrap_or_default());
+            let reason = escape_csv(&row.try_get::<String, _>("judge_reasoning").unwrap_or_default());
+            wtr.push_str(&format!("{q_sc},{hit_str},{ndcg},{mrr},{lat},{faith},{rel},{ans},{reason}\n"));
+        }
+        use axum::http::header;
+        let disposition = format!("attachment; filename=\"run_{}.csv\"", id);
+        return (
+            [(header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+             (header::CONTENT_DISPOSITION, disposition.as_str())],
+            wtr
+        ).into_response();
+    } else {
+        // Output JSON
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(json!({
+                "query": row.try_get::<String, _>("query").unwrap_or_default(),
+                "hit": row.try_get::<bool, _>("hit").unwrap_or_default(),
+                "ndcg_score": row.try_get::<f64, _>("ndcg_score").unwrap_or_default(),
+                "reciprocal_rank": row.try_get::<f64, _>("reciprocal_rank").unwrap_or_default(),
+                "total_latency_ms": row.try_get::<i64, _>("total_latency_ms").unwrap_or_default(),
+                "faithfulness": row.try_get::<f64, _>("faithfulness").ok(),
+                "answer_relevancy": row.try_get::<f64, _>("answer_relevancy").ok(),
+                "generated_answer": row.try_get::<String, _>("generated_answer").ok(),
+                "judge_reasoning": row.try_get::<String, _>("judge_reasoning").ok(),
+            }));
+        }
+        return Json(out).into_response();
+    }
+}
+
+fn escape_csv(s: &str) -> String {
+    if s.is_empty() { return String::new(); }
+    let mut out = String::new();
+    out.push('"');
+    for c in s.chars() {
+        if c == '"' { out.push_str("\"\""); }
+        else { out.push(c); }
+    }
+    out.push('"');
+    out
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1499,5 +1836,15 @@ mod tests {
         assert_eq!(item.query, "test?");
         assert!(item.context.is_some());
         assert_eq!(item.context.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_eval_item_sprint1_extensions() {
+        let json = r#"{"query":"test?","expected_titles":["Doc A"],"question_type":"clinical","difficulty":"hard","required_tools":["calculator"]}"#;
+        let item: RagEvalItem = serde_json::from_str(json).unwrap();
+        assert_eq!(item.query, "test?");
+        assert_eq!(item.question_type.unwrap(), "clinical");
+        assert_eq!(item.difficulty.unwrap(), "hard");
+        assert_eq!(item.required_tools.unwrap().len(), 1);
     }
 }
