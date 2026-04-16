@@ -122,7 +122,7 @@ Project-Mimir/
 ├── rathena/                   # 🎮 rAthena Game Server (C++)
 ├── scripts/
 │   ├── deploy.sh              # Local development (docker-compose)
-│   └── k3s-deploy.sh          # K3s production deploy (build + rollout)
+│   └── (K3s deploy moved to Asgard/scripts)
 ├── docs/
 │   ├── deployment/            # Deployment guides
 │   ├── iso_29110/             # ISO 29110 compliance documents
@@ -171,14 +171,14 @@ For production-like deployment on K3s (OrbStack):
 
 ```bash
 # Deploy everything (build + rollout)
-./scripts/k3s-deploy.sh all
+../Asgard/scripts/k3s-deploy.sh all
 
 # Or deploy individually
-./scripts/k3s-deploy.sh api
-./scripts/k3s-deploy.sh dashboard
+../Asgard/scripts/k3s-deploy.sh api
+../Asgard/scripts/k3s-deploy.sh dashboard
 
 # Override API URL for non-localhost access
-NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ./scripts/k3s-deploy.sh dashboard
+NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ../Asgard/scripts/k3s-deploy.sh dashboard
 ```
 
 **K3s Service Ports:**

@@ -1,17 +1,15 @@
 use mimir_core_ai::models::persona::Persona;
 use rig::completion::Prompt;
-use rig::providers::{gemini, ollama};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
 /// Default provider to use if not specified
-const DEFAULT_PROVIDER: &str = "ollama";
+const DEFAULT_PROVIDER: &str = "heimdall";
 
-/// Default model to use if not specified
-/// Optimized for speed: llama3.2 is a fast, efficient model suitable for <2s latency
-const DEFAULT_MODEL: &str = "llama3.2";
+/// Default model optimized for fast NPC responses via Heimdall
+const DEFAULT_MODEL: &str = "mlx-community/Qwen3-0.6B-4bit";
 
 /// Default timeout for completion requests (30 seconds)
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -50,8 +48,6 @@ pub mod fast_models {
 /// let agent = SimpleNpcAgent::with_model(persona, "llama3.2:1b"); // Smaller, faster model
 /// ```
 enum AgentImplementation {
-    Ollama(rig::agent::Agent<ollama::CompletionModel>),
-    Gemini(rig::agent::Agent<gemini::completion::CompletionModel>),
     /// Heimdall uses reqwest directly (OpenAI-compatible HTTP API)
     Heimdall {
         client: reqwest::Client,
@@ -101,11 +97,7 @@ impl SimpleNpcAgent {
         let model_name = model.unwrap_or(DEFAULT_MODEL).to_string();
 
         let provider_name = provider.map(|p| p.to_string()).unwrap_or_else(|| {
-            if model_name.starts_with("gemini") || model_name.starts_with("google") {
-                "google".to_string()
-            } else {
-                DEFAULT_PROVIDER.to_string()
-            }
+            DEFAULT_PROVIDER.to_string()
         });
 
         let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
@@ -122,11 +114,7 @@ impl SimpleNpcAgent {
         );
 
         let agent_impl = match provider_name.as_str() {
-            "google" => {
-                let client = gemini::Client::from_env();
-                AgentImplementation::Gemini(client.agent(&model_name).preamble(&preamble).build())
-            }
-            "heimdall" => {
+            _ => { // Always use Heimdall
                 let api_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
                 let endpoint = std::env::var("HEIMDALL_API_URL")
                     .unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
@@ -137,11 +125,6 @@ impl SimpleNpcAgent {
                     api_key,
                     system_prompt: preamble,
                 }
-            }
-            _ => {
-                // Default to Ollama
-                let client = ollama::Client::new();
-                AgentImplementation::Ollama(client.agent(&model_name).preamble(&preamble).build())
             }
         };
 
@@ -180,14 +163,6 @@ impl SimpleNpcAgent {
 
         let prompt_future = async {
             match &self.agent_impl {
-                AgentImplementation::Ollama(agent) => agent
-                    .prompt(enhanced_message.as_str())
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{}", e)),
-                AgentImplementation::Gemini(agent) => agent
-                    .prompt(enhanced_message.as_str())
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{}", e)),
                 AgentImplementation::Heimdall {
                     client,
                     endpoint,

@@ -318,7 +318,7 @@ function EventDetailPanel({
                         {playgroundState.availableModels
                           .filter(m => m.provider === playgroundState.searchProvider)
                           .map(m => (
-                          <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                          <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

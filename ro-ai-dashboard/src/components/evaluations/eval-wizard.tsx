@@ -165,7 +165,7 @@ export function EvalWizard({ onTriggerRun }: EvalWizardProps) {
                                         className={`p-3 border rounded-lg cursor-pointer transition-colors flex items-center justify-between ${selectedModels.includes(m.model_id) ? 'border-primary bg-primary/10' : 'hover:bg-accent'}`}
                                     >
                                         <div>
-                                            <div className="font-medium text-sm">{m.model_id}</div>
+                                            <div className="font-medium text-sm">{m.model_id.split('/').pop() || m.model_id}</div>
                                             <div className="text-xs text-muted-foreground">{m.provider}</div>
                                         </div>
                                         {selectedModels.includes(m.model_id) && <Check className="h-4 w-4 text-primary" />}

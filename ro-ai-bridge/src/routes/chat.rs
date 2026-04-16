@@ -14,7 +14,7 @@ use axum::{
 use futures::stream::Stream;
 use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::models::persona::Persona;
-use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent};
+use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent, RagConfig};
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::iam::IamService;
 use mimir_core_ai::services::qdrant::QdrantService;
@@ -79,7 +79,11 @@ struct StreamDone {
 
 /// Resolve provider and model from request + tenant config defaults.
 /// Priority: request payload > llm_config.chat slot > tenant default_provider/model > hardcoded.
-async fn resolve_provider_model(pool: &DbPool, payload: &ChatRequest) -> (LlmProvider, String) {
+async fn resolve_provider_model(
+    pool: &DbPool,
+    payload: &ChatRequest,
+    slot_name: &str,
+) -> (LlmProvider, String, Option<RagConfig>) {
     let tenant_id = payload
         .tenant_id
         .clone()
@@ -96,18 +100,24 @@ async fn resolve_provider_model(pool: &DbPool, payload: &ChatRequest) -> (LlmPro
 
     let default_p = tenant_config.as_ref().map(|c| c.default_provider.as_str());
     let default_m = tenant_config.as_ref().map(|c| c.default_model.as_str());
-    let resolved = llm_config.resolve_slot("chat", default_p, default_m);
+    let resolved = llm_config.resolve_slot(slot_name, default_p, default_m);
 
     let provider = payload
         .provider
         .as_deref()
         .unwrap_or(&resolved.provider)
         .parse::<LlmProvider>()
-        .unwrap_or(LlmProvider::Ollama);
+        .unwrap_or(LlmProvider::Heimdall);
 
     let model = payload.model.clone().unwrap_or(resolved.model);
 
-    (provider, model)
+    // Resolve RagConfig from search_settings (only meaningful for rag slot)
+    let rag_config: Option<RagConfig> = tenant_config
+        .as_ref()
+        .and_then(|c| c.search_settings.as_ref())
+        .and_then(|s| serde_json::from_value(s.0.clone()).ok());
+
+    (provider, model, rag_config)
 }
 
 // ─── Route Registration ────────────────────────────────────────────────────
@@ -133,7 +143,7 @@ async fn chat_handler(
         .or_else(|| payload.tenant_id.clone())
         .unwrap_or_else(|| extract_tenant_id(&headers).to_string());
 
-    let (provider, model) = resolve_provider_model(&pool, &payload).await;
+    let (provider, model, _rag_config) = resolve_provider_model(&pool, &payload, "chat").await;
 
     info!(
         "💬 chat: tier={}, persona={}, provider={}, model={}, tenant={}",
@@ -186,6 +196,9 @@ async fn chat_handler(
             }
         }
         2 => {
+            // Re-resolve with 'rag' slot for tier 2 RAG agent
+            let (_rag_provider, _rag_model, rag_config) = resolve_provider_model(&pool, &payload, "rag").await;
+
             let qdrant = QdrantService::new();
             let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
             plugins.push(Box::new(
@@ -203,6 +216,7 @@ async fn chat_handler(
                 Some(&model),
                 None,
                 tenant_id,
+                rag_config,
             );
 
             match agent.chat(&payload.message).await {
@@ -262,7 +276,7 @@ async fn chat_stream_handler(
         .or_else(|| payload.tenant_id.clone())
         .unwrap_or_else(|| extract_tenant_id(&headers).to_string());
 
-    let (provider, model) = resolve_provider_model(&pool, &payload).await;
+    let (provider, model, _rag_config) = resolve_provider_model(&pool, &payload, "chat").await;
 
     info!(
         "💬 stream: tier={}, persona={}, provider={}, model={}, tenant={}",
@@ -334,6 +348,14 @@ async fn chat_stream_handler(
                 }
             }
             2 => {
+                // Resolve RAG config for streaming tier 2
+                let rag_config: Option<RagConfig> = {
+                    let iam = IamService::new_with_env(pool.clone());
+                    let tc = iam.get_tenant_config(&tenant_id).await.ok();
+                    tc.and_then(|c| c.search_settings)
+                        .and_then(|s| serde_json::from_value(s.0).ok())
+                };
+
                 let qdrant = QdrantService::new();
                 let mut plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> =
                     vec![];
@@ -352,6 +374,7 @@ async fn chat_stream_handler(
                     Some(&model),
                     None,
                     tenant_id.clone(),
+                    rag_config,
                 );
 
                 match agent.chat(&message).await {

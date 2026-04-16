@@ -26,6 +26,7 @@ pub mod sql_import;
 pub mod table_parser;
 pub mod upload;
 pub mod vault;
+pub mod model_sync;
 
 #[cfg(test)]
 mod e2e_tests;

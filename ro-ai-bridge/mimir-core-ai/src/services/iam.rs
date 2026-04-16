@@ -506,8 +506,8 @@ impl IamService {
         let config = self.get_tenant_config(tenant_id).await.unwrap_or_else(|_| {
             crate::models::iam::TenantConfig {
                 tenant_id: tenant_id.to_string(),
-                default_provider: "ollama".to_string(),
-                default_model: "llama3.2".to_string(),
+                default_provider: "heimdall".to_string(),
+                default_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
                 provider_api_keys: None,
                 qa_rules: None,
                 system_prompt: None,

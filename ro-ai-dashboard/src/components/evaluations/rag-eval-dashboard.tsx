@@ -1084,7 +1084,7 @@ export function RagEvalDashboard() {
                           <SelectContent>
                             <SelectItem value="default">Default for Provider</SelectItem>
                             {availableModels.filter(m => m.provider === tunerProvider).map(m => (
-                              <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                              <SelectItem key={m.model_id} value={m.model_id}>{m.model_id.split('/').pop() || m.model_id}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>

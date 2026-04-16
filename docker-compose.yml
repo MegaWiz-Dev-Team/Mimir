@@ -113,27 +113,6 @@ services:
       - "5121:5121"
     restart: always
 
-  vault:
-    image: hashicorp/vault:1.15
-    container_name: mimir_vault
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_ADDR: "http://127.0.0.1:8200"
-    cap_add:
-      - IPC_LOCK
-    volumes:
-      - ./data/vault:/vault/file
-      - ./config/vault/vault-config.hcl:/vault/config/vault-config.hcl:ro
-      - ./config/vault/entrypoint.sh:/vault/entrypoint.sh:ro
-    entrypoint: /vault/entrypoint.sh
-    healthcheck:
-      test: [ "CMD", "vault", "status", "-address=http://127.0.0.1:8200" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 
 
 volumes:

@@ -84,9 +84,11 @@ pub fn llm_usage_routes() -> Router<DbPool> {
 // ─── GET /api/v1/llm-usage ──────────────────────────────────────────────────────
 
 async fn get_llm_usage(
+    headers: axum::http::HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<UsageQueryParams>,
 ) -> Result<Json<PaginatedUsageLogs>, (StatusCode, Json<Value>)> {
+    let tenant_id = crate::routes::tenant::extract_tenant_id(&headers);
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100).max(1);
     let offset = (page - 1) * per_page;
@@ -94,6 +96,9 @@ async fn get_llm_usage(
     // Build dynamic WHERE clause
     let mut conditions = Vec::new();
     let mut bind_values: Vec<String> = Vec::new();
+
+    conditions.push("tenant_id = ?");
+    bind_values.push(tenant_id.to_string());
 
     if let Some(ref model) = params.model_id {
         conditions.push("model_id = ?");
@@ -116,11 +121,7 @@ async fn get_llm_usage(
         bind_values.push(date_to.clone());
     }
 
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let where_clause = format!("WHERE {}", conditions.join(" AND "));
 
     // Count query
     let count_sql = format!("SELECT COUNT(*) FROM llm_usage_logs {}", where_clause);
@@ -164,11 +165,16 @@ async fn get_llm_usage(
 // ─── GET /api/v1/llm-usage/summary ──────────────────────────────────────────────
 
 async fn get_llm_usage_summary(
+    headers: axum::http::HeaderMap,
     State(pool): State<DbPool>,
     Query(params): Query<SummaryQueryParams>,
 ) -> Result<Json<LlmUsageSummary>, (StatusCode, Json<Value>)> {
+    let tenant_id = crate::routes::tenant::extract_tenant_id(&headers);
     let mut conditions = Vec::new();
     let mut bind_values: Vec<String> = Vec::new();
+
+    conditions.push("tenant_id = ?");
+    bind_values.push(tenant_id.to_string());
 
     if let Some(ref date_from) = params.date_from {
         conditions.push("created_at >= ?");
@@ -179,15 +185,11 @@ async fn get_llm_usage_summary(
         bind_values.push(date_to.clone());
     }
 
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let where_clause = format!("WHERE {}", conditions.join(" AND "));
 
     // Overall aggregation
     let agg_sql = format!(
-        "SELECT COUNT(*) as total_calls, COALESCE(SUM(input_tokens), 0) as total_input, COALESCE(SUM(output_tokens), 0) as total_output, COALESCE(SUM(total_tokens), 0) as total_tok, COALESCE(AVG(latency_ms), 0) as avg_lat FROM llm_usage_logs {}",
+        "SELECT COUNT(*) as total_calls, CAST(COALESCE(SUM(input_tokens), 0) AS SIGNED) as total_input, CAST(COALESCE(SUM(output_tokens), 0) AS SIGNED) as total_output, CAST(COALESCE(SUM(total_tokens), 0) AS SIGNED) as total_tok, COALESCE(AVG(latency_ms), 0) as avg_lat FROM llm_usage_logs {}",
         where_clause
     );
     let mut agg_query = sqlx::query_as::<_, (i64, i64, i64, i64, f64)>(&agg_sql);
@@ -202,7 +204,7 @@ async fn get_llm_usage_summary(
 
     // Per-model aggregation
     let model_sql = format!(
-        "SELECT model_id, provider, COUNT(*) as total_calls, COALESCE(SUM(total_tokens), 0) as total_tok, COALESCE(AVG(latency_ms), 0) as avg_lat FROM llm_usage_logs {} GROUP BY model_id, provider ORDER BY total_calls DESC",
+        "SELECT model_id, provider, COUNT(*) as total_calls, CAST(COALESCE(SUM(total_tokens), 0) AS SIGNED) as total_tok, COALESCE(AVG(latency_ms), 0) as avg_lat FROM llm_usage_logs {} GROUP BY model_id, provider ORDER BY total_calls DESC",
         where_clause
     );
     let mut model_query = sqlx::query_as::<_, (String, String, i64, i64, f64)>(&model_sql);

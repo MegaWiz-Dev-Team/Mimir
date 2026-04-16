@@ -4,8 +4,6 @@
 //! and runs a single Q/A evaluation, returning the answer and latency.
 
 use anyhow::{bail, Result};
-use rig::completion::Prompt;
-use rig::providers::{gemini, ollama};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::{Duration, Instant};
@@ -35,19 +33,14 @@ pub struct JudgeScores {
 }
 
 /// Determine the provider from a model_id string
-pub fn provider_from_model_id(model_id: &str) -> LlmProvider {
-    if model_id.starts_with("gemini") {
-        LlmProvider::Gemini
-    } else {
-        LlmProvider::Ollama
-    }
+pub fn provider_from_model_id(_model_id: &str) -> LlmProvider {
+    LlmProvider::Heimdall
 }
 
 /// Unified evaluation function: runs a question through an agent with a specific model
 ///
 /// Returns `EvalResult` with the answer text and latency.
-/// For `simple_npc` — only Ollama models are supported.
-/// For `oracle_rag` — both Ollama and Gemini models are supported.
+/// All agents route through Heimdall Gateway.
 pub async fn evaluate_agent(
     agent_name: &str,
     model_id: &str,
@@ -60,23 +53,10 @@ pub async fn evaluate_agent(
 
     let answer = match agent_name {
         "simple_npc" => {
-            // simple_npc only supports Ollama
-            if provider != LlmProvider::Ollama {
-                bail!("simple_npc only supports Ollama models, got: {}", model_id);
-            }
-
             let persona = create_eval_persona("simple_npc", 1);
-            let preamble = format!(
-                "{}\nAlways reply in the same language as the user's input.",
-                persona.system_prompt
-            );
-            let client = ollama::Client::new();
-            let agent = client.agent(model_id).preamble(&preamble).build();
+            let agent = ro_ai_domain_game::simple_npc::SimpleNpcAgent::with_model(persona, model_id);
 
-            tokio::time::timeout(Duration::from_secs(120), agent.prompt(question))
-                .await
-                .map_err(|_| anyhow::anyhow!("Timeout after 120s"))?
-                .map_err(|e| anyhow::anyhow!("Prompt failed: {}", e))?
+            agent.chat(question).await?
         }
 
         "oracle_rag" => {
@@ -97,6 +77,7 @@ pub async fn evaluate_agent(
                 Some(model_id),
                 Some(Duration::from_secs(120)),
                 "default_tenant".to_string(),
+                None, // Use default RagConfig for evaluation
             );
 
             let response = oracle.chat(question).await?;
@@ -115,21 +96,18 @@ pub async fn evaluate_agent(
     })
 }
 
-/// Use Gemini as LLM-as-Judge to score a response
+/// Use LLM-as-Judge (via Heimdall) to score a response
 pub async fn judge_response(
     question: &str,
     expected_answer: &str,
     actual_answer: &str,
     judge_model: &str,
 ) -> Result<JudgeScores> {
-    let api_key = env::var("GEMINI_API_KEY")
-        .or_else(|_| env::var("GOOGLE_API_KEY"))
-        .map_err(|_| anyhow::anyhow!("GEMINI_API_KEY or GOOGLE_API_KEY must be set for judge"))?;
-
-    let client = gemini::Client::new(&api_key);
-    let agent = client.agent(judge_model)
-        .preamble("You are an expert evaluator for AI agent responses. You score responses on a 1-5 scale. Always respond in valid JSON only, no markdown.")
-        .build();
+    let api_key = env::var("HEIMDALL_API_KEY").unwrap_or_default();
+    let endpoint = env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
+    
+    let client = reqwest::Client::new();
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
 
     let prompt = format!(
         r#"Evaluate the following AI response against the expected answer.
@@ -149,10 +127,32 @@ Respond with ONLY this JSON (no markdown, no code fences):
 {{"accuracy": <1-5>, "completeness": <1-5>, "relevance": <1-5>, "reasoning": "<brief explanation>"}}"#
     );
 
-    let response = tokio::time::timeout(Duration::from_secs(60), agent.prompt(prompt.as_str()))
-        .await
+    let payload = serde_json::json!({
+        "model": judge_model,
+        "messages": [
+            { "role": "system", "content": "You are an expert evaluator for AI agent responses. You score responses on a 1-5 scale. Always respond in valid JSON only, no markdown." },
+            { "role": "user", "content": prompt }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 1024
+    });
+
+    let resp_result = tokio::time::timeout(Duration::from_secs(60), client.post(&url).header("Authorization", format!("Bearer {}", api_key)).json(&payload).send()).await;
+    let resp = resp_result
         .map_err(|_| anyhow::anyhow!("Judge timeout after 60s"))?
-        .map_err(|e| anyhow::anyhow!("Judge prompt failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Judge request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("Judge request error: {} - {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+
+    let json: serde_json::Value = resp.json().await?;
+    let response = json.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No content in judge response"))?;
 
     // Parse JSON from response (handle potential markdown wrapping)
     let json_str = response
@@ -215,11 +215,7 @@ pub fn available_agents() -> Vec<&'static str> {
 }
 
 /// Check if a given (agent, model) combination is compatible
-pub fn is_compatible(agent_name: &str, model_id: &str) -> bool {
-    let provider = provider_from_model_id(model_id);
-    match agent_name {
-        "simple_npc" => provider == LlmProvider::Ollama,
-        "oracle_rag" => true, // Supports both
-        _ => false,
-    }
+pub fn is_compatible(_agent_name: &str, _model_id: &str) -> bool {
+    // All agents support Heimdall now
+    true
 }

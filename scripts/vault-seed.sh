@@ -3,18 +3,18 @@
 # Vault Secrets Seed Script for Project Mimir
 # ============================================================================
 # Usage:
-#   1. Start Vault:  docker compose up -d vault
+#   1. Start Fáfnir (Vault):  kubectl apply -f Asgard/k8s/04-security/fafnir
 #   2. Run script:   bash scripts/vault-seed.sh
 #
-# This script stores all required secrets in Vault KV v2.
+# This script stores all required secrets in Fafnir KV v2.
 # After running, Mimir will auto-resolve secrets via resolve_secret().
 # ============================================================================
 
 set -euo pipefail
 
 # ── Vault Connection ─────────────────────────────────────────────────────
-export VAULT_ADDR="${VAULT_ADDR:-http://localhost:8200}"
-export VAULT_TOKEN="${VAULT_TOKEN:-mimir-dev-token}"
+export VAULT_ADDR="${VAULT_ADDR:-http://localhost:30820}"
+export VAULT_TOKEN="${VAULT_TOKEN:-hvs.QLBolhzojhTzetrEuzqZQYEx}"
 VAULT_PATH="${VAULT_PATH:-mimir}"
 
 echo "🛡️  Mimir Vault Secrets Seeder"
@@ -24,11 +24,11 @@ echo ""
 
 # ── Check Vault is reachable ─────────────────────────────────────────────
 if ! curl -sf "$VAULT_ADDR/v1/sys/health" > /dev/null 2>&1; then
-    echo "❌ Vault is not reachable at $VAULT_ADDR"
-    echo "   Start it with: docker compose up -d vault"
+    echo "❌ Fáfnir (Vault) is not reachable at $VAULT_ADDR"
+    echo "   Start it with: kubectl apply -f ../Asgard/k8s/04-security/fafnir"
     exit 1
 fi
-echo "✅ Vault is healthy"
+echo "✅ Fáfnir is healthy"
 
 # ── Prompt for secrets ───────────────────────────────────────────────────
 echo ""

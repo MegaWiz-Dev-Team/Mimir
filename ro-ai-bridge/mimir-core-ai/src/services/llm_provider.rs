@@ -1,7 +1,7 @@
-//! MLX + vLLM + Heimdall Providers (Issue #163, #180)
+//! Heimdall Gateway Provider
 //!
 //! Local LLM provider integration with OpenAI-compatible API format.
-//! Supports MLX Server, vLLM, Heimdall Gateway, and benchmarking across providers.
+//! Routes all traffic to Heimdall Gateway.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -10,30 +10,21 @@ use serde_json::{Value, json};
 // Types
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Supported LLM providers
+/// Supported LLM providers (Now Heimdall-only)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LlmProvider {
-    Gemini,
-    MLX,
-    VLLM,
     Heimdall,
 }
 
 impl LlmProvider {
     pub fn as_str(&self) -> &str {
         match self {
-            LlmProvider::Gemini => "gemini",
-            LlmProvider::MLX => "mlx",
-            LlmProvider::VLLM => "vllm",
             LlmProvider::Heimdall => "heimdall",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "gemini" => Some(LlmProvider::Gemini),
-            "mlx" => Some(LlmProvider::MLX),
-            "vllm" => Some(LlmProvider::VLLM),
             "heimdall" => Some(LlmProvider::Heimdall),
             _ => None,
         }
@@ -52,45 +43,12 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub fn mlx_default() -> Self {
-        Self {
-            provider: LlmProvider::MLX,
-            endpoint: "http://localhost:8080".to_string(),
-            model: "mlx-community/Mistral-7B-Instruct-v0.3-4bit".to_string(),
-            api_key: None,
-            max_tokens: 2048,
-            temperature: 0.7,
-        }
-    }
-
-    pub fn vllm_default() -> Self {
-        Self {
-            provider: LlmProvider::VLLM,
-            endpoint: "http://localhost:8000".to_string(),
-            model: "mistralai/Mistral-7B-Instruct-v0.3".to_string(),
-            api_key: None,
-            max_tokens: 2048,
-            temperature: 0.7,
-        }
-    }
-
-    pub fn gemini_default(api_key: &str) -> Self {
-        Self {
-            provider: LlmProvider::Gemini,
-            endpoint: "https://generativelanguage.googleapis.com".to_string(),
-            model: "gemini-2.5-flash".to_string(),
-            api_key: Some(api_key.to_string()),
-            max_tokens: 8192,
-            temperature: 0.7,
-        }
-    }
-
     /// Heimdall self-hosted LLM gateway (OpenAI-compatible, requires API key)
     pub fn heimdall_default(api_key: &str) -> Self {
         Self {
             provider: LlmProvider::Heimdall,
             endpoint: std::env::var("HEIMDALL_API_URL")
-                .unwrap_or_else(|_| "http://localhost:8080/v1".to_string()),
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
             model: std::env::var("HEIMDALL_MODEL")
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
             api_key: Some(api_key.to_string()),
@@ -203,33 +161,7 @@ pub struct BenchmarkResult {
 // Pure Functions — TDD-testable (no I/O)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Build an OpenAI-compatible chat completion request for MLX Server.
-pub fn build_mlx_request(config: &ProviderConfig, messages: &[ChatMessage]) -> Value {
-    json!({
-        "model": config.model,
-        "messages": messages,
-        "max_tokens": config.max_tokens,
-        "temperature": config.temperature,
-        "stream": false
-    })
-}
-
-/// Build an OpenAI-compatible chat completion request for vLLM.
-pub fn build_vllm_request(config: &ProviderConfig, messages: &[ChatMessage]) -> Value {
-    json!({
-        "model": config.model,
-        "messages": messages,
-        "max_tokens": config.max_tokens,
-        "temperature": config.temperature,
-        "stream": false,
-        "n": 1
-    })
-}
-
 /// Build an OpenAI-compatible chat completion request for Heimdall Gateway.
-///
-/// Heimdall uses the same OpenAI-compatible format as MLX,
-/// but always includes the model ID from the registry.
 pub fn build_heimdall_request(config: &ProviderConfig, messages: &[ChatMessage]) -> Value {
     json!({
         "model": config.model,
@@ -243,40 +175,19 @@ pub fn build_heimdall_request(config: &ProviderConfig, messages: &[ChatMessage])
 /// Build the full endpoint URL for chat completions.
 pub fn build_chat_url(config: &ProviderConfig) -> String {
     let base = config.endpoint.trim_end_matches('/');
-    match config.provider {
-        LlmProvider::MLX | LlmProvider::VLLM | LlmProvider::Heimdall => {
-            format!("{}/v1/chat/completions", base)
-        }
-        LlmProvider::Gemini => {
-            format!("{}/v1beta/models/{}:generateContent", base, config.model)
-        }
-    }
+    format!("{}/v1/chat/completions", base)
 }
 
 /// Build the models list URL.
 pub fn build_models_url(config: &ProviderConfig) -> String {
     let base = config.endpoint.trim_end_matches('/');
-    match config.provider {
-        LlmProvider::MLX | LlmProvider::VLLM | LlmProvider::Heimdall => {
-            format!("{}/v1/models", base)
-        }
-        LlmProvider::Gemini => {
-            format!("{}/v1beta/models", base)
-        }
-    }
+    format!("{}/v1/models", base)
 }
 
 /// Build the embeddings URL.
 pub fn build_embeddings_url(config: &ProviderConfig) -> String {
     let base = config.endpoint.trim_end_matches('/');
-    match config.provider {
-        LlmProvider::MLX | LlmProvider::VLLM | LlmProvider::Heimdall => {
-            format!("{}/v1/embeddings", base)
-        }
-        LlmProvider::Gemini => {
-            format!("{}/v1beta/models/{}:embedContent", base, config.model)
-        }
-    }
+    format!("{}/v1/embeddings", base)
 }
 
 /// Parse an OpenAI-compatible chat completion response.
@@ -407,26 +318,12 @@ pub fn calculate_benchmark(
 
 /// Detect GPU availability (checks environment / system info).
 pub fn detect_gpu_info() -> Value {
-    // Check for Apple Silicon
     let is_apple_silicon = cfg!(target_arch = "aarch64") && cfg!(target_os = "macos");
-
-    // Check CUDA availability via env var
     let cuda_visible = std::env::var("CUDA_VISIBLE_DEVICES").ok();
     let has_cuda = cuda_visible.is_some();
 
-    // Check Heimdall availability
     let heimdall_url = std::env::var("HEIMDALL_API_URL").ok();
     let has_heimdall = heimdall_url.is_some();
-
-    let recommended = if has_heimdall {
-        "heimdall"
-    } else if is_apple_silicon {
-        "mlx"
-    } else if has_cuda {
-        "vllm"
-    } else {
-        "gemini"
-    };
 
     json!({
         "apple_silicon": is_apple_silicon,
@@ -434,7 +331,7 @@ pub fn detect_gpu_info() -> Value {
         "cuda_devices": cuda_visible.unwrap_or_default(),
         "heimdall_available": has_heimdall,
         "heimdall_url": heimdall_url.unwrap_or_default(),
-        "recommended_provider": recommended
+        "recommended_provider": "heimdall"
     })
 }
 
@@ -446,10 +343,6 @@ pub fn validate_provider_config(config: &ProviderConfig) -> Result<(), String> {
 
     if config.model.is_empty() {
         return Err("Model name is required".to_string());
-    }
-
-    if config.provider == LlmProvider::Gemini && config.api_key.is_none() {
-        return Err("Gemini requires an API key".to_string());
     }
 
     if config.provider == LlmProvider::Heimdall && config.api_key.is_none() {
@@ -488,60 +381,12 @@ mod tests {
         ]
     }
 
-    // ========================================
-    // UT-014b_q: build_mlx_request
-    // ========================================
-    #[test]
-    fn test_build_mlx_request() {
-        let config = ProviderConfig::mlx_default();
-        let req = build_mlx_request(&config, &test_messages());
-
-        assert_eq!(req["model"], "mlx-community/Mistral-7B-Instruct-v0.3-4bit");
-        assert_eq!(req["max_tokens"], 2048);
-        let temp = req["temperature"].as_f64().unwrap();
-        assert!(
-            (temp - 0.7).abs() < 0.01,
-            "temperature should be ~0.7, got {}",
-            temp
-        );
-        assert_eq!(req["stream"], false);
-        assert!(req["messages"].is_array());
-        assert_eq!(req["messages"].as_array().unwrap().len(), 2);
-    }
-
-    // ========================================
-    // UT-014b_r: build_vllm_request
-    // ========================================
-    #[test]
-    fn test_build_vllm_request() {
-        let config = ProviderConfig::vllm_default();
-        let req = build_vllm_request(&config, &test_messages());
-
-        assert_eq!(req["model"], "mistralai/Mistral-7B-Instruct-v0.3");
-        assert_eq!(req["n"], 1);
-        assert!(req["messages"].is_array());
-    }
-
-    #[test]
-    fn test_build_vllm_request_custom_model() {
-        let mut config = ProviderConfig::vllm_default();
-        config.model = "meta-llama/Llama-3-8B".to_string();
-        config.max_tokens = 4096;
-
-        let req = build_vllm_request(&config, &test_messages());
-        assert_eq!(req["model"], "meta-llama/Llama-3-8B");
-        assert_eq!(req["max_tokens"], 4096);
-    }
-
-    // ========================================
-    // UT-014b_s: parse_provider_response
-    // ========================================
     #[test]
     fn test_parse_chat_response_success() {
         let response = json!({
             "id": "chatcmpl-abc123",
             "object": "chat.completion",
-            "model": "mlx-model",
+            "model": "heimdall-model",
             "choices": [{
                 "index": 0,
                 "message": {
@@ -575,15 +420,14 @@ mod tests {
     fn test_parse_models_response() {
         let response = json!({
             "data": [
-                { "id": "model-1", "object": "model", "owned_by": "mlx" },
-                { "id": "model-2", "object": "model", "owned_by": "vllm" }
+                { "id": "model-1", "object": "model", "owned_by": "heimdall" }
             ]
         });
 
         let models = parse_models_response(&response);
-        assert_eq!(models.len(), 2);
+        assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "model-1");
-        assert_eq!(models[1].owned_by, "vllm");
+        assert_eq!(models[0].owned_by, "heimdall");
     }
 
     #[test]
@@ -592,58 +436,33 @@ mod tests {
         assert!(parse_models_response(&response).is_empty());
     }
 
-    // ========================================
-    // UT-014b_t: provider_config validation
-    // ========================================
-    #[test]
-    fn test_validate_provider_config_mlx_ok() {
-        let config = ProviderConfig::mlx_default();
-        assert!(validate_provider_config(&config).is_ok());
-    }
-
-    #[test]
-    fn test_validate_provider_config_vllm_ok() {
-        let config = ProviderConfig::vllm_default();
-        assert!(validate_provider_config(&config).is_ok());
-    }
-
-    #[test]
-    fn test_validate_provider_config_gemini_no_key() {
-        let mut config = ProviderConfig::gemini_default("key");
-        config.api_key = None;
-        assert!(validate_provider_config(&config).is_err());
-    }
-
     #[test]
     fn test_validate_provider_config_empty_endpoint() {
-        let mut config = ProviderConfig::mlx_default();
+        let mut config = ProviderConfig::heimdall_default("test-key");
         config.endpoint = String::new();
         assert!(validate_provider_config(&config).is_err());
     }
 
     #[test]
     fn test_validate_provider_config_bad_temperature() {
-        let mut config = ProviderConfig::mlx_default();
+        let mut config = ProviderConfig::heimdall_default("test-key");
         config.temperature = 3.0;
         assert!(validate_provider_config(&config).is_err());
     }
 
     #[test]
     fn test_validate_provider_config_zero_tokens() {
-        let mut config = ProviderConfig::mlx_default();
+        let mut config = ProviderConfig::heimdall_default("test-key");
         config.max_tokens = 0;
         assert!(validate_provider_config(&config).is_err());
     }
 
-    // ========================================
-    // UT-014b_u: benchmark calculations
-    // ========================================
     #[test]
     fn test_calculate_benchmark_success() {
-        let config = ProviderConfig::mlx_default();
+        let config = ProviderConfig::heimdall_default("test-key");
         let result = calculate_benchmark(&config, 500.0, 10, 50, true, None);
 
-        assert_eq!(result.provider, "mlx");
+        assert_eq!(result.provider, "heimdall");
         assert!(result.tokens_per_second > 0.0);
         assert_eq!(result.tokens_per_second, 100.0); // 50 tokens / 0.5s
         assert!(result.success);
@@ -652,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_calculate_benchmark_failure() {
-        let config = ProviderConfig::vllm_default();
+        let config = ProviderConfig::heimdall_default("test-key");
         let result = calculate_benchmark(
             &config,
             1000.0,
@@ -662,69 +481,49 @@ mod tests {
             Some("Connection refused".to_string()),
         );
 
-        assert_eq!(result.provider, "vllm");
+        assert_eq!(result.provider, "heimdall");
         assert_eq!(result.tokens_per_second, 0.0);
         assert!(!result.success);
         assert!(result.error.is_some());
     }
 
-    // ========================================
-    // URL builders
-    // ========================================
     #[test]
-    fn test_build_chat_url_mlx() {
-        let config = ProviderConfig::mlx_default();
-        assert_eq!(
-            build_chat_url(&config),
-            "http://localhost:8080/v1/chat/completions"
-        );
-    }
-
-    #[test]
-    fn test_build_chat_url_vllm() {
-        let config = ProviderConfig::vllm_default();
-        assert_eq!(
-            build_chat_url(&config),
-            "http://localhost:8000/v1/chat/completions"
-        );
-    }
-
-    #[test]
-    fn test_build_chat_url_gemini() {
-        let config = ProviderConfig::gemini_default("key");
-        assert!(build_chat_url(&config).contains("generateContent"));
+    fn test_build_chat_url_heimdall() {
+        // Use default config directly — should NOT produce double /v1
+        let config = ProviderConfig::heimdall_default("test-key");
+        let url = build_chat_url(&config);
+        assert_eq!(url, "http://localhost:3000/v1/chat/completions");
+        assert!(!url.contains("/v1/v1/"), "Must not contain double /v1: {}", url);
     }
 
     #[test]
     fn test_build_models_url() {
-        let config = ProviderConfig::mlx_default();
-        assert_eq!(build_models_url(&config), "http://localhost:8080/v1/models");
+        let config = ProviderConfig::heimdall_default("test-key");
+        let url = build_models_url(&config);
+        assert_eq!(url, "http://localhost:3000/v1/models");
     }
 
     #[test]
     fn test_build_embeddings_url() {
-        let config = ProviderConfig::vllm_default();
-        assert_eq!(
-            build_embeddings_url(&config),
-            "http://localhost:8000/v1/embeddings"
-        );
+        let config = ProviderConfig::heimdall_default("test-key");
+        let url = build_embeddings_url(&config);
+        assert_eq!(url, "http://localhost:3000/v1/embeddings");
     }
 
-    // ========================================
-    // Provider enum
-    // ========================================
+    #[test]
+    fn test_build_chat_url_trailing_slash() {
+        let mut config = ProviderConfig::heimdall_default("test-key");
+        config.endpoint = "http://custom:9000/".to_string();
+        assert_eq!(build_chat_url(&config), "http://custom:9000/v1/chat/completions");
+    }
+
     #[test]
     fn test_provider_as_str() {
-        assert_eq!(LlmProvider::Gemini.as_str(), "gemini");
-        assert_eq!(LlmProvider::MLX.as_str(), "mlx");
-        assert_eq!(LlmProvider::VLLM.as_str(), "vllm");
         assert_eq!(LlmProvider::Heimdall.as_str(), "heimdall");
     }
 
     #[test]
     fn test_provider_from_str() {
-        assert_eq!(LlmProvider::from_str("mlx"), Some(LlmProvider::MLX));
-        assert_eq!(LlmProvider::from_str("VLLM"), Some(LlmProvider::VLLM));
         assert_eq!(
             LlmProvider::from_str("heimdall"),
             Some(LlmProvider::Heimdall)
@@ -733,6 +532,7 @@ mod tests {
             LlmProvider::from_str("HEIMDALL"),
             Some(LlmProvider::Heimdall)
         );
+        assert_eq!(LlmProvider::from_str("mlx"), None);
         assert_eq!(LlmProvider::from_str("unknown"), None);
     }
 
@@ -740,13 +540,10 @@ mod tests {
     fn test_detect_gpu_info() {
         let info = detect_gpu_info();
         assert!(info.get("apple_silicon").is_some());
-        assert!(info.get("recommended_provider").is_some());
+        assert_eq!(info.get("recommended_provider").unwrap().as_str().unwrap(), "heimdall");
         assert!(info.get("heimdall_available").is_some());
     }
 
-    // ========================================
-    // UT-014b_v: Heimdall provider
-    // ========================================
     #[test]
     fn test_heimdall_default_config() {
         let config = ProviderConfig::heimdall_default("hd-test-key");
@@ -770,39 +567,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_chat_url_heimdall() {
-        let config = ProviderConfig::heimdall_default("key");
-        let url = build_chat_url(&config);
-        assert!(
-            url.ends_with("/v1/chat/completions"),
-            "URL should end with /v1/chat/completions, got: {}",
-            url
-        );
-    }
-
-    #[test]
-    fn test_build_models_url_heimdall() {
-        let config = ProviderConfig::heimdall_default("key");
-        let url = build_models_url(&config);
-        assert!(
-            url.ends_with("/v1/models"),
-            "URL should end with /v1/models, got: {}",
-            url
-        );
-    }
-
-    #[test]
-    fn test_build_embeddings_url_heimdall() {
-        let config = ProviderConfig::heimdall_default("key");
-        let url = build_embeddings_url(&config);
-        assert!(
-            url.ends_with("/v1/embeddings"),
-            "URL should end with /v1/embeddings, got: {}",
-            url
-        );
-    }
-
-    #[test]
     fn test_validate_heimdall_ok() {
         let config = ProviderConfig::heimdall_default("key");
         assert!(validate_provider_config(&config).is_ok());
@@ -823,43 +587,5 @@ mod tests {
         assert!(HEIMDALL_MODELS[0].0.contains("Qwen3.5-35B"));
         // Last model should be medical domain
         assert!(HEIMDALL_MODELS[4].0.contains("medgemma"));
-    }
-
-    #[test]
-    fn test_calculate_benchmark_heimdall() {
-        let config = ProviderConfig::heimdall_default("key");
-        let result = calculate_benchmark(&config, 250.0, 20, 100, true, None);
-        assert_eq!(result.provider, "heimdall");
-        assert!(result.tokens_per_second > 0.0);
-        assert_eq!(result.tokens_per_second, 400.0); // 100 tokens / 0.25s
-        assert!(result.success);
-    }
-
-    // UT-014b_w: Heimdall request is OpenAI-compatible (same structure as MLX)
-    #[test]
-    fn test_heimdall_request_openai_compatible() {
-        let hd_config = ProviderConfig::heimdall_default("key");
-        let mlx_config = ProviderConfig::mlx_default();
-        let msgs = test_messages();
-
-        let hd_req = build_heimdall_request(&hd_config, &msgs);
-        let mlx_req = build_mlx_request(&mlx_config, &msgs);
-
-        // Same structure keys
-        assert!(hd_req.get("model").is_some());
-        assert!(hd_req.get("messages").is_some());
-        assert!(hd_req.get("max_tokens").is_some());
-        assert!(hd_req.get("temperature").is_some());
-        assert!(hd_req.get("stream").is_some());
-        // MLX has the same keys
-        assert_eq!(
-            hd_req.as_object().unwrap().keys().collect::<Vec<_>>().len(),
-            mlx_req
-                .as_object()
-                .unwrap()
-                .keys()
-                .collect::<Vec<_>>()
-                .len()
-        );
     }
 }

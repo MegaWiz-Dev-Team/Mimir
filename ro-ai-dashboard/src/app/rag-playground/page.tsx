@@ -15,9 +15,11 @@ import {
   Send, Loader2, Search, Sparkles, Database, TreePine, Share2,
   BarChart3, Wand2, Zap, Target, TrendingUp, CheckCircle2, XCircle,
   Clock, FlaskConical, ChevronDown, ChevronUp, FileJson, Play,
-  Activity
+  Activity, Save
 } from "lucide-react";
-import { authFetch, API_BASE_URL } from "@/lib/api";
+import Cookies from "js-cookie";
+import { useRouter } from "next/navigation";
+import { authFetch, API_BASE_URL, fetchTenantConfig, updateTenantConfig } from "@/lib/api";
 import { RagEvalDashboard } from "@/components/evaluations/rag-eval-dashboard";
 import { PipelineVisualizer } from "@/components/ui/pipeline-visualizer";
 
@@ -121,6 +123,12 @@ export default function RAGPlaygroundPage() {
   const [suggestions, setSuggestions] = useState<QuerySuggestion[]>([]);
   const [optimizeModel, setOptimizeModel] = useState("");
 
+  // Context
+  const router = useRouter();
+
+  // Search Configuration State
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+
   // Benchmark state
   const [activeTab, setActiveTab] = useState<"search" | "benchmark" | "evaluation">("search");
   const [benchmarkItems, setBenchmarkItems] = useState<string>("");
@@ -156,6 +164,9 @@ export default function RAGPlaygroundPage() {
   const [searchModelId, setSearchModelId] = useState<string>("");
   const [evalProvider, setEvalProvider] = useState<string>("default");
   const [evalModelId, setEvalModelId] = useState<string>("");
+
+  // UI Feedback State
+  const [applyMessage, setApplyMessage] = useState<{type: "success" | "error", text: string} | null>(null);
 
   const apiOrigin = API_BASE_URL.replace(/\/api\/v1$/, "");
 
@@ -483,6 +494,50 @@ export default function RAGPlaygroundPage() {
     }
   };
 
+  const handleApplyConfig = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsSavingConfig(true);
+    setApplyMessage(null);
+    try {
+      const draftConfig = {
+        provider: searchProvider !== "default" ? searchProvider : undefined,
+        model_id: searchModelId || undefined,
+        use_rag: mode !== "graph" && mode !== "tree",
+        use_knowledge_graph: mode === "hybrid" || mode === "graph",
+        use_pageindex: mode === "hybrid" || mode === "tree",
+        rag_params: {
+          weights: mode === "hybrid" ? weights : undefined,
+          advanced: {
+            top_k_per_source: 10,
+            vector_alpha: alpha,
+            vector_threshold: threshold,
+            graph_hops: hopLimit
+          }
+        },
+        rerank_config: rerankStrategy !== "none" ? {
+          enabled: true,
+          strategy: rerankStrategy,
+          final_top_k: 10
+        } : undefined
+      };
+      
+      sessionStorage.setItem("draftRagConfig", JSON.stringify(draftConfig));
+      setApplyMessage({ type: "success", text: "Redirecting to Agent Studio..." });
+      
+      // Short delay to let user read
+      setTimeout(() => {
+        router.push("/agents?action=create_from_rag");
+      }, 500);
+      
+    } catch (e: any) {
+      setApplyMessage({ type: "error", text: "Failed: " + e.message });
+      setTimeout(() => setApplyMessage(null), 5000);
+    } finally {
+      // Don't set isSavingConfig to false immediately if redirecting
+      setTimeout(() => setIsSavingConfig(false), 2000);
+    }
+  };
+
   // ── Render ──────────────────────────────────────
 
   return (
@@ -585,7 +640,7 @@ export default function RAGPlaygroundPage() {
                       <SelectContent>
                         <SelectItem value="default">Default for Provider</SelectItem>
                         {availableModels.filter(m => m.provider === searchProvider).map(m => (
-                          <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                          <SelectItem key={m.model_id} value={m.model_id}>{m.model_id.split('/').pop() || m.model_id}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -691,6 +746,27 @@ export default function RAGPlaygroundPage() {
               </Select>
             </CardContent>
           </Card>
+
+          {/* Apply to Agent Button */}
+          <div className="pt-2 pb-1 space-y-2">
+            <Button 
+                type="button"
+                onClick={handleApplyConfig}
+                disabled={isSavingConfig}
+                className="w-full h-12 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-200 dark:shadow-none"
+            >
+                {isSavingConfig ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Wand2 className="w-5 h-5 mr-2" />}
+                Create Agent with these Settings
+            </Button>
+            {applyMessage && (
+              <div className={`text-xs p-2 rounded text-center font-medium ${applyMessage.type === "success" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>
+                {applyMessage.text}
+              </div>
+            )}
+            <p className="text-[11px] text-center text-muted-foreground mt-2">
+                Sends these RAG settings to the Agent Studio so you can build a specialized AI Agent.
+            </p>
+          </div>
 
           {/* Data Sources */}
           <Card>
@@ -1078,7 +1154,7 @@ export default function RAGPlaygroundPage() {
                              <SelectContent>
                                <SelectItem value="default">Default for Provider</SelectItem>
                                {availableModels.filter(m => m.provider === evalProvider).map(m => (
-                                 <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                                 <SelectItem key={m.model_id} value={m.model_id}>{m.model_id.split('/').pop() || m.model_id}</SelectItem>
                                ))}
                              </SelectContent>
                            </Select>
@@ -1414,7 +1490,7 @@ export default function RAGPlaygroundPage() {
                     <SelectContent>
                       <SelectItem value="default">Default for Provider</SelectItem>
                       {availableModels.filter(m => m.provider === genProvider).map(m => (
-                        <SelectItem key={m.model_id} value={m.model_id}>{m.model_id}</SelectItem>
+                        <SelectItem key={m.model_id} value={m.model_id}>{m.model_id.split('/').pop() || m.model_id}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

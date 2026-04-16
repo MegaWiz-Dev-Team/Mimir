@@ -25,6 +25,12 @@ export function SearchTab(props: SettingsTabProps) {
                             value={config?.llm_config?.embedding?.provider || ""} 
                             onChange={(e) => {
                                 const provider = e.target.value;
+                                const originalProvider = config?.llm_config?.embedding?.provider;
+                                if (originalProvider && originalProvider !== provider) {
+                                    if (!confirm("⚠️ WARNING: Changing the embedding provider will make existing vectors in the database incompatible. Old document searches will crash or return garbage until re-embedded. Are you sure you want to change this?")) {
+                                        return;
+                                    }
+                                }
                                 const defaultModel =
                                     provider === "openai" ? "text-embedding-3-small" :
                                     provider === "google" ? "text-embedding-004" :
@@ -46,10 +52,17 @@ export function SearchTab(props: SettingsTabProps) {
                         <select 
                             value={config?.llm_config?.embedding?.model || ""} 
                             onChange={(e) => {
+                                const newModel = e.target.value;
+                                const originalModel = config?.llm_config?.embedding?.model;
+                                if (originalModel && originalModel !== newModel) {
+                                    if (!confirm("⚠️ WARNING: Changing the embedding model will make existing vectors in the database incompatible. Old document searches will crash or return garbage until re-embedded. Are you sure you want to change this?")) {
+                                        return;
+                                    }
+                                }
                                 const currentConfig = config || {} as any;
                                 setConfig({
                                     ...currentConfig,
-                                    llm_config: { ...(currentConfig.llm_config || {}), embedding: { provider: currentConfig.llm_config?.embedding?.provider || "", model: e.target.value } }
+                                    llm_config: { ...(currentConfig.llm_config || {}), embedding: { provider: currentConfig.llm_config?.embedding?.provider || "", model: newModel } }
                                 });
                             }}
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">

@@ -49,8 +49,8 @@ impl OverseerManager {
     #[instrument(skip(self), fields(tenant_id = %tenant_id))]
     pub async fn run_swarm(&self, tenant_id: &str, query: &str, session_id: Option<&str>) -> Result<SwarmResponse> {
         let generation_slot = self.router.config.resolve_slot("generation", None, None);
-        let api_key = self.router.config.openai_api_key.clone().unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_default());
-        let endpoint = std::env::var("OPENAI_API_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+        let api_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
+        let endpoint = std::env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
         
         let start_time = std::time::Instant::now();
 

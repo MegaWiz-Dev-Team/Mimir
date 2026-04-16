@@ -130,7 +130,7 @@ pub async fn list_datasets(
     // Use sqlx::Row instead of index to cleanly get new nullable fields without panic
     use sqlx::Row;
     let rows = sqlx::query(
-        "SELECT id, name, description, eval_set, created_at, version, difficulty, question_type, qc_status FROM rag_eval_datasets WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        "SELECT id, name, description, CAST(eval_set AS CHAR) AS eval_set, created_at, version, difficulty, question_type, qc_status FROM rag_eval_datasets WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
     )
     .bind(&tenant_id)
     .bind(per_page)
@@ -144,7 +144,7 @@ pub async fn list_datasets(
         let name: String = row.get("name");
         let desc: Option<String> = row.get("description");
         let eval_set_json: String = row.get("eval_set");
-        let created_at: Option<chrono::NaiveDateTime> = row.get("created_at");
+        let created_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("created_at").unwrap_or(None);
         let version: Option<i32> = row.try_get("version").unwrap_or(Some(1));
         let diff: Option<String> = row.try_get("difficulty").unwrap_or(None);
         let q_type: Option<String> = row.try_get("question_type").unwrap_or(None);

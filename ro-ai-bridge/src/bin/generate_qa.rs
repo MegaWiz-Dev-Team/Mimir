@@ -5,7 +5,6 @@ use mimir_core_ai::qa_qc::{
     extractor::extract_acus, generator::generate_qa, verifier::verify_coverage, WikiChunk,
 };
 use mimir_core_ai::services::llm_router::UniversalClient;
-use rig::providers::{gemini, ollama};
 use std::env;
 use tokio::fs;
 use tracing::{error, info, warn};
@@ -15,33 +14,53 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     dotenv().ok();
 
-    // 1. Configure Agents
-    // Local LLM (Ollama)
-    info!("🤖 Configuring Native Ollama Client (defaulting to localhost:11434)");
-    let local_client = ollama::Client::new();
-    let local_model = env::var("LOCAL_MODEL").unwrap_or_else(|_| "llama3.2:latest".to_string());
+    // 1. Configure Agents — ALL via Heimdall Gateway
+    let heimdall_url = env::var("HEIMDALL_API_URL")
+        .unwrap_or_else(|_| "http://localhost:8080/v1".to_string());
+    let heimdall_key = env::var("HEIMDALL_API_KEY").unwrap_or_default();
 
-    // Cloud LLM (Gemini)
-    let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set in .env");
+    // Generator client — uses model prefix to route via Heimdall
+    let gen_provider = env::var("GENERATOR_PROVIDER").unwrap_or_else(|_| "heimdall".to_string());
+    let gen_model = env::var("GENERATOR_MODEL")
+        .or_else(|_| env::var("LOCAL_MODEL"))
+        .unwrap_or_else(|_| "mlx-community/gemma-4-26b-a4b-it-4bit".to_string());
+
+    // Prefix the model name if using an external provider
+    let gen_prefixed_model = match gen_provider.as_str() {
+        "gemini" | "google" => format!("gemini/{}", gen_model),
+        "openai" => format!("openai/{}", gen_model),
+        "openrouter" => format!("openrouter/{}", gen_model),
+        _ => gen_model.clone(),
+    };
+
+    info!("⚙️ Generator Provider: {} (model={})", gen_provider, gen_prefixed_model);
+
+    let gen_client = UniversalClient::Rest {
+        provider: gen_provider.clone(),
+        client: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .unwrap_or_default(),
+        endpoint: heimdall_url.clone(),
+        api_key: heimdall_key.clone(),
+        provider_key: env::var("GENERATOR_PROVIDER_KEY").ok(),
+    };
+
+    // ACU Extractor + Verifier — uses Gemini via Heimdall
     let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let gemini_prefixed = format!("gemini/{}", gemini_model);
 
-    info!("☁️ Configuring Native Gemini Client");
-    let gemini_client = UniversalClient::Gemini(gemini::Client::new(&api_key));
+    info!("☁️ ACU/Verifier: Gemini via Heimdall (model={})", gemini_prefixed);
 
-    // Generator Configuration
-    let gen_provider = env::var("GENERATOR_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
-    let (gen_client, gen_model) = match gen_provider.as_str() {
-        "gemini" => {
-            info!("⚙️ Generator Provider: GEMINI ({})", gemini_model);
-            (gemini_client.clone(), gemini_model.clone())
-        }
-        _ => {
-            info!("⚙️ Generator Provider: OLLAMA ({})", local_model);
-            (
-                UniversalClient::Ollama(local_client.clone()),
-                local_model.clone(),
-            )
-        }
+    let gemini_client = UniversalClient::Rest {
+        provider: "gemini".to_string(),
+        client: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .unwrap_or_default(),
+        endpoint: heimdall_url.clone(),
+        api_key: heimdall_key.clone(),
+        provider_key: env::var("GEMINI_API_KEY").ok(),
     };
 
     // 2. Scan Data
@@ -132,7 +151,7 @@ async fn main() -> Result<()> {
 
                 // 4. Agent 1: Generate Q/A
                 let qa_pairs =
-                    match generate_qa(&gen_client, &gen_model, &wiki_chunk, qa_count).await {
+                    match generate_qa(&gen_client, &gen_prefixed_model, &wiki_chunk, qa_count).await {
                         Ok(pairs) => pairs,
                         Err(e) => {
                             error!("   ❌ Q/A Generation failed: {}", e);
@@ -146,12 +165,12 @@ async fn main() -> Result<()> {
                 }
 
                 info!(
-                    "   ✅ Generated {} pairs. Extracting ACUs (Gemini)...",
+                    "   ✅ Generated {} pairs. Extracting ACUs (Gemini via Heimdall)...",
                     qa_pairs.len()
                 );
 
-                // 5. Agent 2: Extract ACUs (Gemini)
-                let facts = match extract_acus(&gemini_client, &gemini_model, &wiki_chunk).await {
+                // 5. Agent 2: Extract ACUs (Gemini via Heimdall)
+                let facts = match extract_acus(&gemini_client, &gemini_prefixed, &wiki_chunk).await {
                     Ok(f) => f,
                     Err(e) => {
                         error!("   ❌ ACU Extraction failed: {}", e);
@@ -164,10 +183,10 @@ async fn main() -> Result<()> {
                     facts.len()
                 );
 
-                // 6. Agent 3: Verify Coverage (Gemini)
+                // 6. Agent 3: Verify Coverage (Gemini via Heimdall)
                 let report = match verify_coverage(
                     &gemini_client,
-                    &gemini_model,
+                    &gemini_prefixed,
                     &wiki_chunk,
                     &facts,
                     &qa_pairs,

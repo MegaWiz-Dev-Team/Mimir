@@ -759,7 +759,7 @@ async fn chat_handler(
     let provider = slot
         .provider
         .parse::<LlmProvider>()
-        .unwrap_or(LlmProvider::Ollama);
+        .unwrap_or(LlmProvider::Heimdall);
     let model = slot.model;
 
     info!("💬 Received non-streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
@@ -827,6 +827,7 @@ async fn chat_handler(
                 Some(&model),
                 None,
                 tenant_id.clone(),
+                None, // Use default RagConfig
             );
 
             match agent.chat(&payload.message).await {
@@ -896,7 +897,7 @@ async fn chat_stream_handler(
     let provider = slot
         .provider
         .parse::<LlmProvider>()
-        .unwrap_or(LlmProvider::Ollama);
+        .unwrap_or(LlmProvider::Heimdall);
     let model = slot.model;
 
     info!("💬 Received streaming chat request: tier={}, persona={}, provider={}, model={}, message={}, tenant_id={:?}", 
@@ -991,6 +992,7 @@ async fn chat_stream_handler(
                     Some(&model),
                     None,
                     tenant_id.clone(),
+                    None, // Use default RagConfig
                 );
 
                 match agent.chat(&message).await {

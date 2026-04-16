@@ -122,9 +122,9 @@ async fn tuning_loop(
     let api_key = llm_config
         .heimdall_api_key
         .clone()
-        .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".to_string()));
+        .unwrap_or_else(|| std::env::var("HEIMDALL_API_KEY").unwrap_or_default());
 
-    let endpoint = crate::routes::sources::infer_api_base(&slot.provider);
+    let endpoint = std::env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
     let client = rig::providers::openai::Client::from_url(&api_key, &endpoint);
 
     let system_prompt = format!(
@@ -404,8 +404,8 @@ pub async fn auto_tune_chat(
     let provider = slot.provider;
     let model = slot.model;
     
-    let api_key = llm_config.heimdall_api_key.unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "none".into()));
-    let api_base = crate::routes::sources::infer_api_base(&provider);
+    let api_key = llm_config.heimdall_api_key.unwrap_or_else(|| std::env::var("HEIMDALL_API_KEY").unwrap_or_default());
+    let api_base = std::env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
     
     let system_prompt = format!(
         r#"You are The Overseer, an autonomous meta-agent tuning a medical RAG pipeline.
@@ -424,7 +424,7 @@ You cannot change parameters directly via chat yet, but you can advise the user 
     ];
 
     let resp = client
-        .post(format!("{}chat/completions", api_base))
+        .post(format!("{}/chat/completions", api_base.trim_end_matches('/')))
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&json!({

@@ -24,6 +24,10 @@ pub struct AgentTemplate {
 }
 
 fn get_templates() -> Vec<AgentTemplate> {
+    // Centralized model resolution — same source as config.heimdall_model
+    let default_model = std::env::var("HEIMDALL_MODEL")
+        .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string());
+
     vec![
         // ─── NPC Game Agent (consolidated) ──────────────────────────────
         AgentTemplate {
@@ -32,7 +36,7 @@ fn get_templates() -> Vec<AgentTemplate> {
             display_name: "NPC Game Agent".into(),
             description: "Ragnarok Online NPC with RAG knowledge retrieval and action commands".into(),
             system_prompt: "คุณคือ NPC ในเกม Ragnarok Online สามารถช่วยตอบคำถาม ค้นหาข้อมูล Monster, Item, Map จาก Knowledge Base (RAG) และดำเนินการคำสั่ง (Action) เช่น Heal, Buff, Warp ให้ผู้เล่นได้ ตอบเป็นภาษาไทยเสมอ อธิบายอย่างเป็นมิตรและกระชับ".into(),
-            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            model_id: default_model.clone(),
             provider: "heimdall".into(),
             temperature: 0.7,
             max_tokens: 4096,
@@ -70,7 +74,7 @@ fn get_templates() -> Vec<AgentTemplate> {
             display_name: "Data Analytics".into(),
             description: "Data analysis agent for SQL queries, statistical insights, and report generation".into(),
             system_prompt: "You are a Data Analytics AI assistant specialized in data analysis, SQL query generation, statistical analysis, and business intelligence. Help users explore datasets, write SQL queries, interpret results, create visualizations descriptions, and generate actionable insights. Support both Thai and English. Present findings in structured, easy-to-understand formats with tables and bullet points.".into(),
-            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            model_id: default_model.clone(),
             provider: "heimdall".into(),
             temperature: 0.4,
             max_tokens: 4096,
@@ -89,7 +93,7 @@ fn get_templates() -> Vec<AgentTemplate> {
             display_name: "Customer Support".into(),
             description: "Polite customer service agent with FAQ knowledge and ticket handling".into(),
             system_prompt: "You are a Customer Support AI assistant. Help users resolve issues, answer frequently asked questions, and provide excellent service. Use RAG to retrieve relevant FAQ and knowledge base articles. Be polite, patient, and solution-oriented. Escalate complex issues when necessary. Support both Thai and English.".into(),
-            model_id: "mlx-community/Qwen3.5-35B-A3B-4bit".into(),
+            model_id: default_model.clone(),
             provider: "heimdall".into(),
             temperature: 0.5,
             max_tokens: 2048,

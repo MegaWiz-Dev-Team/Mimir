@@ -165,7 +165,7 @@ export function PipelineDashboard() {
                                                 >
                                                     <option value="">Default ({overview?.default_model || "Model"})</option>
                                                     {availableModels.filter(m => m.provider === (providerOverride || overview?.default_provider)).map(m => (
-                                                        <option key={m.model_id} value={m.model_id}>{m.model_id}</option>
+                                                        <option key={m.model_id} value={m.model_id}>{m.model_id.split('/').pop() || m.model_id}</option>
                                                     ))}
                                                 </select>
                                             </div>

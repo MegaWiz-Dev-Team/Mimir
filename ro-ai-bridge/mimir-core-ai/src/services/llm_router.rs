@@ -1,5 +1,4 @@
 use anyhow::{Result, anyhow};
-use rig::providers::{gemini, ollama};
 use std::env;
 
 use crate::models::iam::LlmConfig;
@@ -22,16 +21,29 @@ pub enum AgentResponse {
     Text(String),
     ToolCalls(Vec<ToolCall>),
 }
+
+/// Unified LLM client — all requests go through Heimdall Gateway.
+///
+/// Heimdall handles provider routing via model prefix:
+/// - No prefix → Local MLX/llama.cpp backend
+/// - `openrouter/...` → OpenRouter API
+/// - `gemini/...` → Google Gemini API
+/// - `openai/...` → OpenAI API
+///
+/// `provider_key` is forwarded as `X-Provider-Key` header for per-tenant
+/// API key override at the Heimdall layer.
 #[derive(Clone)]
 pub enum UniversalClient {
-    Ollama(ollama::Client),
-    Gemini(gemini::Client),
-    /// OpenAI-compatible REST API endpoints (e.g. Heimdall, OpenAI, Azure, Flash-MoE)
+    /// OpenAI-compatible REST API via Heimdall Gateway
     Rest {
         provider: String,
         client: reqwest::Client,
         endpoint: String,
         api_key: String,
+        /// Per-tenant provider key forwarded to Heimdall as `X-Provider-Key` header.
+        /// Heimdall uses this to authenticate with external providers (OpenRouter, Gemini, OpenAI)
+        /// instead of its own centralized key.
+        provider_key: Option<String>,
     },
 }
 
@@ -39,13 +51,34 @@ impl UniversalClient {
     /// Helper to get the provider name for DB storage
     pub fn provider_name(&self) -> &str {
         match self {
-            Self::Ollama(_) => "ollama",
-            Self::Gemini(_) => "gemini",
             Self::Rest { provider, .. } => provider.as_str(),
         }
     }
 
-    /// Unified prompt execution across all supported LLM providers
+    /// Build the request headers, including X-Provider-Key if set.
+    fn build_headers(&self) -> Vec<(&'static str, String)> {
+        match self {
+            Self::Rest {
+                api_key,
+                provider_key,
+                ..
+            } => {
+                let mut headers = vec![
+                    ("Authorization", format!("Bearer {}", api_key.trim())),
+                    ("Content-Type", "application/json".to_string()),
+                ];
+                if let Some(pk) = provider_key {
+                    let cleaned_pk = pk.trim();
+                    if !cleaned_pk.is_empty() {
+                        headers.push(("X-Provider-Key", cleaned_pk.to_string()));
+                    }
+                }
+                headers
+            }
+        }
+    }
+
+    /// Unified prompt execution — all traffic goes through Heimdall.
     pub async fn prompt(
         &self,
         model: &str,
@@ -54,30 +87,13 @@ impl UniversalClient {
         max_tokens: u16,
         temperature: f32,
     ) -> Result<String> {
-        use rig::completion::Prompt;
-
         match self {
-            Self::Ollama(c) => c
-                .agent(model)
-                .preamble(preamble)
-                .build()
-                .prompt(input)
-                .await
-                .map_err(|e| anyhow!("Ollama prompt error: {}", e)),
-            Self::Gemini(c) => c
-                .agent(model)
-                .preamble(preamble)
-                .build()
-                .prompt(input)
-                .await
-                .map_err(|e| anyhow!("Gemini prompt error: {}", e)),
             Self::Rest {
                 client,
                 endpoint,
-                api_key,
                 ..
             } => {
-                let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+                let url = format!("{}/chat/completions", endpoint.trim().trim_end_matches('/'));
                 let body = serde_json::json!({
                     "model": model,
                     "messages": [
@@ -89,14 +105,20 @@ impl UniversalClient {
                     "stream": false
                 });
 
-                let resp = client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", api_key.trim()))
-                    .header("Content-Type", "application/json")
-                    .json(&body)
+                let headers = self.build_headers();
+                tracing::info!("LLM Router Prompt: Sending to {} with {} headers", url, headers.len());
+                let mut req = client.post(&url);
+                for (k, v) in &headers {
+                    req = req.header(*k, v);
+                }
+                
+                let req_builder = req.json(&body);
+                tracing::info!("LLM Router Request Body serialization successful");
+                
+                let resp = req_builder
                     .send()
                     .await
-                    .map_err(|e| anyhow!("Rest request failed: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Rest request failed: Builder Error. URL: '{}', e: {}", url, e))?;
 
                 if !resp.status().is_success() {
                     let status = resp.status();
@@ -133,10 +155,9 @@ impl UniversalClient {
             Self::Rest {
                 client,
                 endpoint,
-                api_key,
                 ..
             } => {
-                let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+                let url = format!("{}/chat/completions", endpoint.trim().trim_end_matches('/'));
                 let mut body = serde_json::json!({
                     "model": model,
                     "messages": messages,
@@ -149,14 +170,22 @@ impl UniversalClient {
                     body.as_object_mut().unwrap().insert("tools".to_string(), t);
                 }
 
-                let resp = client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", api_key.trim()))
-                    .header("Content-Type", "application/json")
+                let headers = self.build_headers();
+                let mut req = client.post(&url);
+                for (k, v) in &headers {
+                    req = req.header(*k, v);
+                }
+
+                let mut hdrs_str = String::new();
+                for (k, v) in &headers {
+                    hdrs_str.push_str(&format!("{}: {} | ", k, v));
+                }
+                
+                let resp = req
                     .json(&body)
                     .send()
                     .await
-                    .map_err(|e| anyhow::anyhow!("Rest request failed: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Rest request failed: {}, URL: '{}', HEADERS: {}", e, url, hdrs_str))?;
 
                 if !resp.status().is_success() {
                     let status = resp.status();
@@ -188,11 +217,10 @@ impl UniversalClient {
 
                 Err(anyhow::anyhow!("Rest: neither content nor tool_calls found"))
             }
-            _ => Err(anyhow::anyhow!("prompt_with_tools is only supported for Rest clients")),
         }
     }
 
-    /// Execute Cross-Encoder reranking using TEI interface
+    /// Execute Cross-Encoder reranking via Heimdall's `/rerank` endpoint
     pub async fn rerank(
         &self,
         model: &str,
@@ -200,16 +228,12 @@ impl UniversalClient {
         texts: &[String],
     ) -> Result<Vec<(usize, f32)>> {
         match self {
-            Self::Ollama(_) | Self::Gemini(_) => {
-                Err(anyhow!("Reranker API not natively supported for Ollama/Gemini via text endpoints"))
-            }
             Self::Rest {
                 client,
                 endpoint,
-                api_key,
                 ..
             } => {
-                let url = format!("{}/rerank", endpoint.trim_end_matches('/'));
+                let url = format!("{}/rerank", endpoint.trim().trim_end_matches('/'));
                 let body = serde_json::json!({
                     "model": model,
                     "query": query,
@@ -217,13 +241,13 @@ impl UniversalClient {
                     "return_text": false
                 });
 
+                let headers = self.build_headers();
                 let mut req = client.post(&url);
-                if !api_key.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", api_key));
+                for (k, v) in &headers {
+                    req = req.header(*k, v);
                 }
 
                 let resp = req
-                    .header("Content-Type", "application/json")
                     .json(&body)
                     .send()
                     .await
@@ -261,6 +285,12 @@ impl UniversalClient {
 }
 
 /// Centralized Router for resolving LLM interfaces based on tenant configuration.
+///
+/// All providers now route through Heimdall Gateway using model-prefix convention:
+/// - `"gemini/gemini-2.5-flash"` → Heimdall routes to Google Gemini
+/// - `"openrouter/anthropic/claude-3.5-sonnet"` → Heimdall routes to OpenRouter
+/// - `"openai/gpt-4o"` → Heimdall routes to OpenAI
+/// - `"mlx-community/Qwen3.5-35B-A3B-4bit"` → Heimdall routes locally
 #[derive(Clone)]
 pub struct LlmRouter {
     pub tenant_id: String,
@@ -317,17 +347,49 @@ impl LlmRouter {
             .config
             .heimdall_url
             .clone()
+            .filter(|s| !s.trim().is_empty())
             .or_else(|| env::var("HEIMDALL_API_URL").ok())
+            .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| anyhow!("Heimdall API URL not configured for tenant or globally"))?;
 
         let api_key = self
             .config
             .heimdall_api_key
             .clone()
+            .filter(|s| !s.trim().is_empty())
             .or_else(|| env::var("HEIMDALL_API_KEY").ok())
             .unwrap_or_default();
 
         Ok((endpoint, api_key))
+    }
+
+    /// Resolve the tenant's provider-specific API key, if any, to forward via X-Provider-Key.
+    ///
+    /// This allows per-tenant billing: Mimir sends the tenant's own API key to Heimdall,
+    /// which forwards it to the external provider instead of using its centralized key.
+    fn resolve_provider_key(&self, provider: &str) -> Option<String> {
+        match provider {
+            "gemini" | "google" => self.config.google_api_key.clone(),
+            "openai" => self.config.openai_api_key.clone(),
+            // OpenRouter, Azure etc. — could be added to LlmConfig in the future
+            _ => None,
+        }
+    }
+
+    /// Construct the model string with provider prefix for Heimdall routing.
+    ///
+    /// Maps tenant-level provider names to Heimdall prefix conventions:
+    /// - `("gemini", "gemini-2.5-flash")` → `"gemini/gemini-2.5-flash"`
+    /// - `("openai", "gpt-4o")` → `"openai/gpt-4o"`
+    /// - `("heimdall", "mlx-community/Qwen3.5-35B-A3B-4bit")` → `"mlx-community/Qwen3.5-35B-A3B-4bit"` (no prefix)
+    fn prefixed_model(provider: &str, model: &str) -> String {
+        match provider {
+            "gemini" | "google" => format!("gemini/{}", model),
+            "openai" => format!("openai/{}", model),
+            "openrouter" => format!("openrouter/{}", model),
+            // Local providers — no prefix needed
+            "heimdall" | "rest" | "flashmoe" | _ => model.to_string(),
+        }
     }
 
     /// Resolves the LLM client configured for a specific purpose (slot).
@@ -337,6 +399,9 @@ impl LlmRouter {
     }
 
     /// Resolves the LLM client configured for a specific purpose (slot) with optional overrides.
+    ///
+    /// All providers now go through Heimdall Gateway. The provider name determines
+    /// the model prefix sent to Heimdall for routing.
     pub fn resolve_client_with_overrides(
         &self,
         purpose: &str,
@@ -352,117 +417,38 @@ impl LlmRouter {
             self.config.resolve_slot(purpose, Some(&self.default_provider), Some(&self.default_model))
         };
 
-        match slot.provider.to_lowercase().as_str() {
-            "gemini" | "google" => {
-                // Read from llm_config.google_api_key (migrated from provider_api_keys column)
-                let api_key = self
-                    .config
-                    .google_api_key
-                    .clone()
-                    .or_else(|| env::var("GEMINI_API_KEY").ok())
-                    .unwrap_or_default();
-                if api_key.is_empty() {
-                    return Err(anyhow!(
-                        "GEMINI_API_KEY not set in tenant config or globally"
-                    ));
-                }
-                // Use REST via Google's OpenAI-compatible endpoint instead of rig SDK.
-                // The rig Gemini client has deserialization issues with newer models
-                // (e.g. gemini-3-flash-preview) causing "error decoding response body".
-                let endpoint = "https://generativelanguage.googleapis.com/v1beta/openai".to_string();
-                Ok((
-                    UniversalClient::Rest {
-                        provider: "gemini".to_string(),
-                        client: reqwest::Client::builder()
-                            .timeout(std::time::Duration::from_secs(300))
-                            .build()
-                            .unwrap_or_default(),
-                        endpoint,
-                        api_key,
-                    },
-                    slot.model,
-                ))
-            }
-            "ollama" => {
-                let url = env::var("OLLAMA_URL")
-                    .or_else(|_| env::var("OLLAMA_HOST").map(|h| format!("http://{}", h)))
-                    .unwrap_or_else(|_| "http://localhost:11434".to_string());
-                let client = ollama::Client::from_url(&url);
-                Ok((UniversalClient::Ollama(client), slot.model))
-            }
-            "heimdall" | "openai" | "rest" | "azure" | "flashmoe" => {
-                let provider = slot.provider.to_lowercase();
+        let provider = slot.provider.to_lowercase();
 
-                if provider == "flashmoe" {
-                    // Flash-MoE Standalone Engine running via Sidecar
-                    let endpoint = env::var("FLASHMOE_API_URL")
-                        .unwrap_or_else(|_| "http://localhost:8081/v1".to_string());
-                    Ok((
-                        UniversalClient::Rest {
-                            provider: "flashmoe".to_string(),
-                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
-                            endpoint,
-                            api_key: "flashmoe-local".to_string(),
-                        },
-                        slot.model,
-                    ))
-                } else if provider == "openai" {
-                    // Read from llm_config.openai_api_key (migrated from provider_api_keys)
-                    let api_key = self
-                        .config
-                        .openai_api_key
-                        .clone()
-                        .or_else(|| env::var("OPENAI_API_KEY").ok())
-                        .unwrap_or_default();
-                    if api_key.is_empty() {
-                        return Err(anyhow!(
-                            "OpenAI API Key not set in tenant config or globally"
-                        ));
-                    }
-                    Ok((
-                        UniversalClient::Rest {
-                            provider: "openai".to_string(),
-                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
-                            endpoint: "https://api.openai.com/v1".to_string(),
-                            api_key,
-                        },
-                        slot.model,
-                    ))
-                } else if provider == "azure" {
-                    // Read from llm_config.azure_api_key (migrated from provider_api_keys)
-                    let api_key = self.config.azure_api_key.clone().unwrap_or_default();
-                    // Azure endpoint could be stored as a separate field; fall back to env
-                    let endpoint = env::var("AZURE_OPENAI_ENDPOINT").unwrap_or_default();
-                    if api_key.is_empty() || endpoint.is_empty() {
-                        return Err(anyhow!(
-                            "Azure API Key or Endpoint not set in tenant config or globally"
-                        ));
-                    }
-                    Ok((
-                        UniversalClient::Rest {
-                            provider: "azure".to_string(),
-                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
-                            endpoint,
-                            api_key,
-                        },
-                        slot.model,
-                    ))
-                } else {
-                    // Heimdall / Rest
-                    let (endpoint, api_key) = self.get_heimdall_credentials()?;
-                    Ok((
-                        UniversalClient::Rest {
-                            provider: "heimdall".to_string(),
-                            client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
-                            endpoint,
-                            api_key,
-                        },
-                        slot.model,
-                    ))
-                }
-            }
-            other => Err(anyhow!("Unsupported LLM provider: {}", other)),
-        }
+        // Get Heimdall credentials — ALL traffic goes through Heimdall
+        let (endpoint, api_key) = self.get_heimdall_credentials()?;
+
+        // Build the prefixed model name for Heimdall's router
+        let prefixed_model = Self::prefixed_model(&provider, &slot.model);
+
+        // Resolve per-tenant provider key (if tenant has their own API key for this provider)
+        let provider_key = self.resolve_provider_key(&provider);
+
+        tracing::debug!(
+            "🔀 LlmRouter: purpose={}, provider={}, model={} → prefixed={}",
+            purpose,
+            provider,
+            slot.model,
+            prefixed_model
+        );
+
+        Ok((
+            UniversalClient::Rest {
+                provider: provider.clone(),
+                client: reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(300))
+                    .build()
+                    .unwrap_or_default(),
+                endpoint,
+                api_key,
+                provider_key,
+            },
+            prefixed_model,
+        ))
     }
 
     /// Resolves the reranker. Defaults to Heimdall API TEI endpoints.
@@ -470,13 +456,14 @@ impl LlmRouter {
         // Fallback to Heimdall TEI model if none specified
         let model = requested_model.unwrap_or("BAAI/bge-reranker-v2-m3").to_string();
         let (endpoint, api_key) = self.get_heimdall_credentials()?;
-        
+
         Ok((
             UniversalClient::Rest {
                 provider: "heimdall".to_string(),
                 client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                 endpoint,
                 api_key,
+                provider_key: None,
             },
             model,
         ))
@@ -494,13 +481,25 @@ impl LlmRouter {
         };
 
         let (endpoint, api_key) = self.get_heimdall_credentials()?;
-        let embed_url = format!("{}/embeddings", endpoint.trim_end_matches('/'));
+        let embed_url = format!("{}/embeddings", endpoint.trim().trim_end_matches('/'));
+
+        // Resolve per-tenant provider key for embedding provider
+        let provider_key = self.resolve_provider_key(&slot.provider);
 
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default();
-        let resp = client
+        let mut req = client
             .post(&embed_url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Authorization", format!("Bearer {}", api_key));
+
+        // Forward tenant-specific provider key if available
+        if let Some(pk) = &provider_key {
+            if !pk.is_empty() {
+                req = req.header("X-Provider-Key", pk);
+            }
+        }
+
+        let resp = req
             .json(&serde_json::json!({
                 "model": model, // Dynamic assignment derived from tenant settings or Heimdall standard override
                 "input": texts,
@@ -608,5 +607,83 @@ mod tests {
         assert_eq!(usage.prompt_tokens, 50);
         assert_eq!(usage.completion_tokens, 100);
         assert_eq!(usage.thinking_tokens, 30);
+    }
+
+    // ── New routing tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_prefixed_model_gemini() {
+        assert_eq!(
+            LlmRouter::prefixed_model("gemini", "gemini-2.5-flash"),
+            "gemini/gemini-2.5-flash"
+        );
+        assert_eq!(
+            LlmRouter::prefixed_model("google", "gemini-2.5-pro"),
+            "gemini/gemini-2.5-pro"
+        );
+    }
+
+    #[test]
+    fn test_prefixed_model_openai() {
+        assert_eq!(
+            LlmRouter::prefixed_model("openai", "gpt-4o"),
+            "openai/gpt-4o"
+        );
+    }
+
+    #[test]
+    fn test_prefixed_model_openrouter() {
+        assert_eq!(
+            LlmRouter::prefixed_model("openrouter", "anthropic/claude-3.5-sonnet"),
+            "openrouter/anthropic/claude-3.5-sonnet"
+        );
+    }
+
+    #[test]
+    fn test_prefixed_model_heimdall_no_prefix() {
+        assert_eq!(
+            LlmRouter::prefixed_model("heimdall", "mlx-community/Qwen3.5-35B-A3B-4bit"),
+            "mlx-community/Qwen3.5-35B-A3B-4bit"
+        );
+    }
+
+    #[test]
+    fn test_universal_client_provider_name() {
+        let client = UniversalClient::Rest {
+            provider: "gemini".to_string(),
+            client: reqwest::Client::new(),
+            endpoint: "http://localhost:8080/v1".to_string(),
+            api_key: "test-key".to_string(),
+            provider_key: Some("tenant-gemini-key".to_string()),
+        };
+        assert_eq!(client.provider_name(), "gemini");
+    }
+
+    #[test]
+    fn test_build_headers_with_provider_key() {
+        let client = UniversalClient::Rest {
+            provider: "heimdall".to_string(),
+            client: reqwest::Client::new(),
+            endpoint: "http://localhost:8080/v1".to_string(),
+            api_key: "gateway-key".to_string(),
+            provider_key: Some("tenant-openai-key".to_string()),
+        };
+        let headers = client.build_headers();
+        assert_eq!(headers.len(), 3); // Auth + Content-Type + X-Provider-Key
+        assert_eq!(headers[2].0, "X-Provider-Key");
+        assert_eq!(headers[2].1, "tenant-openai-key");
+    }
+
+    #[test]
+    fn test_build_headers_without_provider_key() {
+        let client = UniversalClient::Rest {
+            provider: "heimdall".to_string(),
+            client: reqwest::Client::new(),
+            endpoint: "http://localhost:8080/v1".to_string(),
+            api_key: "gateway-key".to_string(),
+            provider_key: None,
+        };
+        let headers = client.build_headers();
+        assert_eq!(headers.len(), 2); // Auth + Content-Type only
     }
 }

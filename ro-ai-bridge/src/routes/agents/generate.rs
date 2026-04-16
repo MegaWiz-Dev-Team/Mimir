@@ -65,8 +65,8 @@ You MUST output a valid JSON object with EXACTLY these fields:
   "display_name": "Human Readable Name",
   "description": "A concise 1-2 sentence description of what this agent does",
   "system_prompt": "The full system prompt that instructs the agent on its behavior, tone, and capabilities. Must be detailed and specific (200+ characters).",
-  "model_id": "<use the model_id provided in the user context>",
-  "provider": "<use the provider provided in the user context>",
+  "model_id": "<Extract or infer the best model ID (e.g. gemini-2.5-flash, mlx-community/Qwen3.5-35B-A3B-4bit)>",
+  "provider": "<Extract or infer provider (e.g. google, heimdall, ollama)>",
   "temperature": 0.7,
   "max_tokens": 4096,
   "use_rag": true,
@@ -118,14 +118,17 @@ pub(crate) async fn generate_agent(
 
     let (api_key, api_base) = resolve_llm_credentials(&config, &model_config, &payload.model_id)?;
 
-    // Build the meta-builder prompt
+    // Build the meta-builder prompt without forcing the generator's model on the target agent
     let user_prompt = format!(
-        "Generate an agent based on this description:\n\"{}\"\n\nThe user wants to use provider=\"{}\" and model_id=\"{}\". Set these values in the output.",
-        payload.prompt, payload.provider, payload.model_id
+        "Generate an agent based on this description:\n\"{}\"\n\nIf the user specifies a specific model or provider in their description, use it. Otherwise, use your best judgement based on the task.",
+        payload.prompt
     );
 
     let start = std::time::Instant::now();
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .unwrap_or_default();
     let url = format!("{}chat/completions", api_base);
 
     let body = json!({

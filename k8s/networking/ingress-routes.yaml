@@ -6,6 +6,7 @@ metadata:
   annotations:
     # Request cert-manager to automatically secure this ingress using our Private CA
     cert-manager.io/cluster-issuer: "asgard-ca-issuer"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
 spec:
   # This section configures the SSL certificates dynamically
   tls:

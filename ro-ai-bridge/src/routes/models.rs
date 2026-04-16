@@ -7,6 +7,7 @@ pub fn models_routes() -> Router<DbPool> {
     Router::new()
         .route("/models", get(list_models))
         .route("/config/models/pull", post(pull_model))
+        .route("/config/models/sync", post(sync_models))
 }
 
 async fn list_models(
@@ -43,14 +44,8 @@ async fn pull_model(
     let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3600)).build().unwrap();
 
     let success = match payload.provider.as_str() {
-        "ollama" => { // Usually bound inside K3s/Orbstack networking
-            let ollama_url = std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://host.k3d.internal:11434".to_string());
-            let pull_req = serde_json::json!({ "name": payload.model_id, "stream": false });
-            let res = client.post(&format!("{}/api/pull", ollama_url)).json(&pull_req).send().await;
-            res.is_ok() && res.unwrap().status().is_success()
-        },
-        "heimdall" => { // The new Host Daemon
-            let heimdall_url = std::env::var("HEIMDALL_DAEMON_URL").unwrap_or_else(|_| "http://host.k3d.internal:3009".to_string());
+        "heimdall" | "ollama" => { // Route all local/self-hosted pulls through Heimdall Gateway
+            let heimdall_url = std::env::var("HEIMDALL_DAEMON_URL").unwrap_or_else(|_| "http://host.k3d.internal:3000".to_string());
             let pull_req = serde_json::json!({ "model": payload.model_id });
             let res = client.post(&format!("{}/pull", heimdall_url)).json(&pull_req).send().await;
             res.is_ok() && res.unwrap().status().is_success()
@@ -85,4 +80,16 @@ async fn pull_model(
         status: "success".into(),
         message: format!("Successfully pulled and registered {}", payload.model_id),
     }))
+}
+
+async fn sync_models(
+    State(pool): State<DbPool>,
+) -> Result<Json<mimir_core_ai::services::model_sync::ModelSyncResult>, (axum::http::StatusCode, Json<serde_json::Value>)> {
+    match mimir_core_ai::services::model_sync::sync_models(&pool).await {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => {
+            error!("Failed to sync models: {}", e);
+            Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))))
+        }
+    }
 }

@@ -157,7 +157,7 @@ async fn get_alerts(
 
     for budget in &budgets {
         let usage: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(total_tokens), 0) FROM llm_usage_logs WHERE tenant_id = ? AND model_id = ? AND DATE(created_at) = CURDATE()"
+            "SELECT CAST(COALESCE(SUM(total_tokens), 0) AS SIGNED) FROM llm_usage_logs WHERE tenant_id = ? AND model_id = ? AND DATE(created_at) = CURDATE()"
         )
         .bind(tenant_id)
         .bind(&budget.model_id)
@@ -201,7 +201,7 @@ async fn get_alerts(
     // Check for error rate spikes (>10% in last hour)
     let error_stats: Vec<(String, i64, i64)> = sqlx::query_as(
         r#"SELECT model_id,
-            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors,
+            CAST(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS SIGNED) as errors,
             COUNT(*) as total
         FROM llm_usage_logs
         WHERE tenant_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
@@ -268,14 +268,14 @@ async fn get_benchmark(
     let tenant_id = extract_tenant_id(&headers);
 
     // Get benchmark data per model
-    let stats: Vec<(String, String, i64, i64, f64, i64, i64)> = sqlx::query_as(
+    let stats: Vec<(String, String, i64, i64, f64, i64, f64)> = sqlx::query_as(
         r#"SELECT
             model_id,
             provider,
             COUNT(*) as total_calls,
-            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+            CAST(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS SIGNED) as success_count,
             AVG(latency_ms) as avg_latency,
-            SUM(total_tokens) as total_tokens,
+            CAST(SUM(total_tokens) AS SIGNED) as total_tokens,
             AVG(total_tokens) as avg_tokens
         FROM llm_usage_logs
         WHERE tenant_id = ?
