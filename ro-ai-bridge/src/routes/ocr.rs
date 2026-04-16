@@ -90,7 +90,7 @@ async fn ocr_extract(
     }
 
     // Resolve LLM credentials using unified config
-    let target_model = model_override.unwrap_or_else(|| config.gemini_model.clone());
+    let target_model = model_override.unwrap_or_else(|| config.heimdall_model.clone());
     let model_config = mimir_core_ai::services::db::get_model_by_id(&pool, &target_model)
         .await
         .unwrap_or(None);
@@ -217,7 +217,7 @@ async fn ocr_extract_source(
         })?;
 
     // Determine target model
-    let mut target_model = config.gemini_model.clone();
+    let mut target_model = config.heimdall_model.clone();
     if let Some(p) = payload {
         if let Some(m) = &p.model {
             target_model = m.clone();

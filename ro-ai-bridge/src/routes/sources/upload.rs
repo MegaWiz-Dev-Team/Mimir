@@ -14,7 +14,7 @@ use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::dedup;
 use mimir_core_ai::services::ingress::IngressManager;
 use mimir_core_ai::services::upload::{
-    build_s3_key, compute_file_hash, detect_source_type, validate_extension, validate_file_size,
+    build_s3_key, compute_file_hash, detect_source_type, validate_extension,
 };
 use s3::creds::Credentials;
 use s3::Bucket;
@@ -215,17 +215,33 @@ pub(crate) async fn upload_file(
         )
     })?;
 
-    // Validate file size (50MB max)
-    validate_file_size(data.len() as u64).map_err(|_| {
-        (
+    // Validate file size from pipeline_settings (default 50MB)
+    let mut max_mb = 50u64;
+    let cfg_json: Option<(Option<Value>,)> = sqlx::query_as(
+        "SELECT pipeline_settings FROM tenant_configs WHERE tenant_id = ?"
+    )
+    .bind(&tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None);
+
+    if let Some((Some(settings),)) = cfg_json {
+        if let Some(m) = settings.get("max_upload_size_mb").and_then(|v| v.as_u64()) {
+            max_mb = m;
+        }
+    }
+
+    let max_size_bytes = max_mb * 1024 * 1024;
+    if data.len() as u64 > max_size_bytes {
+        return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(json!({
-                "error": "File too large",
-                "max_size_bytes": 50 * 1024 * 1024,
+                "error": format!("File size ({:.1} MB) exceeds the maximum allowed limit of {} MB specified in Pipeline Settings.", data.len() as f64 / 1048576.0, max_mb),
+                "max_size_bytes": max_size_bytes,
                 "actual_size_bytes": data.len()
             })),
-        )
-    })?;
+        ));
+    }
 
     // Compute SHA-256 hash for duplicate detection
     let file_hash = compute_file_hash(&data);

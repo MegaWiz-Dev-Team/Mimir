@@ -4,9 +4,8 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Settings2, Save, Plus, Loader2, Download } from "lucide-react";
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { LlmConfig, LlmSlot, fetchModels, modelsToProviders, LlmProvider } from "@/lib/api";
+import { Settings2, Save, RefreshCw, CheckCircle2, XCircle, Server } from "lucide-react";
+import { LlmConfig, LlmSlot, fetchModels, modelsToProviders, LlmProvider, API_BASE_URL, authFetch } from "@/lib/api";
 import { SettingsTabProps } from "./types";
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -71,39 +70,50 @@ function SlotCard({ slotName, icon, title, desc, config, setConfig, providers }:
     );
 }
 
+interface SyncStatus {
+    type: "success" | "error";
+    message: string;
+    synced?: number;
+    deactivated?: number;
+    timestamp?: Date;
+}
+
 export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSaveAIModels }: SettingsTabProps) {
     const [providers, setProviders] = useState<LlmProvider[]>([]);
     const [isLoadingModels, setIsLoadingModels] = useState(true);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
 
-    // Dialog state
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [addProvider, setAddProvider] = useState<string>("ollama");
-    const [addModelId, setAddModelId] = useState<string>("");
-    const [isPulling, setIsPulling] = useState(false);
-    const [pullError, setPullError] = useState<string | null>(null);
-
-    const handlePullModel = async () => {
-        if (!addModelId.trim()) return;
-        setIsPulling(true);
-        setPullError(null);
+    const handleSyncModels = async () => {
+        setIsSyncing(true);
+        setSyncStatus(null);
         try {
-            // Note: UI integrated, backend will intercept in subsequent task
-            const res = await fetch("/api/v1/config/models/pull", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ provider: addProvider, model_id: addModelId })
-            });
-            if (!res.ok) throw new Error((await res.json()).error || "Failed to pull model");
+            const res = await authFetch(`${API_BASE_URL}/config/models/sync`, { method: "POST" });
+            if (!res.ok) {
+                const errBody = await res.json().catch(() => ({ error: "Unknown error" }));
+                throw new Error(errBody.error || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
             
-            // Reload models
+            // Reload models after sync
             const models = await fetchModels();
             setProviders(modelsToProviders(models));
-            setIsAddModalOpen(false);
-            setAddModelId("");
+
+            setSyncStatus({
+                type: "success",
+                message: `Synced ${data.synced_models} model${data.synced_models !== 1 ? 's' : ''} from Heimdall & Ollama`,
+                synced: data.synced_models,
+                deactivated: data.deactivated_models,
+                timestamp: new Date(),
+            });
         } catch (err: any) {
-            setPullError(err.message);
+            setSyncStatus({
+                type: "error",
+                message: err.message || "Failed to sync models",
+                timestamp: new Date(),
+            });
         } finally {
-            setIsPulling(false);
+            setIsSyncing(false);
         }
     };
 
@@ -124,8 +134,45 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
 
     const defaultProviderData = providers.find(p => p.id === config.default_provider);
     const defaultProviderModels = defaultProviderData?.models || [];
+    const totalModels = providers.reduce((sum, p) => sum + p.models.length, 0);
 
     return (
+        <div className="space-y-6">
+        {/* Sync Status Banner */}
+        {syncStatus && (
+            <div className={`rounded-lg border p-4 transition-all animate-in fade-in slide-in-from-top-2 duration-300 ${
+                syncStatus.type === "success"
+                    ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30"
+                    : "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+            }`}>
+                <div className="flex items-start gap-3">
+                    {syncStatus.type === "success" ? (
+                        <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                    ) : (
+                        <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                    )}
+                    <div className="flex-1">
+                        <p className={`text-sm font-medium ${
+                            syncStatus.type === "success" ? "text-green-800 dark:text-green-300" : "text-red-800 dark:text-red-300"
+                        }`}>
+                            {syncStatus.message}
+                        </p>
+                        {syncStatus.type === "success" && syncStatus.deactivated !== undefined && syncStatus.deactivated > 0 && (
+                            <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                {syncStatus.deactivated} model{syncStatus.deactivated !== 1 ? 's' : ''} deactivated (no longer available on gateway)
+                            </p>
+                        )}
+                        {syncStatus.timestamp && (
+                            <p className="text-xs text-muted-foreground mt-1" suppressHydrationWarning>
+                                {syncStatus.timestamp.toLocaleTimeString()}
+                            </p>
+                        )}
+                    </div>
+                    <button onClick={() => setSyncStatus(null)} className="text-muted-foreground hover:text-foreground text-sm">✕</button>
+                </div>
+            </div>
+        )}
+
         <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
@@ -137,63 +184,18 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                         Configure models for each purpose. Each slot can use a different provider and model.
                     </CardDescription>
                 </div>
-                <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" className="gap-2 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary">
-                            <Download className="w-4 h-4" /> Add Model
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Pull New Model</DialogTitle>
-                            <DialogDescription>
-                                Download models directly to the host machine via Ollama or Heimdall.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Provider Network</label>
-                                <select 
-                                    value={addProvider} 
-                                    onChange={e => setAddProvider(e.target.value)}
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                >
-                                    <option value="ollama">Ollama</option>
-                                    <option value="heimdall">Heimdall (MLX via Host)</option>
-                                </select>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Model ID / HuggingFace Path</label>
-                                <Input 
-                                    placeholder={addProvider === 'ollama' ? "e.g., qwen2.5:1.5b" : "e.g., mlx-community/Qwen3.5-27B-4bit"}
-                                    value={addModelId}
-                                    onChange={e => setAddModelId(e.target.value)}
-                                />
-                                <p className="text-[10px] text-muted-foreground">
-                                    {addProvider === 'heimdall' && 'Models will be written to External SSD cache via RustFS.'}
-                                </p>
-                            </div>
-                            {pullError && (
-                                <div className="text-xs text-red-500 bg-red-500/10 p-2 rounded-md">
-                                    Error: {pullError}
-                                </div>
-                            )}
-                        </div>
-                        <DialogFooter>
-                            <Button 
-                                onClick={handlePullModel} 
-                                disabled={!addModelId.trim() || isPulling}
-                                className="w-full sm:w-auto"
-                            >
-                                {isPulling ? (
-                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Pulling...</>
-                                ) : (
-                                    <><Download className="w-4 h-4 mr-2" /> Pull & Register</>
-                                )}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                <div className="flex gap-2">
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleSyncModels} 
+                        disabled={isSyncing}
+                        className="gap-2"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                        {isSyncing ? "Syncing..." : "Sync Models"}
+                    </Button>
+                </div>
             </CardHeader>
             <CardContent>
                 {isLoading || isLoadingModels ? (
@@ -278,9 +280,9 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                             </div>
                         </div>
 
-                        <div className="pt-4 flex justify-end">
-                            <Button type="submit" disabled={isSaving}>
-                                <Save className="w-4 h-4 mr-2" />
+                        <div className="flex justify-end pt-4 border-t mt-6">
+                            <Button type="submit" disabled={isSaving} size="sm" className="gap-2">
+                                {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                 {isSaving ? "Saving..." : "Save Changes"}
                             </Button>
                         </div>
@@ -288,5 +290,67 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                 )}
             </CardContent>
         </Card>
+
+        {/* Model Registry Overview */}
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <Server className="w-5 h-5 text-primary" />
+                    Model Registry
+                    <span className="text-sm font-normal text-muted-foreground">({totalModels} models)</span>
+                </CardTitle>
+                <CardDescription>
+                    Models synced from Heimdall Gateway and Ollama. Click &quot;Sync Models&quot; above to refresh from connected providers.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                {isLoadingModels ? (
+                    <div className="py-4 text-center text-muted-foreground">Loading model registry...</div>
+                ) : providers.length === 0 ? (
+                    <div className="py-8 text-center">
+                        <Server className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
+                        <p className="text-sm text-muted-foreground">No models in registry.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Click &quot;Sync Models&quot; to pull from Heimdall and Ollama.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {providers.map(provider => (
+                            <div key={provider.id} className="rounded-lg border bg-card">
+                                <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium">{provider.display_name}</span>
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                                            {provider.models.length} model{provider.models.length !== 1 ? 's' : ''}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="divide-y">
+                                    {provider.models.map(model => (
+                                        <div key={model.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
+                                            <div>
+                                                <span className="font-medium">{model.display_name}</span>
+                                                <span className="text-xs text-muted-foreground ml-2 font-mono">({model.id})</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {model.capabilities?.reasoning && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">🧠 Reasoning</span>
+                                                )}
+                                                {model.capabilities?.tools && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">🔧 Tools</span>
+                                                )}
+                                                {model.capabilities?.vision && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">👁 Vision</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+        </div>
     );
 }

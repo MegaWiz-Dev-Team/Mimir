@@ -12,7 +12,6 @@ use crate::services::vault;
 
 /// Secret env var names that should be resolved from Vault when available.
 pub const VAULT_MANAGED_SECRETS: &[&str] = &[
-    "GEMINI_API_KEY",
     "GITHUB_TOKEN",
     "HEIMDALL_API_KEY",
     "JWT_SECRET",
@@ -103,12 +102,6 @@ pub struct Config {
     pub s3_region: String,
 
     // LLM
-    pub ollama_url: String,
-    pub local_model: String,
-    pub embed_model: String,
-    pub gemini_base_url: String,
-    pub gemini_api_key: Option<String>,
-    pub gemini_model: String,
     pub heimdall_api_url: String,
     pub heimdall_api_key: Option<String>,
     pub heimdall_model: String,
@@ -147,19 +140,7 @@ impl Config {
             s3_secret_key: env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
             s3_region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
 
-            // LLM
-            ollama_url: env::var("OLLAMA_URL")
-                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            local_model: env::var("LOCAL_MODEL").unwrap_or_else(|_| "gemma:2b".to_string()),
-            embed_model: env::var("EMBED_MODEL").unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
-            gemini_base_url: env::var("GEMINI_BASE_URL").unwrap_or_else(|_| {
-                "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
-            }),
-            gemini_api_key: env::var("GEMINI_API_KEY").ok(),
-            gemini_model: env::var("GEMINI_MODEL")
-                .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
-
-            // Heimdall (Self-hosted LLM Gateway)
+            // LLM (All traffic routed through Heimdall Gateway)
             heimdall_api_url: env::var("HEIMDALL_API_URL")
                 .unwrap_or_else(|_| "http://localhost:3000/v1".to_string()),
             heimdall_api_key: env::var("HEIMDALL_API_KEY").ok(),

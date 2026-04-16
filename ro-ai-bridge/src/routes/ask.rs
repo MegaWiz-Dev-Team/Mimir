@@ -12,7 +12,7 @@ use axum::{
 };
 use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::models::persona::Persona;
-use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent};
+use mimir_core_ai::rag_engine::{LlmProvider, OracleRagAgent, RagConfig};
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::iam::IamService;
 use mimir_core_ai::services::qdrant::QdrantService;
@@ -78,7 +78,7 @@ async fn ask_handler(
 
     let default_p = tenant_config.as_ref().map(|c| c.default_provider.as_str());
     let default_m = tenant_config.as_ref().map(|c| c.default_model.as_str());
-    let resolved = llm_config.resolve_slot("chat", default_p, default_m);
+    let resolved = llm_config.resolve_slot("rag", default_p, default_m);
 
     let provider = payload
         .provider
@@ -117,6 +117,12 @@ async fn ask_handler(
         }
     };
 
+    // Resolve RAG config from tenant's search_settings
+    let rag_config: Option<RagConfig> = tenant_config
+        .as_ref()
+        .and_then(|c| c.search_settings.as_ref())
+        .and_then(|s| serde_json::from_value(s.0.clone()).ok());
+
     // Build RAG agent (tier 2 — retrieval-augmented)
     let qdrant = QdrantService::new();
     let plugins: Vec<Box<dyn mimir_core_ai::rag_engine::DynamicContextPlugin>> = vec![];
@@ -129,6 +135,7 @@ async fn ask_handler(
         Some(&model),
         None,
         tenant_id,
+        rag_config,
     );
 
     match agent.chat(&payload.question).await {

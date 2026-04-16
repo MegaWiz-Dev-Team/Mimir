@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import {
-    PROVIDERS,
     Persona,
     ChatResponse,
     SourceCitation,
@@ -129,7 +128,7 @@ function PlaygroundContent() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [useStreaming, setUseStreaming] = useState(true);
-    const [providers, setProviders] = useState<LlmProvider[]>(PROVIDERS);
+    const [providers, setProviders] = useState<LlmProvider[]>([]);
     const [modelsLoading, setModelsLoading] = useState(true);
     const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -212,19 +211,11 @@ function PlaygroundContent() {
                         }
                     }
                 } else {
-                    // Use fallback PROVIDERS
-                    if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
-                        setProvider(PROVIDERS[0].id);
-                        setModel(PROVIDERS[0].models[0].id);
-                    }
+                    setProviders([]);
                 }
             } catch (err) {
-                console.warn("Failed to fetch models from DB, using fallback:", err);
-                // Use fallback PROVIDERS
-                if (PROVIDERS.length > 0 && PROVIDERS[0].models.length > 0) {
-                    setProvider(PROVIDERS[0].id);
-                    setModel(PROVIDERS[0].models[0].id);
-                }
+                console.warn("Failed to fetch models from DB", err);
+                setProviders([]);
             } finally {
                 setModelsLoading(false);
             }

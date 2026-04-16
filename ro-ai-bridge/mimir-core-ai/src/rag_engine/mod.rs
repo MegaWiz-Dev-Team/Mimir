@@ -1,10 +1,10 @@
-//! Oracle RAG Agent - Tier 2: RAG Agent with rig-core + Qdrant
+//! Oracle RAG Agent - Tier 2: RAG Agent with Qdrant
 //!
 //! This agent provides enhanced NPC capabilities with:
 //! - Retrieval Augmented Generation (RAG) from golden_qa and game_data collections
 //! - Custom tools for direct rAthena database queries (mobs, items)
 //! - Confidence scoring and source citation in responses
-//! - Support for multiple LLM providers (Ollama local, Gemini cloud, Heimdall self-hosted)
+//! - LLM routing via Heimdall Gateway
 //!
 //! ## Architecture
 //! ```text
@@ -16,15 +16,12 @@
 //!                                      ↓
 //!                              Context Assembly
 //!                                      ↓
-//!                              LLM Generation (Ollama/Gemini/Heimdall)
+//!                              LLM Generation (via Heimdall Gateway)
 //!                                      ↓
 //!                         Response + Confidence + Citations
 //! ```
 
 use anyhow::Result;
-use rig::completion::Prompt;
-use rig::providers::gemini;
-use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
@@ -34,17 +31,48 @@ use crate::services::qdrant::QdrantService;
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-/// Default model for Tier 2 (more capable for RAG tasks)
-const DEFAULT_MODEL: &str = "llama3.2";
-
-/// Default Gemini model
-const DEFAULT_GEMINI_MODEL: &str = "gemini-1.5-pro";
-
 /// Default Heimdall model
 const DEFAULT_HEIMDALL_MODEL: &str = "mlx-community/Qwen3.5-35B-A3B-4bit";
 
 /// Default timeout for completion requests (45 seconds for RAG operations)
 const DEFAULT_TIMEOUT_SECS: u64 = 45;
+
+// ─── RAG Configuration ───────────────────────────────────────────────────────
+
+/// Per-tenant RAG configuration — resolved from `tenant_configs.search_settings` JSON.
+///
+/// Controls retrieval and generation parameters for the Oracle RAG Agent.
+/// When `None` is passed, sensible defaults are used.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagConfig {
+    /// Number of chunks to retrieve per Qdrant collection (default: 3)
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+    /// LLM sampling temperature (default: 0.7)
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    /// Maximum response tokens (default: 4096)
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u16,
+    /// Minimum similarity score — results below this threshold are discarded
+    #[serde(default)]
+    pub similarity_threshold: Option<f32>,
+}
+
+fn default_top_k() -> usize { 3 }
+fn default_temperature() -> f32 { 0.7 }
+fn default_max_tokens() -> u16 { 4096 }
+
+impl Default for RagConfig {
+    fn default() -> Self {
+        Self {
+            top_k: default_top_k(),
+            temperature: default_temperature(),
+            max_tokens: default_max_tokens(),
+            similarity_threshold: None,
+        }
+    }
+}
 
 // ─── LLM Provider ───────────────────────────────────────────────────────────
 
@@ -52,27 +80,18 @@ const DEFAULT_TIMEOUT_SECS: u64 = 45;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmProvider {
-    Ollama,
-    Gemini,
     Heimdall,
 }
 
 impl Default for LlmProvider {
     fn default() -> Self {
-        // Prefer Heimdall if HEIMDALL_API_URL is configured
-        if std::env::var("HEIMDALL_API_URL").is_ok() {
-            LlmProvider::Heimdall
-        } else {
-            LlmProvider::Ollama
-        }
+        LlmProvider::Heimdall
     }
 }
 
 impl std::fmt::Display for LlmProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LlmProvider::Ollama => write!(f, "ollama"),
-            LlmProvider::Gemini => write!(f, "gemini"),
             LlmProvider::Heimdall => write!(f, "heimdall"),
         }
     }
@@ -83,10 +102,8 @@ impl std::str::FromStr for LlmProvider {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "ollama" | "local" => Ok(LlmProvider::Ollama),
-            "gemini" | "google" => Ok(LlmProvider::Gemini),
-            "heimdall" => Ok(LlmProvider::Heimdall),
-            _ => Err(format!("Unknown provider: {}", s)),
+            "heimdall" | "local" | "ollama" | "gemini" | "google" => Ok(LlmProvider::Heimdall),
+            _ => Err(format!("Unknown provider (using Heimdall routing): {}", s)),
         }
     }
 }
@@ -170,95 +187,53 @@ pub trait DynamicContextPlugin: Send + Sync {
 /// RAG retriever for Qdrant vector search
 pub struct RagRetriever {
     qdrant: QdrantService,
-    ollama_url: String,
+    endpoint_url: String,
     embed_model: String,
 }
 
 impl RagRetriever {
     pub fn new(qdrant: QdrantService) -> Self {
-        // Prefer Heimdall embedding endpoint, fallback to Ollama
-        let ollama_url = env::var("HEIMDALL_API_URL")
-            .or_else(|_| env::var("OLLAMA_BASE_URL"))
-            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+        // Use Heimdall embedding endpoint
+        let endpoint_url = env::var("HEIMDALL_API_URL")
+            .unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
         let embed_model = env::var("EMBED_MODEL").unwrap_or_else(|_| "BAAI/bge-m3".to_string());
 
         Self {
             qdrant,
-            ollama_url,
+            endpoint_url,
             embed_model,
         }
     }
 
-    /// Get embedding for text — auto-detects Heimdall (OpenAI) vs Ollama format
+    /// Get embedding for text — uses Heimdall API (OpenAI compatible)
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let client = reqwest::Client::new();
 
-        // Use OpenAI-compatible /v1/embeddings format for Heimdall
-        let is_openai_format =
-            self.ollama_url.contains("/v1") || env::var("HEIMDALL_API_URL").is_ok();
+        let url = format!("{}/embeddings", self.endpoint_url.trim_end_matches('/'));
+        let api_key = env::var("HEIMDALL_API_KEY").unwrap_or_default();
 
-        if is_openai_format {
-            let url = if self.ollama_url.ends_with("/v1") {
-                format!("{}/embeddings", self.ollama_url)
-            } else {
-                format!("{}/v1/embeddings", self.ollama_url.trim_end_matches('/'))
-            };
-            let api_key = env::var("HEIMDALL_API_KEY").unwrap_or_default();
-
-            let body = serde_json::json!({
-                "model": self.embed_model,
-                "input": [text]
-            });
-            let resp = client
-                .post(&url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .json(&body)
-                .send()
-                .await?;
-            if !resp.status().is_success() {
-                let err = resp.text().await?;
-                return Err(anyhow::anyhow!("Embedding error: {}", err));
-            }
-            let json: serde_json::Value = resp.json().await?;
-            let embedding = json["data"][0]["embedding"]
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("No embedding in response"))?
-                .iter()
-                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
-                .collect();
-            Ok(embedding)
-        } else {
-            // Fallback to Ollama /api/embed format
-            #[derive(serde::Serialize)]
-            struct EmbedRequest {
-                model: String,
-                input: Vec<String>,
-            }
-            #[derive(serde::Deserialize)]
-            struct EmbedResponse {
-                embeddings: Vec<Vec<f32>>,
-            }
-
-            let req = EmbedRequest {
-                model: self.embed_model.clone(),
-                input: vec![text.to_string()],
-            };
-            let resp = client
-                .post(format!("{}/api/embed", self.ollama_url))
-                .json(&req)
-                .send()
-                .await?;
-            if !resp.status().is_success() {
-                let err = resp.text().await?;
-                return Err(anyhow::anyhow!("Ollama embed error: {}", err));
-            }
-            let embed_resp: EmbedResponse = resp.json().await?;
-            embed_resp
-                .embeddings
-                .into_iter()
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
+        let body = serde_json::json!({
+            "model": self.embed_model,
+            "input": [text]
+        });
+        let resp = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let err = resp.text().await?;
+            return Err(anyhow::anyhow!("Embedding error: {}", err));
         }
+        let json: serde_json::Value = resp.json().await?;
+        let embedding = json["data"][0]["embedding"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("No embedding in response"))?
+            .iter()
+            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+            .collect();
+        Ok(embedding)
     }
 
     pub async fn search_wiki(
@@ -386,8 +361,6 @@ impl RagRetriever {
 
 /// Agent backend enum to support multiple LLM providers
 pub enum AgentBackend {
-    Ollama(rig::agent::Agent<ollama::CompletionModel>),
-    Gemini(rig::agent::Agent<gemini::completion::CompletionModel>),
     /// Heimdall uses reqwest directly (OpenAI-compatible HTTP API)
     Heimdall {
         client: reqwest::Client,
@@ -395,6 +368,8 @@ pub enum AgentBackend {
         model: String,
         api_key: String,
         system_prompt: String,
+        temperature: f32,
+        max_tokens: u16,
     },
 }
 
@@ -402,20 +377,14 @@ impl AgentBackend {
     /// Send a prompt to the underlying LLM
     pub async fn prompt(&self, message: &str) -> Result<String> {
         match self {
-            AgentBackend::Ollama(agent) => agent
-                .prompt(message)
-                .await
-                .map_err(|e| anyhow::anyhow!("Ollama prompt failed: {}", e)),
-            AgentBackend::Gemini(agent) => agent
-                .prompt(message)
-                .await
-                .map_err(|e| anyhow::anyhow!("Gemini prompt failed: {}", e)),
             AgentBackend::Heimdall {
                 client,
                 endpoint,
                 model,
                 api_key,
                 system_prompt,
+                temperature,
+                max_tokens,
             } => {
                 let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
                 let body = serde_json::json!({
@@ -424,8 +393,8 @@ impl AgentBackend {
                         { "role": "system", "content": system_prompt },
                         { "role": "user", "content": message }
                     ],
-                    "max_tokens": 4096,
-                    "temperature": 0.7,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
                     "stream": false
                 });
                 let resp = client
@@ -468,6 +437,7 @@ pub struct OracleRagAgent {
     pub model_name: String,
     pub timeout: Duration,
     pub tenant_id: String,
+    pub rag_config: RagConfig,
     agent: AgentBackend,
     retriever: RagRetriever,
     plugins: Vec<Box<dyn DynamicContextPlugin>>,
@@ -484,10 +454,11 @@ impl OracleRagAgent {
             persona,
             qdrant,
             plugins,
-            LlmProvider::Ollama,
+            LlmProvider::Heimdall,
             None,
             None,
             tenant_id,
+            None,
         )
     }
 
@@ -504,14 +475,18 @@ impl OracleRagAgent {
             persona,
             qdrant,
             plugins,
-            LlmProvider::Ollama,
+            LlmProvider::Heimdall,
             model,
             timeout,
             tenant_id,
+            None,
         )
     }
 
     /// Create an OracleRagAgent with a specific provider
+    ///
+    /// `rag_config`: Optional per-tenant RAG parameters (top_k, temperature, etc.).
+    /// Pass `None` to use defaults. Typically resolved from `TenantConfig.search_settings`.
     pub fn with_provider(
         persona: Persona,
         qdrant: QdrantService,
@@ -520,30 +495,17 @@ impl OracleRagAgent {
         model: Option<&str>,
         timeout: Option<Duration>,
         tenant_id: String,
+        rag_config: Option<RagConfig>,
     ) -> Self {
         let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
+        let rag_config = rag_config.unwrap_or_default();
 
         // Build enhanced system prompt with RAG context instructions
         let enhanced_prompt = Self::build_enhanced_prompt(&persona);
 
-        // Create agent based on provider
+        // Create agent based on provider (now all point to Heimdall)
         let (agent, model_name) = match provider {
-            LlmProvider::Ollama => {
-                let client = ollama::Client::new();
-                let model_name = model.unwrap_or(DEFAULT_MODEL).to_string();
-                let agent = client.agent(&model_name).preamble(&enhanced_prompt).build();
-                (AgentBackend::Ollama(agent), model_name)
-            }
-            LlmProvider::Gemini => {
-                let api_key = env::var("GEMINI_API_KEY")
-                    .or_else(|_| env::var("GOOGLE_API_KEY"))
-                    .expect("GEMINI_API_KEY or GOOGLE_API_KEY must be set for Gemini provider");
-                let client = gemini::Client::new(&api_key);
-                let model_name = model.unwrap_or(DEFAULT_GEMINI_MODEL).to_string();
-                let agent = client.agent(&model_name).preamble(&enhanced_prompt).build();
-                (AgentBackend::Gemini(agent), model_name)
-            }
-            LlmProvider::Heimdall => {
+            _ => { // Always use Heimdall backend implementation logic
                 let api_key = env::var("HEIMDALL_API_KEY").unwrap_or_default();
                 let endpoint = env::var("HEIMDALL_API_URL")
                     .unwrap_or_else(|_| "http://localhost:3000/v1".to_string());
@@ -554,6 +516,8 @@ impl OracleRagAgent {
                     model: model_name.clone(),
                     api_key,
                     system_prompt: enhanced_prompt.clone(),
+                    temperature: rag_config.temperature,
+                    max_tokens: rag_config.max_tokens,
                 };
                 (backend, model_name)
             }
@@ -567,6 +531,7 @@ impl OracleRagAgent {
             model_name,
             timeout,
             tenant_id,
+            rag_config,
             agent,
             retriever,
             plugins,
@@ -601,11 +566,17 @@ You have access to a knowledge document base containing domain-specific intellig
         let mut tools_used = Vec::new();
         let mut all_sources = Vec::new();
 
-        // Step 1: Retrieve relevant context from RAG
+        // Step 1: Retrieve relevant context from RAG (top_k from RagConfig)
         let rag_sources = self
             .retriever
-            .search_all(message, 3, &self.tenant_id)
+            .search_all(message, self.rag_config.top_k, &self.tenant_id)
             .await?;
+        // Apply similarity_threshold filter if configured
+        let rag_sources = if let Some(threshold) = self.rag_config.similarity_threshold {
+            rag_sources.into_iter().filter(|s| s.relevance >= threshold).collect()
+        } else {
+            rag_sources
+        };
         all_sources.extend(rag_sources);
 
         // Step 2: Check if we need to query databases directly

@@ -1,4 +1,4 @@
-use axum::{middleware, routing::get, Extension, Json, Router};
+use axum::{extract::DefaultBodyLimit, middleware, routing::get, Extension, Json, Router};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -125,6 +125,11 @@ async fn main() {
         }
     }
 
+    // Synchronize remote models from Heimdall & Ollama (Issue #250)
+    if let Err(e) = mimir_core_ai::services::model_sync::sync_models(&pool).await {
+        tracing::warn!(error = %e, "Failed to synchronize remote LLM models on startup");
+    }
+
     // Recover orphaned pipeline runs from previous pod lifecycle
     recover_orphaned_pipeline_runs(&pool).await;
 
@@ -200,6 +205,7 @@ async fn main() {
         .with_state(pool)
         .layer(Extension(config.clone()))
         .layer(Extension(cron_state))
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .layer(cors);
 
     // run it

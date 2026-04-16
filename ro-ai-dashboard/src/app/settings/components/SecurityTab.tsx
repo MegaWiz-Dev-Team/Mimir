@@ -197,7 +197,7 @@ export function SecurityTab(props: SettingsTabProps) {
                                 </div>
                             </div>
                             <div className="flex items-center justify-between mt-4">
-                                <p className="text-xs text-muted-foreground">💡 Secured by HashiCorp Vault. Keys are never stored in the database.</p>
+                                <p className="text-xs text-muted-foreground">💡 Keys are stored encrypted in tenant configuration. Use HashiCorp Vault directly for enterprise production environments.</p>
                                 <Button type="submit" disabled={props.isSaving}>
                                     <Save className="w-4 h-4 mr-2" />
                                     {props.isSaving ? "Saving..." : "Save Credentials"}

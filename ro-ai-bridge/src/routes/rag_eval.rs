@@ -529,7 +529,7 @@ pub async fn execute_evaluation_run(
     let collections_json = params.collections.as_ref()
         .map(|c| serde_json::to_string(c).unwrap_or_default());
 
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         r#"INSERT INTO rag_eval_runs
             (id, tenant_id, name, status,
              weight_vector, weight_tree, weight_graph,
@@ -576,7 +576,10 @@ pub async fn execute_evaluation_run(
     .bind(&payload.dataset_id)
     .bind(&payload.dataset_name)
     .execute(&pool)
-    .await;
+    .await {
+        tracing::error!("Failed to insert rag_eval_runs: {:?}", e);
+        return Err(format!("Database insert failed: {}", e));
+    }
 
     info!(
         event = "rag_eval_start",
@@ -1086,7 +1089,10 @@ async fn get_rag_eval_run(
     .bind(tenant_id)
     .fetch_optional(&pool)
     .await
-    .unwrap_or(None);
+    .unwrap_or_else(|e| {
+        tracing::error!("Failed to fetch run {}: {:?}", run_id, e);
+        None
+    });
 
     let r = run_row.ok_or((
         StatusCode::NOT_FOUND,
@@ -1389,12 +1395,11 @@ async fn generate_eval_set_v2(
     let provider = payload.provider.unwrap_or(slot.provider.clone());
     let api_base = crate::routes::sources::infer_api_base(&provider);
     let api_key = match provider.to_lowercase().as_str() {
-        "google" | "gemini" => llm_config.google_api_key.clone(),
-        "openai" => llm_config.openai_api_key.clone(),
-        "azure" => llm_config.azure_api_key.clone(),
-        _ => llm_config.heimdall_api_key.clone(),
-    }
-    .unwrap_or_else(|| std::env::var("LLM_API_KEY").unwrap_or_else(|_| "no-key".into()));
+        "google" | "gemini" => llm_config.google_api_key.clone().unwrap_or_else(|| std::env::var("GEMINI_API_KEY").unwrap_or_else(|_| "no-key".into())),
+        "openai" => llm_config.openai_api_key.clone().unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "no-key".into())),
+        "azure" => llm_config.azure_api_key.clone().unwrap_or_else(|| std::env::var("AZURE_API_KEY").unwrap_or_else(|_| "no-key".into())),
+        _ => llm_config.heimdall_api_key.clone().unwrap_or_else(|| std::env::var("HEIMDALL_API_KEY").unwrap_or_else(|_| "no-key".into())),
+    };
 
     // 4. Build prompt
     let multi_turn_instruction = if payload.multi_turn {
@@ -1481,6 +1486,15 @@ Rules:
         .send()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("LLM error: {}", e)}))))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let error_body = resp.text().await.unwrap_or_default();
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("LLM API returned {}: {}", status, error_body)})),
+        ));
+    }
 
     let resp_json: Value = resp.json().await.map_err(|e| (
         StatusCode::INTERNAL_SERVER_ERROR,

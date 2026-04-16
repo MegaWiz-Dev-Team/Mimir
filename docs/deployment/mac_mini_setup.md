@@ -239,19 +239,19 @@ cd ro-ai-bridge && cargo clean
 
 ```bash
 # Deploy everything (build API + Dashboard, rollout to K3s)
-./scripts/k3s-deploy.sh all
+../Asgard/scripts/k3s-deploy.sh all
 
 # Deploy only API
-./scripts/k3s-deploy.sh api
+../Asgard/scripts/k3s-deploy.sh api
 
 # Deploy only Dashboard
-./scripts/k3s-deploy.sh dashboard
+../Asgard/scripts/k3s-deploy.sh dashboard
 
 # Skip build, just rollout restart
-./scripts/k3s-deploy.sh all --no-build
+../Asgard/scripts/k3s-deploy.sh all --no-build
 
 # Override API URL for network access
-NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ./scripts/k3s-deploy.sh dashboard
+NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ../Asgard/scripts/k3s-deploy.sh dashboard
 ```
 
 ### K3s Architecture

@@ -4,12 +4,17 @@ import Cookies from "js-cookie";
 export const API_BASE_URL = (() => {
     const defaultUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:30000/api";
     if (typeof window !== "undefined") {
+        // Use Ingress route for Asgard environment
+        if (window.location.hostname.includes("asgard.internal")) {
+            return `${window.location.protocol}//api.asgard.internal/api/v1`;
+        }
+        
         // If the build bound to localhost, but the user is accessing via an external IP/Domain
         if ((defaultUrl.includes("localhost") || defaultUrl.includes("127.0.0.1")) && 
              window.location.hostname !== "localhost" && 
              window.location.hostname !== "127.0.0.1") {
             // Port 30000 is our standardized K3s NodePort for the API
-            return `http://${window.location.hostname}:30000/api/v1`;
+            return `${window.location.protocol}//${window.location.hostname}:30000/api/v1`;
         }
     }
     return defaultUrl + "/v1";
@@ -385,7 +390,6 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
     const providerMeta: Record<string, { display_name: string; description: string; requires_api_key: boolean }> = {
         heimdall: { display_name: "Heimdall (Self-Hosted)", description: "Self-hosted LLM gateway with multiple models", requires_api_key: true },
         flashmoe: { display_name: "Flash-MoE (Local SSD Streaming)", description: "Ultra-large MoE running from SSD", requires_api_key: false },
-        ollama: { display_name: "Ollama (Local)", description: "Run models locally with Ollama", requires_api_key: false },
         google: { display_name: "Google Gemini (Cloud)", description: "Google's Gemini models via API", requires_api_key: true },
         openai: { display_name: "OpenAI (Cloud)", description: "OpenAI GPT models via API", requires_api_key: true },
         azure: { display_name: "Azure OpenAI", description: "Azure OpenAI models", requires_api_key: true },
@@ -398,7 +402,7 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
             const meta = providerMeta[providerId] || {
                 display_name: providerId.charAt(0).toUpperCase() + providerId.slice(1),
                 description: `${providerId} models`,
-                requires_api_key: providerId !== "ollama"
+                requires_api_key: true
             };
             providerMap.set(providerId, {
                 id: providerId,
@@ -412,13 +416,97 @@ export function modelsToProviders(models: ModelConfig[]): LlmProvider[] {
         const provider = providerMap.get(providerId)!;
         provider.models.push({
             id: model.model_id,
-            display_name: model.model_id,
+            display_name: humanizeModelName(model.model_id, providerId),
             description: model.capabilities?.tools ? "Supports tools" : "Standard model",
             capabilities: model.capabilities,
         });
     }
 
     return Array.from(providerMap.values());
+}
+
+/**
+ * Shorten a model_id into a readable display name.
+ * 
+ * If providerId is supplied, it adds a suffix to distinguish cross-platform models,
+ * e.g., Gemma running on Google vs Heimdall.
+ */
+export function humanizeModelName(modelId: string, providerId?: string): string {
+    let name = modelId;
+
+    // Local absolute path → extract filename
+    const isLocalPath = name.startsWith("/");
+    if (isLocalPath) {
+        name = name.split("/").pop() || name;
+    }
+
+    // Strip org prefixes
+    if (name.includes("/")) {
+        name = name.split("/").pop() || name;
+    }
+
+    // Remove quantization suffixes
+    name = name.replace(/-(MLX-?)?\d+bit$/i, "");
+    name = name.replace(/-MLX$/i, "");
+    name = name.replace(/-GGUF$/i, "");
+
+    // Remove -it (instruct-tuned) suffix
+    name = name.replace(/-it$/i, "");
+
+    // Active params indicator (e.g. A3B) → MoE tag
+    const moeMatch = name.match(/-A(\d+)B$/i);
+    let isMoE = false;
+    if (moeMatch) {
+        isMoE = true;
+        name = name.replace(/-A\d+B$/i, "");
+    }
+
+    // Capitalize known model families
+    const familyMap: [RegExp, string][] = [
+        [/^qwen/i, "Qwen"],
+        [/^gemma/i, "Gemma"],
+        [/^medgemma/i, "MedGemma"],
+        [/^llama/i, "Llama"],
+        [/^mistral/i, "Mistral"],
+        [/^gemini/i, "Gemini"],
+        [/^gpt/i, "GPT"],
+        [/^phi/i, "Phi"],
+        [/^deepseek/i, "DeepSeek"],
+        [/^codellama/i, "CodeLlama"],
+    ];
+
+    for (const [pattern, replacement] of familyMap) {
+        if (pattern.test(name)) {
+            name = name.replace(pattern, replacement);
+            break;
+        }
+    }
+
+    // Add spaces around version numbers: "Qwen3.5-35B" → "Qwen 3.5 35B"
+    name = name
+        .replace(/(\D)(\d)/g, "$1 $2")   // letter→digit boundary
+        .replace(/(\d)([A-Z])/g, "$1 $2") // digit→uppercase boundary
+        .replace(/-/g, " ")                // dashes to spaces
+        .replace(/\s+/g, " ")             // collapse multiple spaces
+        .trim();
+
+    // Add MoE tag
+    if (isMoE) {
+        name += " MoE";
+    }
+
+    // Contextual clarification tags
+    if (isLocalPath) {
+        name += " (Local Path)";
+    }
+
+    if (providerId) {
+        // Capitalize provider id for the suffix
+        const providerName = providerId.charAt(0).toUpperCase() + providerId.slice(1);
+        name += ` (${providerName})`;
+    }
+
+    return name;
 }
 
 /// Fetch agents from Agent Studio and convert to Persona format for Playground
@@ -434,59 +522,7 @@ export async function fetchPlaygroundAgents(): Promise<{ personas: Persona[]; ag
     return { personas, agents };
 }
 
-/// Fallback providers when database is not available
-export const PROVIDERS: LlmProvider[] = [
-    {
-        id: "sakura",
-        display_name: "Sakura Cloud (H100/B200 Clusters)",
-        description: "Enterprise-grade GPU clusters for Massive LLMs",
-        requires_api_key: true,
-        models: [
-            { id: "sakura/Llama-3-400B-Instruct", display_name: "Llama 3 400B (Sakura Cluster)", description: "Ultra-heavy reasoning for complex clinical logic" },
-            { id: "sakura/Nemotron-4-340B-Instruct", display_name: "Nemotron 4 340B (Sakura Cluster)", description: "Nvidia optimized enterprise model" },
-            { id: "sakura/Qwen3.5-110B-Chat", display_name: "Qwen 3.5 110B (vLLM Sakura)", description: "High-throughput model for RAG via vLLM" },
-        ],
-    },
-    {
-        id: "heimdall",
-        display_name: "Heimdall (Self-Hosted Apple Silicon)",
-        description: "Self-hosted LLM gateway with multiple models",
-        requires_api_key: true,
-        models: [
-            { id: "MegawizCo/Qwen3.5-27B-Opus-Reasoning-MLX-4bit", display_name: "Qwen 27B Opus-Reasoning", description: "Efficient clinical reasoning" },
-            { id: "/Users/mimir/Developer/Heimdall/models/gemma-4-26b-a4b-it-4bit", display_name: "Gemma 26B (Local)", description: "Local pre-downloaded Gemma" },
-            { id: "mlx-community/gemma-4-31b-it-4bit", display_name: "Gemma 31B (Heavy)", description: "High-end Reasoning / Requires Download" },
-            { id: "mlx-community/Qwen3.5-35B-A3B-4bit", display_name: "Qwen 3.5 35B MoE", description: "Primary — RAG, Chat, QA generation" },
-            { id: "mlx-community/Qwen3.5-27B-4bit", display_name: "Qwen 3.5 27B", description: "Complex reasoning tasks" },
-            { id: "mlx-community/Qwen3.5-9B-MLX-4bit", display_name: "Qwen 3.5 9B", description: "Fast / low latency" },
-            { id: "mlx-community/Qwen3-0.6B-4bit", display_name: "Qwen 3 0.6B", description: "Smoke test, ultra-fast" },
-            { id: "lmstudio-community/medgemma-4b-it-MLX-4bit", display_name: "MedGemma 4B", description: "Medical domain specialized" },
-        ],
-    },
-    {
-        id: "ollama",
-        display_name: "Ollama (Local)",
-        description: "Run models locally with Ollama",
-        requires_api_key: false,
-        models: [
-            { id: "llama3.2", display_name: "Llama 3.2", description: "Fast and capable, recommended for most tasks" },
-            { id: "llama3.1", display_name: "Llama 3.1", description: "Larger context window, good for complex RAG" },
-            { id: "mistral", display_name: "Mistral", description: "Efficient and fast" },
-            { id: "qwen2.5", display_name: "Qwen 2.5", description: "Strong multilingual support" },
-        ],
-    },
-    {
-        id: "google",
-        display_name: "Google Gemini (Cloud)",
-        description: "Google's Gemini models via API",
-        requires_api_key: true,
-        models: [
-            { id: "gemini-2.0-flash", display_name: "Gemini 2.0 Flash", description: "Fast and efficient, recommended" },
-            { id: "gemini-2.5-flash", display_name: "Gemini 2.5 Flash", description: "Latest flash model, best balance" },
-            { id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro", description: "Most capable, large context" },
-        ],
-    },
-];
+
 
 /// Send a chat message and get a response
 export async function sendChat(request: ChatRequest): Promise<ChatResponse> {
@@ -665,6 +701,7 @@ export interface TenantConfig {
         chunk_size?: number;
         chunk_overlap?: number;
         dedup_threshold?: number;
+        max_upload_size_mb?: number;
     };
     llm_config?: LlmConfig;
 }
@@ -1185,6 +1222,9 @@ export interface AgentConfig {
     top_k?: number;
     use_rag?: boolean;
     use_knowledge_graph?: boolean;
+    use_pageindex?: boolean;
+    rag_params?: any;
+    rerank_config?: any;
     tools?: string[];
     personality_traits?: string[];
     greeting?: string;
@@ -1344,6 +1384,7 @@ export interface GeneratedAgentDraft {
     max_tokens: number;
     use_rag: boolean;
     use_knowledge_graph: boolean;
+    use_pageindex?: boolean;
     tools: string[];
     personality_traits: string[];
     greeting: string;

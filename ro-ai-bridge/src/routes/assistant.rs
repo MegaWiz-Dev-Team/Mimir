@@ -55,16 +55,24 @@ pub async fn handle_assistant_chat(
             tracing::info!("Configured chat provider lacks tool-call support. Falling back to Heimdall.");
             
             let (endpoint, api_key) = router.get_heimdall_credentials()
-                .unwrap_or_else(|_| ("http://localhost:8081/v1".to_string(), "flashmoe-local".to_string()));
+                .unwrap_or_else(|_| (
+                    std::env::var("HEIMDALL_API_URL").unwrap_or_else(|_| "http://localhost:8081/v1".to_string()),
+                    std::env::var("HEIMDALL_API_KEY").unwrap_or_default(),
+                ));
+
+            // Pull the default model from the same env var as config.heimdall_model
+            let fallback_model = std::env::var("HEIMDALL_MODEL")
+                .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string());
                 
             (
                 mimir_core_ai::services::llm_router::UniversalClient::Rest {
                     provider: "heimdall".to_string(),
+                    provider_key: None,
                     client: reqwest::Client::new(),
                     endpoint,
                     api_key,
                 },
-                "flashmoe-reasoning-397b".to_string()
+                fallback_model
             )
         }
     };

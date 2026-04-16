@@ -313,29 +313,9 @@ export default function SourcesPage() {
 
     const handleSync = async (id: number) => {
         try {
-            // Find the source to get its type for contextual messages
-            const source = sources.find(s => s.id === id);
-            const sourceType = source?.source_type || "unknown";
-
             await syncSource(id);
             setSyncingSourceId(id);
-            setShowConsole(true);
-            setLogs([`> Starting sync job for source #${id} (${sourceType})...`]);
-
-            // Source-type-aware log messages
-            const typeMessages: Record<string, string[]> = {
-                web: ["> Fetching HTML from URL...", "> Parsing web content...", "> Extracting to Markdown..."],
-                file: ["> Downloading file from storage...", "> Extracting content...", "> Converting to Markdown..."],
-                document: ["> Downloading document from storage...", "> Extracting text content...", "> Converting to Markdown..."],
-                tabular: ["> Downloading file from storage...", "> Parsing tabular data...", "> Building Markdown table..."],
-                mcp: ["> Connecting to MCP server...", "> Fetching resources...", "> Converting to Markdown..."],
-            };
-            const msgs = typeMessages[sourceType] || ["> Processing source..."];
-
-            // Show type-specific messages with delay
-            msgs.forEach((msg, i) => {
-                setTimeout(() => setLogs(l => [...l, msg]), (i + 1) * 1000);
-            });
+            loadSources(); // Immediately refresh to reflect pending/running status
 
             // Poll for completion every 2 seconds
             const pollInterval = setInterval(async () => {
@@ -343,29 +323,10 @@ export default function SourcesPage() {
                     const updated = await fetchSource(id);
                     if (!updated) return;
 
-                    if (updated.last_sync_status === "COMPLETED") {
+                    if (updated.last_sync_status === "COMPLETED" || updated.last_sync_status === "FAILED") {
                         clearInterval(pollInterval);
-                        const chunks = updated.total_chunks ?? 0;
-                        const sizeMb = updated.mb_size?.toFixed(2) ?? "0.00";
-                        setLogs(l => [
-                            ...l,
-                            "> ─── Sync Complete ───",
-                            `> ✓ Extracted ${sizeMb} MB of content`,
-                            `> ✓ ${chunks} chunk(s) stored`,
-                            "> ✓ Deduplication applied",
-                            "> Completed!",
-                        ]);
                         loadSources();
-                        setTimeout(() => setShowConsole(false), 3000);
-                    } else if (updated.last_sync_status === "FAILED") {
-                        clearInterval(pollInterval);
-                        const errorMsg = updated.raw_markdown || "Unknown error";
-                        setLogs(l => [
-                            ...l,
-                            "> ─── Sync Failed ───",
-                            `> ✗ Error: ${errorMsg}`,
-                        ]);
-                        loadSources();
+                        setSyncingSourceId(null);
                     }
                 } catch {
                     // Polling error — ignore and retry on next tick
@@ -375,11 +336,11 @@ export default function SourcesPage() {
             // Safety timeout: stop polling after 2 minutes
             setTimeout(() => {
                 clearInterval(pollInterval);
+                setSyncingSourceId(null);
             }, 120000);
         } catch (error) {
             console.warn("[Sources] Failed to sync source:", error);
-            setShowConsole(true);
-            setLogs(l => [...l, `> ✗ Failed to trigger sync: ${error}`]);
+            alert("Failed to trigger sync: " + error);
         }
     };
 
@@ -1054,7 +1015,7 @@ export default function SourcesPage() {
                                     >
                                         {aiModels.filter(m => m.provider === aiSelectedProvider).map((m) => (
                                             <option key={m.model_id} value={m.model_id}>
-                                                {m.model_id}
+                                                {m.model_id.split('/').pop() || m.model_id}
                                             </option>
                                         ))}
                                         {aiModels.filter(m => m.provider === aiSelectedProvider).length === 0 && <option value="">No models</option>}
