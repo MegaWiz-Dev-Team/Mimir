@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 
 import { Navbar } from "@/components/navbar";
 import { FeedbackButton } from "@/components/feedback-button";
+import { MimirAssistant } from "@/components/mimir-assistant";
 
 export default function RootLayout({
   children,
@@ -37,6 +38,7 @@ export default function RootLayout({
           {children}
         </main>
         <FeedbackButton />
+        <MimirAssistant />
       </body>
     </html>
   );

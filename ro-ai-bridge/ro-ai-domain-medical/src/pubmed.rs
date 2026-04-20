@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use mimir_core_ai::services::chunking::{chunk, ChunkResult, ChunkStrategy};
-use crate::bigquery::{PubMedBigQueryService, FetchedArticle};
+use crate::bigquery::PubMedBigQueryService;
 use crate::curation::{categorize_article, ArticleTier};
 
 #[derive(Debug)]
@@ -50,7 +50,7 @@ impl<'a> PubmedCacheLoader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gcp_bigquery_client::Client;
+    
 
     // Unit testing here usually involves mocking the BQ service, but since
     // PubMedBigQueryService fetches real data, we just ensure the struct signature compiles.

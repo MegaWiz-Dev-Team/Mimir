@@ -120,37 +120,80 @@ pub async fn extract_text_from_image(
         "Extract ALL text visible in this image. Preserve the original layout and structure. Output as clean Markdown."
     };
 
-    let body = build_vision_request(data, mime_type, model, prompt);
-    let url = format!("{}chat/completions", api_base);
+    let is_native_gemini = api_base.contains("generativelanguage.googleapis.com");
+
+    let (url, body) = if is_native_gemini {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+        let request_body = serde_json::json!({
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": b64
+                        }
+                    }
+                ]
+            }],
+            "generationConfig": {
+                "maxOutputTokens": 8192,
+                "temperature": 0.1
+            }
+        });
+        
+        // Strip the trailing /openai/ from api_base if it exists, and build native URL
+        let base = api_base.replace("/openai/", "/");
+        let native_url = format!("{}models/{}:generateContent", base, model);
+        (native_url, request_body)
+    } else {
+        let b = build_vision_request(data, mime_type, model, prompt);
+        let u = format!("{}chat/completions", api_base);
+        (u, b)
+    };
 
     let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
+    let mut req = client.post(&url).header("Content-Type", "application/json");
+    
+    if is_native_gemini {
+        req = req.query(&[("key", api_key)]);
+    } else {
+        req = req.header("Authorization", format!("Bearer {}", api_key));
+    }
+
+    let response = req
         .json(&body)
         .timeout(std::time::Duration::from_secs(120))
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Gemini vision API request failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Vision API request failed: {}", e))?;
 
     let status = response.status();
     if !status.is_success() {
         let error_body = response.text().await.unwrap_or_default();
-        bail!("Gemini vision API returned {}: {}", status, error_body);
+        bail!("Vision API returned {}: {}", status, error_body);
     }
 
     let resp_json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to parse Gemini vision response: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse Vision response: {}", e))?;
 
-    let content = resp_json["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-
-    let total_tokens = resp_json["usage"]["total_tokens"].as_u64().unwrap_or(0) as u32;
+    let (content, total_tokens) = if is_native_gemini {
+        let text = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let tokens = resp_json["usageMetadata"]["totalTokenCount"].as_u64().unwrap_or(0) as u32;
+        (text, tokens)
+    } else {
+        let text = resp_json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let tokens = resp_json["usage"]["total_tokens"].as_u64().unwrap_or(0) as u32;
+        (text, tokens)
+    };
 
     info!(
         "OCR complete for {}: {} chars extracted, {} tokens used",

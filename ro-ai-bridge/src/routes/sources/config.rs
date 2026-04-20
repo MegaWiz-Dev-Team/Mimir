@@ -109,43 +109,64 @@ pub(crate) async fn extract_with_ai(
     // 4. Determine API key and endpoint from model config or env
     let (api_key, api_base) = resolve_llm_credentials(&config, &model_config, &payload.model)?;
 
-    // 5. Build the prompt
-    let file_text = String::from_utf8_lossy(&file_data);
-    let ext = s3_key.rsplit('.').next().unwrap_or("unknown");
+    // 5. Build the prompt or use Multimodal OCR
+    let ext = s3_key.rsplit('.').next().unwrap_or("unknown").to_lowercase();
     let format_instruction = match payload.output_format.as_str() {
         "table" => "Extract all tabular data from this content. Output as a Markdown table with headers and rows. If there are multiple tables, include all of them with section headers.",
         _ => "Extract the full content from this document. Output as clean, well-structured Markdown with headings, paragraphs, and lists as appropriate. Preserve the original structure and meaning.",
     };
 
-    let prompt = format!(
-        "{format_instruction}\n\n\
-         The file is a .{ext} file.\n\n\
-         --- FILE CONTENT ---\n{file_text}\n--- END ---"
-    );
-
-    // 6. Call the LLM API (with usage logging)
     let provider_str = model_config
         .as_ref()
         .map(|m| m.provider.as_str())
         .unwrap_or("unknown");
-    let (content, tokens_used) = call_llm_api_with_logging(
-        &api_key,
-        &api_base,
-        &payload.model,
-        &prompt,
-        Some(&pool),
-        Some(&tenant_id),
-        Some(provider_str),
-        Some("extract_with_ai"),
-    )
-    .await
-    .map_err(|e| {
-        error!("LLM API call failed: {}", e);
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": format!("LLM extraction failed: {}", e)})),
+
+    let (content, tokens_used) = if mimir_core_ai::services::ocr::is_ocr_capable(&ext)
+        && (provider_str == "gemini" || provider_str == "google")
+    {
+        info!("Using Gemini Vision OCR for {} with model {}", s3_key, payload.model);
+        mimir_core_ai::services::ocr::extract_text_from_image(
+            &file_data,
+            s3_key,
+            &api_key,
+            &api_base,
+            &payload.model,
         )
-    })?;
+        .await
+        .map_err(|e| {
+            error!("OCR Vision extraction failed: {}", e);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("OCR extraction failed: {}", e)})),
+            )
+        })?
+    } else {
+        let file_text = String::from_utf8_lossy(&file_data);
+        let prompt = format!(
+            "{format_instruction}\n\n\
+             The file is a .{ext} file.\n\n\
+             --- FILE CONTENT ---\n{file_text}\n--- END ---"
+        );
+
+        call_llm_api_with_logging(
+            &api_key,
+            &api_base,
+            &payload.model,
+            &prompt,
+            Some(&pool),
+            Some(&tenant_id),
+            Some(provider_str),
+            Some("extract_with_ai"),
+        )
+        .await
+        .map_err(|e| {
+            error!("LLM API call failed: {}", e);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("LLM extraction failed: {}", e)})),
+            )
+        })?
+    };
 
     info!(
         "AI extraction completed for source {}: {} chars, {} tokens used",
@@ -167,7 +188,7 @@ pub(crate) async fn extract_with_ai(
 pub fn resolve_llm_credentials(
     config: &Config,
     model_config: &Option<mimir_core_ai::models::model_config::ModelConfig>,
-    model_id: &str,
+    _model_id: &str,
 ) -> Result<(String, String), (StatusCode, Json<Value>)> {
     // Try to get API key from model metadata first
     if let Some(mc) = model_config {
@@ -474,6 +495,12 @@ mod tests {
             heimdall_api_key: Some("test-heimdall-key".to_string()),
             heimdall_model: "mlx-community/Qwen3.5-35B-A3B-4bit".to_string(),
             jwt_secret: String::new(),
+            ollama_url: String::new(),
+            local_model: String::new(),
+            embed_model: String::new(),
+            gemini_base_url: String::new(),
+            gemini_api_key: None,
+            gemini_model: String::new(),
         }
     }
 

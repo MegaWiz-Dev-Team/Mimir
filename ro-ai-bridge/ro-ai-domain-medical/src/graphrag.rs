@@ -14,7 +14,7 @@ pub async fn search_primekg(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     use mimir_core_ai::services::neo4j::build_primekg_cypher;
 
     #[test]

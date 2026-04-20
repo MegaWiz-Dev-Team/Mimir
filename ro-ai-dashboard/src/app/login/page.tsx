@@ -90,7 +90,7 @@ export default function LoginPage() {
                 authUrl.searchParams.set("client_id", ssoConfig.client_id);
                 authUrl.searchParams.set("redirect_uri", redirectUri);
                 authUrl.searchParams.set("response_type", "code");
-                authUrl.searchParams.set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:project:id:365685843395920403:aud");
+                authUrl.searchParams.set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:project:id:368871872969884238:aud");
                 authUrl.searchParams.set("state", state);
                 authUrl.searchParams.set("code_challenge", codeChallenge);
                 authUrl.searchParams.set("code_challenge_method", method);

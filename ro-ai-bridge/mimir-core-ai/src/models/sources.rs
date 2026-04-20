@@ -41,6 +41,7 @@ pub struct UpdateDataSourceRequest {
     pub name: Option<String>,
     pub config_json: Option<serde_json::Value>,
     pub schedule: Option<String>,
+    pub raw_markdown: Option<String>,
 }
 
 /// Sprint 14: Request to set/update cron refresh schedule

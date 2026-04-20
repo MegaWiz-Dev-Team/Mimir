@@ -51,7 +51,7 @@ pub async fn handle_assistant_chat(
 
     let (client, model) = match router.resolve_client("chat") {
         Ok(pair @ (mimir_core_ai::services::llm_router::UniversalClient::Rest { .. }, _)) => pair,
-        Ok(_) | Err(_) => {
+        Err(_) => {
             tracing::info!("Configured chat provider lacks tool-call support. Falling back to Heimdall.");
             
             let (endpoint, api_key) = router.get_heimdall_credentials()

@@ -20,7 +20,7 @@ pub const AGENT_SELECT_COLS: &str = r#"
     id, tenant_id, name, display_name, description, system_prompt, model_id, provider,
     CAST(temperature AS DOUBLE) as temperature, max_tokens, top_k,
     use_rag, use_knowledge_graph, use_pageindex, rag_params, rerank_config,
-    tools, personality_traits, greeting, avatar_url,
+    tools, mcp_servers, personality_traits, greeting, avatar_url,
     template_id, is_published, api_key, tier, response_mode,
     CAST(created_at AS DATETIME) as created_at, CAST(updated_at AS DATETIME) as updated_at
 "#;
@@ -46,6 +46,7 @@ pub struct AgentConfig {
     pub rag_params: Option<Value>,
     pub rerank_config: Option<Value>,
     pub tools: Option<Value>,
+    pub mcp_servers: Option<Value>,
     pub personality_traits: Option<Value>,
     pub greeting: Option<String>,
     pub avatar_url: Option<String>,
@@ -75,6 +76,7 @@ pub struct CreateAgentRequest {
     pub rag_params: Option<Value>,
     pub rerank_config: Option<Value>,
     pub tools: Option<Vec<String>>,
+    pub mcp_servers: Option<Vec<String>>,
     pub personality_traits: Option<Vec<String>>,
     pub greeting: Option<String>,
     pub avatar_url: Option<String>,
@@ -99,6 +101,7 @@ pub struct UpdateAgentRequest {
     pub rag_params: Option<Value>,
     pub rerank_config: Option<Value>,
     pub tools: Option<Vec<String>>,
+    pub mcp_servers: Option<Vec<String>>,
     pub personality_traits: Option<Vec<String>>,
     pub greeting: Option<String>,
     pub avatar_url: Option<String>,
@@ -122,6 +125,7 @@ pub struct AgentChatResponse {
     pub input_tokens: i32,
     pub output_tokens: i32,
     pub confidence_score: Option<f64>,
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,6 +208,7 @@ pub(crate) async fn create_agent(
     let rag_params_json = payload.rag_params.as_ref();
     let rerank_config_json = payload.rerank_config.as_ref();
     let tools_json = payload.tools.as_ref().map(|t| json!(t));
+    let mcp_servers_json = payload.mcp_servers.as_ref().map(|t| json!(t));
     let traits_json = payload.personality_traits.as_ref().map(|t| json!(t));
 
     let result = sqlx::query(
@@ -211,8 +216,8 @@ pub(crate) async fn create_agent(
             (tenant_id, name, display_name, description, system_prompt, model_id, provider,
              temperature, max_tokens, top_k, use_rag, use_knowledge_graph, use_pageindex,
              rag_params, rerank_config,
-             tools, personality_traits, greeting, avatar_url, template_id, tier, response_mode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+             tools, mcp_servers, personality_traits, greeting, avatar_url, template_id, tier, response_mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
     )
     .bind(tenant_id)
     .bind(&payload.name)
@@ -230,6 +235,7 @@ pub(crate) async fn create_agent(
     .bind(&rag_params_json)
     .bind(&rerank_config_json)
     .bind(&tools_json)
+    .bind(&mcp_servers_json)
     .bind(&traits_json)
     .bind(&payload.greeting)
     .bind(&payload.avatar_url)
@@ -366,6 +372,7 @@ pub(crate) async fn update_agent(
     let rag_params_json = payload.rag_params.or(existing.rag_params);
     let rerank_config_json = payload.rerank_config.or(existing.rerank_config);
     let tools_json = payload.tools.map(|t| json!(t)).or(existing.tools);
+    let mcp_servers_json = payload.mcp_servers.map(|t| json!(t)).or(existing.mcp_servers);
     let traits_json = payload
         .personality_traits
         .map(|t| json!(t))
@@ -378,7 +385,7 @@ pub(crate) async fn update_agent(
             display_name = ?, description = ?, system_prompt = ?, model_id = ?, provider = ?,
             temperature = ?, max_tokens = ?, top_k = ?, use_rag = ?, use_knowledge_graph = ?,
             use_pageindex = ?, rag_params = ?, rerank_config = ?,
-            tools = ?, personality_traits = ?, greeting = ?, avatar_url = ?,
+            tools = ?, mcp_servers = ?, personality_traits = ?, greeting = ?, avatar_url = ?,
             tier = ?, response_mode = ?
         WHERE id = ? AND tenant_id = ?"#,
     )
@@ -396,6 +403,7 @@ pub(crate) async fn update_agent(
     .bind(&rag_params_json)
     .bind(&rerank_config_json)
     .bind(&tools_json)
+    .bind(&mcp_servers_json)
     .bind(&traits_json)
     .bind(&greeting)
     .bind(&avatar_url)

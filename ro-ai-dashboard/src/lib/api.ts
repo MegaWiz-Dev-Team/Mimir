@@ -314,6 +314,7 @@ export interface AgentConfigResponse {
     use_rag?: boolean;
     use_knowledge_graph?: boolean;
     tools?: string[];
+    mcp_servers?: string[];
     personality_traits?: string[];
     greeting?: string;
     avatar_url?: string;
@@ -330,7 +331,8 @@ export async function fetchAgents(): Promise<AgentConfigResponse[]> {
     try {
         const res = await authFetch(`${API_BASE_URL}/agents`, { cache: "no-store" });
         if (!res.ok) return [];
-        return await res.json();
+        const data = await res.json();
+        return Array.isArray(data) ? data : (data.agents || []);
     } catch {
         return [];
     }
@@ -668,6 +670,7 @@ export interface LlmConfig {
     chat?: LlmSlot;
     rag?: LlmSlot;
     pipeline_generator?: LlmSlot;
+    pipeline_extractor?: LlmSlot;
     pipeline_evaluator?: LlmSlot;
     judge?: LlmSlot;
     embedding?: LlmSlot;
@@ -1226,6 +1229,7 @@ export interface AgentConfig {
     rag_params?: any;
     rerank_config?: any;
     tools?: string[];
+    mcp_servers?: string[];
     personality_traits?: string[];
     greeting?: string;
     avatar_url?: string;
@@ -1266,6 +1270,7 @@ export interface CreateAgentRequest {
             date_to?: string;
             tags?: string[];
         };
+        output_format?: string;
     };
     rerank_config?: {
         enabled: boolean;
@@ -1274,6 +1279,7 @@ export interface CreateAgentRequest {
         final_top_k?: number;
     };
     tools?: string[];
+    mcp_servers?: string[];
     personality_traits?: string[];
     greeting?: string;
     avatar_url?: string;
@@ -1310,6 +1316,7 @@ export interface AgentChatResponse {
     input_tokens: number;
     output_tokens: number;
     confidence_score?: number;
+    reasoning?: string;
 }
 
 export interface ConversationSession {
@@ -1461,10 +1468,45 @@ export async function agentChat(id: number, message: string, sessionId?: string)
     return res.json();
 }
 
+export interface BifrostChatResponse {
+    answer: string;
+    reasoning: string;
+    trace_id?: string;
+    steps?: Array<{
+        step_type: string;
+        content: string;
+        tool_name?: string;
+        duration_ms: number;
+    }>;
+}
+
+export async function agentBifrostChat(id: number, message: string, sessionId?: string): Promise<BifrostChatResponse> {
+    const res = await authFetch(`${API_BASE_URL}/tenants/default/swarm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: id, query: message, session_id: sessionId }),
+    });
+    if (!res.ok) throw new Error("Bifrost Runtime returned an error");
+    return res.json();
+}
+
 export async function fetchAgentConversations(id: number, page = 1) {
     const res = await authFetch(`${API_BASE_URL}/agents/${id}/conversations?page=${page}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch conversations");
     return res.json();
+}
+
+export async function fetchLaminarTrace(traceId: string): Promise<any> {
+    // Assuming Laminar exposes a standard trace endpoint, fallback gracefully if not
+    try {
+        // Adjust this endpoint based on actual Laminar REST API
+        const res = await fetch(`http://laminar-app-server.asgard.svc:8080/api/v1/traces/${traceId}`);
+        if (!res.ok) return null;
+        return res.json();
+    } catch (error) {
+        console.error("Failed to fetch Laminar trace:", error);
+        return null; // Return null intentionally so frontend uses the fallback link
+    }
 }
 
 export async function fetchTemplates(): Promise<AgentTemplate[]> {

@@ -1,5 +1,4 @@
 use mimir_core_ai::models::persona::Persona;
-use rig::completion::Prompt;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
