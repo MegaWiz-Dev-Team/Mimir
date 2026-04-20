@@ -4,7 +4,6 @@ use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::sync::Arc;
 use sqlx::MySqlPool;
 
 use crate::services::iam::IamService;

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::Path,
     routing::post,
     http::StatusCode,
     Json, Router,
@@ -12,6 +12,7 @@ use mimir_core_ai::services::db::DbPool;
 
 #[derive(Deserialize, Serialize)]
 pub struct SwarmRequest {
+    pub agent_id: i64,
     pub query: String,
     pub session_id: Option<String>,
 }
@@ -22,6 +23,8 @@ struct BifrostResponse {
     reasoning: Option<String>,
     final_answer: String,
     action_required: Option<serde_json::Value>,
+    trace_id: Option<String>,
+    steps: Option<Vec<serde_json::Value>>,
 }
 
 /// Response schema returned to the dashboard / MegaCare
@@ -31,6 +34,8 @@ pub struct SwarmResponse {
     pub reasoning: Option<String>,
     pub status: String,
     pub action_required: Option<serde_json::Value>,
+    pub trace_id: Option<String>,
+    pub steps: Option<Vec<serde_json::Value>>,
 }
 
 pub fn swarm_routes() -> Router<DbPool> {
@@ -45,15 +50,18 @@ fn bifrost_base_url() -> String {
 
 // Mimir acts as a proxy to Bifrost-RS for Swarm executions
 async fn swarm_search(
-    Path(tenant_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Path(_tenant_id_url): Path<String>, // Keep backward compatibility on route path
     Json(payload): Json<SwarmRequest>,
 ) -> (StatusCode, Json<SwarmResponse>) {
+    let tenant_id = crate::routes::tenant::extract_tenant_id(&headers).to_string();
     let client = reqwest::Client::new();
-    let bifrost_url = format!("{}/v1/agents/{}/run", bifrost_base_url(), tenant_id);
+    let bifrost_url = format!("{}/v1/agents/{}/run", bifrost_base_url(), payload.agent_id);
 
-    tracing::info!(bifrost_url = %bifrost_url, tenant_id = %tenant_id, "Proxying swarm request to Bifrost");
+    tracing::info!(bifrost_url = %bifrost_url, tenant_id = %tenant_id, agent_id = %payload.agent_id, "Proxying swarm request to Bifrost");
 
     match client.post(&bifrost_url)
+        .header("X-Tenant-Id", &tenant_id)
         .json(&payload)
         .timeout(std::time::Duration::from_secs(120))
         .send()
@@ -68,6 +76,8 @@ async fn swarm_search(
                             reasoning: bifrost.reasoning,
                             status: "ok".to_string(),
                             action_required: bifrost.action_required,
+                            trace_id: bifrost.trace_id,
+                            steps: bifrost.steps,
                         }))
                     }
                     Err(e) => {
@@ -77,6 +87,8 @@ async fn swarm_search(
                             reasoning: None,
                             status: "error".to_string(),
                             action_required: None,
+                            trace_id: None,
+                            steps: None,
                         }))
                     }
                 }
@@ -89,6 +101,8 @@ async fn swarm_search(
                     reasoning: None,
                     status: "error".to_string(),
                     action_required: None,
+                    trace_id: None,
+                    steps: None,
                 }))
             }
         },
@@ -99,7 +113,31 @@ async fn swarm_search(
                 reasoning: None,
                 status: "error".to_string(),
                 action_required: None,
+                trace_id: None,
+                steps: None,
             }))
         }
+    }
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// TC_BIFROST_01: SwarmRequest parses agent_id payload correctly
+    #[test]
+    fn test_swarm_request_payload_deserialization() {
+        let json_payload = r#"{
+            "agent_id": 9,
+            "query": "Hello",
+            "session_id": "test_session_123"
+        }"#;
+
+        let req: SwarmRequest = serde_json::from_str(json_payload).expect("Failed to parse SwarmRequest");
+        assert_eq!(req.agent_id, 9, "Agent ID should be extracted properly from payload");
+        assert_eq!(req.query, "Hello");
+        assert_eq!(req.session_id, Some("test_session_123".to_string()));
     }
 }

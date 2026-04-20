@@ -88,6 +88,8 @@ pub struct LlmConfig {
     pub rag: Option<LlmSlot>,
     /// Model for QA pipeline generation
     pub pipeline_generator: Option<LlmSlot>,
+    /// Model for OCR and Document Extraction
+    pub pipeline_extractor: Option<LlmSlot>,
     /// Model for QA pipeline evaluation (ACU extraction, coverage)
     pub pipeline_evaluator: Option<LlmSlot>,
     /// Model for LLM-as-Judge scoring
@@ -121,6 +123,7 @@ impl LlmConfig {
             "chat" => self.chat.as_ref(),
             "rag" => self.rag.as_ref(),
             "pipeline_generator" => self.pipeline_generator.as_ref(),
+            "pipeline_extractor" => self.pipeline_extractor.as_ref(),
             "pipeline_evaluator" => self.pipeline_evaluator.as_ref(),
             "judge" => self.judge.as_ref(),
             "graph_analyzer" => self.graph_analyzer.as_ref(),
@@ -315,6 +318,10 @@ mod tests {
                 model: "Qwen3.5-35B-A3B-4bit".into(),
             }),
             pipeline_generator: Some(LlmSlot {
+                provider: "gemini".into(),
+                model: "gemini-2.5-flash".into(),
+            }),
+            pipeline_extractor: Some(LlmSlot {
                 provider: "gemini".into(),
                 model: "gemini-2.5-flash".into(),
             }),

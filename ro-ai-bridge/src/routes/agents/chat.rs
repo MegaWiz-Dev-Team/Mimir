@@ -88,6 +88,7 @@ pub(crate) async fn agent_chat(
     let mut system_prompt = agent.system_prompt.clone();
     let use_rag = agent.use_rag.unwrap_or(true);
     let use_kg = agent.use_knowledge_graph.unwrap_or(false);
+    let mut reasoning_msg = None;
 
     if use_rag || use_kg {
         use crate::retrieval::EnsembleWeights;
@@ -179,7 +180,15 @@ pub(crate) async fn agent_chat(
                 graph = graph_ctx.len(),
                 "Ensemble RAG context injected"
             );
+            reasoning_msg = Some(format!(
+                "RAG Engine: Augmented prompt with {} context chunks (Vector: {}, Tree: {}, Graph: {}).",
+                rag_results.len(), vector_ctx.len(), tree_ctx.len(), graph_ctx.len()
+            ));
+        } else {
+            reasoning_msg = Some("RAG Engine: No relevant context found for the query.".to_string());
         }
+    } else {
+        reasoning_msg = Some("Mimir Engine: RAG & Knowledge Graph are disabled.".to_string());
     }
 
     // 5. Build prompt with system prompt + user message
@@ -338,6 +347,7 @@ pub(crate) async fn agent_chat(
         input_tokens,
         output_tokens,
         confidence_score: None,
+        reasoning: reasoning_msg,
     }))
 }
 

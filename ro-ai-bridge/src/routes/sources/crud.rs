@@ -101,13 +101,21 @@ pub(crate) async fn update_source(
     let updated_name = payload.name.unwrap_or(current.name);
     let updated_config = payload.config_json.unwrap_or(current.config_json);
     let updated_schedule = payload.schedule.or(current.schedule);
+    let updated_raw_markdown = payload.raw_markdown.clone().or(current.raw_markdown);
+    
+    let mut updated_status = current.last_sync_status.clone();
+    if payload.raw_markdown.is_some() && current.last_sync_status.as_deref() == Some("FAILED") {
+        updated_status = Some("COMPLETED".to_string());
+    }
 
     sqlx::query(
-        "UPDATE data_sources SET name = ?, config_json = ?, schedule = ? WHERE id = ? AND tenant_id = ?"
+        "UPDATE data_sources SET name = ?, config_json = ?, schedule = ?, raw_markdown = ?, last_sync_status = ? WHERE id = ? AND tenant_id = ?"
     )
     .bind(&updated_name)
     .bind(&updated_config)
     .bind(&updated_schedule)
+    .bind(&updated_raw_markdown)
+    .bind(&updated_status)
     .bind(id)
     .bind(&tenant_id)
     .execute(&pool)

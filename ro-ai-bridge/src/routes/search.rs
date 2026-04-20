@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::time::Instant;
 use tracing::{info, warn};
 
-use crate::retrieval::graph::{graph_to_retrieval_results, GraphRetriever, SqlGraphRetriever};
+use crate::retrieval::graph::{graph_to_retrieval_results, SqlGraphRetriever};
 use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult};
 use crate::retrieval::tree::{tree_to_retrieval_results, TreeRetriever};
 use crate::retrieval::trace::{self, TraceCollector, TraceEvent};
@@ -884,6 +884,8 @@ mod tests {
             mode_used: "vector".to_string(),
             latency_ms: 42,
             query: "Aspirin".to_string(),
+            synthesis: None,
+            trace_log: None,
         };
 
         let json = serde_json::to_value(&resp).unwrap();
@@ -904,6 +906,8 @@ mod tests {
             mode_used: "none".to_string(),
             latency_ms: 5,
             query: "nonexistent".to_string(),
+            synthesis: None,
+            trace_log: None,
         };
 
         let json = serde_json::to_value(&resp).unwrap();

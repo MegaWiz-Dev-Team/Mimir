@@ -243,6 +243,7 @@ export function AIModelsTab({ isLoading, isSaving, config, setConfig, handleSave
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <SlotCard slotName="chat" icon="💬" title="Chat & NPC" desc="Agent chat (Tier 1+2)" config={config} setConfig={setConfig} providers={providers} />
                                 <SlotCard slotName="rag" icon="📚" title="RAG (Oracle Agent)" desc="Knowledge retrieval queries" config={config} setConfig={setConfig} providers={providers} />
+                                <SlotCard slotName="pipeline_extractor" icon="📄" title="OCR & Extractor" desc="Document & Image text extraction" config={config} setConfig={setConfig} providers={providers} />
                                 <SlotCard slotName="pipeline_generator" icon="🔄" title="Pipeline Generator" desc="QA pair generation" config={config} setConfig={setConfig} providers={providers} />
                                 <SlotCard slotName="pipeline_evaluator" icon="📊" title="Pipeline Evaluator" desc="Coverage & ACU extraction" config={config} setConfig={setConfig} providers={providers} />
                                 <SlotCard slotName="judge" icon="⚖️" title="Evaluation Judge" desc="LLM-as-Judge scoring" config={config} setConfig={setConfig} providers={providers} />

@@ -1649,15 +1649,14 @@ pub async fn compare_runs(
         hit: bool,
         reciprocal_rank: f64,
         ndcg_score: f64,
-        total_latency_ms: i32,
     }
 
     let run_a_queries: Vec<QueryHit> = sqlx::query_as(
-        "SELECT query, hit, reciprocal_rank, ndcg_score, total_latency_ms FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?"
+        "SELECT query, hit, reciprocal_rank, ndcg_score FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?"
     ).bind(id_a).bind(&tenant_id).fetch_all(&pool).await.unwrap_or_default();
 
     let run_b_queries: Vec<QueryHit> = sqlx::query_as(
-        "SELECT query, hit, reciprocal_rank, ndcg_score, total_latency_ms FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?"
+        "SELECT query, hit, reciprocal_rank, ndcg_score FROM rag_eval_queries WHERE run_id = ? AND tenant_id = ?"
     ).bind(id_b).bind(&tenant_id).fetch_all(&pool).await.unwrap_or_default();
 
     use std::collections::HashMap;

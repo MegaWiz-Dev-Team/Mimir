@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(
         `http://localhost:30085/oidc/v2/end_session?` +
-        `client_id=365685875977339411&` +
+        `client_id=${process.env.YGGDRASIL_CLIENT_ID || process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "368876547874079310"}&` +
         `post_logout_redirect_uri=${encodeURIComponent(origin + "/login")}`
     );
 

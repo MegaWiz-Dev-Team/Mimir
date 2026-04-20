@@ -35,7 +35,6 @@ pub trait TreeRetriever: Send + Sync {
 
 // ── NativeTreeRetriever ────────────────────────────────
 
-use mimir_core_ai::services::llm_router::UniversalClient;
 
 /// Production retriever that calls Native LLM in parallel.
 pub struct NativeTreeRetriever {

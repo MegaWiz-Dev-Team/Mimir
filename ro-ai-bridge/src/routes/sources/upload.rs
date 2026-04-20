@@ -384,7 +384,7 @@ pub(crate) async fn upload_file(
                 total_chunks: None,
                 pageindex_tree: None,
                 storage_mode: Some(st_mode),
-                s3_key: Some(s3_key_bg),
+                s3_key: Some(s3_key_bg.clone()),
                 file_hash: None,
                 refresh_interval_hours: None,
                 last_refreshed_at: None,
@@ -399,7 +399,61 @@ pub(crate) async fn upload_file(
                     .execute(&pool_bg)
                     .await;
 
-            match IngressManager::process_source_with_data(&ds, &data) {
+            let mut extraction_result = IngressManager::process_source_with_data(&ds, &data);
+
+            // ─── OCR Fallback: if PDF extraction returned empty (image-only PDF),
+            //     use Gemini Vision to OCR the document ───────────────────────
+            if let Err(ref e) = extraction_result {
+                let err_msg = e.to_string();
+                if err_msg.contains("image-only") || err_msg.contains("empty text") {
+                    let ext = s3_key_bg.rsplit('.').next().unwrap_or("").to_lowercase();
+                    if ext == "pdf" {
+                        info!(
+                            "PDF text extraction empty for {} ({}), falling back to Gemini Vision OCR",
+                            src_name, src_id
+                        );
+
+                        let gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+                        let gemini_base = std::env::var("GEMINI_BASE_URL").unwrap_or_else(|_| {
+                            "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
+                        });
+
+                        if !gemini_api_key.is_empty() {
+                            match mimir_core_ai::services::ocr::extract_text_from_image(
+                                &data,
+                                &s3_key_bg,
+                                &gemini_api_key,
+                                &gemini_base,
+                                "gemini-3-flash-preview",
+                            )
+                            .await
+                            {
+                                Ok((ocr_text, tokens)) => {
+                                    info!(
+                                        "Gemini OCR fallback succeeded for {} ({}): {} chars, {} tokens",
+                                        src_name, src_id, ocr_text.len(), tokens
+                                    );
+                                    extraction_result = Ok(ocr_text);
+                                }
+                                Err(ocr_err) => {
+                                    error!(
+                                        "Gemini OCR fallback also failed for {} ({}): {}",
+                                        src_name, src_id, ocr_err
+                                    );
+                                    // Keep original error
+                                }
+                            }
+                        } else {
+                            warn!(
+                                "GEMINI_API_KEY not set — cannot OCR fallback for image-only PDF (source_id={})",
+                                src_id
+                            );
+                        }
+                    }
+                }
+            }
+
+            match extraction_result {
                 Ok(raw_text) => {
                     let mb = raw_text.len() as f64 / 1_048_576.0;
 

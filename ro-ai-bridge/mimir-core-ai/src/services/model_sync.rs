@@ -130,7 +130,7 @@ async fn upsert_model(pool: &MySqlPool, model_id: &str, provider: &str, capabili
 }
 
 async fn deactivate_missing_models(pool: &MySqlPool, active_models: &std::collections::HashSet<(String, String)>) -> usize {
-    let query = "SELECT provider, model_id FROM ai_models WHERE is_active = true AND provider IN ('ollama', 'heimdall', 'google', 'openai', 'anthropic')";
+    let query = "SELECT provider, model_id FROM ai_models WHERE is_active = true AND provider IN ('ollama', 'heimdall')";
     let mut deactivated = 0;
 
     if let Ok(rows) = sqlx::query_as::<_, (String, String)>(query).fetch_all(pool).await {
@@ -163,9 +163,12 @@ async fn seed_default_heimdall_models(pool: &MySqlPool, active_models: &mut std:
         ("heimdall", "lmstudio-community/medgemma-4b-it-MLX-4bit", "{\"reasoning\":false,\"tools\":false,\"vision\":false}"),
         ("heimdall", "qwen2.5", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
         ("heimdall", "llama3.2", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
-        ("google", "gemini-2.0-flash", "{\"reasoning\":false,\"tools\":true,\"vision\":true}"),
-        ("google", "gemini-2.5-flash", "{\"reasoning\":false,\"tools\":true,\"vision\":true}"),
+        ("google", "gemini-3.1-pro-preview", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
+        ("google", "gemini-3.1-flash-lite-preview", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
+        ("google", "gemini-3.1-flash-image-preview", "{\"reasoning\":false,\"tools\":true,\"vision\":true}"),
         ("google", "gemini-2.5-pro", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
+        ("google", "gemini-2.5-flash", "{\"reasoning\":false,\"tools\":true,\"vision\":true}"),
+        ("google", "gemini-2.5-flash-lite-preview", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
         ("sakura", "sakura/Qwen3.5-110B-Chat", "{\"reasoning\":true,\"tools\":true,\"vision\":false}"),
     ];
     for (provider, model, caps) in default_models {

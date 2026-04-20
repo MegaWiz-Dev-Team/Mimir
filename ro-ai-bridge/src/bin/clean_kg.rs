@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut total_remapped = 0;
     let mut total_deleted = 0;
 
-    for (tenant_id, lower_name, count) in duplicate_clusters {
+    for (tenant_id, lower_name, _count) in duplicate_clusters {
         // Fetch all IDs and chunk_ids for this duplicate cluster
         let records: Vec<(i64, Option<i64>, Option<Vec<u8>>)> = sqlx::query_as(
             "SELECT id, chunk_id, properties 

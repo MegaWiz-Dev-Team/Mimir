@@ -19,6 +19,7 @@ import {
     deleteAgent,
     publishAgent,
     agentChat,
+    agentBifrostChat,
     fetchTemplates,
     fetchModels,
     modelsToProviders,
@@ -33,12 +34,26 @@ import {
     ExternalLink, Wand2, Save,
 } from "lucide-react";
 import Link from "next/link";
+import remarkGfm from "remark-gfm";
+import {
+    LineChart, Line, BarChart, Bar, 
+    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+} from "recharts";
+import { AgentStructurePanel } from "@/components/AgentStructurePanel";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 interface ChatMessage {
     role: "user" | "assistant";
     content: string;
+    reasoning?: string;
+    trace_id?: string;
+    steps?: Array<{
+        step_type: string;
+        content: string;
+        tool_name?: string;
+        duration_ms: number;
+    }>;
     latency_ms?: number;
     input_tokens?: number;
     output_tokens?: number;
@@ -84,15 +99,18 @@ export default function AgentStudioPage() {
         model: "BAAI/bge-reranker-v2-m3", final_top_k: 5,
     });
     const [formTools, setFormTools] = useState<string[]>([]);
+    const [formMcpServers, setFormMcpServers] = useState<string[]>([]);
     const [formTraits, setFormTraits] = useState<string[]>([]);
     const [formGreeting, setFormGreeting] = useState("");
     const [formTemplateId, setFormTemplateId] = useState<string | null>(null);
+    const [formOutputFormat, setFormOutputFormat] = useState<"auto" | "json_chart" | "markdown_table">("auto");
 
     // Chat state
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [chatInput, setChatInput] = useState("");
     const [chatSessionId, setChatSessionId] = useState<string | null>(null);
     const [chatSending, setChatSending] = useState(false);
+    const [useBifrost, setUseBifrost] = useState(true);
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     // Misc
@@ -174,6 +192,18 @@ export default function AgentStudioPage() {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [chatMessages]);
 
+    // Ensure formModelId is valid for the currently selected formProvider
+    useEffect(() => {
+        if (view === "builder" && providers.length > 0) {
+            const p = providers.find(x => x.id === formProvider);
+            if (p && p.models.length > 0) {
+                if (!p.models.some(m => m.id === formModelId)) {
+                    setFormModelId(p.models[0].id);
+                }
+            }
+        }
+    }, [formProvider, formModelId, providers, view]);
+
     // ─── Builder helpers ────────────────────────────────────────────────────────
 
     const resetForm = useCallback(() => {
@@ -185,7 +215,8 @@ export default function AgentStudioPage() {
         setFormShowAdvanced(false);
         setFormAdvanced({ top_k_per_source: 10, vector_alpha: 0.7, vector_threshold: 0.3, graph_hops: 2 });
         setFormRerank({ enabled: false, strategy: "rrf", model: "BAAI/bge-reranker-v2-m3", final_top_k: 5 });
-        setFormTools([]); setFormTraits([]); setFormGreeting(""); setFormTemplateId(null);
+        setFormTools([]); setFormMcpServers([]); setFormTraits([]); setFormGreeting(""); setFormTemplateId(null);
+        setFormOutputFormat("auto");
         setEditingAgent(null); setActiveTab("basic");
     }, []);
 
@@ -214,8 +245,9 @@ export default function AgentStudioPage() {
         if (rp?.advanced) setFormAdvanced({ ...formAdvanced, ...rp.advanced });
         const rc = (a as any).rerank_config;
         if (rc) setFormRerank({ ...formRerank, ...rc });
-        setFormTools(a.tools || []); setFormTraits(a.personality_traits || []);
+        setFormTools(a.tools || []); setFormMcpServers((a as any).mcp_servers || []); setFormTraits(a.personality_traits || []);
         setFormGreeting(a.greeting || ""); setFormTemplateId(a.template_id || null);
+        if (rp?.output_format) setFormOutputFormat(rp.output_format);
     };
 
     const handleSave = async () => {
@@ -231,20 +263,28 @@ export default function AgentStudioPage() {
                 rag_params: {
                     weights: formWeights,
                     advanced: formAdvanced,
+                    output_format: formOutputFormat,
                 },
                 rerank_config: formRerank,
                 tools: formTools.length > 0 ? formTools : undefined,
+                mcp_servers: formMcpServers.length > 0 ? formMcpServers : undefined,
                 personality_traits: formTraits.length > 0 ? formTraits : undefined,
                 greeting: formGreeting || undefined, template_id: formTemplateId || undefined,
             };
 
             if (editingAgent) {
-                await updateAgent(editingAgent.id, data);
+                const updated = await updateAgent(editingAgent.id, data);
+                // Manually update the state to bypass any fetch caching layer
+                setAgents(prev => prev.map(a => a.id === updated.id ? updated : a));
+                if (selectedAgent && selectedAgent.id === updated.id) {
+                    setSelectedAgent(updated);
+                }
+                setView("chat");
             } else {
                 await createAgent(data);
+                await loadAgents();
+                setView("list");
             }
-            await loadAgents();
-            setView("list");
             resetForm();
         } catch (err: any) {
             setError(err.message);
@@ -280,6 +320,7 @@ export default function AgentStudioPage() {
         setChatMessages([]);
         setChatSessionId(null);
         setChatInput("");
+        setUseBifrost(agent.is_published ? useBifrost : false);
         setView("chat");
         if (agent.greeting) {
             setChatMessages([{ role: "assistant", content: agent.greeting }]);
@@ -294,15 +335,30 @@ export default function AgentStudioPage() {
         setChatSending(true);
 
         try {
-            const resp = await agentChat(selectedAgent.id, msg, chatSessionId || undefined);
-            setChatSessionId(resp.session_id);
-            setChatMessages(prev => [...prev, {
-                role: "assistant",
-                content: resp.content,
-                latency_ms: resp.latency_ms,
-                input_tokens: resp.input_tokens,
-                output_tokens: resp.output_tokens,
-            }]);
+            if (useBifrost) {
+                // Generate a session ID if one doesn't exist
+                const currentSessionId = chatSessionId || Math.random().toString(36).substring(7);
+                const resp = await agentBifrostChat(selectedAgent.id, msg, currentSessionId);
+                setChatSessionId(currentSessionId);
+                setChatMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: resp.answer,
+                    reasoning: resp.reasoning,
+                    trace_id: resp.trace_id,
+                    steps: resp.steps,
+                }]);
+            } else {
+                const resp = await agentChat(selectedAgent.id, msg, chatSessionId || undefined);
+                setChatSessionId(resp.session_id);
+                setChatMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: resp.content,
+                    reasoning: resp.reasoning,
+                    latency_ms: resp.latency_ms,
+                    input_tokens: resp.input_tokens,
+                    output_tokens: resp.output_tokens,
+                }]);
+            }
         } catch (err: any) {
             setChatMessages(prev => [...prev, {
                 role: "assistant",
@@ -313,6 +369,13 @@ export default function AgentStudioPage() {
         }
     };
 
+    const handleViewTrace = async (traceId: string) => {
+        // Will be expanded to fetch via REST API or redirect if not found
+        const laminarProjectId = process.env.NEXT_PUBLIC_LAMINAR_PROJECT_ID || "8d0bc7f0-2bbc-4515-b531-f9fb7df422a0";
+        const url = `http://laminar.asgard.internal/project/${laminarProjectId}/traces/${traceId}`;
+        window.open(url, '_blank');
+    };
+
     const copyApiKey = (key: string) => {
         navigator.clipboard.writeText(key);
         setCopiedKey(true);
@@ -321,7 +384,7 @@ export default function AgentStudioPage() {
 
     // ─── Tool options ───────────────────────────────────────────────────────────
 
-    const availableTools = ["QueryMobDb", "QueryItemDb", "WebSearch", "Calculator"];
+    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_search"];
 
     const toggleTool = (tool: string) => {
         setFormTools(prev =>
@@ -917,9 +980,7 @@ export default function AgentStudioPage() {
                                             <button onClick={() => openChat(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-purple-600 px-2.5 py-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
                                                 <MessageSquare className="w-3.5 h-3.5" /> Chat
                                             </button>
-                                            <Link href={`/playground?agent=${agent.name}`} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 px-2.5 py-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
-                                                <ExternalLink className="w-3.5 h-3.5" /> Playground
-                                            </Link>
+
                                             <button onClick={() => { loadAgentToForm(agent); setView("builder"); }} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
                                                 <Edit className="w-3.5 h-3.5" /> Edit
                                             </button>
@@ -1125,12 +1186,12 @@ export default function AgentStudioPage() {
                                         <div className="flex justify-between text-xs text-gray-400"><span>Precise</span><span>Creative</span></div>
                                     </div>
                                     <div>
-                                        <Label htmlFor="max-tokens">Max Tokens</Label>
+                                        <Label htmlFor="max-tokens">Response Length Limit (Max Tokens)</Label>
                                         <Input id="max-tokens" type="number" value={formMaxTokens}
                                             onChange={e => setFormMaxTokens(parseInt(e.target.value) || 2048)} className="mt-1" />
                                     </div>
                                     <div>
-                                        <Label htmlFor="top-k">Top K (RAG chunks)</Label>
+                                        <Label htmlFor="top-k">Source Documents Limit (Top-K)</Label>
                                         <Input id="top-k" type="number" value={formTopK}
                                             onChange={e => setFormTopK(parseInt(e.target.value) || 5)} className="mt-1" />
                                     </div>
@@ -1139,14 +1200,43 @@ export default function AgentStudioPage() {
                         )}
 
                         {activeTab === "behavior" && (
-                            <div>
-                                <Label htmlFor="system-prompt">System Prompt *</Label>
-                                <textarea id="system-prompt" value={formSystemPrompt}
-                                    onChange={e => setFormSystemPrompt(e.target.value)}
-                                    placeholder="You are a helpful assistant..."
-                                    className="mt-1 w-full rounded-md border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm min-h-[200px] resize-y font-mono"
-                                />
-                                <p className="text-xs text-gray-400 mt-1">{formSystemPrompt.length} characters</p>
+                            <div className="space-y-6">
+                                <div>
+                                    <Label htmlFor="system-prompt">Agent Instructions (System Prompt) *</Label>
+                                    <textarea id="system-prompt" value={formSystemPrompt}
+                                        onChange={e => setFormSystemPrompt(e.target.value)}
+                                        placeholder="You are a helpful assistant..."
+                                        className="mt-1 w-full rounded-md border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm min-h-[200px] resize-y font-mono"
+                                    />
+                                    <p className="text-xs text-gray-400 mt-1">{formSystemPrompt.length} characters</p>
+                                </div>
+                                
+                                <div>
+                                    <Label className="text-sm font-medium mb-1.5 block">Output Format Constraint</Label>
+                                    <div className="flex bg-gray-100 dark:bg-zinc-800 p-1 rounded-lg">
+                                        <button 
+                                            onClick={() => setFormOutputFormat("auto")}
+                                            className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${formOutputFormat === "auto" ? "bg-white dark:bg-zinc-700 shadow flex items-center justify-center gap-1.5" : "text-gray-500"}`}
+                                        >
+                                            Auto (Native)
+                                        </button>
+                                        <button 
+                                            onClick={() => setFormOutputFormat("markdown_table")}
+                                            className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${formOutputFormat === "markdown_table" ? "bg-white dark:bg-zinc-700 shadow flex items-center justify-center gap-1.5" : "text-gray-500"}`}
+                                        >
+                                            Markdown Table
+                                        </button>
+                                        <button 
+                                            onClick={() => setFormOutputFormat("json_chart")}
+                                            className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${formOutputFormat === "json_chart" ? "bg-white dark:bg-zinc-700 shadow flex items-center justify-center gap-1.5" : "text-gray-500"}`}
+                                        >
+                                            JSON Chart
+                                        </button>
+                                    </div>
+                                    <p className="text-[11px] text-indigo-500 mt-2 font-medium">
+                                        🔗 Injected into System Prompt automatically by Bifrost Router at runtime.
+                                    </p>
+                                </div>
                             </div>
                         )}
 
@@ -1284,6 +1374,9 @@ export default function AgentStudioPage() {
                                     )}
                                 </div>
 
+                                <p className="text-[11px] text-indigo-500 font-medium">
+                                    🔗 RAG Parameters (Weights, Top-K, Alpha) automatically mount to Bifrost Runtime on deploy.
+                                </p>
                                 <p className="text-xs text-gray-400">
                                     RAG retrieves relevant context from your knowledge base. Knowledge Graph enables structured relationship queries.
                                     PageIndex navigates document structure for hierarchical retrieval.
@@ -1302,18 +1395,58 @@ export default function AgentStudioPage() {
                                                 ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-700"
                                                 : "border-gray-200 hover:border-gray-300 dark:border-zinc-700 dark:hover:border-zinc-600"
                                                 }`}>
-                                            <Wrench className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />
+                                            {tool === "vector_search" && <Database className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
+                                            {tool === "graph_search" && <Brain className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
+                                            {tool === "tree_search" && <LayoutGrid className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
+                                            {tool === "memvid_search" && <Clock className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
                                             <div>
                                                 <span className="text-sm font-medium">{tool}</span>
-                                                <p className="text-xs text-gray-400">
-                                                    {tool === "QueryMobDb" && "Query monster database"}
-                                                    {tool === "QueryItemDb" && "Query item database"}
-                                                    {tool === "WebSearch" && "Search the web"}
-                                                    {tool === "Calculator" && "Mathematical calculations"}
+                                                <p className="text-xs text-gray-400 mt-1">
+                                                    {tool === "vector_search" && <span className="text-indigo-600 dark:text-indigo-400 font-medium">Qdrant Vector Database</span>}
+                                                    {tool === "graph_search" && <span className="text-fuchsia-600 dark:text-fuchsia-400 font-medium">Knowledge Graph Traversal</span>}
+                                                    {tool === "tree_search" && <span className="text-emerald-600 dark:text-emerald-400 font-medium">Hierarchical Doc Tree</span>}
+                                                    {tool === "memvid_search" && <span className="text-orange-600 dark:text-orange-400 font-medium">Deep Memory Retrieval</span>}
                                                 </p>
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+
+                                <div className="mt-8 border-t border-gray-100 dark:border-zinc-800 pt-6">
+                                    <Label className="mb-2 block">MCP Servers (Optional)</Label>
+                                    <p className="text-xs text-gray-400 mb-4">
+                                        Attach external tools via the Model Context Protocol (e.g. Hermodr Gateway). 
+                                        Provide the full HTTP endpoint URL for each server.
+                                    </p>
+                                    <div className="space-y-2">
+                                        {formMcpServers.map((url, idx) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <Input 
+                                                    value={url} 
+                                                    onChange={e => {
+                                                        const newMcp = [...formMcpServers];
+                                                        newMcp[idx] = e.target.value;
+                                                        setFormMcpServers(newMcp);
+                                                    }} 
+                                                    placeholder="http://hermodr.asgard.svc:9000/mcp"
+                                                />
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 flex-shrink-0"
+                                                    onClick={() => setFormMcpServers(formMcpServers.filter((_, i) => i !== idx))}>
+                                                    <X className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="mt-3 w-full border-dashed"
+                                        onClick={() => setFormMcpServers([...formMcpServers, ""])}>
+                                        <Plus className="w-4 h-4 mr-2" /> Add MCP Server
+                                    </Button>
                                 </div>
                             </div>
                         )}
@@ -1335,6 +1468,9 @@ export default function AgentStudioPage() {
     // --- CHAT VIEW ---
     return (
         <div className="flex h-[calc(100vh-64px)]">
+            {/* Left sidebar - Agent Architecture */}
+            {selectedAgent && <AgentStructurePanel agent={selectedAgent} />}
+
             {/* Chat area */}
             <div className="flex-1 flex flex-col">
                 {/* Chat header */}
@@ -1355,6 +1491,30 @@ export default function AgentStudioPage() {
                         <Badge variant="outline" className="text-xs">
                             {selectedAgent?.is_published ? "Published" : "Draft"}
                         </Badge>
+                        <div className="flex bg-gray-100 dark:bg-zinc-800 p-0.5 rounded-lg border ml-2">
+                            <button 
+                                onClick={() => setUseBifrost(false)}
+                                className={`px-2 py-1 text-xs rounded-md font-medium transition-colors ${!useBifrost ? 'bg-white dark:bg-zinc-700 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-zinc-300'}`}
+                            >
+                                Mimir Engine
+                            </button>
+                            {selectedAgent?.is_published ? (
+                                <button 
+                                    onClick={() => setUseBifrost(true)}
+                                    className={`px-2 py-1 text-xs rounded-md font-medium transition-colors ${useBifrost ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-zinc-300'}`}
+                                >
+                                    Bifrost Runtime
+                                </button>
+                            ) : (
+                                <button 
+                                    disabled
+                                    title="Publish the Agent to enable Bifrost Agentic Runtime"
+                                    className="px-2 py-1 text-xs rounded-md font-medium transition-colors text-gray-400 opacity-50 cursor-not-allowed"
+                                >
+                                    Bifrost Runtime
+                                </button>
+                            )}
+                        </div>
                         {chatSessionId && (
                             <Badge variant="secondary" className="text-xs font-mono">
                                 {chatSessionId.substring(0, 8)}...
@@ -1372,8 +1532,144 @@ export default function AgentStudioPage() {
                                 : "bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-zinc-100"
                                 }`}>
                                 <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                                    {msg.role === "assistant" && msg.steps && msg.steps.length > 0 && (
+                                        <details className="mb-3 group bg-white/5 dark:bg-black/10 rounded-lg border border-purple-200/50 dark:border-purple-800/30 overflow-hidden">
+                                            <summary className="px-3 py-2 text-xs font-semibold text-purple-700 dark:text-purple-300 cursor-pointer list-none flex items-center gap-2 hover:bg-white/10 transition-colors">
+                                                <Brain className="w-3.5 h-3.5 group-open:text-purple-500" />
+                                                Agent Reasoning ({msg.steps.length} steps)
+                                                <ChevronLeft className="w-3 h-3 ml-auto -rotate-90 group-open:rotate-90 transition-transform" />
+                                            </summary>
+                                            <div className="px-3 pb-3 space-y-2 border-t border-purple-100 dark:border-purple-900/30 pt-2">
+                                                {msg.reasoning && (
+                                                    <div className="text-[11px] text-purple-800 dark:text-purple-200 mb-2 italic border-b border-purple-100/30 pb-2">
+                                                        "{msg.reasoning}"
+                                                    </div>
+                                                )}
+                                                {msg.steps.map((step, idx) => {
+                                                    const isLong = step.content.length > 150;
+                                                    const displayContent = isLong ? step.content.slice(0, 150) + "…" : step.content;
+                                                    const stepColor = step.step_type === "reasoning" 
+                                                        ? "text-emerald-700 dark:text-emerald-300" 
+                                                        : step.step_type === "self_correction" 
+                                                        ? "text-amber-700 dark:text-amber-300" 
+                                                        : "text-gray-700 dark:text-gray-300";
+                                                    return (
+                                                    <div key={idx} className="flex gap-2 text-[11px]">
+                                                        <div className="flex-shrink-0 mt-0.5 text-gray-400">
+                                                            {step.step_type === "tool_call" ? "🔨" : step.step_type === "self_correction" ? "⚠️" : step.step_type === "reasoning" ? "✅" : "💭"}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className={`${stepColor} break-words`}>{displayContent}</div>
+                                                            <div className="flex items-center gap-2 mt-1 text-gray-400">
+                                                                {step.tool_name && <span className="font-mono bg-black/5 dark:bg-white/5 px-1 py-0.5 rounded text-[9px]">{step.tool_name}</span>}
+                                                                <span className="flex items-center gap-1"><Clock className="w-2.5 h-2.5" />{step.duration_ms}ms</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    );
+                                                })}
+                                                {msg.trace_id && (
+                                                    <div className="mt-3 pt-2 border-t border-purple-100/50 dark:border-purple-900/30">
+                                                        <button onClick={() => handleViewTrace(msg.trace_id!)}
+                                                            className="flex items-center gap-1.5 text-[10px] bg-purple-100 dark:bg-purple-900/50 hover:bg-purple-200 dark:hover:bg-purple-800 text-purple-700 dark:text-purple-300 px-2 py-1 rounded transition-colors w-full justify-center font-medium">
+                                                            <ExternalLink className="w-3 h-3" /> View Laminar Trace
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </details>
+                                    )}
                                     {msg.role === "assistant" ? (
-                                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                        <ReactMarkdown 
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                table: ({ node, ...props }) => (
+                                                    <div className="my-4 w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-zinc-700">
+                                                        <table className="w-full text-sm text-left text-gray-700 dark:text-zinc-300" {...props} />
+                                                    </div>
+                                                ),
+                                                thead: ({ node, ...props }) => (
+                                                    <thead className="bg-gray-50 dark:bg-zinc-800/50 text-xs uppercase text-gray-500 dark:text-zinc-400 font-semibold" {...props} />
+                                                ),
+                                                th: ({ node, ...props }) => <th className="px-4 py-3 border-b dark:border-zinc-700" {...props} />,
+                                                td: ({ node, ...props }) => <td className="px-4 py-3 border-b dark:border-zinc-800" {...props} />,
+                                                code: ({ node, inline, className, children, ...props }: any) => {
+                                                    const match = /language-(\w+)/.exec(className || "");
+                                                    const language = match ? match[1] : "";
+                                                    
+                                                    // Helper to handle chart JSON strings gracefully
+                                                    if (!inline && (language === "json" || language === "chart")) {
+                                                        try {
+                                                            let jsonStr = String(children).replace(/\n$/, "");
+                                                            const data = JSON.parse(jsonStr);
+                                                            
+                                                            // Expecting a specific structure {"chart": { "type": "line", ...}}
+                                                            if (data && data.chart) {
+                                                                const chartData = data.chart.data || [];
+                                                                const xKey = data.chart.x_key || "name";
+                                                                const series = data.chart.series || [];
+                                                                
+                                                                return (
+                                                                    <div className="my-6 w-full h-[300px] border border-gray-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-black/20 p-4">
+                                                                        <h4 className="text-xs font-semibold mb-2 text-gray-500">{data.chart.title || "Data Visualization"}</h4>
+                                                                        <ResponsiveContainer width="100%" height="100%">
+                                                                            {data.chart.type === "bar" ? (
+                                                                                <BarChart data={chartData}>
+                                                                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                                                                    <XAxis dataKey={xKey} fontSize={10} />
+                                                                                    <YAxis fontSize={10} />
+                                                                                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+                                                                                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                                                                                    {series.map((s: any, i: number) => (
+                                                                                        <Bar key={i} dataKey={s.dataKey} fill={s.color || "#8884d8"} radius={[4, 4, 0, 0]} />
+                                                                                    ))}
+                                                                                </BarChart>
+                                                                            ) : (
+                                                                                <LineChart data={chartData}>
+                                                                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                                                                    <XAxis dataKey={xKey} fontSize={10} />
+                                                                                    <YAxis fontSize={10} />
+                                                                                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+                                                                                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                                                                                    {series.map((s: any, i: number) => (
+                                                                                        <Line key={i} type="monotone" dataKey={s.dataKey} stroke={s.color || "#8884d8"} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                                                                                    ))}
+                                                                                </LineChart>
+                                                                            )}
+                                                                        </ResponsiveContainer>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                        } catch (e) {
+                                                            // Fallback to normal code block if JSON parse fails or it's not a chart schema
+                                                        }
+                                                    }
+                                                    
+                                                    return !inline ? (
+                                                        <div className="my-4 rounded-lg bg-[#1e1e1e] overflow-hidden border border-gray-700/50 shadow-md">
+                                                            <div className="flex items-center justify-between px-4 py-1.5 bg-[#252526] border-b border-[#3e3e42]">
+                                                                <span className="text-xs font-mono text-gray-400">{language || "Code"}</span>
+                                                                <button
+                                                                    onClick={() => navigator.clipboard.writeText(String(children))}
+                                                                    className="text-gray-400 hover:text-white transition-colors"
+                                                                >
+                                                                    <Copy className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
+                                                            <pre className="p-4 overflow-x-auto text-[13px] leading-relaxed font-mono text-[#d4d4d4]">
+                                                                <code className={className} {...props}>{children}</code>
+                                                            </pre>
+                                                        </div>
+                                                    ) : (
+                                                        <code className="bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded text-[13px] font-mono text-pink-600 dark:text-pink-400" {...props}>
+                                                            {children}
+                                                        </code>
+                                                    );
+                                                }
+                                            }}
+                                        >
+                                            {msg.content}
+                                        </ReactMarkdown>
                                     ) : msg.content}
                                 </div>
                                 {msg.role === "assistant" && msg.latency_ms !== undefined && (
@@ -1384,6 +1680,11 @@ export default function AgentStudioPage() {
                                         <span className="flex items-center gap-1 text-[10px] text-gray-400">
                                             <Hash className="w-3 h-3" /> {(msg.input_tokens || 0) + (msg.output_tokens || 0)} tokens
                                         </span>
+                                    </div>
+                                )}
+                                {msg.role === "assistant" && msg.reasoning && (
+                                    <div className="mt-2 pt-2 border-t border-gray-200 dark:border-zinc-700 text-[11px] text-gray-500 italic">
+                                        Note: {msg.reasoning}
                                     </div>
                                 )}
                             </div>
@@ -1495,6 +1796,42 @@ export default function AgentStudioPage() {
                         </Button>
                     )}
                 </div>
+
+                {selectedAgent?.is_published && (
+                    <details className="px-4 pb-4 mt-2 group">
+                        <summary className="text-xs font-semibold text-slate-500 cursor-pointer hover:text-slate-700 list-none flex items-center gap-2">
+                            <span className="w-4 h-4 flex items-center justify-center bg-slate-200 rounded-full text-[10px] group-open:rotate-90 transition-transform">▶</span>
+                            Developer Integrations
+                        </summary>
+                        <div className="bg-slate-900 rounded-xl p-4 border border-slate-800 mt-2">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Globe className="w-4 h-4 text-blue-400" />
+                                <span className="text-xs font-semibold text-slate-200">API Integration</span>
+                            </div>
+                            <div className="space-y-3">
+                                <div>
+                                    <span className="text-[10px] text-slate-400 block mb-1">ENDPOINT</span>
+                                    <code className="block text-[10px] font-mono text-pink-300 bg-slate-950 p-2 rounded border border-slate-800 break-all">
+                                        POST http://bifrost.asgard.svc:8100/v1/agents/{selectedAgent.id}/run
+                                    </code>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] text-slate-400 block mb-1">PAYLOAD</span>
+                                    <pre className="text-[10px] font-mono text-emerald-300 bg-slate-950 p-2 rounded border border-slate-800 overflow-x-auto">
+{`{
+  "query": "Hello",
+  "session_id": "optional-id"
+}`}
+                                    </pre>
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                    Headers: <code className="text-slate-300">X-Tenant-Id: {selectedAgent.tenant_id}</code><br/>
+                                    Auth: <code className="text-slate-300">Bearer {selectedAgent.api_key}</code>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                )}
             </div>
         </div>
     );

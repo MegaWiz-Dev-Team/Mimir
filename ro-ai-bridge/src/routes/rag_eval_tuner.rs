@@ -401,7 +401,7 @@ pub async fn auto_tune_chat(
     let slot = llm_config.resolve_slot("judge", payload.tuner_provider.as_deref(), payload.tuner_model.as_deref());
     
     // We'll use the LlmRouter directly via a UniversalClient if possible, or build basic Rig client
-    let provider = slot.provider;
+    let _provider = slot.provider;
     let model = slot.model;
     
     let api_key = llm_config.heimdall_api_key.unwrap_or_else(|| std::env::var("HEIMDALL_API_KEY").unwrap_or_default());

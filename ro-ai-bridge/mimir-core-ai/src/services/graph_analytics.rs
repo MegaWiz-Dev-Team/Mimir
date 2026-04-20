@@ -1,7 +1,6 @@
 use crate::services::db::DbPool;
 use crate::services::llm_router::LlmRouter;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct GodNode {

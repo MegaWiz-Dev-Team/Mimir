@@ -2,11 +2,10 @@ use crate::config::Config;
 use axum::{
     Extension,
     extract::Request,
-    http::{StatusCode, header},
+    http::StatusCode,
     middleware::Next,
     response::Response,
 };
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -28,7 +27,7 @@ pub struct TenantContext {
 }
 
 pub async fn tenant_auth_middleware(
-    config: Option<Extension<Arc<Config>>>,
+    _config: Option<Extension<Arc<Config>>>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {

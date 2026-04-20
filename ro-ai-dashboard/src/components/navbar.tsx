@@ -184,7 +184,7 @@ export function Navbar() {
             items: [
                 // { name: "Playground", href: "/playground", icon: Bot },
                 { name: "RAG Playground", href: "/rag-playground", icon: FlaskConical },
-                { name: "Agents", href: "/agents", icon: Brain },
+                { name: "Agent Studio", href: "/agents", icon: Brain },
             ],
         },
         {

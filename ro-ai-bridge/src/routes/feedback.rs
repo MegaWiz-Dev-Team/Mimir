@@ -30,7 +30,7 @@ pub fn feedback_routes() -> Router<MySqlPool> {
 /// POST /feedback — submit a new feedback/bug report + auto-create GitHub issue
 async fn submit_feedback(
     headers: HeaderMap,
-    Extension(config): Extension<Arc<Config>>,
+    Extension(_config): Extension<Arc<Config>>,
     State(pool): State<MySqlPool>,
     Json(req): Json<CreateFeedbackRequest>,
 ) -> impl IntoResponse {

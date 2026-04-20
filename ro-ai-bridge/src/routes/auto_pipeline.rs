@@ -420,7 +420,7 @@ pub async fn run_pipeline_for_source(
             let api_base = infer_api_base(&provider);
             let api_key = resolve_api_key_with_config(&provider, Some(&llm_config));
 
-            let max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
+            let _max_index = chunks.last().and_then(|c| c.2).unwrap_or(0);
             match generate_tree(
                 &pool_clone,
                 &tenant_clone,

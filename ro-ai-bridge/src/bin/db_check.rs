@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         println!("\n== LATEST 10 RELATIONS ==");
-        let recent_relations: Vec<(String, String, String)> = sqlx::query_as(
+        let _recent_relations: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT e1.name, r.relation_type, e2.name 
              FROM kg_relations r 
              JOIN kg_entities e1 ON r.from_entity_id = e1.id 
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .unwrap_or_default();
 
-        let duplicates: Vec<(String, i64)> = sqlx::query_as(
+        let _duplicates: Vec<(String, i64)> = sqlx::query_as(
             "SELECT name, COUNT(*) as cnt FROM kg_entities WHERE source_id = (SELECT id FROM data_sources WHERE name = 'diagnostic-testing-osa' LIMIT 1) GROUP BY name HAVING cnt > 1 ORDER BY cnt DESC LIMIT 5"
         )
         .fetch_all(&pool)

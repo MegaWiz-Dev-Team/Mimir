@@ -20,7 +20,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use super::upload::download_from_s3;
 
@@ -73,7 +73,7 @@ pub(crate) async fn sync_source(
     tokio::spawn(async move {
         info!("Started background sync task for source id {}", id);
 
-        let result: Result<String, anyhow::Error> = match source_clone.source_type.as_str() {
+        let mut result: Result<String, anyhow::Error> = match source_clone.source_type.as_str() {
             // File-based sources: download from S3, then extract
             "file" | "document" | "tabular" => {
                 match &source_clone.s3_key {
@@ -86,7 +86,61 @@ pub(crate) async fn sync_source(
                                     "Downloaded {} bytes from S3, running extraction",
                                     data.len()
                                 );
-                                IngressManager::process_source_with_data(&source_clone, &data)
+                                let mut extraction = IngressManager::process_source_with_data(&source_clone, &data);
+
+                                // ─── OCR Fallback: if PDF extraction returned empty (image-only PDF),
+                                //     use Gemini Vision to OCR the document ───────────────────────
+                                if let Err(ref e) = extraction {
+                                    let err_msg = e.to_string();
+                                    if err_msg.contains("image-only") || err_msg.contains("empty text") {
+                                        let ext = s3_key.rsplit('.').next().unwrap_or("").to_lowercase();
+                                        if ext == "pdf" {
+                                            info!(
+                                                "PDF text extraction empty for {} ({}), falling back to Gemini Vision OCR",
+                                                source_clone.name, id
+                                            );
+
+                                            let gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+                                            let gemini_base = std::env::var("GEMINI_BASE_URL").unwrap_or_else(|_| {
+                                                "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
+                                            });
+
+                                            if !gemini_api_key.is_empty() {
+                                                match mimir_core_ai::services::ocr::extract_text_from_image(
+                                                    &data,
+                                                    s3_key,
+                                                    &gemini_api_key,
+                                                    &gemini_base,
+                                                    "gemini-3-flash-preview",
+                                                )
+                                                .await
+                                                {
+                                                    Ok((ocr_text, tokens)) => {
+                                                        info!(
+                                                            "Gemini OCR fallback succeeded for {} ({}): {} chars, {} tokens",
+                                                            source_clone.name, id, ocr_text.len(), tokens
+                                                        );
+                                                        extraction = Ok(ocr_text);
+                                                    }
+                                                    Err(ocr_err) => {
+                                                        error!(
+                                                            "Gemini OCR fallback also failed for {} ({}): {}",
+                                                            source_clone.name, id, ocr_err
+                                                        );
+                                                        // Keep original error
+                                                    }
+                                                }
+                                            } else {
+                                                warn!(
+                                                    "GEMINI_API_KEY not set — cannot OCR fallback for image-only PDF (source_id={})",
+                                                    id
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+
+                                extraction
                             }
                             Err(e) => Err(anyhow::anyhow!("S3 download failed: {}", e)),
                         }
@@ -100,6 +154,17 @@ pub(crate) async fn sync_source(
             // Network sources: fetch + extract
             _ => IngressManager::process_source(&source_clone).await,
         };
+
+        // If the user manually edited and saved AI extraction, the source is COMPLETED.
+        // We reuse their raw_markdown to generate chunks instead of destroying their work!
+        if source_clone.last_sync_status.as_deref() == Some("COMPLETED") {
+            if let Some(ref md) = source_clone.raw_markdown {
+                if !md.trim().is_empty() {
+                    info!("Using manually saved raw_markdown for source id {} (bypassing extraction)", id);
+                    result = Ok(md.clone());
+                }
+            }
+        }
 
         match result {
             Ok(raw_text) => {

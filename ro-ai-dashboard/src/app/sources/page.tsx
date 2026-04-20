@@ -96,6 +96,12 @@ export default function SourcesPage() {
         fetchModels()
             .then(models => {
                 setAiModels(models);
+                if (models.length > 0) {
+                    const providers = Array.from(new Set(models.map(m => m.provider)));
+                    setAiSelectedProvider(providers[0] || "");
+                    const modelsForProvider = models.filter(m => m.provider === providers[0]);
+                    setAiSelectedModel(modelsForProvider[0]?.model_id || "");
+                }
             })
             .catch(console.error);
     }, []);
