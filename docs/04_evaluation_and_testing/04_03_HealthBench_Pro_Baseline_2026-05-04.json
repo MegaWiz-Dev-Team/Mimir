@@ -1,0 +1,382 @@
+{
+  "results": [
+    {
+      "model": "mlx-community/gemma-4-26b-a4b-it-4bit",
+      "run_id": "788eda85-c50d-4229-ac29-21ee89cc62a0",
+      "n_items": 20,
+      "hbp_pct": 40.6,
+      "acc": 1.95,
+      "comp": 1.4,
+      "rel": 2.95,
+      "safe": 0.8,
+      "lat_ms": 15276,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx"
+    },
+    {
+      "model": "gemini-3.1-flash-lite-preview",
+      "run_id": "26b2c680-0f55-4438-a8a0-7199dd5f7ac2",
+      "n_items": 20,
+      "hbp_pct": 37.2,
+      "acc": 1.8,
+      "comp": 1.35,
+      "rel": 2.6,
+      "safe": 0.8,
+      "lat_ms": 2819.15,
+      "cost_usd": 0.0018,
+      "started_at": "2026-05-04T16:05:44Z",
+      "finished_at": "2026-05-04T16:09:10Z"
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "run_id": "a5973d4c-f17a-4757-b54b-c8fa391817f1",
+      "n_items": 20,
+      "hbp_pct": 36.9,
+      "acc": 1.35,
+      "comp": 1.2,
+      "rel": 2.75,
+      "safe": 0.9,
+      "lat_ms": 11141.05,
+      "cost_usd": 0.0027,
+      "started_at": "2026-05-04T17:04:22Z",
+      "finished_at": "2026-05-04T17:10:32Z"
+    },
+    {
+      "model": "gemini-3.1-pro-preview",
+      "run_id": "520d21ce-0d25-475a-8501-dede8f247041",
+      "n_items": 20,
+      "hbp_pct": 36.6,
+      "acc": 1.7,
+      "comp": 1.25,
+      "rel": 2.9,
+      "safe": 0.75,
+      "lat_ms": 12762.4,
+      "cost_usd": 0.0511,
+      "started_at": "2026-05-04T17:04:41Z",
+      "finished_at": "2026-05-04T17:11:21Z"
+    },
+    {
+      "model": "gemini-3-flash-preview",
+      "run_id": "5d8b5f11-5a45-438c-9cc0-a84185745eda",
+      "n_items": 20,
+      "hbp_pct": 35.9,
+      "acc": 1.7,
+      "comp": 1.35,
+      "rel": 2.7,
+      "safe": 0.75,
+      "lat_ms": 8098.9,
+      "cost_usd": 0.0194,
+      "started_at": "2026-05-04T16:00:18Z",
+      "finished_at": "2026-05-04T16:05:43Z"
+    },
+    {
+      "model": "mlx-community/gemma-4-31b-it-4bit",
+      "run_id": "8d5480d2-ea5c-4c87-94fa-911ebe479567",
+      "n_items": 20,
+      "hbp_pct": 34.1,
+      "acc": 1.55,
+      "comp": 1.3,
+      "rel": 2.8,
+      "safe": 0.7,
+      "lat_ms": 43739,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx"
+    },
+    {
+      "model": "gemini-3-pro-preview",
+      "run_id": "4682363c-af88-42a8-b170-d1cf9131a3e5",
+      "n_items": 20,
+      "hbp_pct": 32.8,
+      "acc": 1.4,
+      "comp": 1.2,
+      "rel": 2.65,
+      "safe": 0.75,
+      "lat_ms": 13033.1,
+      "cost_usd": 0.0537,
+      "started_at": "2026-05-04T16:15:35Z",
+      "finished_at": "2026-05-04T16:22:15Z"
+    },
+    {
+      "model": "gemini-2.5-pro",
+      "run_id": "91c64602-bcd3-4883-a9fe-3bb60402ecb2",
+      "n_items": 20,
+      "hbp_pct": 29.7,
+      "acc": 1.35,
+      "comp": 1.1,
+      "rel": 2.5,
+      "safe": 0.7,
+      "lat_ms": 12622.0,
+      "cost_usd": 0.0378,
+      "started_at": "2026-05-04T16:09:14Z",
+      "finished_at": "2026-05-04T16:15:32Z"
+    },
+    {
+      "model": "mlx-community/Qwen3.5-27B-4bit",
+      "run_id": "e6e06ccf-31db-40f8-ac79-efc53368fe7b",
+      "n_items": 20,
+      "hbp_pct": 20.6,
+      "acc": 1.2,
+      "comp": 1.0,
+      "rel": 1.9,
+      "safe": 0.55,
+      "lat_ms": 121900,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx",
+      "round": 3,
+      "note": "Script-side TIMEOUT_PER_RUN_SEC=2400 expired but eval workers completed in DB; HBp% recovered post-hoc"
+    },
+    {
+      "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+      "run_id": "aabd5158-cb86-4dbc-98aa-235144df7a08",
+      "n_items": 20,
+      "hbp_pct": 20.0,
+      "acc": 1.2,
+      "comp": 1.2,
+      "rel": 2.0,
+      "safe": 0.45,
+      "lat_ms": 24090,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx",
+      "note": "MoE 3B active"
+    },
+    {
+      "model": "mlx-community/Qwen3-0.6B-4bit",
+      "run_id": "ee40dda0-2efa-4083-bcf6-b3855e3ec4b1",
+      "n_items": 20,
+      "hbp_pct": 13.8,
+      "acc": 1.35,
+      "comp": 1.25,
+      "rel": 2.6,
+      "safe": -0.5,
+      "lat_ms": 2485,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx",
+      "warning": "Negative safety score \u2014 judge tagged more unsafe than safe"
+    },
+    {
+      "model": "lmstudio-community/medgemma-4b-it-MLX-4bit",
+      "run_id": "1afdee09-72a6-44dd-8b08-9f8564dacefb",
+      "n_items": 20,
+      "hbp_pct": 13.4,
+      "acc": 1.7,
+      "comp": 1.35,
+      "rel": 2.1,
+      "safe": -0.1,
+      "lat_ms": 2550,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx",
+      "round": 3,
+      "warning": "Negative safety score (-0.10) \u2014 judge tagged unsafe more than safe",
+      "note": "Medical-tuned model UNDER-performs general gemma-4-26b on this rubric (40.6% vs 13.4%); investigate prompt/format mismatch"
+    },
+    {
+      "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+      "run_id": "d707d9c0-527d-4dd1-b4ab-8bdd99d43286",
+      "n_items": 20,
+      "hbp_pct": 8.1,
+      "acc": 1.15,
+      "comp": 1.1,
+      "rel": 1.45,
+      "safe": 0.15,
+      "lat_ms": 43548,
+      "cost_usd": 0.0,
+      "provider": "heimdall_mlx"
+    }
+  ],
+  "benchmark_dataset_id": "hb-pro-asgard-001",
+  "judge_model": "gemini-2.5-flash",
+  "rubric": "accuracy(1-5), completeness(1-5), relevance(1-5), safety",
+  "n_items": 20,
+  "locked_item_ids": [
+    "9566084de89c416408691006a6f06f9c",
+    "c19c2113ba68bb3c4a3e63836e31b558",
+    "a5778c7ecdb4eeccf9d252631e18a274",
+    "e339f34a3a35f3f067422b5768287f7c",
+    "c42bd4fc760487ac7b5e70fbb41a8edc",
+    "3533d9bfd2d32f8c465e7af62aec9781",
+    "37101607e2947481e85e8fe3597a1acf",
+    "9a160f86c59743692e46fab89aae42f2",
+    "4f08ae480b16ef825cf098eca6530e68",
+    "f056cdb489e3636b0b51afb8fd6b3a8a",
+    "fa30f3f57c7219130345f5c2e6d03d65",
+    "dadbebd3dce1b5928cac5a44dde095d3",
+    "2014ab7a9d8865f0da483817843ccbc5",
+    "cd132a0c7cde74c0242aa8ef3850c9b9",
+    "ed8b3ca0a4dabfd0827c17a08513a181",
+    "e156871820fef362c392aedfc8429c48",
+    "f00a97ad9c1f6f9d51f7595d2f1fb192",
+    "b24258427538a4738c0fb8695b8e88c2",
+    "ba61acc5f41d03f6c4350fbec738c8f6",
+    "b3d32c955eca9915b39e7844142e0a7c"
+  ],
+  "system_prompt_hash": "sha256:261d8b6d758e0b8a17b7ce25e0230c74c71a5770869a3c0205e987de3a501240",
+  "tools": [
+    "primekg_search",
+    "clinical_kb_search",
+    "memvid_search"
+  ],
+  "updated_at": "2026-05-05",
+  "mlx_tournament_completed_at": "2026-05-05",
+  "champion_overall": "gemini-3.1-flash-lite-preview (cloud) @ 48.4% HBp (Sprint 36 + rerank)",
+  "champion_cloud": "gemini-3.1-flash-lite-preview (37.2% HBp)",
+  "round_3_completed_at": "2026-05-05",
+  "pending_retries": [],
+  "launchd_race_fix_applied": "2026-05-05 (PlistBuddy + unload/load)",
+  "all_models_have_scores": true,
+  "sprint36": {
+    "sprint": 36,
+    "applied_at": "2026-05-05",
+    "changes": [
+      "B-17: top_k 8\u219216, temperature 0.7\u21920.3, max_tokens 2048\u21924096",
+      "B-18: CoT 5-step reasoning protocol in system prompt (1905 chars)",
+      "B-16: cross_encoder_rerank wired (env-toggle RERANKER_ENABLED)"
+    ],
+    "phase1_no_rerank": [
+      {
+        "model": "mlx-community/gemma-4-26b-a4b-it-4bit",
+        "run_id": "195e8912",
+        "hbp_pct": 47.8,
+        "acc": 2.55,
+        "comp": 2.05,
+        "rel": 3.05,
+        "safe": 0.75,
+        "lat_ms": 29350,
+        "delta_vs_baseline_pp": 7.2
+      },
+      {
+        "model": "gemini-3.1-flash-lite-preview",
+        "run_id": "f56a591e",
+        "hbp_pct": 44.4,
+        "acc": 2.4,
+        "comp": 1.85,
+        "rel": 3.05,
+        "safe": 0.7,
+        "lat_ms": 3677,
+        "delta_vs_baseline_pp": 7.2
+      },
+      {
+        "model": "gemini-2.5-flash",
+        "run_id": "cfef47bf",
+        "hbp_pct": 43.1,
+        "acc": 1.7,
+        "comp": 1.35,
+        "rel": 3.05,
+        "safe": 0.95,
+        "lat_ms": 4987,
+        "delta_vs_baseline_pp": 6.2
+      }
+    ],
+    "phase2_with_rerank": [
+      {
+        "model": "gemini-3.1-flash-lite-preview",
+        "run_id": "fe1b4e9b",
+        "hbp_pct": 48.4,
+        "acc": 2.5,
+        "comp": 1.75,
+        "rel": 3.1,
+        "safe": 0.85,
+        "lat_ms": 4393,
+        "delta_vs_phase1_pp": 4.0
+      },
+      {
+        "model": "mlx-community/gemma-4-26b-a4b-it-4bit",
+        "run_id": "43b60ce3",
+        "hbp_pct": 38.7,
+        "acc": 2.05,
+        "comp": 1.55,
+        "rel": 2.8,
+        "safe": 0.7,
+        "lat_ms": 28249,
+        "delta_vs_phase1_pp": -9.1,
+        "warning": "Rerank HURT this model"
+      },
+      {
+        "model": "gemini-2.5-flash",
+        "run_id": "8e94f576",
+        "hbp_pct": 36.2,
+        "acc": 1.5,
+        "comp": 1.25,
+        "rel": 2.45,
+        "safe": 0.9,
+        "lat_ms": 5494,
+        "delta_vs_phase1_pp": -6.9,
+        "warning": "Rerank HURT this model"
+      }
+    ],
+    "champion_after_sprint36": "gemini-3.1-flash-lite-preview @ 48.4% (with rerank)",
+    "previous_champion": "mlx-community/gemma-4-26b-a4b-it-4bit @ 40.6%",
+    "key_finding": "Rerank helps Flash-class cloud models but hurts gemma-4-26b local \u2014 needs per-model gating, not global env"
+  },
+  "champion_local": "mlx-community/gemma-4-26b-a4b-it-4bit @ 47.8% (Sprint 36 no-rerank)",
+  "sprint40_cross_benchmark": {
+    "applied_at": "2026-05-05",
+    "models_tested": [
+      "gemini-3.1-flash-lite-preview",
+      "mlx-community/gemma-4-26b-a4b-it-4bit"
+    ],
+    "benchmarks": [
+      {
+        "id": "hb-pro-asgard-001",
+        "scoring_fn": "healthbench_likert",
+        "n": 20,
+        "flash_lite": 45.3,
+        "gemma": 37.8,
+        "winner": "flash-lite"
+      },
+      {
+        "id": "med-medqa-v1",
+        "scoring_fn": "mcq_accuracy",
+        "n": 20,
+        "flash_lite": 91.3,
+        "gemma": 90.0,
+        "winner": "flash-lite"
+      },
+      {
+        "id": "med-medmcqa-v1",
+        "scoring_fn": "mcq_accuracy",
+        "n": 20,
+        "flash_lite": 75.0,
+        "gemma": 80.0,
+        "winner": "gemma"
+      },
+      {
+        "id": "med-pubmedqa-v1",
+        "scoring_fn": "binary_yes_no",
+        "n": 20,
+        "flash_lite": 51.2,
+        "gemma": 58.8,
+        "winner": "gemma"
+      },
+      {
+        "id": "med-healthbench-v1",
+        "scoring_fn": "paper_rubric_pct",
+        "n": 20,
+        "flash_lite": 96.2,
+        "gemma": 98.8,
+        "winner": "gemma",
+        "note": "inflated \u2014 Mimir Likert judge not native rubric"
+      },
+      {
+        "id": "med-medxpertqa-v1",
+        "scoring_fn": "mcq_accuracy",
+        "n": 20,
+        "flash_lite": 33.8,
+        "gemma": 15.0,
+        "winner": "flash-lite"
+      }
+    ],
+    "winner_overall": "split 3-3 \u2014 task-dependent",
+    "key_findings": [
+      "gemma stronger on RAG-heavy (PubMedQA +7.6, HealthBench paper +2.6) and AIIMS MCQ (+5)",
+      "flash-lite stronger on MedXpertQA expert reasoning (+18.8) and HealthBench-Pro long-form",
+      "USMLE MCQ saturated at 90%+ \u2014 both essentially tied",
+      "HealthBench paper scores inflated by Mimir Likert judge \u2014 needs gpt-4.1 grader for paper-comparable",
+      "PubMedQA 51-59% suspiciously low \u2014 investigate Eir over-reasoning binary y/n"
+    ],
+    "caveats": [
+      "n=20 has \u00b15-7pp sampling variance",
+      "Likert judge approximates MCQ accuracy via (acc-1)/4 conversion \u2014 not native exact-match",
+      "Sprint 36 reference (gemma 47.8% / flash-lite 48.4%) was same n=20; current rerun (37.8 / 45.3) is sampling noise"
+    ]
+  }
+}

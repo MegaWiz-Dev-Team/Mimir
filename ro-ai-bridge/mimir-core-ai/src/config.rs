@@ -15,6 +15,7 @@ pub const VAULT_MANAGED_SECRETS: &[&str] = &[
     "GITHUB_TOKEN",
     "HEIMDALL_API_KEY",
     "JWT_SECRET",
+    "NCBI_API_KEY",
     "NEO4J_PASSWORD",
     "S3_ACCESS_KEY",
     "S3_SECRET_KEY",

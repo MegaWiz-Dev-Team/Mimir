@@ -1,0 +1,41 @@
+# PubMed import plan — overnight batches
+# Each batch: BQ VECTOR_SEARCH(seed_query) top_k → embed BGE-M3 → Qdrant + Postgres
+# Dedup by PMID across batches.
+
+defaults:
+  count: 100000
+  abstract_chars: 1500        # first N chars of article_text — covers title+abstract for most PMC articles
+  embed_batch: 32             # Heimdall batch size
+  upsert_batch: 256           # Qdrant upsert batch size
+
+batches:
+  - id: smoke-test
+    topic: smoke
+    seed_query: "obstructive sleep apnea CPAP polysomnography"
+    count: 100
+    abstract_chars: 1500
+
+  - id: sleep-1
+    topic: sleep_medicine
+    seed_query: "obstructive sleep apnea CPAP polysomnography sleep medicine"
+    count: 100000
+
+  - id: ent-1
+    topic: otolaryngology
+    seed_query: "otolaryngology upper airway nasal sinusitis tonsillectomy adenoidectomy"
+    count: 100000
+
+  - id: pulmonology-1
+    topic: pulmonology
+    seed_query: "respiratory disease COPD pulmonary function asthma chronic bronchitis"
+    count: 100000
+
+  - id: neurology-1
+    topic: sleep_neurology
+    seed_query: "narcolepsy parasomnia restless legs syndrome REM sleep behavior disorder"
+    count: 100000
+
+  - id: cardiology-1
+    topic: cardiology_sleep
+    seed_query: "atrial fibrillation hypertension cardiovascular sleep heart failure"
+    count: 100000

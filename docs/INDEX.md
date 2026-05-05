@@ -52,11 +52,14 @@
 - `docs/03_implementation_plans/03_11_Test_Plan_E2E_Phase_1_to_9.md`: แผนทดสอบระบบ E2E ของเก่า
 - `docs/03_implementation_plans/03_12_Testing_and_PR_Workflow.md`: กระบวนการทดสอบและ PR Workflow
 - `docs/03_implementation_plans/03_13_Implementation_Plan_v2.3_Sprints_Project-Mimir.md`: สรุปรวบยอดแผนงาน Sprints ทั้งหมดเพื่อการพัฒนา Multi-Tenant ตามสเปก v2.3
+- `docs/03_implementation_plans/03_14_Local_LLM_Optimization_Sprints.md`: แผน Sprint 36-39 — Local LLM optimization (rerank/CoT/self-consistency/specialty router/LoRA) เป้าหมาย Eir HBp% 40.6% → 60%+
 
 ## 🛡️ 04. Evaluation & Testing (การทดสอบและการประเมินผล)
 - `docs/04_evaluation_and_testing/04_01_Implementation_Plan_Agent_Evaluation.md`: แผนทดสอบ Agent Evaluation
 - `docs/04_evaluation_and_testing/04_02_Implementation_Plan_Multi_Tenant_Modular.md`: ทดสอบ Modular Multi-Tenant
 - `docs/04_evaluation_and_testing/04_02_Implementation_Plan_Multi_Tenant_Modular_v2.4.md`: อัปเดตแผนทดสอบ Multi-Tenant
+- `docs/04_evaluation_and_testing/04_03_HealthBench_Pro_Baseline_2026-05-04.md`: HealthBench-Pro baseline scoreboard (Eir, n=20) + reference: arXiv:2505.08775
+- `docs/04_evaluation_and_testing/04_04_Medical_Benchmarks_Catalog.md`: Catalog of 5 downloaded medical benchmarks (MedQA/MedMCQA/PubMedQA/HealthBench/MedXpertQA) — schemas, sizes, mapping to Asgard use cases
 
 ## ⚙️ 05. Security & Management (ความปลอดภัยและการจัดการสิทธิ์)
 ความปลอดภัย การจัดการผู้ใช้ สิทธิ์ต่างๆ และแผนปรับปรุงโมดูลต่างๆ (รวมไฟล์หัวข้อ 05, 06, 07 เดิมบางส่วน)

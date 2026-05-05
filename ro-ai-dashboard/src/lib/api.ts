@@ -1846,7 +1846,7 @@ export async function deleteRole(roleId: string): Promise<void> {
 // ─── Knowledge Graph API (Sprint 17) ────────────────────────────────────────
 
 export interface GraphEntity {
-    id: number;
+    id: string | number;
     name: string;
     entity_type: string;
     properties?: Record<string, unknown>;
@@ -1854,6 +1854,15 @@ export interface GraphEntity {
     chunk_id?: number;
     neo4j_node_id?: string;
     color?: string;
+    tenant_id?: string | null; // null = PrimeKG global knowledge
+}
+
+export interface PrimeKGEmbedStatus {
+    status: "idle" | "running" | "completed" | "failed";
+    embedded: number;
+    total: number;
+    errors: number;
+    message?: string;
 }
 
 export interface GraphRelation {
@@ -1934,13 +1943,14 @@ export async function searchGraphEntities(params?: {
     return res.json();
 }
 
-export async function fetchEntityNeighbors(entityId: number, depth?: number): Promise<{
+export async function fetchEntityNeighbors(entityId: string, depth?: number): Promise<{
     center: { name: string; entity_type: string };
     nodes: VisualizationNode[];
     edges: VisualizationEdge[];
 }> {
     const query = depth ? `?depth=${depth}` : "";
-    const res = await authFetch(`${API_BASE_URL}/graph/entity/${entityId}/neighbors${query}`, { cache: "no-store" });
+    const encodedId = encodeURIComponent(entityId);
+    const res = await authFetch(`${API_BASE_URL}/graph/entity/${encodedId}/neighbors${query}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch entity neighbors");
     return res.json();
 }
@@ -1994,6 +2004,26 @@ export async function deleteGraphSource(sourceId: number): Promise<{
 export async function fetchExtractionRuns(): Promise<{ runs: ExtractionRun[] }> {
     const res = await authFetch(`${API_BASE_URL}/graph/extraction-runs`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch extraction runs");
+    return res.json();
+}
+
+export async function triggerPrimeKGEmbed(params: {
+    batch_size?: number;
+    dry_run?: boolean;
+    type_filter?: string;
+}): Promise<PrimeKGEmbedStatus> {
+    const res = await authFetch(`${API_BASE_URL}/admin/knowledge/primekg/embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+    });
+    if (!res.ok) throw new Error("Failed to trigger PrimeKG embedding");
+    return res.json();
+}
+
+export async function fetchPrimeKGEmbedStatus(): Promise<PrimeKGEmbedStatus> {
+    const res = await authFetch(`${API_BASE_URL}/admin/knowledge/primekg/embed/status`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch PrimeKG embed status");
     return res.json();
 }
 
@@ -2117,5 +2147,211 @@ export async function cancelPipelineRun(runId: string): Promise<any> {
         method: "POST",
     });
     if (!res.ok) throw new Error("Failed to cancel pipeline run");
+    return res.json();
+}
+
+// ─── Evaluation: Benchmark Datasets ────────────────────────────────────────────
+
+export interface BenchmarkDataset {
+    id: string;
+    tenant_id: string;
+    name: string;
+    source: string;
+    /**
+     * Sprint 40 B-36h: scoring function for this benchmark.
+     * - `healthbench_likert` — 4-dim Likert 1-5 + safety, normalize → HBp%
+     * - `mcq_accuracy`       — exact-match correct/total → Acc%
+     * - `binary_yes_no`      — Y/N/Maybe accuracy → Acc%
+     * - `paper_rubric_pct`   — % rubric criteria met (HealthBench paper-style)
+     */
+    scoring_fn: "healthbench_likert" | "mcq_accuracy" | "binary_yes_no" | "paper_rubric_pct";
+    description?: string | null;
+    total_items: number;
+    version: number;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface EvalRunSummary {
+    id: string;
+    name: string | null;
+    status: string;
+    total_combinations: number;
+    completed_combinations: number;
+    started_at: string;
+    finished_at: string | null;
+    // Wave 1 fields
+    parent_run_id?: string | null;
+    baseline_run_id?: string | null;
+    hypothesis?: string | null;
+    variable_under_test?: string | null;
+    expected_change?: string | null;
+    is_champion?: boolean;
+    total_cost_usd?: number | null;
+}
+
+export interface ChampionRun extends EvalRunSummary {}
+
+export async function fetchChampion(agentName?: string): Promise<ChampionRun | null> {
+    const qs = agentName ? `?agent_name=${encodeURIComponent(agentName)}` : "";
+    const res = await authFetch(`${API_BASE_URL}/eval/champion${qs}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+}
+
+export async function getRunLockItems(runId: string): Promise<{ item_count: number; item_ids: string[] }> {
+    const res = await authFetch(`${API_BASE_URL}/eval/runs/${runId}/lock-items`, { method: "POST" });
+    if (!res.ok) return { item_count: 0, item_ids: [] };
+    return res.json();
+}
+
+export async function promoteRun(runId: string): Promise<{ status: string; agents?: string[]; error?: string }> {
+    const res = await authFetch(`${API_BASE_URL}/eval/runs/${runId}/promote`, { method: "POST" });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Promote failed (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function fetchBenchmarkDatasets(): Promise<BenchmarkDataset[]> {
+    const res = await authFetch(`${API_BASE_URL}/eval/benchmark-datasets`, { cache: "no-store" });
+    if (!res.ok) return [];
+    return res.json();
+}
+
+export async function fetchEvalRuns(): Promise<EvalRunSummary[]> {
+    const res = await authFetch(`${API_BASE_URL}/eval/runs`, { cache: "no-store" });
+    if (!res.ok) return [];
+    return res.json();
+}
+
+export interface StartEvalRequest {
+    tenant_id: string;
+    agent_names: string[];
+    model_ids: string[];
+    question_limit: number;
+    benchmark_dataset_id?: string;
+    benchmark_tenant_id?: string;
+    agent_tenant_id?: string;
+    run_name?: string;
+    notes?: string;
+}
+
+export async function startEvalRun(req: StartEvalRequest): Promise<{ run_id: string }> {
+    const res = await authFetch(`${API_BASE_URL}/eval/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to start eval (${res.status})`);
+    }
+    return res.json();
+}
+
+// ─── App Settings ──────────────────────────────────────────────────────────────
+
+export interface AppSetting {
+    setting_key: string;
+    setting_value: string;
+    description?: string | null;
+    updated_at: string;
+}
+
+export async function fetchAppSettings(): Promise<AppSetting[]> {
+    const res = await authFetch(`${API_BASE_URL}/app-settings`, { cache: "no-store" });
+    if (!res.ok) return [];
+    return res.json();
+}
+
+export async function updateAppSetting(key: string, value: string): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/app-settings/${key}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to update setting (${res.status})`);
+    }
+}
+
+// ─── Auto-Tune ─────────────────────────────────────────────────────────────────
+
+export interface AutoTuneSuggestion {
+    system_prompt?: string | null;
+    temperature?: number | null;
+    max_tokens?: number | null;
+    top_k?: number | null;
+    add_tools?: string[];
+    remove_tools?: string[];
+    use_rag?: boolean | null;
+    use_knowledge_graph?: boolean | null;
+    rationale?: string;
+    expected_improvements?: string[];
+}
+
+export interface AutoTuneResponse {
+    run_id?: string;
+    auto_tune_model?: string;
+    current_config?: any;
+    current_metrics?: any;
+    suggestions?: AutoTuneSuggestion;
+    rationale?: string;
+    raw_response?: string;
+    error?: string;
+}
+
+export async function autoTuneAgent(agentId: number, runId?: string): Promise<AutoTuneResponse> {
+    const res = await authFetch(`${API_BASE_URL}/agents/${agentId}/auto-tune`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(runId ? { run_id: runId } : {}),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Auto-tune failed (${res.status})`);
+    }
+    return res.json();
+}
+
+// ─── Wave 2: AI Insights ───────────────────────────────────────────────────────
+
+export interface RunInsight {
+    run_id?: string;
+    insight_type?: string;
+    model_used?: string;
+    cost_usd?: number;
+    content?: string;
+    structured?: any;
+    cached?: boolean;
+    created_at?: string;
+    error?: string;
+}
+
+export async function fetchRunInsights(runId: string): Promise<RunInsight> {
+    const res = await authFetch(`${API_BASE_URL}/eval/runs/${runId}/insights`, { cache: "no-store" });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    return res.json();
+}
+
+export async function regenerateRunInsights(runId: string): Promise<RunInsight> {
+    const res = await authFetch(`${API_BASE_URL}/eval/runs/${runId}/insights/regenerate`, { method: "POST" });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    return res.json();
+}
+
+export async function diagnoseScore(scoreId: number): Promise<RunInsight> {
+    const res = await authFetch(`${API_BASE_URL}/eval/scores/${scoreId}/diagnose`, { method: "POST" });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    return res.json();
+}
+
+export async function explainRetrieval(scoreId: number): Promise<RunInsight> {
+    const res = await authFetch(`${API_BASE_URL}/eval/scores/${scoreId}/explain-retrieval`, { method: "POST" });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
     return res.json();
 }

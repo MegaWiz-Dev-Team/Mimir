@@ -701,13 +701,17 @@ mod tests {
 
         // Verify all expected secret keys are in the managed list
         let expected = [
-            "GEMINI_API_KEY",
             "GITHUB_TOKEN",
             "HEIMDALL_API_KEY",
             "JWT_SECRET",
+            "NCBI_API_KEY",
             "NEO4J_PASSWORD",
             "S3_ACCESS_KEY",
             "S3_SECRET_KEY",
+            "YGGDRASIL_CLIENT_ID",
+            "YGGDRASIL_CLIENT_SECRET",
+            "YGGDRASIL_ISSUER",
+            "YGGDRASIL_REDIRECT_URI",
         ];
 
         for key in &expected {
@@ -729,10 +733,10 @@ mod tests {
 
         // Each managed secret should map to a lowercase vault key
         let expected_mappings = [
-            ("GEMINI_API_KEY", "gemini_api_key"),
             ("GITHUB_TOKEN", "github_token"),
             ("HEIMDALL_API_KEY", "heimdall_api_key"),
             ("JWT_SECRET", "jwt_secret"),
+            ("NCBI_API_KEY", "ncbi_api_key"),
             ("NEO4J_PASSWORD", "neo4j_password"),
             ("S3_ACCESS_KEY", "s3_access_key"),
             ("S3_SECRET_KEY", "s3_secret_key"),
