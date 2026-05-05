@@ -48,3 +48,9 @@ ro-ai-bridge/monitor.log
 # Runtime PID files
 .pids/
 package-lock.json
+
+# Downloaded benchmark datasets (regenerable via scripts/download_medical_benchmarks.py)
+benchmarks/medical/
+
+# Large checkpoint files
+primekg_import_checkpoint.json

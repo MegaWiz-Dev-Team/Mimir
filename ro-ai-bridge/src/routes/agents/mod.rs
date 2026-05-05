@@ -14,6 +14,7 @@
 mod chat;
 mod crud;
 mod generate;
+mod router;
 mod templates;
 
 // Re-export public types
@@ -43,4 +44,6 @@ pub fn agents_routes() -> Router<DbPool> {
         .route("/{id}/chat", post(chat::agent_chat))
         .route("/{id}/conversations", get(chat::list_agent_conversations))
         .route("/generate", post(generate::generate_agent))
+        // Sprint 38 B-27: specialty router — POST /agents/route → returns selected specialist
+        .route("/route", post(router::route_question))
 }

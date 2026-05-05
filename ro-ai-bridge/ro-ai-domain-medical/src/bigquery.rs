@@ -16,12 +16,24 @@ pub struct PubMedBigQueryService {
 }
 
 impl PubMedBigQueryService {
-    /// Initialize the BigQuery service using application default credentials.
+    /// Initialize the BigQuery service. ⛔ Refuses to construct unless the
+    /// caller explicitly opts in via `ALLOW_BIGQUERY=1` env var.
+    ///
+    /// Past usage cost ~$67 USD; prefer NCBI E-utilities or PMC FTP bulk
+    /// (both free) for routine PubMed ingestion.
     pub async fn new(project_id: &str) -> Result<Self> {
+        if std::env::var("ALLOW_BIGQUERY").unwrap_or_default() != "1" {
+            return Err(anyhow::anyhow!(
+                "BigQuery PubMed ingestion is disabled to prevent cost overruns. \
+                 Set ALLOW_BIGQUERY=1 to override (consult cost owner first). \
+                 Free alternatives: scripts/sync_pubmed_incremental.py (NCBI E-utilities), \
+                 scripts/sync_pubmed_pmc_bulk.py (PMC FTP)."
+            ));
+        }
         let client = Client::from_application_default_credentials()
             .await
             .context("Failed to initialize GCP BigQuery Client from environment")?;
-        
+
         Ok(Self {
             client,
             project_id: project_id.to_string(),

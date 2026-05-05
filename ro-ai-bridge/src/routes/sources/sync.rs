@@ -32,9 +32,9 @@ pub(crate) async fn sync_source(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    // Check if source exists
+    // Check if source exists. Allow access to global (cross-tenant) sources too.
     let source = sqlx::query_as::<_, DataSource>(
-        "SELECT * FROM data_sources WHERE id = ? AND tenant_id = ?",
+        "SELECT * FROM data_sources WHERE id = ? AND (tenant_id = ? OR tenant_id = '__global__')",
     )
     .bind(id)
     .bind(tenant_id)
@@ -148,6 +148,85 @@ pub(crate) async fn sync_source(
                     _ => Err(anyhow::anyhow!(
                         "No S3 key found for source '{}' — file may not have been uploaded",
                         source_clone.name
+                    )),
+                }
+            }
+            // ─── Wave 4: External knowledge bases that have their own ingestion ───
+            "external_kg" => {
+                // PrimeKG: re-trigger embed via internal admin endpoint.
+                // The embed is idempotent (upsert by entity_index), so it's safe to re-run.
+                let cfg: serde_json::Value = source_clone.config_json.clone();
+                let embed_endpoint = cfg.get("embed_endpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("/api/v1/admin/knowledge/primekg/embed");
+                let internal = std::env::var("MIMIR_INTERNAL_URL")
+                    .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+                let url = format!("{}{}", internal, embed_endpoint.trim_start_matches('/').trim_start_matches("api/v1/"));
+                let url = if url.contains("/api/v1/") { url } else { format!("{}/api/v1{}", internal, embed_endpoint) };
+                info!("external_kg sync: triggering {}", url);
+                let resp = reqwest::Client::new()
+                    .post(&url)
+                    .json(&serde_json::json!({"batch_size": 500, "dry_run": false}))
+                    .timeout(std::time::Duration::from_secs(15))
+                    .send().await;
+                match resp {
+                    Ok(r) if r.status().is_success() => Ok(format!(
+                        "PrimeKG embed job triggered. Poll status at GET /api/v1/admin/knowledge/primekg/embed/status"
+                    )),
+                    Ok(r) => Err(anyhow::anyhow!("Embed endpoint returned {}: {}", r.status(),
+                                                 r.text().await.unwrap_or_default())),
+                    Err(e) => Err(anyhow::anyhow!("Embed endpoint call failed: {}", e)),
+                }
+            }
+            "curated_corpus" | "external_corpus" | "benchmark_dataset" => {
+                // These have ingestion scripts that run outside the API process.
+                // If a K8s CronJob is registered (config_json.k8s_cronjob), trigger an
+                // immediate Job by templating from it. Otherwise fall back to returning
+                // the script path so the UI/CLI can run it manually.
+                let cfg: serde_json::Value = source_clone.config_json.clone();
+                let script = cfg.get("ingestion_script")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(not specified)");
+                let cronjob = cfg.get("k8s_cronjob").and_then(|v| v.as_str());
+                let namespace = cfg.get("k8s_namespace")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("asgard-services");
+
+                match cronjob {
+                    Some(cj) if !cj.is_empty() => {
+                        let job_name = format!(
+                            "{}-manual-{}",
+                            cj.chars().take(40).collect::<String>(),
+                            chrono::Utc::now().timestamp()
+                        );
+                        let cmd = std::process::Command::new("kubectl")
+                            .args([
+                                "create", "job",
+                                &format!("--from=cronjob/{}", cj),
+                                &job_name,
+                                "-n", namespace,
+                            ])
+                            .output();
+                        match cmd {
+                            Ok(o) if o.status.success() => Ok(format!(
+                                "K8s Job triggered: {}/{} (from cronjob/{}). \
+                                 Watch: kubectl logs -f job/{} -n {}",
+                                namespace, job_name, cj, job_name, namespace
+                            )),
+                            Ok(o) => Err(anyhow::anyhow!(
+                                "kubectl exit {}: {}",
+                                o.status.code().unwrap_or(-1),
+                                String::from_utf8_lossy(&o.stderr)
+                            )),
+                            Err(e) => Err(anyhow::anyhow!(
+                                "kubectl not available ({}). Manual sync: python3 {}",
+                                e, script
+                            )),
+                        }
+                    }
+                    _ => Err(anyhow::anyhow!(
+                        "Manual sync required for source_type='{}'. Run: python3 {}",
+                        source_clone.source_type, script
                     )),
                 }
             }

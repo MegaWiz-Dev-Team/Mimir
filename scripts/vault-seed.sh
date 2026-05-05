@@ -39,6 +39,7 @@ read -rp "  GEMINI_API_KEY: " GEMINI_API_KEY
 read -rp "  GITHUB_TOKEN: " GITHUB_TOKEN
 read -rp "  HEIMDALL_API_KEY: " HEIMDALL_API_KEY
 read -rp "  JWT_SECRET: " JWT_SECRET
+read -rp "  NCBI_API_KEY (optional, 3→10 req/s): " NCBI_API_KEY
 read -rp "  S3_ACCESS_KEY [minioadmin]: " S3_ACCESS_KEY
 read -rp "  S3_SECRET_KEY [minioadmin]: " S3_SECRET_KEY
 read -rp "  MARIADB_ROOT_PASSWORD [root]: " MARIADB_ROOT_PASSWORD
@@ -67,6 +68,7 @@ add_field "gemini_api_key" "$GEMINI_API_KEY"
 add_field "github_token" "$GITHUB_TOKEN"
 add_field "heimdall_api_key" "$HEIMDALL_API_KEY"
 add_field "jwt_secret" "$JWT_SECRET"
+add_field "ncbi_api_key" "$NCBI_API_KEY"
 add_field "s3_access_key" "${S3_ACCESS_KEY:-}"
 add_field "s3_secret_key" "${S3_SECRET_KEY:-}"
 add_field "mariadb_root_password" "${MARIADB_ROOT_PASSWORD:-}"

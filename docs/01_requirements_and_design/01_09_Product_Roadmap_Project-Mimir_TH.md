@@ -12,8 +12,11 @@ timeline
     title Project Mimir Evolution Timeline
     2026 Q1 : Phase 1: Core Foundation : LLM Infrastructure, MariaDB, Docker, RAG Pipeline
     2026 Q2 : Phase 2: AI Living World : Generative NPC, Oracle Bot, Smart Homunculus, Play-to-Earn Logic
+           : Phase 5: Asgard Medical AI : Eir agent baseline (HBp 40.6% @ gemma-4-26b local), Sprint 36-39 optimization
     2026 Q3 : Phase 3: Web3 & SaaS Expansion : Web3 Data Pipeline, Guild ERP Dashboard, ROI Analytics
+           : Phase 5 cont. : LoRA fine-tune, specialty router, target HBp ≥60%
     2026 Q4+ : Phase 4: Enterprise & Security : Offensive Anti-Fraud, Honey Pots, Social Graph Security
+           : Phase 5 prod : Asgard Medical AI B2B deployment (Mac mini $0/query, HIPAA-friendly)
 ```
 
 ---
@@ -49,6 +52,30 @@ timeline
 -   **Social Graph Security:** วิเคราะห์เครือข่ายความสัมพันธ์เพื่อหาจุดฟอกเงิน/OTC
 -   **Enterprise Dashboard:** ระบบ Dashboard สำหรับ Global Server Owners
 
+### Phase 5: Asgard Medical AI (Parallel Track — Sprint 36+)
+**เป้าหมาย:** ปรับ Mimir/Eir agent ใช้กับงานคลินิกได้จริงบน local hardware (Mac mini)
+
+**Baseline (2026-05-04):** Eir agent บน gemma-4-26b 4-bit @ **40.6% HBp** (HealthBench-Pro,
+n=20). ทุบ cloud Gemini ทุกตัว — `gemini-3.1-flash-lite-preview` 37.2%. รายละเอียดที่
+[04_03_HealthBench_Pro_Baseline](../04_evaluation_and_testing/04_03_HealthBench_Pro_Baseline_2026-05-04.md)
+
+| Sprint | Theme | Status / Result |
+|---|---|---|
+| 36 | Quick Wins (CoT + tune + per-model rerank) | ✅ done — +6-7pp validated |
+| 37 | Score Multipliers (self-consistency, multi-judge, query expansion) | 🟡 deployed, n≥20 validation pending |
+| 38 | Architecture — Specialty Router PoC | 🟢 LIVE — 5/5 routing accuracy |
+| 38f | Router validation + 28-specialty expand (B-48..B-55) | 📋 next sprint |
+| 39 | ML Pipeline (LoRA fine-tune on medical corpus) | 📋 future, +15-25 HBp% expected |
+| 40 | Multi-Benchmark Foundation (UI + DB benchmark-aware) | ✅ done |
+| 40f | n=100 scale + native MCQ scoring | 📋 future |
+| 41 | Paper-Comparable HealthBench Run + HF Leaderboard | 📋 future, marketing-grade numbers |
+
+**North-star:** Eir HBp% **≥60%** ที่ n≥100 บน Mac mini ($0/query) ใน 8-9 อาทิตย์.
+รายละเอียดเต็มที่ [03_14_Local_LLM_Optimization_Sprints](../03_implementation_plans/03_14_Local_LLM_Optimization_Sprints.md).
+
+**Story สำหรับ B2B clinic deployment:** Mac mini ($800-1500) + gemma-4-26b ดีกว่า
+cloud Gemini Pro รายละเอียด HIPAA-friendly (data ไม่ออกเครื่อง), $0/query, predictable cost.
+
 ---
 
 ## 📈 Success Metrics (KPIs)
@@ -56,8 +83,9 @@ timeline
 -   **Phase 1-2:** Response Time < 2s, 95% Accuracy ใน Oracle Bot
 -   **Phase 3:** DAU Subscription สำหรับ SaaS > 20% ของผู้เล่นทั้งหมด
 -   **Phase 4:** สกัดกั้น OTC Transactions ได้ > 80%
+-   **Phase 5 (Medical):** Eir HBp% ≥60% ที่ n≥100, zero per-query cost, n=0 safety regressions
 
 ---
 
 *สร้างโดย: Antigravity AI*
-*วันที่: 2026-02-19*
+*วันที่: 2026-02-19* (rev 2026-05-05 — เพิ่ม Phase 5 Asgard Medical AI track)
