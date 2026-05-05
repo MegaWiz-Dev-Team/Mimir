@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::time::Instant;
 use tracing::{info, warn};
 
-use crate::retrieval::graph::{graph_to_retrieval_results, SqlGraphRetriever};
+use crate::retrieval::graph::{graph_to_retrieval_results, GraphRetriever, Neo4jGraphRetriever, SqlGraphRetriever};
 use crate::retrieval::qdrant::{QdrantRetriever, RetrievalResult};
 use crate::retrieval::tree::{tree_to_retrieval_results, TreeRetriever};
 use crate::retrieval::trace::{self, TraceCollector, TraceEvent};
@@ -25,7 +25,27 @@ use crate::routes::tenant::extract_tenant_id;
 use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::iam::IamService;
+use mimir_core_ai::services::neo4j::{Neo4jConfig, Neo4jService};
 use mimir_core_ai::services::qdrant::QdrantService;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
+
+// Cached Neo4j service — initialized once on first graph search when USE_NEO4J_GRAPH=true.
+static NEO4J_SERVICE: OnceCell<Option<Arc<Neo4jService>>> = OnceCell::const_new();
+
+async fn get_neo4j_service() -> Option<Arc<Neo4jService>> {
+    NEO4J_SERVICE
+        .get_or_init(|| async {
+            if std::env::var("USE_NEO4J_GRAPH").as_deref() == Ok("true") {
+                let config = Neo4jConfig::from_env();
+                Neo4jService::try_new(&config).await.map(Arc::new)
+            } else {
+                None
+            }
+        })
+        .await
+        .clone()
+}
 
 // ── Request / Response Types ──────────────────────────
 
@@ -562,7 +582,16 @@ async fn fetch_vector(
             .search_filtered(query, tenant_id, limit, source_ids, alpha, threshold)
             .await;
         match result {
-            Ok(r) => {
+            Ok(mut r) => {
+                if collection == "primekg-entities" {
+                    for item in &mut r {
+                        item.source_type = "primekg".to_string();
+                    }
+                } else if collection == "clinical-wisdom" {
+                    for item in &mut r {
+                        item.source_type = "clinical".to_string();
+                    }
+                }
                 results.extend(r);
             }
             Err(e) => warn!(collection = %collection, error = %e, "Vector search failed"),
@@ -572,8 +601,8 @@ async fn fetch_vector(
     results
 }
 
-/// Fetch results from the SQL-backed Knowledge Graph.
-/// Applies source_id filtering via SQL WHERE clause.
+/// Fetch results from the Knowledge Graph.
+/// Routes to Neo4jGraphRetriever when USE_NEO4J_GRAPH=true, else SqlGraphRetriever.
 async fn fetch_graph(
     query: &str,
     tenant_id: &str,
@@ -582,8 +611,14 @@ async fn fetch_graph(
     filters: &SearchFilters,
     hop_limit: i32,
 ) -> Vec<RetrievalResult> {
-    let retriever = SqlGraphRetriever::new(pool.clone());
-    match retriever.search_with_hops(query, tenant_id, limit, hop_limit).await {
+    let graph_results = if let Some(neo4j) = get_neo4j_service().await {
+        let retriever = Neo4jGraphRetriever::new(neo4j);
+        retriever.search(query, tenant_id, limit).await
+    } else {
+        let retriever = SqlGraphRetriever::new(pool.clone());
+        retriever.search_with_hops(query, tenant_id, limit, hop_limit).await
+    };
+    match graph_results {
         Ok(graph_results) => {
             let all = graph_to_retrieval_results(&graph_results);
             // Apply source_id filter post-retrieval
@@ -713,13 +748,16 @@ pub async fn run_parallel_search(
     weights: &EnsembleWeights,
     limit: usize,
 ) -> Vec<RetrievalResult> {
-    run_parallel_search_filtered(pool, query, tenant_id, weights, limit, &SearchFilters::default(), None, 0.7, 0.0, 2).await
+    run_parallel_search_filtered(pool, query, tenant_id, weights, limit, &SearchFilters::default(), None, 0.7, 0.0, 2, None).await
 }
 
 /// Run the parallel multi-source search with source-level filters.
 /// Uses a 2-stage approach:
 ///   Stage 1: Vector + Graph in parallel
 ///   Stage 2: Tree search using Vector candidates as pre-filter (max 10 docs)
+///
+/// `extra_collections`: optional extra Qdrant collections to search in addition to defaults.
+///   Pass `Some(&["primekg-entities"])` for agents with PrimeKG tool enabled.
 pub async fn run_parallel_search_filtered(
     pool: &DbPool,
     query: &str,
@@ -731,6 +769,7 @@ pub async fn run_parallel_search_filtered(
     alpha: f64,
     threshold: f64,
     hop_limit: i32,
+    extra_collections: Option<&[&str]>,
 ) -> Vec<RetrievalResult> {
     // Resolve embedding model
     let iam = IamService::new_with_env(pool.clone());
@@ -742,7 +781,15 @@ pub async fn run_parallel_search_filtered(
         .unwrap_or_default();
     let embed_model = llm_config.resolve_slot("embedding", None, None).model;
 
-    let collections: Vec<String> = DEFAULT_COLLECTIONS.iter().map(|s| s.to_string()).collect();
+    let mut collections: Vec<String> = DEFAULT_COLLECTIONS.iter().map(|s| s.to_string()).collect();
+    if let Some(extras) = extra_collections {
+        for col in extras {
+            let s = col.to_string();
+            if !collections.contains(&s) {
+                collections.push(s);
+            }
+        }
+    }
 
     // Stage 1: Fire Vector + Graph in parallel
     let (vector_results, graph_results) = tokio::join!(

@@ -641,6 +641,7 @@ pub async fn execute_evaluation_run(
                     params.vector_alpha,
                     params.vector_threshold,
                     params.graph_hops,
+                    None,
                 )
                 .await;
 

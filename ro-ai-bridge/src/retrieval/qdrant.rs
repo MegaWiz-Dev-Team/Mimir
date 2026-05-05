@@ -86,12 +86,28 @@ impl QdrantRetriever {
                     .get("answer")
                     .or_else(|| payload.get("content"))
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        // PrimeKG entity: synthesize content from entity fields
+                        if let (Some(name), Some(etype)) = (
+                            payload.get("name").and_then(|v| v.as_str()),
+                            payload.get("entity_type").and_then(|v| v.as_str()),
+                        ) {
+                            let src = payload.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                            if src.is_empty() {
+                                format!("{} ({})", name, etype)
+                            } else {
+                                format!("{} ({}) [{}]", name, etype, src)
+                            }
+                        } else {
+                            String::new()
+                        }
+                    });
 
                 let title = payload
                     .get("question")
                     .or_else(|| payload.get("title"))
+                    .or_else(|| payload.get("name"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("Unknown")
                     .to_string();

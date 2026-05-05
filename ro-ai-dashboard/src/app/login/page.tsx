@@ -73,8 +73,9 @@ export default function LoginPage() {
                 const { challenge: codeChallenge, method } = await generateCodeChallenge(codeVerifier);
                 const state = generateState();
 
-                sessionStorage.setItem("oidc_code_verifier", codeVerifier);
-                sessionStorage.setItem("oidc_state", state);
+                // Use cookies instead of sessionStorage — survives tab switches and cross-origin redirects
+                document.cookie = `oidc_code_verifier=${codeVerifier}; path=/; max-age=600; SameSite=Lax`;
+                document.cookie = `oidc_state=${state}; path=/; max-age=600; SameSite=Lax`;
                 
                 let issuer = ssoConfig.issuer || YGGDRASIL_ISSUER_FALLBACK;
                 if (issuer.includes("localhost:8085")) {

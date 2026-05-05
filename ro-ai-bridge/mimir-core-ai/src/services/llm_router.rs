@@ -371,7 +371,7 @@ impl LlmRouter {
         match provider {
             "gemini" | "google" => self.config.google_api_key.clone(),
             "openai" => self.config.openai_api_key.clone(),
-            // OpenRouter, Azure etc. — could be added to LlmConfig in the future
+            "azure" | "azure_openai" => self.config.azure_api_key.clone(),
             _ => None,
         }
     }

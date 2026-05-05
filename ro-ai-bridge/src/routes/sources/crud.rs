@@ -18,10 +18,14 @@ pub(crate) async fn list_sources(
 ) -> Result<Json<Vec<DataSource>>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
-    let sources = sqlx::query_as::<_, DataSource>("SELECT * FROM data_sources WHERE tenant_id = ?")
-        .bind(tenant_id)
-        .fetch_all(&pool)
-        .await
+    // Include global sources (PrimeKG, HealthBench, etc.) alongside tenant-specific ones.
+    let sources = sqlx::query_as::<_, DataSource>(
+        "SELECT * FROM data_sources WHERE tenant_id = ? OR tenant_id = '__global__'
+         ORDER BY tenant_id = '__global__' DESC, name",
+    )
+    .bind(tenant_id)
+    .fetch_all(&pool)
+    .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

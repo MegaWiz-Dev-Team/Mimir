@@ -86,6 +86,39 @@ pub struct TypeCount {
     pub count: u64,
 }
 
+/// A PrimeKG node fetched for embedding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimeKGNode {
+    pub entity_index: i64,
+    pub name: String,
+    pub entity_type: String,
+    pub source: Option<String>,
+}
+
+impl PrimeKGNode {
+    /// Format as embeddable text: "Metformin (Drug) [DrugBank]"
+    pub fn to_embed_text(&self) -> String {
+        match &self.source {
+            Some(src) if !src.is_empty() => {
+                format!("{} ({}) [{}]", self.name, self.entity_type, src)
+            }
+            _ => format!("{} ({})", self.name, self.entity_type),
+        }
+    }
+}
+
+/// A neighbor returned from PrimeKG graph traversal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimeKGNeighbor {
+    pub source_name: String,
+    pub source_type: String,
+    pub neighbor_index: i64,
+    pub neighbor_name: String,
+    pub neighbor_type: String,
+    pub relation_type: String,
+    pub direction: String,
+}
+
 /// Path result between two entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathResult {
@@ -147,18 +180,22 @@ pub fn build_upsert_entity_cypher() -> &'static str {
 pub fn build_upsert_relation_cypher() -> &'static str {
     "MATCH (a:Entity {name: $from_name, tenant_id: $tenant_id}) \
      MATCH (b:Entity {name: $to_name, tenant_id: $tenant_id}) \
-     MERGE (a)-[r:RELATES_TO {relation_type: $relation_type}]->(b) \
+     MERGE (a)-[r:RELATES_TO {relation_type: $relation_type, tenant_id: $tenant_id}]->(b) \
      ON CREATE SET r.properties = $properties, r.source_id = $source_id, r.created_at = datetime() \
      ON MATCH SET r.properties = $properties \
      RETURN elementId(r) AS rel_id"
 }
 
-/// Build Cypher for searching entities by text.
+/// Build Cypher for searching entities by text (tenant + global PrimeKG).
 pub fn build_search_entities_cypher() -> &'static str {
     "MATCH (n:Entity) \
      WHERE n.tenant_id = $tenant_id AND (toLower(n.name) CONTAINS toLower($query) OR toLower(n.entity_type) CONTAINS toLower($query)) \
      RETURN n.name AS name, n.entity_type AS entity_type, n.properties AS properties, elementId(n) AS node_id \
-     ORDER BY n.name \
+     UNION \
+     MATCH (n:PrimeKG) \
+     WHERE toLower(n.name) CONTAINS toLower($query) \
+     RETURN n.name AS name, n.type AS entity_type, null AS properties, elementId(n) AS node_id \
+     ORDER BY name \
      LIMIT $limit"
 }
 
@@ -170,7 +207,7 @@ pub fn build_find_paths_cypher() -> &'static str {
      RETURN nodes(p) AS nodes, relationships(p) AS rels"
 }
 
-/// Build Cypher for getting neighbors of an entity.
+/// Build Cypher for getting neighbors of an entity (tenant graph + PrimeKG via SAME_AS).
 pub fn build_get_neighbors_cypher(depth: u32) -> String {
     let max_depth = depth.min(5); // Cap at 5 for safety
     format!(
@@ -178,6 +215,9 @@ pub fn build_get_neighbors_cypher(depth: u32) -> String {
          WHERE m.tenant_id = $tenant_id \
          WITH DISTINCT m, r \
          RETURN m.name AS name, m.entity_type AS entity_type, m.properties AS properties \
+         UNION \
+         MATCH (n:Entity {{name: $entity_name, tenant_id: $tenant_id}})-[:SAME_AS]->(p:PrimeKG)-[r]-(neighbor:PrimeKG) \
+         RETURN neighbor.name AS name, neighbor.type AS entity_type, null AS properties \
          LIMIT $limit",
         max_depth
     )
@@ -214,11 +254,167 @@ pub fn build_visualization_cypher() -> &'static str {
             collect(DISTINCT {from: n.name, to: m.name, type: r.relation_type, id: elementId(r)}) AS edges"
 }
 
+/// Build Cypher for God Nodes (entities with highest degree).
+pub fn build_god_nodes_cypher() -> &'static str {
+    "MATCH (n:Entity {tenant_id: $tenant_id}) \
+     WITH n, size((n)--()) AS degree \
+     WHERE degree > 0 \
+     RETURN n.name AS name, n.entity_type AS entity_type, degree AS degree_count \
+     ORDER BY degree_count DESC \
+     LIMIT $limit"
+}
+
+/// Build Cypher for Surprising Connections (edges crossing source document boundaries).
+pub fn build_surprising_connections_cypher() -> &'static str {
+    "MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity) \
+     WHERE r.tenant_id = $tenant_id \
+       AND a.source_id IS NOT NULL AND b.source_id IS NOT NULL \
+       AND a.source_id <> b.source_id \
+     RETURN a.name AS from_name, b.name AS to_name, r.relation_type, \
+            a.source_id AS from_source_id, b.source_id AS to_source_id \
+     LIMIT $limit"
+}
+
+/// Build Cypher for full-text entity search via Lucene index (tenant + global PrimeKG).
+pub fn build_fulltext_search_cypher() -> &'static str {
+    "CALL db.index.fulltext.queryNodes('entity_name_ft', $query) \
+     YIELD node, score \
+     WHERE node.tenant_id = $tenant_id \
+     RETURN node.name AS name, node.entity_type AS entity_type, \
+            node.properties AS properties, score \
+     UNION \
+     CALL db.index.fulltext.queryNodes('primekg_name_ft', $query) \
+     YIELD node, score \
+     RETURN node.name AS name, node.type AS entity_type, \
+            null AS properties, score \
+     ORDER BY score DESC \
+     LIMIT $limit"
+}
+
+/// Build Cypher for 2-hop neighbor expansion (outgoing + incoming).
+pub fn build_expand_neighbors_cypher() -> &'static str {
+    "MATCH (root:Entity {name: $entity_name, tenant_id: $tenant_id}) \
+     MATCH (root)-[r1:RELATES_TO]->(n1:Entity) \
+     WHERE r1.tenant_id = $tenant_id AND n1.tenant_id = $tenant_id \
+     RETURN n1.name AS name, n1.entity_type AS entity_type, \
+            r1.relation_type AS relation_type, 1 AS hop, 'outgoing' AS direction \
+     UNION ALL \
+     MATCH (root:Entity {name: $entity_name, tenant_id: $tenant_id}) \
+     MATCH (root)-[r1:RELATES_TO]->(mid:Entity)-[r2:RELATES_TO]->(n2:Entity) \
+     WHERE r1.tenant_id = $tenant_id AND mid.tenant_id = $tenant_id \
+       AND r2.tenant_id = $tenant_id AND n2.tenant_id = $tenant_id \
+     RETURN n2.name AS name, n2.entity_type AS entity_type, \
+            (r1.relation_type + ' -> ' + r2.relation_type) AS relation_type, \
+            2 AS hop, 'outgoing_2hop' AS direction \
+     UNION ALL \
+     MATCH (root:Entity {name: $entity_name, tenant_id: $tenant_id}) \
+     MATCH (root)<-[r1:RELATES_TO]-(n1:Entity) \
+     WHERE r1.tenant_id = $tenant_id AND n1.tenant_id = $tenant_id \
+     RETURN n1.name AS name, n1.entity_type AS entity_type, \
+            r1.relation_type AS relation_type, 1 AS hop, 'incoming' AS direction \
+     UNION ALL \
+     MATCH (root:Entity {name: $entity_name, tenant_id: $tenant_id}) \
+     MATCH (root)<-[r1:RELATES_TO]-(mid:Entity)<-[r2:RELATES_TO]-(n2:Entity) \
+     WHERE r1.tenant_id = $tenant_id AND mid.tenant_id = $tenant_id \
+       AND r2.tenant_id = $tenant_id AND n2.tenant_id = $tenant_id \
+     RETURN n2.name AS name, n2.entity_type AS entity_type, \
+            (r2.relation_type + ' -> ' + r1.relation_type) AS relation_type, \
+            2 AS hop, 'incoming_2hop' AS direction \
+     LIMIT $limit"
+}
+
+/// Build Cypher for paginated entity listing with optional filters.
+pub fn build_list_entities_cypher(has_query: bool, has_type: bool) -> String {
+    let mut conds = vec!["n.tenant_id = $tenant_id".to_string()];
+    if has_query {
+        conds.push("toLower(n.name) CONTAINS toLower($query)".to_string());
+    }
+    if has_type {
+        conds.push("n.entity_type = $entity_type".to_string());
+    }
+    format!(
+        "MATCH (n:Entity) WHERE {} \
+         RETURN n.name AS name, n.entity_type AS entity_type, n.properties AS properties, \
+                n.source_id AS source_id, n.chunk_id AS chunk_id, elementId(n) AS node_id \
+         ORDER BY n.name SKIP $offset LIMIT $limit",
+        conds.join(" AND ")
+    )
+}
+
+/// Build Cypher for counting entities with optional filters.
+pub fn build_count_entities_cypher(has_query: bool, has_type: bool) -> String {
+    let mut conds = vec!["n.tenant_id = $tenant_id".to_string()];
+    if has_query {
+        conds.push("toLower(n.name) CONTAINS toLower($query)".to_string());
+    }
+    if has_type {
+        conds.push("n.entity_type = $entity_type".to_string());
+    }
+    format!("MATCH (n:Entity) WHERE {} RETURN count(n) AS total", conds.join(" AND "))
+}
+
+/// Build Cypher to search PrimeKG nodes by name substring.
+pub fn build_primekg_search_cypher() -> &'static str {
+    "MATCH (n:PrimeKG) WHERE toLower(n.name) CONTAINS toLower($query) \
+     RETURN n.name AS name, n.type AS entity_type, elementId(n) AS node_id \
+     ORDER BY n.name LIMIT $limit"
+}
+
+/// Build Cypher to count PrimeKG nodes matching a name query.
+pub fn build_primekg_count_cypher() -> &'static str {
+    "MATCH (n:PrimeKG) WHERE toLower(n.name) CONTAINS toLower($query) RETURN count(n) AS total"
+}
+
+/// Build Cypher for single entity lookup by name.
+pub fn build_get_entity_by_name_cypher() -> &'static str {
+    "MATCH (n:Entity {name: $name, tenant_id: $tenant_id}) \
+     RETURN n.name AS name, n.entity_type AS entity_type, \
+            n.source_id AS source_id, elementId(n) AS node_id \
+     LIMIT 1"
+}
+
+/// Build Cypher for visualization data — returns one row per node, edge data optional.
+pub fn build_visualization_data_cypher(has_type: bool) -> String {
+    let type_filter = if has_type {
+        " AND n.entity_type = $entity_type"
+    } else {
+        ""
+    };
+    format!(
+        "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id{} \
+         WITH n LIMIT $limit \
+         WITH collect(n) AS visible \
+         UNWIND visible AS n \
+         OPTIONAL MATCH (n)-[r:RELATES_TO]->(m:Entity) WHERE m IN visible \
+         RETURN n.name AS name, n.entity_type AS entity_type, elementId(n) AS node_id, \
+                m.name AS to_name, r.relation_type AS rel_type, elementId(r) AS rel_id",
+        type_filter
+    )
+}
+
+/// Build Cypher for 1-hop path between two entities.
+pub fn build_direct_path_cypher() -> &'static str {
+    "MATCH (a:Entity {name: $from_name, tenant_id: $tenant_id})-[r:RELATES_TO]->(b:Entity {name: $to_name, tenant_id: $tenant_id}) \
+     RETURN a.name AS from_name, b.name AS to_name, r.relation_type AS rel_type \
+     UNION \
+     MATCH (a:Entity {name: $to_name, tenant_id: $tenant_id})-[r:RELATES_TO]->(b:Entity {name: $from_name, tenant_id: $tenant_id}) \
+     RETURN a.name AS from_name, b.name AS to_name, r.relation_type AS rel_type \
+     LIMIT 5"
+}
+
+/// Build Cypher for 2-hop path between two entities.
+pub fn build_two_hop_path_cypher() -> &'static str {
+    "MATCH (a:Entity {name: $from_name, tenant_id: $tenant_id})-[r1:RELATES_TO]->(mid:Entity)-[r2:RELATES_TO]->(b:Entity {name: $to_name, tenant_id: $tenant_id}) \
+     WHERE mid.tenant_id = $tenant_id \
+     RETURN a.name AS from_name, mid.name AS mid_name, b.name AS to_name, \
+            r1.relation_type AS rel1_type, r2.relation_type AS rel2_type \
+     LIMIT 5"
+}
+
 /// Build Cypher for PrimeKG Drug-Disease exploration.
 pub fn build_primekg_cypher() -> &'static str {
-    "MATCH (d1:Drug)-[r]-(d2:Disease) \
-     WHERE (toLower(d1.name) CONTAINS toLower($name) OR toLower(d2.name) CONTAINS toLower($name)) \
-     AND d1.tenant_id = $tenant_id AND d2.tenant_id = $tenant_id \
+    "MATCH (d1:PrimeKG:Drug)-[r]-(d2:PrimeKG:Disease) \
+     WHERE toLower(d1.name) CONTAINS toLower($name) OR toLower(d2.name) CONTAINS toLower($name) \
      RETURN d1.name AS drug, type(r) AS relation_type, d2.name AS disease \
      LIMIT $limit"
 }
@@ -464,6 +660,297 @@ impl Neo4jService {
         }
     }
 
+    /// Look up a single entity by name.
+    pub async fn get_entity_by_name(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> Result<Option<GraphEntity>> {
+        let query = neo4rs::query(build_get_entity_by_name_cypher())
+            .param("name", name)
+            .param("tenant_id", tenant_id);
+
+        let mut result = self.graph.execute(query).await?;
+        if let Some(row) = result.next().await? {
+            let src: i64 = row.get("source_id").unwrap_or(-1);
+            Ok(Some(GraphEntity {
+                id: None,
+                name: row.get("name").unwrap_or_default(),
+                entity_type: row.get("entity_type").unwrap_or_default(),
+                properties: None,
+                tenant_id: tenant_id.to_string(),
+                source_id: if src >= 0 { Some(src) } else { None },
+                chunk_id: None,
+                neo4j_node_id: row.get("node_id").ok(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List entities with optional text search, type filter, and pagination.
+    /// When searching by name with no type filter, also queries PrimeKG global nodes
+    /// and merges results (tenant entities first, then PrimeKG matches).
+    pub async fn list_entities(
+        &self,
+        tenant_id: &str,
+        query: Option<&str>,
+        entity_type: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<GraphEntity>, u64)> {
+        let has_query = query.map(|q| !q.is_empty()).unwrap_or(false);
+        let has_type = entity_type.map(|t| !t.is_empty()).unwrap_or(false);
+
+        let data_cypher = build_list_entities_cypher(has_query, has_type);
+        let count_cypher = build_count_entities_cypher(has_query, has_type);
+
+        let mut data_q = neo4rs::query(&data_cypher)
+            .param("tenant_id", tenant_id)
+            .param("offset", offset)
+            .param("limit", limit);
+        let mut count_q = neo4rs::query(&count_cypher).param("tenant_id", tenant_id);
+
+        if has_query {
+            let q = query.unwrap();
+            data_q = data_q.param("query", q);
+            count_q = count_q.param("query", q);
+        }
+        if has_type {
+            let t = entity_type.unwrap();
+            data_q = data_q.param("entity_type", t);
+            count_q = count_q.param("entity_type", t);
+        }
+
+        let mut result = self.graph.execute(data_q).await?;
+        let mut entities = Vec::new();
+        while let Some(row) = result.next().await? {
+            let props_str: Option<String> = row.get("properties").ok().flatten();
+            let src: i64 = row.get("source_id").unwrap_or(-1);
+            let chunk: i64 = row.get("chunk_id").unwrap_or(-1);
+            entities.push(GraphEntity {
+                id: None,
+                name: row.get("name").unwrap_or_default(),
+                entity_type: row.get("entity_type").unwrap_or_default(),
+                properties: props_str.and_then(|s| serde_json::from_str(&s).ok()),
+                tenant_id: tenant_id.to_string(),
+                source_id: if src >= 0 { Some(src) } else { None },
+                chunk_id: if chunk >= 0 { Some(chunk) } else { None },
+                neo4j_node_id: row.get("node_id").ok(),
+            });
+        }
+
+        let mut count_result = self.graph.execute(count_q).await?;
+        let mut total: u64 = if let Some(row) = count_result.next().await? {
+            row.get::<i64>("total").unwrap_or(0).max(0) as u64
+        } else {
+            0
+        };
+
+        // When searching by name (no type filter), also include PrimeKG global nodes.
+        // Tenant entities take priority; PrimeKG results are appended and total is summed.
+        if has_query && !has_type {
+            let q_str = query.unwrap();
+            let primekg_data_q = neo4rs::query(build_primekg_search_cypher())
+                .param("query", q_str)
+                .param("limit", limit);
+            let primekg_count_q = neo4rs::query(build_primekg_count_cypher())
+                .param("query", q_str);
+
+            if let Ok(mut pk_result) = self.graph.execute(primekg_data_q).await {
+                while let Some(row) = pk_result.next().await.unwrap_or(None) {
+                    entities.push(GraphEntity {
+                        id: None,
+                        name: row.get("name").unwrap_or_default(),
+                        entity_type: row.get("entity_type").unwrap_or_default(),
+                        properties: None,
+                        tenant_id: String::new(),
+                        source_id: None,
+                        chunk_id: None,
+                        neo4j_node_id: row.get("node_id").ok(),
+                    });
+                }
+            }
+            if let Ok(mut pk_cnt) = self.graph.execute(primekg_count_q).await {
+                if let Some(row) = pk_cnt.next().await.unwrap_or(None) {
+                    total += row.get::<i64>("total").unwrap_or(0).max(0) as u64;
+                }
+            }
+        }
+
+        Ok((entities, total))
+    }
+
+    /// Get visualization data (nodes + edges) for a tenant.
+    pub async fn get_visualization_data(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+        entity_type: Option<&str>,
+    ) -> Result<GraphVisualizationData> {
+        let has_type = entity_type.map(|t| !t.is_empty()).unwrap_or(false);
+        let cypher = build_visualization_data_cypher(has_type);
+
+        let mut q = neo4rs::query(&cypher)
+            .param("tenant_id", tenant_id)
+            .param("limit", limit);
+        if has_type {
+            q = q.param("entity_type", entity_type.unwrap());
+        }
+
+        let mut result = self.graph.execute(q).await?;
+
+        let mut nodes: std::collections::HashMap<String, VisualizationNode> =
+            std::collections::HashMap::new();
+        let mut edges: Vec<VisualizationEdge> = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let node_id: String = row.get("node_id").unwrap_or_default();
+            let name: String = row.get("name").unwrap_or_default();
+            let entity_type_str: String = row.get("entity_type").unwrap_or_default();
+
+            nodes.entry(node_id.clone()).or_insert_with(|| VisualizationNode {
+                id: name.clone(),
+                label: name.clone(),
+                entity_type: entity_type_str.clone(),
+                color: entity_type_color(&entity_type_str).to_string(),
+                size: entity_type_size(&entity_type_str),
+            });
+
+            if let Ok(to_name) = row.get::<String>("to_name") {
+                if !to_name.is_empty() {
+                    let rel_type: String = row.get("rel_type").unwrap_or_default();
+                    let rel_id: String = row.get("rel_id").unwrap_or_default();
+                    edges.push(VisualizationEdge {
+                        id: rel_id,
+                        source: name,
+                        target: to_name,
+                        label: rel_type,
+                    });
+                }
+            }
+        }
+
+        Ok(GraphVisualizationData {
+            nodes: nodes.into_values().collect(),
+            edges,
+        })
+    }
+
+    /// Find paths between two named entities (1-hop then 2-hop).
+    pub async fn find_paths_by_name(
+        &self,
+        tenant_id: &str,
+        from_name: &str,
+        to_name: &str,
+    ) -> Result<Vec<PathResult>> {
+        // 1-hop
+        let q1 = neo4rs::query(build_direct_path_cypher())
+            .param("tenant_id", tenant_id)
+            .param("from_name", from_name)
+            .param("to_name", to_name);
+
+        let mut result = self.graph.execute(q1).await?;
+        let mut paths: Vec<PathResult> = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let f: String = row.get("from_name").unwrap_or_default();
+            let t: String = row.get("to_name").unwrap_or_default();
+            let rel: String = row.get("rel_type").unwrap_or_default();
+            paths.push(PathResult {
+                nodes: vec![
+                    PathNode { name: f.clone(), entity_type: String::new() },
+                    PathNode { name: t.clone(), entity_type: String::new() },
+                ],
+                relationships: vec![PathRelationship { from: f, to: t, relation_type: rel }],
+                total_length: 1,
+            });
+        }
+
+        if !paths.is_empty() {
+            return Ok(paths);
+        }
+
+        // 2-hop
+        let q2 = neo4rs::query(build_two_hop_path_cypher())
+            .param("tenant_id", tenant_id)
+            .param("from_name", from_name)
+            .param("to_name", to_name);
+
+        let mut result2 = self.graph.execute(q2).await?;
+        while let Some(row) = result2.next().await? {
+            let f: String = row.get("from_name").unwrap_or_default();
+            let mid: String = row.get("mid_name").unwrap_or_default();
+            let t: String = row.get("to_name").unwrap_or_default();
+            let r1: String = row.get("rel1_type").unwrap_or_default();
+            let r2: String = row.get("rel2_type").unwrap_or_default();
+            paths.push(PathResult {
+                nodes: vec![
+                    PathNode { name: f.clone(), entity_type: String::new() },
+                    PathNode { name: mid.clone(), entity_type: String::new() },
+                    PathNode { name: t.clone(), entity_type: String::new() },
+                ],
+                relationships: vec![
+                    PathRelationship { from: f, to: mid.clone(), relation_type: r1 },
+                    PathRelationship { from: mid, to: t, relation_type: r2 },
+                ],
+                total_length: 2,
+            });
+        }
+
+        Ok(paths)
+    }
+
+    /// Count all PrimeKG nodes (for embed progress tracking).
+    pub async fn count_primekg_nodes(&self) -> Result<i64> {
+        let mut result = self
+            .graph
+            .execute(neo4rs::query("MATCH (n:PrimeKG) RETURN count(n) AS total"))
+            .await?;
+        if let Some(row) = result.next().await? {
+            Ok(row.get::<i64>("total").unwrap_or(0))
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Fetch a batch of PrimeKG nodes for embedding, ordered by entity_index.
+    pub async fn stream_primekg_nodes(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<PrimeKGNode>> {
+        let mut result = self
+            .graph
+            .execute(
+                neo4rs::query(
+                    "MATCH (n:PrimeKG) \
+                     RETURN n.entity_index AS entity_index, n.name AS name, \
+                            n.type AS entity_type, n.source AS source \
+                     ORDER BY n.entity_index \
+                     SKIP $offset LIMIT $limit",
+                )
+                .param("offset", offset)
+                .param("limit", limit),
+            )
+            .await?;
+
+        let mut nodes = Vec::new();
+        while let Some(row) = result.next().await? {
+            let idx: i64 = row.get("entity_index").unwrap_or(0);
+            if idx <= 0 {
+                continue;
+            }
+            nodes.push(PrimeKGNode {
+                entity_index: idx,
+                name: row.get("name").unwrap_or_default(),
+                entity_type: row.get("entity_type").unwrap_or_default(),
+                source: row.get("source").ok().flatten(),
+            });
+        }
+        Ok(nodes)
+    }
+
     /// Search PrimeKG for Drug-Disease relations.
     pub async fn search_primekg(
         &self,
@@ -501,6 +988,156 @@ impl Neo4jService {
         }
 
         Ok(relations)
+    }
+
+    /// Get God Nodes (highest degree entities) for a tenant.
+    pub async fn get_god_nodes(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, String, i64)>> {
+        let query = neo4rs::query(build_god_nodes_cypher())
+            .param("tenant_id", tenant_id)
+            .param("limit", limit);
+
+        let mut result = self.graph.execute(query).await?;
+        let mut rows = Vec::new();
+        while let Some(row) = result.next().await? {
+            let name: String = row.get("name").unwrap_or_default();
+            let entity_type: String = row.get("entity_type").unwrap_or_default();
+            let degree: i64 = row.get("degree_count").unwrap_or(0);
+            rows.push((name, entity_type, degree));
+        }
+        Ok(rows)
+    }
+
+    /// Get Surprising Connections (edges crossing source document boundaries).
+    pub async fn get_surprising_connections(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, String, String, i64, i64)>> {
+        let query = neo4rs::query(build_surprising_connections_cypher())
+            .param("tenant_id", tenant_id)
+            .param("limit", limit);
+
+        let mut result = self.graph.execute(query).await?;
+        let mut rows = Vec::new();
+        while let Some(row) = result.next().await? {
+            let from_name: String = row.get("from_name").unwrap_or_default();
+            let to_name: String = row.get("to_name").unwrap_or_default();
+            let rel_type: String = row.get("relation_type").unwrap_or_default();
+            let from_src: i64 = row.get("from_source_id").unwrap_or(-1);
+            let to_src: i64 = row.get("to_source_id").unwrap_or(-1);
+            rows.push((from_name, to_name, rel_type, from_src, to_src));
+        }
+        Ok(rows)
+    }
+
+    /// Full-text entity search using the Lucene index.
+    /// Returns (name, entity_type, properties_json) tuples ordered by relevance.
+    /// Falls back to CONTAINS search if FTS returns no results.
+    pub async fn search_entities_ft(
+        &self,
+        tenant_id: &str,
+        query_text: &str,
+        limit: u32,
+    ) -> Result<Vec<(String, String, Option<String>)>> {
+        let query = neo4rs::query(build_fulltext_search_cypher())
+            .param("tenant_id", tenant_id)
+            .param("query", query_text)
+            .param("limit", limit as i64);
+
+        let mut result = self.graph.execute(query).await?;
+        let mut rows = Vec::new();
+        while let Some(row) = result.next().await? {
+            let name: String = row.get("name").unwrap_or_default();
+            let entity_type: String = row.get("entity_type").unwrap_or_default();
+            let props: Option<String> = row.get("properties").ok().flatten();
+            rows.push((name, entity_type, props));
+        }
+
+        if rows.is_empty() {
+            // Fallback: CONTAINS search when FTS yields nothing
+            let fallback = neo4rs::query(build_search_entities_cypher())
+                .param("tenant_id", tenant_id)
+                .param("query", query_text)
+                .param("limit", limit as i64);
+            let mut fb = self.graph.execute(fallback).await?;
+            while let Some(row) = fb.next().await? {
+                let name: String = row.get("name").unwrap_or_default();
+                let entity_type: String = row.get("entity_type").unwrap_or_default();
+                let props: Option<String> = row.get("properties").ok().flatten();
+                rows.push((name, entity_type, props));
+            }
+        }
+
+        Ok(rows)
+    }
+
+    /// Expand 2-hop neighbors for a named entity.
+    /// Returns (name, entity_type, relation_type, hop, direction) tuples.
+    pub async fn expand_neighbors(
+        &self,
+        tenant_id: &str,
+        entity_name: &str,
+        limit: u32,
+    ) -> Result<Vec<(String, String, String, i64, String)>> {
+        let query = neo4rs::query(build_expand_neighbors_cypher())
+            .param("entity_name", entity_name)
+            .param("tenant_id", tenant_id)
+            .param("limit", limit as i64);
+
+        let mut result = self.graph.execute(query).await?;
+        let mut rows = Vec::new();
+        while let Some(row) = result.next().await? {
+            let name: String = row.get("name").unwrap_or_default();
+            let entity_type: String = row.get("entity_type").unwrap_or_default();
+            let relation_type: String = row.get("relation_type").unwrap_or_default();
+            let hop: i64 = row.get("hop").unwrap_or(1);
+            let direction: String = row.get("direction").unwrap_or_default();
+            rows.push((name, entity_type, relation_type, hop, direction));
+        }
+        Ok(rows)
+    }
+
+    /// Get PrimeKG neighbors for a given entity_index.
+    /// Returns (neighbor_name, neighbor_type, relation_type, direction) tuples.
+    /// Used by agents for explicit graph traversal (drug interactions, pathways, etc.)
+    pub async fn get_primekg_neighbors_by_index(
+        &self,
+        entity_index: i64,
+        limit: i64,
+    ) -> Result<Vec<PrimeKGNeighbor>> {
+        let cypher = "\
+            MATCH (n:PrimeKG {entity_index: $entity_index})-[r]-(m:PrimeKG) \
+            RETURN \
+                n.name AS source_name, n.entity_type AS source_type, \
+                m.entity_index AS neighbor_index, m.name AS neighbor_name, m.entity_type AS neighbor_type, \
+                type(r) AS relation_type, \
+                CASE WHEN startNode(r) = n THEN 'outgoing' ELSE 'incoming' END AS direction \
+            LIMIT $limit";
+
+        let query = neo4rs::query(cypher)
+            .param("entity_index", entity_index)
+            .param("limit", limit);
+
+        let mut result = self.graph.execute(query).await.context("PrimeKG neighbor query failed")?;
+        let mut neighbors = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            neighbors.push(PrimeKGNeighbor {
+                source_name: row.get("source_name").unwrap_or_default(),
+                source_type: row.get("source_type").unwrap_or_default(),
+                neighbor_index: row.get("neighbor_index").unwrap_or(-1),
+                neighbor_name: row.get("neighbor_name").unwrap_or_default(),
+                neighbor_type: row.get("neighbor_type").unwrap_or_default(),
+                relation_type: row.get("relation_type").unwrap_or_default(),
+                direction: row.get("direction").unwrap_or_default(),
+            });
+        }
+
+        Ok(neighbors)
     }
 }
 

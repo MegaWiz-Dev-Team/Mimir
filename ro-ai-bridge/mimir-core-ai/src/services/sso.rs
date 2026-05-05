@@ -158,7 +158,9 @@ impl SsoService {
 
         // Perform internal JIT SSO authentication
         let iam_service = IamService::new(self.db.clone(), self.jwt_secret.clone());
-        let (mimir_token, mimir_tenant) = iam_service.login_sso(&user_login, &user_role).await?;
+        let (mimir_token, mimir_tenant, mimir_role) = iam_service.login_sso(&user_login, &user_role).await?;
+
+        tracing::info!("[SSO] Role resolved: zitadel={} → mimir={}", user_role, mimir_role);
 
         Ok(TokenExchangeResponse {
             access_token: mimir_token,
@@ -166,7 +168,7 @@ impl SsoService {
             refresh_token: tokens.refresh_token,
             expires_in: tokens.expires_in,
             token_type: tokens.token_type,
-            user_role,
+            user_role: mimir_role,
             user_name,
             tenant_id: mimir_tenant,
         })

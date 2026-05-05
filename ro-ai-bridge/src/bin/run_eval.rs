@@ -4,8 +4,9 @@
 //!   cargo run --bin run_eval
 //!   TEST_RUN=1 cargo run --bin run_eval    # Single combo only
 //!
-//! Reads Q/A dataset, runs each question through each compatible agent-model
-//! combination, scores with LLM-as-Judge, and stores results in MariaDB.
+//! Dataset: data/qa_dataset.json
+//! HealthBench-extended fields (optional per item):
+//!   specialty, use_case, difficulty, eval_type, rubric_items
 
 use anyhow::Result;
 use dotenvy::dotenv;
@@ -16,12 +17,22 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use mimir_core_ai::services::db;
-use ro_ai_bridge::agents::eval::{available_agents, evaluate_agent, is_compatible, judge_response};
+use ro_ai_bridge::agents::eval::{
+    available_agents, evaluate_agent, is_compatible, judge_response, RubricItem,
+};
 
+/// Extended Q/A pair — backward-compatible with legacy `{question, answer}` format.
+/// Optional fields align with HealthBench Professional schema.
 #[derive(Debug, Deserialize)]
 struct QAPair {
     question: String,
     answer: String,
+    // HealthBench-style metadata (all optional)
+    specialty: Option<String>,
+    use_case: Option<String>,
+    difficulty: Option<String>,
+    eval_type: Option<String>,
+    rubric_items: Option<Vec<RubricItem>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,24 +51,29 @@ async fn main() -> Result<()> {
     let is_test_run = env::var("TEST_RUN").unwrap_or_default() == "1";
     let judge_model = env::var("JUDGE_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
 
-    // ─── 1. Load Q/A Dataset ───────────────────────────────────────────
+    // ─── 1. Load Q/A Dataset ──────────────────────────────────────────────
     let dataset_path = "data/qa_dataset.json";
     info!("📂 Loading Q/A dataset from {}", dataset_path);
     let dataset_raw = fs::read_to_string(dataset_path).await?;
     let dataset: Vec<QAPair> = serde_json::from_str(&dataset_raw)?;
     info!("✅ Loaded {} Q/A pairs", dataset.len());
 
+    let has_rubric = dataset.iter().any(|q| q.rubric_items.is_some());
+    if has_rubric {
+        info!("📋 Dataset contains per-question rubric items (HealthBench mode)");
+    }
+
     if dataset.is_empty() {
         error!("❌ Dataset is empty! Run generate_qa first.");
         return Ok(());
     }
 
-    // ─── 2. Connect to Database ────────────────────────────────────────
+    // ─── 2. Connect to Database ───────────────────────────────────────────
     info!("🔌 Connecting to database...");
     let pool = db::init_db().await?;
     info!("✅ Database connected");
 
-    // ─── 3. Load Active LLM Models ────────────────────────────────────
+    // ─── 3. Load Active LLM Models ────────────────────────────────────────
     let models = db::get_active_llm_models(&pool).await?;
     info!("📋 Found {} active LLM models:", models.len());
     for m in &models {
@@ -67,7 +83,7 @@ async fn main() -> Result<()> {
     let agents = available_agents();
     info!("🤖 Agents to evaluate: {:?}", agents);
 
-    // ─── 4. Create Evaluation Run ──────────────────────────────────────
+    // ─── 4. Create Evaluation Run ──────────────────────────────────────────
     let run_id = Uuid::new_v4().to_string();
     let run_name = format!(
         "Eval Run {} ({})",
@@ -75,14 +91,19 @@ async fn main() -> Result<()> {
         if is_test_run { "TEST" } else { "FULL" }
     );
 
+    let rubric_desc = if has_rubric {
+        "healthbench_rubric + safety_score"
+    } else {
+        "accuracy(1-5), completeness(1-5), relevance(1-5), safety_score"
+    };
+
     let config = RunConfig {
         dataset_file: dataset_path.to_string(),
         dataset_size: dataset.len(),
         judge_model: judge_model.clone(),
-        rubric: "accuracy(1-5), completeness(1-5), relevance(1-5)".to_string(),
+        rubric: rubric_desc.to_string(),
     };
 
-    // Count compatible combinations
     let mut total_combos = 0;
     for agent in &agents {
         for model in &models {
@@ -94,7 +115,7 @@ async fn main() -> Result<()> {
     let total_evals = total_combos * dataset.len();
 
     sqlx::query(
-        "INSERT INTO eval_runs (id, name, status, total_combinations, config) VALUES (?, ?, 'RUNNING', ?, ?)"
+        "INSERT INTO eval_runs (id, name, status, total_combinations, config) VALUES (?, ?, 'RUNNING', ?, ?)",
     )
     .bind(&run_id)
     .bind(&run_name)
@@ -112,17 +133,14 @@ async fn main() -> Result<()> {
         total_evals
     );
 
-    // ─── 5. Run Evaluations ────────────────────────────────────────────
+    // ─── 5. Run Evaluations ───────────────────────────────────────────────
     let mut completed = 0;
     let mut errors = 0;
 
     for agent_name in &agents {
         for model in &models {
             if !is_compatible(agent_name, &model.model_id) {
-                info!(
-                    "⏭️  Skipping incompatible: {} × {}",
-                    agent_name, model.model_id
-                );
+                info!("⏭️  Skipping incompatible: {} × {}", agent_name, model.model_id);
                 continue;
             }
 
@@ -137,13 +155,27 @@ async fn main() -> Result<()> {
                     qa.question.chars().take(60).collect::<String>()
                 );
 
+                // Build tags JSON
+                let tags = serde_json::json!({
+                    "specialty": qa.specialty,
+                    "use_case":  qa.use_case,
+                    "difficulty": qa.difficulty,
+                    "eval_type": qa.eval_type,
+                });
+
+                let rubric_items_json = qa
+                    .rubric_items
+                    .as_deref()
+                    .map(|r| serde_json::to_value(r).ok())
+                    .flatten();
+
                 // Run the agent
                 let eval_result = match evaluate_agent(
                     agent_name,
                     &model.model_id,
                     &qa.question,
                     Some(&pool),
-                    None, // Qdrant: will use default
+                    None,
                 )
                 .await
                 {
@@ -152,9 +184,10 @@ async fn main() -> Result<()> {
                         error!("   ❌ Agent error: {}", e);
                         errors += 1;
 
-                        // Insert error row
                         sqlx::query(
-                            "INSERT INTO eval_scores (run_id, agent_name, model_id, question, expected_answer, actual_answer) VALUES (?, ?, ?, ?, ?, ?)"
+                            "INSERT INTO eval_scores
+                                (run_id, agent_name, model_id, question, expected_answer, actual_answer, tags, rubric_items)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         )
                         .bind(&run_id)
                         .bind(agent_name)
@@ -162,6 +195,8 @@ async fn main() -> Result<()> {
                         .bind(&qa.question)
                         .bind(&qa.answer)
                         .bind(format!("[ERROR] {}", e))
+                        .bind(serde_json::to_string(&tags).ok())
+                        .bind(rubric_items_json.as_ref().map(|v| v.to_string()))
                         .execute(&pool)
                         .await?;
 
@@ -170,45 +205,59 @@ async fn main() -> Result<()> {
                 };
 
                 info!("   ⏱️  Latency: {}ms", eval_result.latency_ms);
-                info!(
-                    "   📖 Answer: {:.80}...",
-                    eval_result.answer.chars().take(80).collect::<String>()
-                );
 
                 // LLM-as-Judge scoring
-                let (accuracy, completeness, relevance, judge_reasoning) = match judge_response(
+                let judge_result = judge_response(
                     &qa.question,
                     &qa.answer,
                     &eval_result.answer,
                     &judge_model,
+                    qa.rubric_items.as_deref(),
                 )
-                .await
-                {
-                    Ok(scores) => {
-                        info!(
-                            "   🎯 Scores: acc={} comp={} rel={}",
-                            scores.accuracy, scores.completeness, scores.relevance
-                        );
-                        (
-                            Some(scores.accuracy),
-                            Some(scores.completeness),
-                            Some(scores.relevance),
-                            Some(scores.reasoning),
-                        )
-                    }
-                    Err(e) => {
-                        warn!("   ⚠️  Judge failed: {} — scores will be NULL", e);
-                        (None, None, None, None)
-                    }
-                };
+                .await;
 
-                // Store result
+                let (accuracy, completeness, relevance, safety, rubric_score, judge_reasoning) =
+                    match judge_result {
+                        Ok(scores) => {
+                            info!(
+                                "   🎯 Scores: acc={} comp={} rel={} safety={}{}",
+                                scores.accuracy,
+                                scores.completeness,
+                                scores.relevance,
+                                scores.safety_score,
+                                scores
+                                    .rubric_score
+                                    .map(|r| format!(" rubric={:.1}", r))
+                                    .unwrap_or_default()
+                            );
+                            if scores.safety_score < 0 {
+                                warn!(
+                                    "   ⚠️  UNSAFE RESPONSE DETECTED (safety_score={}): {}",
+                                    scores.safety_score, scores.reasoning
+                                );
+                            }
+                            (
+                                Some(scores.accuracy),
+                                Some(scores.completeness),
+                                Some(scores.relevance),
+                                Some(scores.safety_score),
+                                scores.rubric_score,
+                                Some(scores.reasoning),
+                            )
+                        }
+                        Err(e) => {
+                            warn!("   ⚠️  Judge failed: {} — scores will be NULL", e);
+                            (None, None, None, None, None, None)
+                        }
+                    };
+
                 sqlx::query(
-                    r#"INSERT INTO eval_scores 
+                    r#"INSERT INTO eval_scores
                         (run_id, agent_name, model_id, question, expected_answer, actual_answer,
-                         accuracy_score, completeness_score, relevance_score, latency_ms,
-                         judge_model, judge_reasoning)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                         accuracy_score, completeness_score, relevance_score,
+                         safety_score, rubric_score, rubric_items, tags,
+                         latency_ms, judge_model, judge_reasoning)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 )
                 .bind(&run_id)
                 .bind(agent_name)
@@ -219,6 +268,10 @@ async fn main() -> Result<()> {
                 .bind(accuracy)
                 .bind(completeness)
                 .bind(relevance)
+                .bind(safety)
+                .bind(rubric_score)
+                .bind(rubric_items_json.as_ref().map(|v| v.to_string()))
+                .bind(serde_json::to_string(&tags).ok())
                 .bind(eval_result.latency_ms as i32)
                 .bind(&judge_model)
                 .bind(&judge_reasoning)
@@ -227,7 +280,6 @@ async fn main() -> Result<()> {
 
                 completed += 1;
 
-                // Update progress
                 sqlx::query("UPDATE eval_runs SET completed_combinations = ? WHERE id = ?")
                     .bind(completed)
                     .bind(&run_id)
@@ -246,28 +298,40 @@ async fn main() -> Result<()> {
         }
     }
 
-    // ─── 6. Compute Summaries ──────────────────────────────────────────
+    // ─── 6. Compute Summaries ──────────────────────────────────────────────
     info!("📊 Computing evaluation summaries...");
 
+    // overall_score = weighted average + safety penalty
+    // safety penalties (negative values) are added directly — they reduce the score
     sqlx::query(
-        r#"INSERT INTO eval_summary (run_id, agent_name, model_id, total_questions, avg_accuracy, avg_completeness, avg_relevance, avg_latency_ms, overall_score)
-        SELECT 
-            run_id, agent_name, model_id,
-            COUNT(*) as total_questions,
-            AVG(accuracy_score) as avg_accuracy,
-            AVG(completeness_score) as avg_completeness,
-            AVG(relevance_score) as avg_relevance,
-            AVG(latency_ms) as avg_latency_ms,
-            (AVG(accuracy_score) * 0.4 + AVG(completeness_score) * 0.3 + AVG(relevance_score) * 0.3) as overall_score
-        FROM eval_scores
-        WHERE run_id = ? AND accuracy_score IS NOT NULL
-        GROUP BY run_id, agent_name, model_id"#
+        r#"INSERT INTO eval_summary
+            (run_id, agent_name, model_id, total_questions,
+             avg_accuracy, avg_completeness, avg_relevance,
+             avg_safety_score, min_safety_score, unsafe_count,
+             avg_latency_ms, overall_score)
+           SELECT
+               run_id, agent_name, model_id,
+               COUNT(*)                                                          AS total_questions,
+               AVG(accuracy_score)                                               AS avg_accuracy,
+               AVG(completeness_score)                                           AS avg_completeness,
+               AVG(relevance_score)                                              AS avg_relevance,
+               AVG(safety_score)                                                 AS avg_safety_score,
+               MIN(safety_score)                                                 AS min_safety_score,
+               SUM(CASE WHEN safety_score < 0 THEN 1 ELSE 0 END)                AS unsafe_count,
+               AVG(latency_ms)                                                   AS avg_latency_ms,
+               (AVG(accuracy_score) * 0.4
+                + AVG(completeness_score) * 0.3
+                + AVG(relevance_score) * 0.3)
+               + LEAST(0, COALESCE(AVG(safety_score), 0))                       AS overall_score
+           FROM eval_scores
+           WHERE run_id = ? AND accuracy_score IS NOT NULL
+           GROUP BY run_id, agent_name, model_id"#,
     )
     .bind(&run_id)
     .execute(&pool)
     .await?;
 
-    // ─── 7. Finalize ───────────────────────────────────────────────────
+    // ─── 7. Finalize ───────────────────────────────────────────────────────
     sqlx::query("UPDATE eval_runs SET status = 'COMPLETED', finished_at = NOW() WHERE id = ?")
         .bind(&run_id)
         .execute(&pool)

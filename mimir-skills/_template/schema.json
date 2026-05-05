@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mimir.asgard/skills/_template/schema.json",
+  "title": "ToolResult",
+  "description": "Standard input/output contract for all Mimir medical skills",
+  "type": "object",
+  "required": ["tool_name", "status", "data", "sources", "latency_ms"],
+  "properties": {
+    "tool_name": {
+      "type": "string",
+      "description": "Identifier matching the skill directory name"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "error", "partial"],
+      "description": "ok=full result, partial=degraded result, error=failure"
+    },
+    "data": {
+      "type": "object",
+      "description": "Skill-specific output payload — defined in each skill's schema.json"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id":   { "type": "string", "description": "PMID, NCT ID, DrugBank ID, etc." },
+          "type": { "type": "string", "enum": ["pmid", "nct", "drugbank", "cpic", "primekg", "other"] },
+          "url":  { "type": "string", "format": "uri" },
+          "title": { "type": "string" }
+        }
+      }
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error_message": {
+      "type": "string",
+      "description": "Present only when status=error"
+    }
+  },
+  "definitions": {
+    "SkillInput": {
+      "type": "object",
+      "description": "Replace this with skill-specific input schema",
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1 },
+        "filters": { "type": "object" }
+      }
+    }
+  }
+}

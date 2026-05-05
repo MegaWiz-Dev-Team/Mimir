@@ -33,6 +33,7 @@ import {
 
 // Entity type color map (matches backend)
 const ENTITY_COLORS: Record<string, string> = {
+    // Tenant entity types
     Person: "#4A90D9",
     Organization: "#27AE60",
     Location: "#E67E22",
@@ -43,8 +44,21 @@ const ENTITY_COLORS: Record<string, string> = {
     Symptom: "#E91E63",
     Item: "#00BCD4",
     Monster: "#795548",
+    // PrimeKG global types
+    Disease: "#C0392B",
+    GeneProtein: "#2980B9",
+    BiologicalProcess: "#27AE60",
+    Pathway: "#16A085",
+    Anatomy: "#8E44AD",
+    MolecularFunction: "#D4AC0D",
+    CellularComponent: "#CA6F1E",
+    EffectPhenotype: "#CB4335",
+    Exposure: "#7F8C8D",
     Other: "#95A5A6",
 };
+
+const isPrimeKG = (entity: { tenant_id?: string | null; source_id?: number }) =>
+    entity.tenant_id === null || entity.tenant_id === "" || entity.source_id === undefined;
 
 export default function GraphPage() {
     const [stats, setStats] = useState<GraphStats | null>(null);
@@ -251,12 +265,9 @@ export default function GraphPage() {
 
         setSelectedNode(clicked);
         if (clicked) {
-            const entityId = parseInt(clicked.id);
-            if (!isNaN(entityId)) {
-                fetchEntityNeighbors(entityId, 1)
-                    .then((data) => setSelectedNeighbors({ nodes: data.nodes, edges: data.edges }))
-                    .catch(() => setSelectedNeighbors(null));
-            }
+            fetchEntityNeighbors(clicked.id, 1)
+                .then((data) => setSelectedNeighbors({ nodes: data.nodes, edges: data.edges }))
+                .catch(() => setSelectedNeighbors(null));
         } else {
             setSelectedNeighbors(null);
         }
@@ -383,11 +394,16 @@ export default function GraphPage() {
                                             key={entity.id}
                                             className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
                                         >
-                                            <div className="w-2 h-2 rounded-full" style={{ background: entity.color || ENTITY_COLORS[entity.entity_type] || "#95A5A6" }} />
+                                            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: entity.color || ENTITY_COLORS[entity.entity_type] || "#95A5A6" }} />
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-xs font-medium truncate">{entity.name}</div>
                                                 <div className="text-xs text-muted-foreground">{entity.entity_type}</div>
                                             </div>
+                                            {isPrimeKG(entity) && (
+                                                <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                                    PrimeKG
+                                                </span>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
