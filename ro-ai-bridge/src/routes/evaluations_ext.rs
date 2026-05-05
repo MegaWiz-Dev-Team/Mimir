@@ -155,7 +155,7 @@ async fn run_evaluation_batch(
             ) =
                 (&actual_answer, &q.expected_answer)
             {
-                match judge_response(&q.question, expected, answer, &judge_model).await {
+                match judge_response(&q.question, expected, answer, &judge_model, None).await {
                     Ok(scores) => {
                         total_scored += 1;
                         (

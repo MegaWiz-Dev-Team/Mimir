@@ -126,6 +126,10 @@ pub struct AgentChatResponse {
     pub output_tokens: i32,
     pub confidence_score: Option<f64>,
     pub reasoning: Option<String>,
+    /// Wave 3 — full structured trace of retrieval + generation for
+    /// experiment tracking. Captured per item by eval runner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -13,6 +13,7 @@ use mimir_core_ai::middleware::request_id::request_id_middleware;
 use mimir_core_ai::services::cron;
 use mimir_core_ai::services::db;
 use ro_ai_bridge::config::Config;
+use ro_ai_bridge::routes::admin_knowledge::admin_knowledge_routes;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
@@ -151,6 +152,9 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
+        .nest("/api/v1/app-settings", ro_ai_bridge::routes::app_settings::app_settings_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::auto_tune::auto_tune_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::insights::insights_routes())
         .nest("/api/v1/iam", iam_routes())
         .nest("/api/v1/auth", auth_routes())
         .nest("/api/v1/pipeline", pipeline_routes())
@@ -185,6 +189,7 @@ async fn main() {
         .nest("/api/docs", docs_routes())
         // Sprint 17: Knowledge Graph routes
         .nest("/api/v1/graph", graph_routes())
+        .nest("/api/v1/admin/knowledge", admin_knowledge_routes())
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
         .nest("/api/v1/prompts", prompts_routes())

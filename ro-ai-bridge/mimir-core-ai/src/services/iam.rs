@@ -83,7 +83,7 @@ impl IamService {
     }
 
     /// Authenticate a user via SSO (bypassing password). Uses JIT provisioning.
-    pub async fn login_sso(&self, username: &str, role: &str) -> Result<(String, String)> {
+    pub async fn login_sso(&self, username: &str, role: &str) -> Result<(String, String, String)> {
         // 1. Try to find the user
         let user_opt = sqlx::query!(
             "SELECT id FROM users WHERE username = ?",
@@ -138,11 +138,11 @@ impl IamService {
 
         let tenant = tenant_row.ok_or_else(|| anyhow!("User has no assigned tenant in Mimir database"))?;
 
-        // 3. Mint JWT payload using SSO role
-        let final_role = if role == "SuperAdmin" || tenant.role == "admin" { "admin" } else { "viewer" };
+        // 3. Mint JWT payload — prefer Mimir DB role, allow Zitadel SuperAdmin to elevate
+        let final_role = if role == "SuperAdmin" || tenant.role == "admin" { "admin" } else { &tenant.role };
         let token = self.generate_jwt(&user_id, &tenant.tenant_id, final_role)?;
 
-        Ok((token, tenant.tenant_id))
+        Ok((token, tenant.tenant_id, final_role.to_string()))
     }
 
     /// Generate JWT Access Token

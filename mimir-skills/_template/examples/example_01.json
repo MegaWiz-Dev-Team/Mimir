@@ -1,0 +1,13 @@
+{
+  "_comment": "Replace with a real example input/output pair for this skill",
+  "input": {
+    "query": "example query"
+  },
+  "expected_output": {
+    "tool_name": "skill_name",
+    "status": "ok",
+    "data": {},
+    "sources": [],
+    "latency_ms": 120
+  }
+}

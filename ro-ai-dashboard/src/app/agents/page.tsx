@@ -26,12 +26,22 @@ import {
     LlmProvider,
     generateAgent,
     GeneratedAgentDraft,
+    fetchBenchmarkDatasets,
+    fetchEvalRuns,
+    fetchChampion,
+    promoteRun,
+    startEvalRun,
+    autoTuneAgent,
+    AutoTuneResponse,
+    BenchmarkDataset,
+    EvalRunSummary,
+    ChampionRun,
 } from "@/lib/api";
 import {
     Plus, Brain, Bot, Send, Trash2, Edit, Rocket, Copy, Check,
     ChevronLeft, Loader2, Globe, Zap, Database, Wrench, Sparkles,
     ThumbsUp, ThumbsDown, Clock, Hash, X, LayoutGrid, MessageSquare,
-    ExternalLink, Wand2, Save,
+    ExternalLink, Wand2, Save, Dna, Stethoscope, BarChart3, Wand, Crown,
 } from "lucide-react";
 import Link from "next/link";
 import remarkGfm from "remark-gfm";
@@ -75,6 +85,148 @@ export default function AgentStudioPage() {
     const [view, setView] = useState<View>("list");
     const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null);
     const [selectedAgent, setSelectedAgent] = useState<AgentConfig | null>(null);
+
+    // Eval modal state
+    const [evalAgent, setEvalAgent] = useState<AgentConfig | null>(null);
+    const [benchmarks, setBenchmarks] = useState<BenchmarkDataset[]>([]);
+    const [evalRuns, setEvalRuns] = useState<EvalRunSummary[]>([]);
+    const [evalBenchmarkId, setEvalBenchmarkId] = useState<string>("");
+    const [evalMaxItems, setEvalMaxItems] = useState<number>(10);
+    const [evalRunName, setEvalRunName] = useState<string>("");
+    const [evalNotes, setEvalNotes] = useState<string>("");
+    const [evalStarting, setEvalStarting] = useState(false);
+    const [evalStartedRunId, setEvalStartedRunId] = useState<string>("");
+    const [evalError, setEvalError] = useState<string>("");
+
+    const generateRunName = (a: AgentConfig, bench?: BenchmarkDataset) => {
+        const modelTag = (a.model_id || "model").split("/").pop()?.split(":")[0] || "model";
+        const benchTag = (bench?.source || "eval").replace(/[^a-z0-9_-]/gi, "");
+        const ts = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "").slice(2);
+        return `${a.name}__${modelTag}__${benchTag}__${ts}`;
+    };
+
+    const openEvalModal = async (a: AgentConfig) => {
+        setEvalAgent(a);
+        setEvalMaxItems(10);
+        setEvalNotes("");
+        setEvalStartedRunId("");
+        setEvalError("");
+        try {
+            const [bms, runs] = await Promise.all([fetchBenchmarkDatasets(), fetchEvalRuns()]);
+            setBenchmarks(bms);
+            setEvalRuns(runs);
+            const initialBench = bms.length > 0 ? bms[0] : undefined;
+            if (initialBench) setEvalBenchmarkId(initialBench.id);
+            setEvalRunName(generateRunName(a, initialBench));
+        } catch (e) {
+            console.error("Failed to load benchmarks", e);
+        }
+    };
+
+    const handleStartEval = async () => {
+        if (!evalAgent || !evalBenchmarkId) return;
+        setEvalStarting(true);
+        setEvalError("");
+        try {
+            const res = await startEvalRun({
+                tenant_id: evalAgent.tenant_id,
+                agent_names: [evalAgent.name],
+                model_ids: [evalAgent.model_id],
+                question_limit: evalMaxItems,
+                benchmark_dataset_id: evalBenchmarkId,
+                run_name: evalRunName || generateRunName(evalAgent, benchmarks.find(b => b.id === evalBenchmarkId)),
+                notes: evalNotes || undefined,
+            });
+            setEvalStartedRunId(res.run_id);
+            setTimeout(async () => setEvalRuns(await fetchEvalRuns()), 2000);
+        } catch (e: any) {
+            setEvalError(e.message || "Failed to start eval");
+        } finally {
+            setEvalStarting(false);
+        }
+    };
+
+    const recentRunsForAgent = (agentName: string) =>
+        evalRuns.filter(r => (r.name || "").toLowerCase().includes(agentName.toLowerCase())).slice(0, 5);
+
+    // ── Champion tracking (Wave 1) ──────────────────────────────────────
+    const [champions, setChampions] = useState<Record<string, ChampionRun>>({});
+
+    const loadChampionsForAgents = useCallback(async (list: AgentConfig[]) => {
+        const map: Record<string, ChampionRun> = {};
+        await Promise.all(list.map(async a => {
+            try {
+                const c = await fetchChampion(a.name);
+                if (c) map[a.name] = c;
+            } catch {}
+        }));
+        setChampions(map);
+    }, []);
+
+    useEffect(() => {
+        if (agents.length > 0) loadChampionsForAgents(agents);
+    }, [agents, loadChampionsForAgents]);
+
+    const handlePromoteRun = async (runId: string) => {
+        try {
+            await promoteRun(runId);
+            const list = agents;
+            await loadChampionsForAgents(list);
+            const runs = await fetchEvalRuns();
+            setEvalRuns(runs);
+            alert("Run promoted to Champion ✓");
+        } catch (e: any) {
+            alert("Promote failed: " + (e.message || String(e)));
+        }
+    };
+
+    // ── Auto-Tune state ──────────────────────────────────────────────────
+    const [tuneAgent, setTuneAgent] = useState<AgentConfig | null>(null);
+    const [tuneLoading, setTuneLoading] = useState(false);
+    const [tuneResult, setTuneResult] = useState<AutoTuneResponse | null>(null);
+    const [tuneError, setTuneError] = useState<string>("");
+
+    const openTuneModal = async (a: AgentConfig) => {
+        setTuneAgent(a);
+        setTuneResult(null);
+        setTuneError("");
+        setTuneLoading(true);
+        try {
+            const result = await autoTuneAgent(a.id);
+            if (result.error) setTuneError(result.error);
+            else setTuneResult(result);
+        } catch (e: any) {
+            setTuneError(e.message || "Auto-tune failed");
+        } finally {
+            setTuneLoading(false);
+        }
+    };
+
+    const applyTuneSuggestions = async () => {
+        if (!tuneAgent || !tuneResult?.suggestions) return;
+        const s = tuneResult.suggestions;
+        const updates: any = {};
+        if (s.system_prompt) updates.system_prompt = s.system_prompt;
+        if (s.temperature != null) updates.temperature = s.temperature;
+        if (s.max_tokens != null) updates.max_tokens = s.max_tokens;
+        if (s.top_k != null) updates.top_k = s.top_k;
+        if (s.use_rag != null) updates.use_rag = s.use_rag;
+        if (s.use_knowledge_graph != null) updates.use_knowledge_graph = s.use_knowledge_graph;
+        const currentTools: string[] = Array.isArray(tuneAgent.tools) ? (tuneAgent.tools as string[]) : [];
+        const newTools = currentTools
+            .filter(t => !(s.remove_tools || []).includes(t))
+            .concat((s.add_tools || []).filter(t => !currentTools.includes(t)));
+        if (newTools.join(",") !== currentTools.join(",")) updates.tools = newTools;
+
+        try {
+            await updateAgent(tuneAgent.id, updates);
+            await loadAgents();
+            setTuneAgent(null);
+            alert(`Applied ${Object.keys(updates).length} change(s) to ${tuneAgent.name}.`);
+        } catch (e: any) {
+            setTuneError("Apply failed: " + (e.message || String(e)));
+        }
+    };
 
     // Builder form state
     const [formName, setFormName] = useState("");
@@ -384,7 +536,7 @@ export default function AgentStudioPage() {
 
     // ─── Tool options ───────────────────────────────────────────────────────────
 
-    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_search"];
+    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_search", "primekg_search", "clinical_kb_search"];
 
     const toggleTool = (tool: string) => {
         setFormTools(prev =>
@@ -946,7 +1098,15 @@ export default function AgentStudioPage() {
                                                     {(agent.display_name || agent.name).charAt(0).toUpperCase()}
                                                 </div>
                                                 <div>
-                                                    <h3 className="font-semibold text-[15px] leading-tight">{agent.display_name || agent.name}</h3>
+                                                    <h3 className="font-semibold text-[15px] leading-tight flex items-center gap-1.5">
+                                                        {agent.display_name || agent.name}
+                                                        {champions[agent.name] && (
+                                                            <span title={`Champion: ${champions[agent.name].name} · acc captured · cost $${(champions[agent.name].total_cost_usd ?? 0).toFixed(4)}`}
+                                                                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                                <Crown className="w-3 h-3" /> Champion
+                                                            </span>
+                                                        )}
+                                                    </h3>
                                                     <p className="text-xs text-gray-400 mt-0.5">{agent.provider} · {(agent.model_id || '').split('/').pop()}</p>
                                                 </div>
                                             </div>
@@ -984,6 +1144,9 @@ export default function AgentStudioPage() {
                                             <button onClick={() => { loadAgentToForm(agent); setView("builder"); }} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
                                                 <Edit className="w-3.5 h-3.5" /> Edit
                                             </button>
+                                            <button onClick={() => openEvalModal(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-rose-600 px-2.5 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
+                                                <BarChart3 className="w-3.5 h-3.5" /> Evaluate
+                                            </button>
                                             {!agent.is_published && (
                                                 <button onClick={() => handlePublish(agent.id)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-600 px-2.5 py-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
                                                     <Rocket className="w-3.5 h-3.5" /> Publish
@@ -1007,6 +1170,103 @@ export default function AgentStudioPage() {
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+
+                {/* ─── Eval Modal ─────────────────────────────────────────── */}
+                {evalAgent && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEvalAgent(null)}>
+                        <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-zinc-800">
+                                <div className="flex items-center gap-3">
+                                    <BarChart3 className="w-5 h-5 text-rose-600" />
+                                    <h2 className="font-semibold">Evaluate · {evalAgent.display_name || evalAgent.name}</h2>
+                                </div>
+                                <button onClick={() => setEvalAgent(null)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-5">
+                                <div>
+                                    <Label className="text-xs">Benchmark Dataset</Label>
+                                    {benchmarks.length === 0 ? (
+                                        <p className="text-sm text-gray-500 mt-2">No benchmark datasets found. Run <code className="text-xs bg-gray-100 dark:bg-zinc-800 px-1 py-0.5 rounded">scripts/import_healthbench.py</code> to populate.</p>
+                                    ) : (
+                                        <select value={evalBenchmarkId} onChange={e => setEvalBenchmarkId(e.target.value)} className="w-full mt-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm">
+                                            {benchmarks.map(b => (
+                                                <option key={b.id} value={b.id}>{b.name} · {b.total_items} items · {b.source}</option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <Label className="text-xs">Max items to evaluate</Label>
+                                    <Input type="number" value={evalMaxItems} onChange={e => setEvalMaxItems(Math.max(1, Math.min(525, parseInt(e.target.value) || 1)))} min={1} max={525} className="mt-2" />
+                                    <p className="text-xs text-gray-400 mt-1">~9 sec/item via Gemini 3 Flash · 10 items ≈ 90s, 50 ≈ 8min, 525 ≈ 80min</p>
+                                </div>
+
+                                <div className="rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-700 p-3 text-xs">
+                                    <div className="flex items-center justify-between text-gray-600 dark:text-zinc-400">
+                                        <span>Will evaluate model: <code className="font-mono bg-white dark:bg-black/30 px-1.5 py-0.5 rounded">{evalAgent.model_id.split('/').pop()}</code></span>
+                                        <span>(via {evalAgent.provider})</span>
+                                    </div>
+                                </div>
+
+                                {evalStartedRunId && (
+                                    <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3 text-xs">
+                                        <p className="font-semibold text-green-800 dark:text-green-200">✅ Run started: <code className="font-mono">{evalStartedRunId.slice(0, 8)}</code></p>
+                                        <p className="text-green-700 dark:text-green-300 mt-1">Watch progress in <Link href="/evaluations" className="underline">/evaluations</Link></p>
+                                    </div>
+                                )}
+                                {evalError && (
+                                    <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 text-xs text-red-700 dark:text-red-300">
+                                        ❌ {evalError}
+                                    </div>
+                                )}
+
+                                {recentRunsForAgent(evalAgent.name).length > 0 && (
+                                    <div>
+                                        <Label className="text-xs">Recent runs (this agent)</Label>
+                                        <div className="mt-2 space-y-1">
+                                            {recentRunsForAgent(evalAgent.name).map(r => (
+                                                <div key={r.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-zinc-800">
+                                                    <span className="truncate flex-1 flex items-center gap-1.5">
+                                                        {r.is_champion && <Crown className="w-3 h-3 text-amber-500 flex-shrink-0" />}
+                                                        <span className="truncate">{r.name || r.id.slice(0, 8)}</span>
+                                                        {r.total_cost_usd != null && r.total_cost_usd > 0 && (
+                                                            <span className="text-gray-400">· ${r.total_cost_usd.toFixed(4)}</span>
+                                                        )}
+                                                    </span>
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${r.status === "COMPLETED" ? "bg-green-100 text-green-700" : r.status === "RUNNING" ? "bg-blue-100 text-blue-700 animate-pulse" : "bg-gray-100 text-gray-700"}`}>
+                                                        {r.completed_combinations}/{r.total_combinations}
+                                                    </span>
+                                                    {r.status === "COMPLETED" && !r.is_champion && (
+                                                        <button onClick={(e) => { e.preventDefault(); handlePromoteRun(r.id); }}
+                                                            title="Promote this run to Champion"
+                                                            className="text-[10px] text-amber-600 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-1.5 py-0.5 rounded">
+                                                            <Crown className="w-3 h-3 inline" />
+                                                        </button>
+                                                    )}
+                                                    <Link href="/evaluations" className="text-[10px] text-blue-600 hover:underline">View</Link>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="px-6 py-4 border-t border-gray-200 dark:border-zinc-800 flex justify-end gap-2">
+                                <Button variant="outline" onClick={() => setEvalAgent(null)}>Close</Button>
+                                <Link href="/evaluations" className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-zinc-800">
+                                    <ExternalLink className="w-4 h-4" /> View Results
+                                </Link>
+                                <Button onClick={handleStartEval} disabled={evalStarting || benchmarks.length === 0} className="bg-rose-600 hover:bg-rose-700 text-white">
+                                    {evalStarting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting...</> : <><BarChart3 className="w-4 h-4 mr-2" /> Run Evaluation</>}
+                                </Button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
@@ -1399,6 +1659,8 @@ export default function AgentStudioPage() {
                                             {tool === "graph_search" && <Brain className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
                                             {tool === "tree_search" && <LayoutGrid className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
                                             {tool === "memvid_search" && <Clock className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
+                                            {tool === "primekg_search" && <Dna className={`w-5 h-5 ${formTools.includes(tool) ? "text-teal-600" : "text-gray-400"}`} />}
+                                            {tool === "clinical_kb_search" && <Stethoscope className={`w-5 h-5 ${formTools.includes(tool) ? "text-rose-600" : "text-gray-400"}`} />}
                                             <div>
                                                 <span className="text-sm font-medium">{tool}</span>
                                                 <p className="text-xs text-gray-400 mt-1">
@@ -1406,6 +1668,8 @@ export default function AgentStudioPage() {
                                                     {tool === "graph_search" && <span className="text-fuchsia-600 dark:text-fuchsia-400 font-medium">Knowledge Graph Traversal</span>}
                                                     {tool === "tree_search" && <span className="text-emerald-600 dark:text-emerald-400 font-medium">Hierarchical Doc Tree</span>}
                                                     {tool === "memvid_search" && <span className="text-orange-600 dark:text-orange-400 font-medium">Deep Memory Retrieval</span>}
+                                                    {tool === "primekg_search" && <span className="text-teal-600 dark:text-teal-400 font-medium">PrimeKG · 129K Medical Entities</span>}
+                                                    {tool === "clinical_kb_search" && <span className="text-rose-600 dark:text-rose-400 font-medium">Clinical Guidelines · Sleep/ENT/Drug/CPAP</span>}
                                                 </p>
                                             </div>
                                         </div>
@@ -1790,6 +2054,14 @@ export default function AgentStudioPage() {
                     <Button size="sm" variant="outline" className="w-full" onClick={() => { if (selectedAgent) { loadAgentToForm(selectedAgent); setView("builder"); } }}>
                         <Edit className="w-3 h-3 mr-2" /> Edit Agent
                     </Button>
+                    <Button size="sm" variant="outline" className="w-full border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-900/20"
+                        onClick={() => { if (selectedAgent) openEvalModal(selectedAgent); }}>
+                        <BarChart3 className="w-3 h-3 mr-2" /> Evaluate vs Benchmark
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-900/20"
+                        onClick={() => { if (selectedAgent) openTuneModal(selectedAgent); }}>
+                        <Wand className="w-3 h-3 mr-2" /> Auto-Tune (Gemini Pro)
+                    </Button>
                     {selectedAgent && !selectedAgent.is_published && (
                         <Button size="sm" className="w-full bg-green-600 hover:bg-green-700 text-white" onClick={() => handlePublish(selectedAgent.id)}>
                             <Rocket className="w-3 h-3 mr-2" /> Publish
@@ -1833,6 +2105,253 @@ export default function AgentStudioPage() {
                     </details>
                 )}
             </div>
+
+            {/* ─── Eval Modal (detail view) ─────────────────────────────── */}
+            {evalAgent && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEvalAgent(null)}>
+                    <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-zinc-800">
+                            <div className="flex items-center gap-3">
+                                <BarChart3 className="w-5 h-5 text-rose-600" />
+                                <h2 className="font-semibold">Evaluate · {evalAgent.display_name || evalAgent.name}</h2>
+                            </div>
+                            <button onClick={() => setEvalAgent(null)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            <div>
+                                <Label className="text-xs">Benchmark Dataset</Label>
+                                {benchmarks.length === 0 ? (
+                                    <p className="text-sm text-gray-500 mt-2">No benchmark datasets found in tenant <code className="text-xs bg-gray-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{evalAgent.tenant_id}</code>. Run <code className="text-xs bg-gray-100 dark:bg-zinc-800 px-1 py-0.5 rounded">scripts/import_healthbench.py</code> to populate.</p>
+                                ) : (
+                                    <select value={evalBenchmarkId} onChange={e => setEvalBenchmarkId(e.target.value)} className="w-full mt-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm">
+                                        {benchmarks.map(b => (
+                                            <option key={b.id} value={b.id}>{b.name} · {b.total_items} items · {b.source}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label className="text-xs">Max items</Label>
+                                    <Input type="number" value={evalMaxItems} onChange={e => setEvalMaxItems(Math.max(1, Math.min(525, parseInt(e.target.value) || 1)))} min={1} max={525} className="mt-2" />
+                                </div>
+                                <div>
+                                    <Label className="text-xs">Est. duration</Label>
+                                    <div className="mt-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 text-xs text-gray-600 dark:text-zinc-400">
+                                        ~{Math.round(evalMaxItems * 9)} sec ({Math.ceil(evalMaxItems * 9 / 60)} min)
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <Label className="text-xs">Run name <span className="text-gray-400">(editable)</span></Label>
+                                <Input value={evalRunName} onChange={e => setEvalRunName(e.target.value)} className="mt-2 font-mono text-xs" placeholder="agent__model__benchmark__timestamp" />
+                            </div>
+
+                            <div>
+                                <Label className="text-xs">Notes <span className="text-gray-400">(why this experiment? what changed?)</span></Label>
+                                <textarea value={evalNotes} onChange={e => setEvalNotes(e.target.value)} rows={2}
+                                    placeholder='e.g. "Switched from Gemini to MedGemma to test on-device medical model. Same prompt, same RAG."'
+                                    className="mt-2 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm" />
+                            </div>
+
+                            <details className="rounded-lg border border-gray-200 dark:border-zinc-700 p-3">
+                                <summary className="text-xs text-gray-600 dark:text-zinc-400 cursor-pointer font-medium">📊 Experiment snapshot (will be saved with run)</summary>
+                                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                                    <div className="text-gray-500">Agent:</div><div className="font-mono">{evalAgent.name} #{evalAgent.id}</div>
+                                    <div className="text-gray-500">Tenant:</div><div className="font-mono">{evalAgent.tenant_id}</div>
+                                    <div className="text-gray-500">Model:</div><div className="font-mono">{evalAgent.model_id.split('/').pop()}</div>
+                                    <div className="text-gray-500">Provider:</div><div className="font-mono">{evalAgent.provider}</div>
+                                    <div className="text-gray-500">Temperature:</div><div className="font-mono">{evalAgent.temperature ?? 0.7}</div>
+                                    <div className="text-gray-500">Max tokens:</div><div className="font-mono">{evalAgent.max_tokens ?? 2048}</div>
+                                    <div className="text-gray-500">Top-K:</div><div className="font-mono">{evalAgent.top_k ?? 5}</div>
+                                    <div className="text-gray-500">RAG:</div><div className="font-mono">{evalAgent.use_rag ? "on" : "off"}</div>
+                                    <div className="text-gray-500">KG:</div><div className="font-mono">{evalAgent.use_knowledge_graph ? "on" : "off"}</div>
+                                    <div className="text-gray-500">Tools:</div><div className="font-mono break-all">{Array.isArray(evalAgent.tools) ? (evalAgent.tools as string[]).join(', ') : "—"}</div>
+                                </div>
+                            </details>
+
+                            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-200">
+                                <p className="font-semibold mb-1">⚠️ CLI-only trigger (UI trigger coming soon)</p>
+                                <p>Run from the Mimir host:</p>
+                                <pre className="mt-2 bg-white/60 dark:bg-black/30 rounded p-2 text-[11px] overflow-x-auto whitespace-pre-wrap break-all">
+{`AGENT_ID=${evalAgent.id} \\
+AGENT_TENANT_ID=${evalAgent.tenant_id} \\
+TENANT_ID=megacare \\
+BENCHMARK_ID=${evalBenchmarkId} \\
+MAX_ITEMS=${evalMaxItems} \\
+GEMINI_API_KEY=$GEMINI_API_KEY \\
+python3 scripts/run_healthbench_eval.py`}
+                                </pre>
+                            </div>
+
+                            {recentRunsForAgent(evalAgent.name).length > 0 && (
+                                <div>
+                                    <Label className="text-xs">Recent runs (this agent)</Label>
+                                    <div className="mt-2 space-y-1">
+                                        {recentRunsForAgent(evalAgent.name).map(r => (
+                                            <Link key={r.id} href={`/evaluations`} className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-zinc-800 hover:bg-gray-100 dark:hover:bg-zinc-700">
+                                                <span className="truncate">{r.name || r.id.slice(0, 8)}</span>
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${r.status === "COMPLETED" ? "bg-green-100 text-green-700" : r.status === "RUNNING" ? "bg-blue-100 text-blue-700 animate-pulse" : "bg-gray-100 text-gray-700"}`}>
+                                                    {r.completed_combinations}/{r.total_combinations} · {r.status}
+                                                </span>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-gray-200 dark:border-zinc-800 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setEvalAgent(null)}>Close</Button>
+                            <Link href="/evaluations" className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-zinc-800">
+                                <ExternalLink className="w-4 h-4" /> View Results
+                            </Link>
+                            <Button onClick={handleStartEval} disabled={evalStarting || benchmarks.length === 0} className="bg-rose-600 hover:bg-rose-700 text-white">
+                                {evalStarting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting...</> : <><BarChart3 className="w-4 h-4 mr-2" /> Run Evaluation</>}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Auto-Tune Modal ───────────────────────────────────────── */}
+            {tuneAgent && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => !tuneLoading && setTuneAgent(null)}>
+                    <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-zinc-800">
+                            <div className="flex items-center gap-3">
+                                <Wand className="w-5 h-5 text-violet-600" />
+                                <h2 className="font-semibold">Auto-Tune · {tuneAgent.display_name || tuneAgent.name}</h2>
+                            </div>
+                            <button onClick={() => !tuneLoading && setTuneAgent(null)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            {tuneLoading && (
+                                <div className="text-center py-8">
+                                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-violet-600" />
+                                    <p className="mt-3 text-sm text-gray-600 dark:text-zinc-400">Analyzing eval results · calling auto-tune model...</p>
+                                    <p className="mt-1 text-xs text-gray-400">Typically 15-30 seconds</p>
+                                </div>
+                            )}
+                            {tuneError && (
+                                <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300">
+                                    ❌ {tuneError}
+                                </div>
+                            )}
+                            {tuneResult && tuneResult.suggestions && (
+                                <>
+                                    <div className="text-xs text-gray-500 dark:text-zinc-400">
+                                        Analyzed by <code className="font-mono bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">{tuneResult.auto_tune_model}</code> · Run <code className="font-mono">{tuneResult.run_id?.slice(0, 8)}</code>
+                                    </div>
+
+                                    {tuneResult.current_metrics && (
+                                        <div className="rounded-lg bg-gray-50 dark:bg-zinc-800/50 p-3 text-xs grid grid-cols-3 gap-2">
+                                            <div><span className="text-gray-400">Accuracy:</span> <span className="font-mono">{tuneResult.current_metrics.avg_accuracy?.toFixed(2) ?? "—"}/5</span></div>
+                                            <div><span className="text-gray-400">Completeness:</span> <span className="font-mono">{tuneResult.current_metrics.avg_completeness?.toFixed(2) ?? "—"}/5</span></div>
+                                            <div><span className="text-gray-400">Relevance:</span> <span className="font-mono">{tuneResult.current_metrics.avg_relevance?.toFixed(2) ?? "—"}/5</span></div>
+                                            <div><span className="text-gray-400">Safety:</span> <span className="font-mono">{tuneResult.current_metrics.avg_safety_score?.toFixed(2) ?? "—"}</span></div>
+                                            <div><span className="text-gray-400">Unsafe:</span> <span className="font-mono">{tuneResult.current_metrics.unsafe_count ?? 0}</span></div>
+                                            <div><span className="text-gray-400">Latency:</span> <span className="font-mono">{Math.round(tuneResult.current_metrics.avg_latency_ms ?? 0)}ms</span></div>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <Label className="text-xs">Rationale</Label>
+                                        <p className="mt-1 text-sm text-gray-700 dark:text-zinc-300 bg-violet-50 dark:bg-violet-900/10 p-3 rounded-lg">
+                                            {tuneResult.rationale || tuneResult.suggestions.rationale || "—"}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <Label className="text-xs">Proposed Changes</Label>
+                                        <div className="mt-2 space-y-2 text-xs">
+                                            {tuneResult.suggestions.temperature != null && (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded bg-gray-50 dark:bg-zinc-800/50">
+                                                    <span className="text-gray-500 w-32">Temperature</span>
+                                                    <span className="font-mono text-gray-400 line-through">{tuneAgent.temperature ?? 0.7}</span>
+                                                    <span>→</span>
+                                                    <span className="font-mono text-violet-600 font-semibold">{tuneResult.suggestions.temperature}</span>
+                                                </div>
+                                            )}
+                                            {tuneResult.suggestions.top_k != null && (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded bg-gray-50 dark:bg-zinc-800/50">
+                                                    <span className="text-gray-500 w-32">Top-K</span>
+                                                    <span className="font-mono text-gray-400 line-through">{tuneAgent.top_k ?? 5}</span>
+                                                    <span>→</span>
+                                                    <span className="font-mono text-violet-600 font-semibold">{tuneResult.suggestions.top_k}</span>
+                                                </div>
+                                            )}
+                                            {tuneResult.suggestions.max_tokens != null && (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded bg-gray-50 dark:bg-zinc-800/50">
+                                                    <span className="text-gray-500 w-32">Max Tokens</span>
+                                                    <span className="font-mono text-gray-400 line-through">{tuneAgent.max_tokens ?? 2048}</span>
+                                                    <span>→</span>
+                                                    <span className="font-mono text-violet-600 font-semibold">{tuneResult.suggestions.max_tokens}</span>
+                                                </div>
+                                            )}
+                                            {tuneResult.suggestions.use_rag != null && tuneResult.suggestions.use_rag !== tuneAgent.use_rag && (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded bg-gray-50 dark:bg-zinc-800/50">
+                                                    <span className="text-gray-500 w-32">Use RAG</span>
+                                                    <span className="font-mono text-gray-400 line-through">{String(tuneAgent.use_rag)}</span>
+                                                    <span>→</span>
+                                                    <span className="font-mono text-violet-600 font-semibold">{String(tuneResult.suggestions.use_rag)}</span>
+                                                </div>
+                                            )}
+                                            {tuneResult.suggestions.use_knowledge_graph != null && tuneResult.suggestions.use_knowledge_graph !== tuneAgent.use_knowledge_graph && (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded bg-gray-50 dark:bg-zinc-800/50">
+                                                    <span className="text-gray-500 w-32">Use KG</span>
+                                                    <span className="font-mono text-gray-400 line-through">{String(tuneAgent.use_knowledge_graph)}</span>
+                                                    <span>→</span>
+                                                    <span className="font-mono text-violet-600 font-semibold">{String(tuneResult.suggestions.use_knowledge_graph)}</span>
+                                                </div>
+                                            )}
+                                            {(tuneResult.suggestions.add_tools && tuneResult.suggestions.add_tools.length > 0) && (
+                                                <div className="px-3 py-2 rounded bg-green-50 dark:bg-green-900/20"><span className="text-gray-500">Add tools:</span> <code className="font-mono text-green-700 dark:text-green-400">{tuneResult.suggestions.add_tools.join(", ")}</code></div>
+                                            )}
+                                            {(tuneResult.suggestions.remove_tools && tuneResult.suggestions.remove_tools.length > 0) && (
+                                                <div className="px-3 py-2 rounded bg-red-50 dark:bg-red-900/20"><span className="text-gray-500">Remove tools:</span> <code className="font-mono text-red-700 dark:text-red-400">{tuneResult.suggestions.remove_tools.join(", ")}</code></div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {tuneResult.suggestions.system_prompt && (
+                                        <details className="rounded-lg border border-gray-200 dark:border-zinc-700">
+                                            <summary className="px-3 py-2 cursor-pointer text-xs font-medium">📝 New System Prompt (preview)</summary>
+                                            <pre className="px-3 py-2 text-[11px] whitespace-pre-wrap break-words bg-gray-50 dark:bg-zinc-800/50 max-h-60 overflow-y-auto">{tuneResult.suggestions.system_prompt}</pre>
+                                        </details>
+                                    )}
+
+                                    {tuneResult.suggestions.expected_improvements && tuneResult.suggestions.expected_improvements.length > 0 && (
+                                        <div className="text-xs">
+                                            <Label>Expected Improvements</Label>
+                                            <ul className="mt-1 list-disc list-inside text-gray-700 dark:text-zinc-300 space-y-0.5">
+                                                {tuneResult.suggestions.expected_improvements.map((x, i) => (<li key={i}>{x}</li>))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-gray-200 dark:border-zinc-800 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setTuneAgent(null)} disabled={tuneLoading}>Close</Button>
+                            {tuneResult?.suggestions && !tuneError && (
+                                <Button onClick={applyTuneSuggestions} className="bg-violet-600 hover:bg-violet-700 text-white">
+                                    <Save className="w-4 h-4 mr-2" /> Apply All Changes
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

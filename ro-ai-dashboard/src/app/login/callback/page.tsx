@@ -35,14 +35,18 @@ export default function CallbackPage() {
             return;
         }
 
-        // Verify state
-        const savedState = sessionStorage.getItem("oidc_state");
+        // Verify state — read from cookie (fallback: sessionStorage for backward compat)
+        const getCookie = (name: string) => {
+            const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+            return match ? decodeURIComponent(match[1]) : null;
+        };
+        const savedState = getCookie("oidc_state") || sessionStorage.getItem("oidc_state");
         if (state !== savedState) {
             setError("Invalid state parameter — possible CSRF attack");
             return;
         }
 
-        const codeVerifier = sessionStorage.getItem("oidc_code_verifier") || "";
+        const codeVerifier = getCookie("oidc_code_verifier") || sessionStorage.getItem("oidc_code_verifier") || "";
 
         // Exchange code for token via server-side API route
         (async () => {
@@ -89,6 +93,8 @@ export default function CallbackPage() {
                 // Clean up PKCE values
                 sessionStorage.removeItem("oidc_code_verifier");
                 sessionStorage.removeItem("oidc_state");
+                document.cookie = "oidc_code_verifier=; path=/; max-age=0";
+                document.cookie = "oidc_state=; path=/; max-age=0";
 
                 setStatus("Login successful! Redirecting...");
                 router.push("/");

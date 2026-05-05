@@ -9,6 +9,7 @@ pub mod domain;
 pub mod entity_extractor;
 pub mod extraction;
 pub mod feedback;
+pub mod gemini_helper;
 pub mod iam;
 pub mod ingress;
 pub mod link_discovery;

@@ -1,5 +1,6 @@
 use crate::services::db::DbPool;
 use crate::services::llm_router::LlmRouter;
+use crate::services::neo4j::Neo4jService;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -26,8 +27,23 @@ pub struct GraphQuestion {
     pub why: String,
 }
 
-/// Identifies "God Nodes" (Entities with the highest connection count)
+/// Identifies "God Nodes" (Entities with the highest connection count).
+/// Routes to Neo4j when USE_NEO4J_GRAPH=true and neo4j service is available.
 pub async fn get_god_nodes(pool: &DbPool, tenant_id: &str, limit: i64) -> Result<Vec<GodNode>, String> {
+    if std::env::var("USE_NEO4J_GRAPH").as_deref() == Ok("true") {
+        let config = crate::services::neo4j::Neo4jConfig::from_env();
+        if let Some(neo4j) = Neo4jService::try_new(&config).await {
+            let rows = neo4j.get_god_nodes(tenant_id, limit).await
+                .map_err(|e| format!("Neo4j god nodes failed: {}", e))?;
+            return Ok(rows.into_iter().map(|(name, entity_type, degree)| GodNode {
+                entity_id: 0,
+                name,
+                entity_type,
+                degree_count: degree,
+            }).collect());
+        }
+    }
+
     let nodes: Vec<GodNode> = sqlx::query_as(
         r#"
         SELECT
@@ -51,8 +67,24 @@ pub async fn get_god_nodes(pool: &DbPool, tenant_id: &str, limit: i64) -> Result
     Ok(nodes)
 }
 
-/// Identifies "Surprising Connections" (Relations crossing source document boundaries)
+/// Identifies "Surprising Connections" (Relations crossing source document boundaries).
+/// Routes to Neo4j when USE_NEO4J_GRAPH=true and neo4j service is available.
 pub async fn get_surprising_connections(pool: &DbPool, tenant_id: &str, limit: i64) -> Result<Vec<SurprisingConnection>, String> {
+    if std::env::var("USE_NEO4J_GRAPH").as_deref() == Ok("true") {
+        let config = crate::services::neo4j::Neo4jConfig::from_env();
+        if let Some(neo4j) = Neo4jService::try_new(&config).await {
+            let rows = neo4j.get_surprising_connections(tenant_id, limit).await
+                .map_err(|e| format!("Neo4j surprising connections failed: {}", e))?;
+            return Ok(rows.into_iter().map(|(from_name, to_name, relation_type, from_source_id, to_source_id)| SurprisingConnection {
+                from_name,
+                to_name,
+                relation_type,
+                from_source_id,
+                to_source_id,
+            }).collect());
+        }
+    }
+
     let connections: Vec<SurprisingConnection> = sqlx::query_as(
         r#"
         SELECT

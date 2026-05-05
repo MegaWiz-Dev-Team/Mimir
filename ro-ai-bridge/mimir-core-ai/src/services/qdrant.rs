@@ -256,10 +256,21 @@ impl QdrantService {
             self.base_url, collection_name
         );
 
-        let mut must_conditions = vec![
-            json!({ "key": "tenant_id", "match": { "value": tenant_id } }),
-            json!({ "key": "is_active", "match": { "value": true } }),
-        ];
+        // Tenant layer filter: global (tenant_id IS NULL) OR tenant-specific.
+        // Global documents have no tenant_id and no is_active — both conditions are optional for them.
+        let tenant_filter = json!({
+            "should": [
+                { "is_null": { "key": "tenant_id" } },
+                { "key": "tenant_id", "match": { "value": tenant_id } }
+            ]
+        });
+        let active_filter = json!({
+            "should": [
+                { "is_null": { "key": "is_active" } },
+                { "key": "is_active", "match": { "value": true } }
+            ]
+        });
+        let mut must_conditions = vec![tenant_filter, active_filter];
         if let Some(ids) = source_ids {
             if !ids.is_empty() {
                 must_conditions.push(json!({

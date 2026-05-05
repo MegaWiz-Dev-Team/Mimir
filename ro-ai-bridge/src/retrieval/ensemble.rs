@@ -68,7 +68,7 @@ pub fn rerank_results(
         .iter()
         .filter_map(|r| {
             let weight = match r.source_type.as_str() {
-                "vector" => weights.vector,
+                "vector" | "primekg" => weights.vector,
                 "tree" => weights.tree,
                 "graph" => weights.graph,
                 _ => 0.1,
@@ -129,12 +129,12 @@ pub fn rerank_results_rrf(
     const RRF_K: f32 = 60.0; // Standard RRF tuning constant
 
     // Group results by source type and rank within each
-    let source_types = ["vector", "tree", "graph"];
+    let source_types = ["vector", "tree", "graph", "primekg"];
     let mut rrf_scores: HashMap<String, (f32, RetrievalResult)> = HashMap::new();
 
     for src in &source_types {
         let weight = match *src {
-            "vector" => weights.vector,
+            "vector" | "primekg" => weights.vector,
             "tree" => weights.tree,
             "graph" => weights.graph,
             _ => 0.0,
@@ -217,12 +217,14 @@ pub fn source_distribution(results: &[RetrievalResult]) -> Value {
     let mut vector_count = 0;
     let mut tree_count = 0;
     let mut graph_count = 0;
+    let mut primekg_count = 0;
 
     for r in results {
         match r.source_type.as_str() {
             "vector" => vector_count += 1,
             "tree" => tree_count += 1,
             "graph" => graph_count += 1,
+            "primekg" => primekg_count += 1,
             _ => {}
         }
     }
@@ -231,6 +233,7 @@ pub fn source_distribution(results: &[RetrievalResult]) -> Value {
         "vector": vector_count,
         "tree": tree_count,
         "graph": graph_count,
+        "primekg": primekg_count,
         "total": results.len(),
     })
 }
@@ -240,12 +243,14 @@ pub fn determine_mode_used(results: &[RetrievalResult]) -> &'static str {
     let has_vector = results.iter().any(|r| r.source_type == "vector");
     let has_tree = results.iter().any(|r| r.source_type == "tree");
     let has_graph = results.iter().any(|r| r.source_type == "graph");
+    let has_primekg = results.iter().any(|r| r.source_type == "primekg");
 
-    match (has_vector, has_tree, has_graph) {
-        (true, false, false) => "vector",
-        (false, true, false) => "tree",
-        (false, false, true) => "graph",
-        (false, false, false) => "none",
+    match (has_vector, has_tree, has_graph, has_primekg) {
+        (true, false, false, false) => "vector",
+        (false, true, false, false) => "tree",
+        (false, false, true, false) => "graph",
+        (false, false, false, true) => "primekg",
+        (false, false, false, false) => "none",
         _ => "hybrid",
     }
 }

@@ -31,9 +31,17 @@ pub async fn tenant_auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // Read tenant_id from X-Tenant-Id header (same convention as other routes).
+    // Falls back to "default_tenant" if missing — eval routes are admin-scoped.
+    let tenant_id = req.headers()
+        .get("x-tenant-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("default_tenant")
+        .to_string();
+
     req.extensions_mut().insert(TenantContext {
-        user_id: "megacare_admin".to_string(),
-        tenant_id: "megacare".to_string(),
+        user_id: format!("{}_admin", tenant_id),
+        tenant_id,
         role: "admin".to_string(),
     });
 

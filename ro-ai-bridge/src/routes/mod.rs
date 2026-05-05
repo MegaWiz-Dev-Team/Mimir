@@ -1,8 +1,12 @@
+pub mod admin_knowledge;
 pub mod agents;
+pub mod app_settings;
 pub mod ask;
 pub mod assistant;
 pub mod auth;
 pub mod auto_pipeline;
+pub mod auto_tune;
+pub mod insights;
 pub mod backup;
 pub mod budget;
 pub mod chat;

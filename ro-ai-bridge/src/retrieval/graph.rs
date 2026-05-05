@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 use crate::retrieval::qdrant::RetrievalResult;
+use mimir_core_ai::services::neo4j::Neo4jService;
 
 // ── Trait ──────────────────────────────────────────────
 
@@ -244,6 +246,95 @@ impl SqlGraphRetriever {
         }
 
         // Sort by score descending, deduplicate by entity name
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.dedup_by(|a, b| a.entity_name == b.entity_name);
+        results.truncate(limit);
+
+        Ok(results)
+    }
+}
+
+// ── Neo4j-based GraphRetriever ────────────────────────────────────────────────
+
+/// Production graph retriever that queries Neo4j directly via Cypher.
+/// Uses full-text Lucene index for entity search and 2-hop UNION ALL expansion.
+pub struct Neo4jGraphRetriever {
+    neo4j: Arc<Neo4jService>,
+}
+
+impl Neo4jGraphRetriever {
+    pub fn new(neo4j: Arc<Neo4jService>) -> Self {
+        Self { neo4j }
+    }
+}
+
+#[async_trait]
+impl GraphRetriever for Neo4jGraphRetriever {
+    async fn search(
+        &self,
+        question: &str,
+        tenant_id: &str,
+        limit: usize,
+    ) -> Result<Vec<GraphSearchResult>, String> {
+        let terms = extract_search_terms(question);
+        tracing::info!("Neo4j graph search terms: {:?}", terms);
+        if terms.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results = Vec::new();
+
+        for term in &terms {
+            if term.len() < 3 {
+                continue;
+            }
+
+            // FTS query: append * for prefix matching (Lucene syntax)
+            let ft_query = format!("{}*", term);
+            let entities = self
+                .neo4j
+                .search_entities_ft(tenant_id, &ft_query, limit as u32)
+                .await
+                .map_err(|e| format!("Neo4j FTS search failed: {}", e))?;
+
+            tracing::info!("Neo4j entities found: {}", entities.len());
+
+            for (name, entity_type, props_raw) in &entities {
+                let neighbors_raw = self
+                    .neo4j
+                    .expand_neighbors(tenant_id, name, 20)
+                    .await
+                    .unwrap_or_default();
+
+                let neighbors = neighbors_raw
+                    .into_iter()
+                    .map(|(n, et, rt, _hop, dir)| GraphNeighbor {
+                        name: n,
+                        entity_type: et,
+                        relation_type: rt,
+                        direction: dir,
+                    })
+                    .collect();
+
+                let score = compute_match_score(name, term);
+                let properties = props_raw
+                    .as_deref()
+                    .and_then(|p| serde_json::from_str(p).ok());
+
+                results.push(GraphSearchResult {
+                    entity_name: name.clone(),
+                    entity_type: entity_type.clone(),
+                    properties,
+                    neighbors,
+                    score,
+                });
+            }
+        }
+
         results.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
