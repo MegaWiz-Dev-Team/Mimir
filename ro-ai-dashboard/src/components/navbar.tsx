@@ -7,7 +7,7 @@ import Cookies from "js-cookie";
 import {
     LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon,
     Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
-    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree
+    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree, Beaker
 } from "lucide-react";
 import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
 
@@ -182,6 +182,11 @@ export function Navbar() {
             label: "AI",
             icon: Brain,
             items: [
+                // Sprint 39: Mimir Curator — data prep step in AI workflow.
+                // Logical order: Curator (build corpus) → Playground (test retrieval)
+                // → Studio (configure agents). Will move to dedicated "Training"
+                // group when Sprint 39 Phase 2 adds runs/adapters/promotion pages.
+                { name: "Training Curator", href: "/training", icon: Beaker },
                 // { name: "Playground", href: "/playground", icon: Bot },
                 { name: "RAG Playground", href: "/rag-playground", icon: FlaskConical },
                 { name: "Agent Studio", href: "/agents", icon: Brain },
