@@ -37,6 +37,8 @@ pub mod sources;
 pub mod stats;
 pub mod tenant;
 pub mod tenant_query;
+// Sprint 39: Mimir Curator + LoRA training tracking
+pub mod training;
 pub mod vault;
 pub mod vector;
 // Sprint 32: RAG Ensemble Playground (Phase 2)

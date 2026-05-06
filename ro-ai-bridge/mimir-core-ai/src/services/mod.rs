@@ -15,6 +15,7 @@ pub mod ingress;
 pub mod link_discovery;
 pub mod llm_provider;
 pub mod llm_router;
+pub mod hermodr;
 pub mod mcp_client;
 pub mod mcp_server;
 pub mod neo4j;

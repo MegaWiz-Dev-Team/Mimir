@@ -28,6 +28,7 @@ use ro_ai_bridge::routes::cron::{cron_routes, cron_status_routes};
 use ro_ai_bridge::routes::db_connector::db_connector_routes;
 use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::eval::eval_routes;
+use ro_ai_bridge::routes::training::training_routes;
 use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
 use ro_ai_bridge::routes::feedback::feedback_routes;
 use ro_ai_bridge::routes::assistant::assistant_routes;
@@ -152,6 +153,8 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
+        // Sprint 39: Mimir Curator (annotation) + LoRA training tracking
+        .merge(training_routes())
         .nest("/api/v1/app-settings", ro_ai_bridge::routes::app_settings::app_settings_routes())
         .nest("/api/v1", ro_ai_bridge::routes::auto_tune::auto_tune_routes())
         .nest("/api/v1", ro_ai_bridge::routes::insights::insights_routes())
