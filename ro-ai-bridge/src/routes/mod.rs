@@ -39,6 +39,8 @@ pub mod tenant;
 pub mod tenant_query;
 // Sprint 39: Mimir Curator + LoRA training tracking
 pub mod training;
+// Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
+pub mod icd10;
 pub mod vault;
 pub mod vector;
 // Sprint 32: RAG Ensemble Playground (Phase 2)
