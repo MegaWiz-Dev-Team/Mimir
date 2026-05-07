@@ -41,6 +41,8 @@ pub mod tenant_query;
 pub mod training;
 // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
 pub mod icd10;
+// Sprint 47 B-47g: clinician-curated rag_benchmark_items (gold for retrieval metrics)
+pub mod rag_benchmark;
 pub mod vault;
 pub mod vector;
 // Sprint 32: RAG Ensemble Playground (Phase 2)

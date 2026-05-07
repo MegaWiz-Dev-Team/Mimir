@@ -30,6 +30,7 @@ use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::eval::eval_routes;
 use ro_ai_bridge::routes::training::training_routes;
 use ro_ai_bridge::routes::icd10::icd10_routes;
+use ro_ai_bridge::routes::rag_benchmark::rag_benchmark_routes;
 use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
 use ro_ai_bridge::routes::feedback::feedback_routes;
 use ro_ai_bridge::routes::assistant::assistant_routes;
@@ -158,6 +159,8 @@ async fn main() {
         .merge(training_routes())
         // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
         .merge(icd10_routes())
+        // Sprint 47 B-47g: clinician-curated rag_benchmark_items
+        .merge(rag_benchmark_routes())
         .nest("/api/v1/app-settings", ro_ai_bridge::routes::app_settings::app_settings_routes())
         .nest("/api/v1", ro_ai_bridge::routes::auto_tune::auto_tune_routes())
         .nest("/api/v1", ro_ai_bridge::routes::insights::insights_routes())
