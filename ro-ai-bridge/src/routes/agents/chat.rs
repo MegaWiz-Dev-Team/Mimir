@@ -86,18 +86,32 @@ pub(crate) async fn agent_chat(
 
     // 4. Ensemble RAG augmentation (Vector + Tree + Graph + PrimeKG)
     let mut system_prompt = agent.system_prompt.clone();
-    let use_rag = agent.use_rag.unwrap_or(true);
+    let agent_use_rag = agent.use_rag.unwrap_or(true);
     let use_kg = agent.use_knowledge_graph.unwrap_or(false);
     let mut reasoning_msg = None;
     let mut chat_trace: Option<serde_json::Value> = None;
+
+    // Sprint 47 B-47e — counterfactual RAG mode override per-request (used by
+    // eval runner to A/B RAG vs no-RAG and quantify retrieval contribution).
+    // Header: X-RAG-Mode: on | off | random | gold_only (default = `on`).
+    //   on        — normal RAG (agent's configured behavior)
+    //   off       — bypass RAG entirely (fall through to bare LLM)
+    //   random    — retrieve random chunks (paired baseline; not yet impl)
+    //   gold_only — inject only gold chunks from rag_benchmark_items (B-47e.2)
+    let rag_mode_override = headers.get("x-rag-mode")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_else(|| "on".to_string());
+    let rag_mode_off = rag_mode_override == "off";
+    let use_rag = if rag_mode_off { false } else { agent_use_rag };
 
     // Parse tools list — drives optional global knowledge collections
     let agent_tools: Vec<String> = agent.tools
         .as_ref()
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
         .unwrap_or_default();
-    let use_primekg = agent_tools.iter().any(|t| t == "primekg_search");
-    let use_clinical = agent_tools.iter().any(|t| t == "clinical_kb_search");
+    let use_primekg = !rag_mode_off && agent_tools.iter().any(|t| t == "primekg_search");
+    let use_clinical = !rag_mode_off && agent_tools.iter().any(|t| t == "clinical_kb_search");
 
     if use_rag || use_kg || use_primekg || use_clinical {
         use crate::retrieval::EnsembleWeights;

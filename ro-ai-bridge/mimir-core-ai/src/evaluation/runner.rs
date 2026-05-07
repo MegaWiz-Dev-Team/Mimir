@@ -111,6 +111,12 @@ pub struct EvaluatorParams {
     /// Number of replicate answers per item (1..5) for statistical reliability
     #[serde(default)]
     pub replicates: Option<u32>,
+    // ─── Sprint 47 — RAG counterfactual harness (B-47e) ──────────────────────
+    /// Override RAG behavior for this run: "on" (default) | "off" | "random"
+    /// | "gold_only". Lets you A/B normal-RAG vs no-RAG to quantify retrieval
+    /// contribution per question. Header X-RAG-Mode forwarded to chat.rs.
+    #[serde(default)]
+    pub rag_mode: Option<String>,
     // ─── Sprint 37 — Score Multipliers ────────────────────────────────────────
     /// **B-22 self-consistency**: sample N answers per item, then aggregate.
     /// Different from `replicates` — replicates create N independent eval_scores
@@ -477,9 +483,10 @@ async fn run_evaluation_task(
                     } else {
                         None
                     };
+                    let rag_mode_arg: Option<&str> = params.rag_mode.as_deref();
                     for sample_idx in 0..samples_per_item {
                         let (actual_answer, retrieval_trace_json, full_trace, invocation_cost) =
-                            match invoke_agent_via_chat(item_agent_id, &params.tenant_id, &effective_question, per_sample_temp).await {
+                            match invoke_agent_via_chat(item_agent_id, &params.tenant_id, &effective_question, per_sample_temp, rag_mode_arg).await {
                                 Ok(res) => {
                                     let trace = parse_retrieval_trace(&res.raw);
                                     let full = res.raw.get("trace").cloned();
@@ -788,6 +795,7 @@ async fn invoke_agent_via_chat(
     tenant_id: &str,
     question: &str,
     sampling_temperature: Option<f32>, // Sprint 37 B-22 fix
+    rag_mode: Option<&str>,            // Sprint 47 B-47e
 ) -> Result<AgentInvokeResult> {
     let base = std::env::var("MIMIR_INTERNAL_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
@@ -803,6 +811,10 @@ async fn invoke_agent_via_chat(
     // X-Sampling-Temperature and uses it instead of agent's configured temp.
     if let Some(t) = sampling_temperature {
         req = req.header("X-Sampling-Temperature", format!("{:.2}", t));
+    }
+    // Sprint 47 B-47e: counterfactual RAG mode (on|off|random|gold_only).
+    if let Some(m) = rag_mode {
+        req = req.header("X-RAG-Mode", m);
     }
 
     let resp = req
