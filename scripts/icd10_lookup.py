@@ -122,14 +122,88 @@ def search(query: str, mode: str, locale: str, limit: int,
     return mariadb_query(sql)
 
 
+_MEDICAL_ACRONYMS = {
+    # Cardio
+    "STEMI": "ST elevation myocardial infarction",
+    "NSTEMI": "Non ST elevation myocardial infarction",
+    "MI": "myocardial infarction",
+    "AMI": "acute myocardial infarction",
+    "CHF": "congestive heart failure",
+    "CABG": "coronary artery bypass graft",
+    "AFib": "atrial fibrillation",
+    "AF": "atrial fibrillation",
+    "DVT": "deep vein thrombosis",
+    "PE": "pulmonary embolism",
+    "HTN": "hypertension",
+    # Pulm
+    "COPD": "chronic obstructive pulmonary disease",
+    "URTI": "upper respiratory tract infection",
+    "ARDS": "acute respiratory distress syndrome",
+    "PNA": "pneumonia",
+    # Endo / metabolic
+    "T1DM": "type 1 diabetes mellitus",
+    "T2DM": "type 2 diabetes mellitus",
+    "DM": "diabetes mellitus",
+    "DKA": "diabetic ketoacidosis",
+    # Neuro
+    "CVA": "cerebrovascular accident stroke",
+    "TIA": "transient ischemic attack",
+    # Renal
+    "AKI": "acute kidney injury",
+    "CKD": "chronic kidney disease",
+    "ESRD": "end stage renal disease",
+    "UTI": "urinary tract infection",
+    # GI / liver
+    "GERD": "gastroesophageal reflux disease",
+    "IBD": "inflammatory bowel disease",
+    "GIB": "gastrointestinal bleeding",
+    # Pediatrics / OB
+    "RDS": "respiratory distress syndrome",
+    "PROM": "premature rupture of membranes",
+    # Psych
+    "MDD": "major depressive disorder",
+    "GAD": "generalized anxiety disorder",
+    "PTSD": "post traumatic stress disorder",
+    "OCD": "obsessive compulsive disorder",
+}
+
+
+def expand_acronyms(query: str) -> str:
+    """Expand medical acronyms inline — preserves rest of query.
+    'STEMI inferior' → 'ST elevation myocardial infarction inferior'.
+    Case-insensitive token match; preserves original tokens that aren't
+    in the dictionary."""
+    import re as _re
+    tokens = _re.split(r"(\s+)", query)  # keep whitespace
+    expanded = []
+    for t in tokens:
+        # Strip surrounding punctuation for match.
+        m = _re.match(r"^([A-Za-z][A-Za-z0-9]*)([^\w]?)$", t)
+        if m:
+            word, suffix = m.group(1), m.group(2)
+            up = word.upper()
+            if up in _MEDICAL_ACRONYMS:
+                expanded.append(_MEDICAL_ACRONYMS[up] + suffix)
+                continue
+        expanded.append(t)
+    out = "".join(expanded)
+    return out if out != query else query
+
+
 def search_semantic(query: str, limit: int, source_version: str) -> list[dict]:
-    """Qdrant + Ollama nomic-embed semantic search. Returns rows in same
-    shape as MariaDB search() — payload is enriched from Qdrant directly."""
+    """Qdrant + Ollama embedding semantic search. Returns rows in same
+    shape as MariaDB search() — payload is enriched from Qdrant directly.
+
+    Pre-processes query through medical-acronym expansion (STEMI → 'ST
+    elevation myocardial infarction'), which closes the acronym gap that
+    pure embedding can't bridge (BGE-M3 has no clue what STEMI means)."""
     import urllib.request as _ur
-    # Embed query.
+    # Acronym expansion before embedding.
+    expanded = expand_acronyms(query)
+    # Embed query (use expanded form).
     req = _ur.Request(
         f"{OLLAMA_URL}/api/embeddings",
-        data=json.dumps({"model": EMBED_MODEL, "prompt": query}).encode("utf-8"),
+        data=json.dumps({"model": EMBED_MODEL, "prompt": expanded}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     with _ur.urlopen(req, timeout=15) as resp:

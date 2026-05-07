@@ -302,11 +302,84 @@ async fn list_sources(
 // ─── Semantic search (Qdrant + Ollama nomic-embed-text) ─────────────────────
 
 /// Detect Thai chars (incl. PUA range used by old MoPH PDFs).
+#[allow(dead_code)]
 fn has_thai(s: &str) -> bool {
     s.chars().any(|c| {
         let n = c as u32;
         (0x0E00..=0x0E7F).contains(&n) || (0xF700..=0xF71F).contains(&n)
     })
+}
+
+/// Medical-acronym expansion — fixes the BGE-M3 acronym blind spot
+/// (e.g. STEMI, MI, T2DM aren't tokens BGE-M3 understands as medical
+/// terms). Run before embedding so the semantic search sees the
+/// expanded form. Case-insensitive token match preserves rest of query.
+fn expand_acronyms(query: &str) -> String {
+    const PAIRS: &[(&str, &str)] = &[
+        // Cardio
+        ("STEMI", "ST elevation myocardial infarction"),
+        ("NSTEMI", "Non ST elevation myocardial infarction"),
+        ("MI", "myocardial infarction"),
+        ("AMI", "acute myocardial infarction"),
+        ("CHF", "congestive heart failure"),
+        ("CABG", "coronary artery bypass graft"),
+        ("AFIB", "atrial fibrillation"),
+        ("AF", "atrial fibrillation"),
+        ("DVT", "deep vein thrombosis"),
+        ("PE", "pulmonary embolism"),
+        ("HTN", "hypertension"),
+        // Pulm
+        ("COPD", "chronic obstructive pulmonary disease"),
+        ("URTI", "upper respiratory tract infection"),
+        ("ARDS", "acute respiratory distress syndrome"),
+        ("PNA", "pneumonia"),
+        // Endo / metabolic
+        ("T1DM", "type 1 diabetes mellitus"),
+        ("T2DM", "type 2 diabetes mellitus"),
+        ("DM", "diabetes mellitus"),
+        ("DKA", "diabetic ketoacidosis"),
+        // Neuro
+        ("CVA", "cerebrovascular accident stroke"),
+        ("TIA", "transient ischemic attack"),
+        // Renal
+        ("AKI", "acute kidney injury"),
+        ("CKD", "chronic kidney disease"),
+        ("ESRD", "end stage renal disease"),
+        ("UTI", "urinary tract infection"),
+        // GI / liver
+        ("GERD", "gastroesophageal reflux disease"),
+        ("IBD", "inflammatory bowel disease"),
+        ("GIB", "gastrointestinal bleeding"),
+        // Pediatrics / OB
+        ("RDS", "respiratory distress syndrome"),
+        ("PROM", "premature rupture of membranes"),
+        // Psych
+        ("MDD", "major depressive disorder"),
+        ("GAD", "generalized anxiety disorder"),
+        ("PTSD", "post traumatic stress disorder"),
+        ("OCD", "obsessive compulsive disorder"),
+    ];
+    let mut out = String::with_capacity(query.len() + 32);
+    let mut changed = false;
+    for token in query.split_inclusive(char::is_whitespace) {
+        // Strip trailing whitespace + punctuation for match.
+        let trimmed = token.trim_end();
+        let suffix = &token[trimmed.len()..];
+        let core: String = trimmed.chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect();
+        let punct = &trimmed[core.len()..];
+        let upper = core.to_ascii_uppercase();
+        if let Some(&(_, full)) = PAIRS.iter().find(|(k, _)| *k == upper) {
+            out.push_str(full);
+            out.push_str(punct);
+            out.push_str(suffix);
+            changed = true;
+        } else {
+            out.push_str(token);
+        }
+    }
+    if changed { out } else { query.to_string() }
 }
 
 async fn run_semantic(
@@ -318,10 +391,14 @@ async fn run_semantic(
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
 
+    // Expand medical acronyms BEFORE embedding so STEMI/NSTEMI/etc. become
+    // semantically meaningful for the embedder (BGE-M3 doesn't grok acronyms).
+    let expanded = expand_acronyms(query);
+
     // 1. Embed via Ollama.
     let embed_resp: serde_json::Value = client
         .post(format!("{}/api/embeddings", OLLAMA_URL))
-        .json(&json!({"model": EMBED_MODEL, "prompt": query}))
+        .json(&json!({"model": EMBED_MODEL, "prompt": expanded}))
         .send().await?
         .error_for_status()?
         .json().await?;
