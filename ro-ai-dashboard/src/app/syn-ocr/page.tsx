@@ -131,12 +131,20 @@ export default function SynOcrPage() {
                         4-tier hybrid OCR audit + policy view. Sprint 50 (B-50i).
                     </p>
                 </div>
-                <button
-                    onClick={load}
-                    className="px-3 py-1.5 text-sm bg-slate-200 hover:bg-slate-300 rounded"
-                >
-                    {loading ? "…" : "Refresh"}
-                </button>
+                <div className="flex items-center gap-2">
+                    <a
+                        href="/syn-ocr/admin"
+                        className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded"
+                    >
+                        Edit policy
+                    </a>
+                    <button
+                        onClick={load}
+                        className="px-3 py-1.5 text-sm bg-slate-200 hover:bg-slate-300 rounded"
+                    >
+                        {loading ? "…" : "Refresh"}
+                    </button>
+                </div>
             </div>
 
             {error && (
