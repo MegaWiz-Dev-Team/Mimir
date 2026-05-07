@@ -111,8 +111,13 @@ async fn lookup(
         return Err((StatusCode::BAD_REQUEST, "q is required".to_string()));
     }
 
+    // Smart auto cascade: exact → naive (skip prefix).
+    // Prefix mode is too restrictive — misses canonical labels with qualifier
+    // prefixes (e.g. "Non-insulin-dependent diabetes mellitus" doesn't start
+    // with "Diabetes mellitus"). Naive + smart ranking (CHAR_LENGTH ASC,
+    // code ASC) puts root codes first and correctly orders E11 before O24.
     let modes_to_try: Vec<&str> = match req.mode.as_str() {
-        "auto" => vec!["exact", "prefix", "naive"],
+        "auto" => vec!["exact", "naive"],
         "exact" | "prefix" | "naive" => vec![req.mode.as_str()],
         other => return Err((StatusCode::BAD_REQUEST,
             format!("invalid mode: {other} (want auto|exact|prefix|naive)"))),

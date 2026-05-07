@@ -120,12 +120,21 @@ def search(query: str, mode: str, locale: str, limit: int,
 
 def search_auto(query: str, locale: str, limit: int,
                 source_version: str) -> tuple[str, list[dict]]:
-    """Cascade: exact → prefix → naive. Returns (mode_matched, rows)."""
-    for m in ("exact", "prefix", "naive"):
-        rows = search(query, m, locale, limit, source_version)
-        if rows:
-            return m, rows
-    return "naive", []
+    """Cascade: exact → naive (with smart ranking). Skip prefix.
+
+    Rationale: prefix mode is too restrictive — it misses the common case
+    where the canonical en_label has a qualifier prefix (e.g. "Non-insulin-
+    dependent diabetes mellitus" not "Diabetes mellitus"). Naive substring
+    catches both cases, and the ORDER BY in search() prefers root codes
+    (CHAR_LENGTH ASC) and alphabetical (code ASC), which correctly puts
+    E11 before O24 for "diabetes mellitus" and I10 before I151 for
+    "hypertension".
+    """
+    rows = search(query, "exact", locale, limit, source_version)
+    if rows:
+        return "exact", rows
+    rows = search(query, "naive", locale, limit, source_version)
+    return "naive", rows
 
 
 def format_human(rows: list[dict], mode: str, query: str) -> str:
