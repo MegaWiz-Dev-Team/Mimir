@@ -52,7 +52,62 @@ sampling noise — n=100+ would be needed to separate 1st from 4th place statist
 These are the standing champions to beat. **Rerank helps gemma but hurts flash-lite
 (−9pp)** — gating per-model via `ai_models.metadata`.
 
-### Sprint 51b — Typhoon-Si-Med-Thinking-4B challenger (in flight 2026-05-07)
+### Sprint 51b — Typhoon-Si-Med-Thinking-4B challenger ★ Day-2 RESULT (2026-05-07)
+
+**HBp n=20 on the same locked-20 questions used by run `195e8912`** (gemma-4-26b
+@ 47.8% baseline). Run via standalone MLX harness
+(`Mimir/scripts/bench_typhoon_si_med_hbp.py`) — bypasses `mlx_lm.server`'s
+tool-call parser bug by calling `mlx_lm.generate()` directly. Judge: same
+gemini-2.5-flash, with `thinkingBudget=0` (the default thinking eats
+maxOutputTokens budget on extraction tasks and returns empty bodies).
+
+| Rank | Model | HBp% | Acc | Comp | Rel | Safe | Wall (s/Q) | run |
+|---|---|---|---|---|---|---|---|---|
+| ★ | **typhoon-si-med-thinking-4b** (MLX 4-bit, ~3GB) | **52.19%** | 2.45 | 1.70 | **3.40** | **0.95** | 7.4 | local |
+| 2 | gemma-4-26b-a4b-it-4bit (MLX, 16GB) — baseline | 47.80% | 2.55 | 2.05 | 3.05 | 0.75 | — | `195e8912` |
+| Δ | typhoon vs gemma | **+4.39pp** | −0.10 | −0.35 | **+0.35** | **+0.20** | — | — |
+
+**Per-dimension highlights:**
+- ✅ **Safety +0.20** (0.95 vs 0.75) — only 1/20 judged unsafe (idx 14:
+  Norfloxacin-vs-Ceftriaxone prophylaxis answer contradicted current
+  guidelines).
+- ✅ **Relevance +0.35** — reasoning model stays on-topic better.
+- 🟡 **Accuracy −0.10** — bimodal distribution: 9/20 acc=1 (terrible),
+  4/20 acc=5 (perfect). Model nails questions in its training
+  distribution and fails on out-of-distribution (Danish ENT case, niche
+  trial-name lookups).
+- 🟡 **Completeness −0.35** — reasoning models tend to give shorter
+  final answers; the long `<think>` block isn't graded.
+
+**Caveats — do not auto-swap champion yet:**
+1. **Vendor disclaimer** — model card states "NOT intended for medical
+   use" (research preview). Production-clinical promotion needs an
+   extra safety review beyond stock HBp.
+2. **n=20 sampling noise** — HBp baseline doc previously noted a
+   ~7.5pp band on n=20; +4.4pp is ABOVE band but not by much. Day-3
+   needs n=100 confirmation on the broader-100 anchor.
+3. **Judge config divergence** — this run uses `thinkingBudget=0`
+   (judge stays in extraction mode); the historical baselines used
+   default thinking. Re-running gemma-4-26b with the same judge
+   config (apples-to-apples) is a Day-2.5 task.
+4. **Bimodal accuracy** — 9/20 acc=1 means the model fails badly on
+   ~half the items. A champion that's "either perfect or wrong" is
+   harder to integrate than one that's "consistently mediocre".
+
+**Recommendation:**
+- ✅ Add to scoreboard as a Tier-A challenger (Apache 2.0 + 8× smaller
+  + safety lead is meaningful)
+- ❌ Don't swap Eir local champion yet
+- 📋 Day-3: rerun gemma-4-26b with `thinkingBudget=0` judge for clean Δ
+- 📋 Day-3: n=100 broader-100 anchor to escape sampling-noise band
+- 📋 Day-3: review the 9 acc=1 failures to characterise OOD pattern
+
+**Report:** [`reports/typhoon-si-med-hbp-20260507T162904Z.json`](reports/typhoon-si-med-hbp-20260507T162904Z.json)
+**Script:** [`Mimir/scripts/bench_typhoon_si_med_hbp.py`](../../scripts/bench_typhoon_si_med_hbp.py)
+
+---
+
+### Sprint 51b Day-1 (superseded by Day-2 RESULT above)
 
 Two Apache-2.0 reasoning models from Typhoon AI (SCB 10X, co-developed with
 Siriraj Informatics, Mahidol University) entered the queue 2026-05-07 for
