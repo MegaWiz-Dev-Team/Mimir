@@ -45,7 +45,20 @@
 ### ✅ B-48j stub — Test set v0
 - 15 representative queries in `tests/icd10/sprint48_thai_lookup_v0.jsonl`
 - Mix of: exact code, English term, Thai natural-language
-- 11 passing · 4 failing (documented gap analysis below)
+- **13 passing · 2 failing** (after smart-cascade ranking fix below)
+
+### ✅ B-48e refinement — smart auto cascade (drops `prefix` mode)
+- Discovered via B-48j v0 that prefix mode is too restrictive — canonical
+  ICD labels often have a qualifier prefix (e.g. "Non-insulin-dependent
+  diabetes mellitus") so query "diabetes mellitus" only matches O24
+  (gestational DM) in prefix mode.
+- Fix: auto cascade is now `exact → naive` only. Existing ORDER BY
+  (`(code = ?) DESC, (code LIKE 'q%') DESC, CHAR_LENGTH(code) ASC, code ASC`)
+  handles ranking correctly: E10/E11/E12 before O24, I10 before I151.
+- Result: lifted **2 of 4 failing test cases** (ranking-class failures).
+  STEMI / major-depressive remain — those are semantic-phrasing failures
+  (need B-48f BGE-M3 OR synonym dictionary).
+- Applied to both Python CLI and Rust route (compile clean).
 
 ---
 
@@ -98,10 +111,11 @@ The mimir-api pod expects to call this for ingest pipeline; not currently spun u
 
 | Metric | Value |
 |---|---|
-| Backlog items shipped | 4 / 10 (40%) |
-| Wall time tonight | ~3 hr |
+| Backlog items shipped | **5 / 10 (50%)** |
+| Wall time tonight | ~3.5 hr |
 | Codes in master table | 15,376 |
 | Eir agents wired | 5 (of 19 planned) |
+| Test set pass rate | **13/15 (87%)** v0 |
 | Cost | $0 (local processing only) |
 | Dual-language coverage | EN + TH bilingual |
 | Audit trail | ✅ per-ingest-run + per-lookup logging |
