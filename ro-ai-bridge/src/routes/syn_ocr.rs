@@ -416,15 +416,15 @@ async fn do_extract(
     // per-tenant opt-in flag. This is the second line of defence — Skuggi
     // (Sprint 50b) is the first when pii_mode != off.
     let cloud_eligible = matches!(engine.as_str(), ENGINE_GEMINI_FLASH | ENGINE_GEMINI_PRO);
-    let cloud_blocked_reason: Option<&'static str> = if cloud_eligible {
+    let mut cloud_blocked_reason: Option<String> = if cloud_eligible {
         if policy.ocr_phi_strict {
-            Some("ocr_phi_strict=true blocks cloud OCR")
+            Some("ocr_phi_strict=true blocks cloud OCR".to_string())
         } else if engine == ENGINE_GEMINI_FLASH && !policy.ocr_cloud_flash_enabled {
-            Some("ocr_cloud_flash_enabled=false")
+            Some("ocr_cloud_flash_enabled=false".to_string())
         } else if engine == ENGINE_GEMINI_PRO
             && (!policy.ocr_cloud_pro_enabled || !policy.ocr_cloud_flash_enabled)
         {
-            Some("ocr_cloud_pro_enabled=false (or Flash not also enabled)")
+            Some("ocr_cloud_pro_enabled=false (or Flash not also enabled)".to_string())
         } else {
             None
         }
@@ -432,12 +432,46 @@ async fn do_extract(
         None
     };
 
+    // B-50m cost guard: refuse cloud call when the would-be cost takes the
+    // tenant past their monthly cap. Budget=0 means "no cap" (default until
+    // an admin sets one). This check runs only after the policy guards above
+    // pass — phi_strict tenants never reach here for cloud.
+    let projected_cost: f64 = match engine.as_str() {
+        ENGINE_GEMINI_FLASH => COST_FLASH_USD_PER_CALL,
+        ENGINE_GEMINI_PRO => COST_PRO_USD_PER_CALL,
+        _ => 0.0,
+    };
+    if cloud_eligible
+        && cloud_blocked_reason.is_none()
+        && policy.ocr_monthly_cloud_budget_usd > 0.0
+    {
+        match tenant_month_to_date_spend(&pool, &tenant_id).await {
+            Ok(spent) => {
+                let projected_total = spent + projected_cost;
+                if projected_total > policy.ocr_monthly_cloud_budget_usd {
+                    cloud_blocked_reason = Some(format!(
+                        "budget_exceeded: month-to-date ${:.5} + this call ${:.5} = ${:.5} > cap ${:.2}",
+                        spent,
+                        projected_cost,
+                        projected_total,
+                        policy.ocr_monthly_cloud_budget_usd
+                    ));
+                }
+            }
+            Err(e) => {
+                warn!(tenant_id, "month-to-date spend lookup failed: {e}");
+                // Fail open here — a transient DB blip shouldn't block all
+                // cloud OCR. Re-evaluate if we ever see this in production.
+            }
+        }
+    }
+
     let outcome: Result<SidecarOutcome, SidecarError> = match engine.as_str() {
         ENGINE_CHANDRA => call_local_sidecar(&chandra_base(), &req).await,
         ENGINE_PADDLE => call_local_sidecar(&paddle_base(), &req).await,
         ENGINE_GEMINI_FLASH | ENGINE_GEMINI_PRO => {
             if let Some(why) = cloud_blocked_reason {
-                Err(SidecarError::Blocked(why.to_string()))
+                Err(SidecarError::Blocked(why))
             } else {
                 call_cloud_gemini(&engine, &req, &config).await
             }
@@ -474,6 +508,8 @@ async fn do_extract(
         Err(SidecarError::Blocked(why)) => {
             status = if policy.ocr_phi_strict {
                 "pii_strict_block".to_string()
+            } else if why.starts_with("budget_exceeded") {
+                "budget_exceeded".to_string()
             } else {
                 "engine_failed".to_string()
             };
@@ -828,6 +864,24 @@ async fn get_document(
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
+/// Sum cost_usd of all OCR calls this tenant made in the current calendar
+/// month (UTC). Used by the B-50m cost guard. Returns 0.0 when there are no
+/// rows yet — safe baseline.
+async fn tenant_month_to_date_spend(pool: &DbPool, tenant_id: &str) -> Result<f64, sqlx::Error> {
+    let row: (Option<f64>,) = sqlx::query_as(
+        r#"
+        SELECT CAST(COALESCE(SUM(cost_usd), 0) AS DOUBLE)
+        FROM ocr_documents
+        WHERE tenant_id = ?
+          AND created_at >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00')
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0.unwrap_or(0.0))
+}
+
 async fn get_tenant_policy(pool: &DbPool, tenant_id: &str) -> Result<TenantPolicy, sqlx::Error> {
     sqlx::query_as::<_, TenantPolicy>(
         r#"
