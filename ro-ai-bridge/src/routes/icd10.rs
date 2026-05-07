@@ -22,6 +22,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
@@ -48,7 +49,7 @@ pub struct IcdMatch {
 pub struct LookupQuery {
     /// Free-form code, label, or phrase.
     pub q: String,
-    /// `auto` | `exact` | `prefix` | `naive` (default: `auto` — cascades exact → prefix → naive).
+    /// `auto` | `exact` | `prefix` | `naive` (default: `auto` — cascades exact → naive).
     #[serde(default = "default_mode")]
     pub mode: String,
     /// `en` | `th` | `both` (default: `both`).
@@ -57,6 +58,12 @@ pub struct LookupQuery {
     /// Default 10, max 50.
     #[serde(default = "default_limit")]
     pub limit: u32,
+    /// Override pinned source_version. Defaults to the latest ingested.
+    pub source_version: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodeQuery {
     /// Override pinned source_version. Defaults to the latest ingested.
     pub source_version: Option<String>,
 }
@@ -79,7 +86,7 @@ pub struct LookupResponse {
 pub struct SourceInfo {
     pub source_version: String,
     pub row_count: i64,
-    pub last_ingested: Option<chrono::NaiveDateTime>,
+    pub last_ingested: Option<DateTime<Utc>>,
 }
 
 pub fn icd10_routes() -> Router<DbPool> {
@@ -221,7 +228,7 @@ async fn get_code(
     State(pool): State<DbPool>,
     Extension(tenant): Extension<TenantContext>,
     Path(code): Path<String>,
-    Query(req): Query<LookupQuery>,
+    Query(req): Query<CodeQuery>,
 ) -> Result<Json<IcdMatch>, (StatusCode, String)> {
     let source_version = req.source_version.clone()
         .unwrap_or_else(|| DEFAULT_SOURCE_VERSION.to_string());

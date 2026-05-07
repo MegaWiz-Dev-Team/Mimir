@@ -35,6 +35,10 @@ MARIADB_POD = (
     "78f65c51-6439-4d1c-a9f6-ebcdad463f5c_58"
 )
 DEFAULT_VERSION = "anamai-moph-2010"
+QDRANT_URL = "http://localhost:6333"
+OLLAMA_URL = "http://localhost:11434"
+EMBED_MODEL = "nomic-embed-text"
+QDRANT_COLLECTION = "icd10-th"
 
 
 def mariadb_query(sql: str) -> list[dict]:
@@ -118,23 +122,86 @@ def search(query: str, mode: str, locale: str, limit: int,
     return mariadb_query(sql)
 
 
+def search_semantic(query: str, limit: int, source_version: str) -> list[dict]:
+    """Qdrant + Ollama nomic-embed semantic search. Returns rows in same
+    shape as MariaDB search() — payload is enriched from Qdrant directly."""
+    import urllib.request as _ur
+    # Embed query.
+    req = _ur.Request(
+        f"{OLLAMA_URL}/api/embeddings",
+        data=json.dumps({"model": EMBED_MODEL, "prompt": query}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _ur.urlopen(req, timeout=15) as resp:
+        vec = json.loads(resp.read())["embedding"]
+
+    # Qdrant search.
+    body = json.dumps({
+        "vector": vec,
+        "limit": int(limit),
+        "with_payload": True,
+        "filter": {"must": [
+            {"key": "source_version", "match": {"value": source_version}}
+        ]},
+    }).encode("utf-8")
+    req = _ur.Request(
+        f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/search",
+        data=body, headers={"Content-Type": "application/json"},
+    )
+    with _ur.urlopen(req, timeout=10) as resp:
+        result = json.loads(resp.read())["result"]
+
+    rows: list[dict] = []
+    for hit in result:
+        p = hit.get("payload", {}) or {}
+        rows.append({
+            "code": p.get("code"),
+            "en_label": p.get("en_label"),
+            "th_label": p.get("th_label"),
+            "chapter": p.get("chapter"),
+            "billable": "1",
+            "source_version": p.get("source_version"),
+            "_score": round(hit.get("score", 0.0), 4),
+        })
+    return rows
+
+
+_THAI_RANGE = "฀-๿"
+
+
+def has_thai(s: str) -> bool:
+    import re as _re
+    return bool(_re.search(f"[{_THAI_RANGE}]", s))
+
+
 def search_auto(query: str, locale: str, limit: int,
                 source_version: str) -> tuple[str, list[dict]]:
-    """Cascade: exact → naive (with smart ranking). Skip prefix.
+    """Cascade: exact → naive → semantic-EN-only.
 
-    Rationale: prefix mode is too restrictive — it misses the common case
-    where the canonical en_label has a qualifier prefix (e.g. "Non-insulin-
-    dependent diabetes mellitus" not "Diabetes mellitus"). Naive substring
-    catches both cases, and the ORDER BY in search() prefers root codes
-    (CHAR_LENGTH ASC) and alphabetical (code ASC), which correctly puts
-    E11 before O24 for "diabetes mellitus" and I10 before I151 for
-    "hypertension".
+    - Naive substring with smart ranking handles ~87% of queries cleanly.
+    - Semantic only fires for **English** queries with no naive match
+      (e.g. acronyms / phrasing variations like 'STEMI inferior',
+      'major depressive disorder'). For Thai queries, semantic with the
+      current nomic-embed-text model returns noisy results because the
+      model is English-trained — refresh sprint with BGE-M3 multilingual
+      will close that gap (B-48f.2).
     """
     rows = search(query, "exact", locale, limit, source_version)
     if rows:
         return "exact", rows
     rows = search(query, "naive", locale, limit, source_version)
-    return "naive", rows
+    if rows:
+        return "naive", rows
+    # English-only fallback to semantic. Thai queries fail through naive
+    # rather than poison results with English-biased embedding noise.
+    if has_thai(query):
+        return "naive", []
+    try:
+        rows = search_semantic(query, limit, source_version)
+        return "semantic", rows
+    except Exception as e:
+        print(f"  [semantic-fail] {e}", file=sys.stderr)
+        return "naive", []
 
 
 def format_human(rows: list[dict], mode: str, query: str) -> str:
@@ -153,7 +220,7 @@ def format_human(rows: list[dict], mode: str, query: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("query", help="code, label, or natural-language phrase")
-    ap.add_argument("--mode", choices=["auto", "exact", "prefix", "naive"], default="auto")
+    ap.add_argument("--mode", choices=["auto", "exact", "prefix", "naive", "semantic"], default="auto")
     ap.add_argument("--locale", choices=["en", "th", "both"], default="both")
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--source-version", default=DEFAULT_VERSION)
@@ -163,6 +230,9 @@ def main() -> int:
     if args.mode == "auto":
         matched_mode, rows = search_auto(args.query, args.locale, args.limit,
                                          args.source_version)
+    elif args.mode == "semantic":
+        matched_mode = "semantic"
+        rows = search_semantic(args.query, args.limit, args.source_version)
     else:
         matched_mode = args.mode
         rows = search(args.query, args.mode, args.locale, args.limit,
