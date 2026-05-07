@@ -52,7 +52,8 @@ without leaving the Mac-mini local-inference cost envelope ($0/query).
 | **37** 🟡 | Score Multipliers — self-consistency, multi-judge, query expansion | Code deployed, awaits n=20+ validation | 🟡 partial |
 | **38** 🟠 | Architecture — specialty router | **PoC LIVE 5/5 routing accuracy** | 🟢 PoC done |
 | **38f** 🟠 | Sprint 38 follow-up — Router validation + 28-specialty expand | Gated on B-49 A/B result | 📋 next up |
-| **39** 🟡 | ML Pipeline — Mimir Curator + LoRA fine-tune | 3 iterations complete (Phase 2 / 2b / 2c). Phase 2c locked-20 53.8% (+6pp ✅) but broader-100 38.7% (+1.1pp ❌) → single-anchor pass, **dual-anchor gate failed → champion holds.** Capacity helped locked-20; corpus is the broader-100 bottleneck. Sprint 39 closed; 39d (corpus expansion) gated on Sprint 47 RAG eval first. Total $3.50. | ✅ closed 2026-05-07 |
+| **39** 🟡 | ML Pipeline — Mimir Curator + LoRA fine-tune | 3 iterations complete (Phase 2 / 2b / 2c). Phase 2c locked-20 53.8% (+6pp ✅) but broader-100 38.7% (+1.1pp ❌) → single-anchor pass, **dual-anchor gate failed → champion holds.** Capacity helped locked-20; corpus is the broader-100 bottleneck. Sprint 39 closed; 39d direction locked from Sprint 47 B-47e A/B (RAG = +18.7pp). Total $3.50. | ✅ closed 2026-05-07 |
+| **39d** 🔵 | RAG Enhancement — locked from B-47e A/B verdict (RAG +18.7pp on locked-20) | Sprint 39d direction: clinician gold (B-47g) → MedCPT re-embed → semantic re-chunk. Skip 10K Gemini synth retrain (saved $5-10). Phase 2c locked-20 53.8% sits near RAG-on ceiling 55.3%. | 📋 in flight |
 | **40** 🟣 | Multi-Benchmark Foundation — benchmark-aware UI/DB | Unblocks Sprint 41 | ✅ done |
 | **40f** 🟣 | Sprint 40 follow-up — n=100 scale + native MCQ scoring | Stable rank, paper-comparable Acc% | 📋 future |
 | **41** 🔴 | Paper-Comparable HealthBench Run | Marketing-grade numbers vs arXiv:2505.08775 | 📋 future |
@@ -398,6 +399,66 @@ breaks, fix before scaling. Budget user time = a few days, not weeks.
 | Curator dev creep beyond 2 weeks | Medium | Medium | Hard scope cap = "review form, not labeling platform"; defer features to Sprint 50+ Curator v2 |
 | Reviewer bandwidth (medical lead time) | High | High | Front-load: 50 dogfood pairs to validate workflow before scaling to 1,000 |
 | LoRA-tuned ≥60% target missed | Medium | Medium | If <55%, declare "retrieval is bottleneck" hypothesis confirmed → pivot to MedCPT embedding (Sprint 36 B-20) + agentic RAG before more LoRA |
+
+---
+
+## Sprint 39d — RAG Enhancement (locked from B-47e A/B verdict, 2026-05-07)
+
+**Trigger:** Sprint 47 B-47e counterfactual A/B (rag_mode=on vs off) on
+locked-20 with the production champion (`mlx-community/gemma-4-26b-a4b-it-4bit`,
+judge `gemini-2.5-flash`) showed **RAG contributes +18.7pp** of HBp. Sprint 39
+closure left the broader-100 bottleneck question open; this verdict resolves
+it: **broader-100's 38.7% cap is RAG-side, not LLM-side**. Sprint 39d redirects
+investment AWAY from corpus retrain TOWARD retrieval quality.
+
+### A/B verdict (one-line)
+
+```
+RAG-on   55.3% HBp  (Acc 2.85, Comp 2.25, Rel 3.75, Safety 0.75, 0/20 unsafe)
+RAG-off  36.6% HBp  (Acc 2.20, Comp 1.80, Rel 2.85, Safety 0.50, 1/20 unsafe)
+Δ        +18.7pp    (Rel +0.90, Acc +0.65, Comp +0.45, Safety +0.25)
+```
+
+Run IDs: `2d63aa95` (on) · `8fe05299` (off). Cost: ~$0.04 total (flash judge × 40 rows).
+
+### Backlog (priority order, post-verdict)
+
+| ID | Title | Effort | Rationale |
+|---|---|---|---|
+| **B-39d-1** | Sprint 47 B-47g — clinician-curated `rag_benchmark_items` for locked-20 | ~1-2 d clinician | Unlocks pure retrieval metrics (Recall@k, MRR, NDCG@k) and B-47e.2 `gold_only` counterfactual mode. Necessary before any of B-39d-2/3 can be A/B-evaluated. |
+| **B-39d-2** | Re-embed `medical_knowledge` collection with **MedCPT** (medical-domain embedder) | ~1 d (download model + ETL re-embed) | BGE-M3 multilingual is general; MedCPT trained on PubMed should improve Recall@k, especially Accuracy + Completeness dimensions where Δ was +0.65 / +0.45. |
+| **B-39d-3** | Re-chunk `clinical_kb` with **semantic boundary detection** (not fixed-token) | ~2 d | Fixed-token chunks split mid-sentence; coherent semantic chunks score better on Faithfulness + Context Precision. |
+| **B-39d-4** | (NEGATIVE) **Skip 10K Gemini synth retrain** | save ~$5-10 | Phase 2c locked-20 53.8% sits 1.5pp from RAG-on ceiling 55.3% — corpus expansion has near-zero ROI until retrieval lifts the ceiling. |
+
+### Acceptance — Sprint 39d
+
+- [ ] B-47g delivered: ≥50 locked-20 questions have `rag_benchmark_items` rows with relevant_chunk_ids labeled by clinician
+- [ ] B-39d-2 MedCPT re-embed complete, Qdrant collection rebuilt with new vectors
+- [ ] Counterfactual run (rag_mode=on with new collection) lifts HBp ≥ +3pp vs current 55.3%
+- [ ] B-39d-3 re-chunk complete, ContextPrecision (Sprint 47 B-47b RAGAS metric) lifts ≥ +0.10
+- [ ] Champion swap candidate emerges (≥58% HBp on locked-20, ≥45% on broader-100)
+
+### Out of scope (deliberately, per A/B verdict)
+
+- ❌ LoRA hyperparam re-tuning — Phase 2c rank=16 layers=24 already adequate
+- ❌ Base model swap (MedGemma 27B / Gemma-4 31B) — defer to Sprint 50+
+- ❌ 10K+ corpus expansion via Gemini synth — RAG ceiling, not corpus quality, is binding
+- ❌ Multi-tenant rollout — `asgard_medical` only for v0
+
+### Cost / value justification
+
+| Path | Estimated lift | Cost | ROI |
+|---|---|---|---|
+| **B-39d (this)** | +3-5pp HBp | ~$0 (local infra + clinician time) | High |
+| Alt: 10K Gemini synth + LoRA retrain | +1-2pp HBp (per A/B verdict, marginal) | ~$5-10 | Low (rejected) |
+| Alt: MedGemma 27B base model swap | unknown, possibly -2pp safety | ~$0 + 1 wk dev | Risky (deferred) |
+
+### Cross-references
+
+- A/B verdict full data: `eval_runs.id IN (2d63aa95, 8fe05299)`
+- Sprint 47 B-47e implementation: [`Mimir/ro-ai-bridge/src/routes/agents/chat.rs`](../../ro-ai-bridge/src/routes/agents/chat.rs) `X-RAG-Mode` header
+- Sprint 47 B-47g (B-39d-1 prerequisite): pending dev — see Sprint 47 backlog
+- Judge model policy: flash for iterations, pro for promotion gate decisions (see Sprint 50+ judge_policy ADR proposal)
 
 ---
 
