@@ -37,7 +37,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-MODEL_PATH = "/Users/mimir/.cache/syn-models/typhoon-si-med-thinking-4b-4bit"
+DEFAULT_MODEL = "/Users/mimir/.cache/syn-models/typhoon-si-med-thinking-4b-4bit"
 
 TEXT_MODE_SYSTEM = (
     "You are a helpful and harmless expert clinical assistant. The assistant "
@@ -45,6 +45,13 @@ TEXT_MODE_SYSTEM = (
     "an accurate answer. The reasoning process is enclosed within <think></think> "
     "tags followed by an answer, i.e., <think>reasoning process here</think> answer "
     "here. After thinking, when you finally reach a conclusion, clearly state the answer.\n\n"
+)
+# For models without explicit CoT format (gemma) — minimal expert clinical
+# assistant prompt. Eir's actual production prompt is more complex; this
+# matches the "Sprint 36 universal CoT" variant from the HBp baseline doc.
+PLAIN_SYSTEM = (
+    "You are a helpful and harmless expert clinical assistant. Think step-by-step "
+    "about the reasoning process, then provide an accurate, complete, and safe answer.\n\n"
 )
 
 JUDGE_SYSTEM = (
@@ -114,29 +121,28 @@ def fetch_locked_questions(run_id: str = "195e8912", n: int = 20) -> list[dict]:
 
 
 # ─── MLX inference ────────────────────────────────────────────────────────
-_loaded = None
+_loaded: dict[str, tuple] = {}
 
 
-def get_mlx():
-    """Lazy-load the MLX model+tokenizer once."""
-    global _loaded
-    if _loaded is None:
+def get_mlx(model_path: str):
+    """Lazy-load the MLX model+tokenizer for the given path."""
+    if model_path not in _loaded:
         # Use Heimdall venv's mlx_lm
         sys.path.insert(0, "/Users/mimir/Developer/Heimdall/.venv/lib/python3.14/site-packages")
         from mlx_lm import load, generate  # type: ignore
-        print(f"[mlx] loading {MODEL_PATH} …", file=sys.stderr, flush=True)
+        print(f"[mlx] loading {model_path} …", file=sys.stderr, flush=True)
         t0 = time.monotonic()
-        model, tokenizer = load(MODEL_PATH)
+        model, tokenizer = load(model_path)
         print(f"[mlx] loaded in {time.monotonic() - t0:.1f}s", file=sys.stderr)
-        _loaded = (model, tokenizer, generate)
-    return _loaded
+        _loaded[model_path] = (model, tokenizer, generate)
+    return _loaded[model_path]
 
 
-def mlx_generate(question: str, max_tokens: int = 4096) -> tuple[str, float]:
+def mlx_generate(model_path: str, question: str, system_prompt: str, max_tokens: int = 4096) -> tuple[str, float]:
     """Returns (raw_output, latency_seconds)."""
-    model, tokenizer, generate = get_mlx()
+    model, tokenizer, generate = get_mlx(model_path)
     messages = [
-        {"role": "system", "content": TEXT_MODE_SYSTEM},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": question},
     ]
     prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -241,9 +247,18 @@ def hbp_percent(rows: list[dict]) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--n", type=int, default=20)
-    p.add_argument("--baseline-run", default="195e8912")
+    p.add_argument("--baseline-run", default="195e8912",
+                   help="run_id prefix to pull questions from (195e8912 = locked-20, f2eeb239 = broader-100)")
+    p.add_argument("--model", default=DEFAULT_MODEL,
+                   help="MLX model path or HF id")
+    p.add_argument("--system", choices=["typhoon", "plain"], default="typhoon",
+                   help="system-prompt template (typhoon = TEXT_MODE with <think></think>; plain = generic)")
+    p.add_argument("--label", default=None,
+                   help="short engine label for the report header (defaults to basename of --model)")
     p.add_argument("--out", default=None)
     args = p.parse_args()
+    system_prompt = TEXT_MODE_SYSTEM if args.system == "typhoon" else PLAIN_SYSTEM
+    label = args.label or Path(args.model).name
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -259,7 +274,7 @@ def main() -> int:
 
     print(f"[hbp] loading {args.n} locked questions from baseline run {args.baseline_run} …")
     items = fetch_locked_questions(args.baseline_run, n=args.n)
-    print(f"[hbp] got {len(items)} questions", flush=True)
+    print(f"[hbp] got {len(items)} questions · model={label} · system={args.system}", flush=True)
 
     rows: list[dict] = []
     started_total = time.monotonic()
@@ -271,7 +286,7 @@ def main() -> int:
             flush=True,
         )
         try:
-            raw, gen_s = mlx_generate(question)
+            raw, gen_s = mlx_generate(args.model, question, system_prompt)
             answer, reasoning = strip_reasoning(raw)
             print(f"  gen {gen_s:.1f}s · ans len={len(answer)} · think len={len(reasoning)}", flush=True)
             try:
@@ -306,15 +321,19 @@ def main() -> int:
     summary["valid_rows"] = len(valid_rows)
     summary["total_rows"] = len(rows)
 
+    summary["label"] = label
+    summary["baseline_run"] = args.baseline_run
+    summary["model_path"] = args.model
+    summary["system_prompt"] = args.system
     out = Path(args.out) if args.out else (
         Path("/Users/mimir/Developer/Mimir/docs/04_evaluation_and_testing/reports")
-        / f"typhoon-si-med-hbp-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+        / f"hbp-{label}-{args.baseline_run[:8]}-n{args.n}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2, ensure_ascii=False))
 
     print("\n" + "=" * 60)
-    print("HBp BENCHMARK — typhoon-si-med-thinking-4b (MLX 4-bit)")
+    print(f"HBp BENCHMARK — {label} (n={args.n}, run {args.baseline_run})")
     print(f"  n: {summary['valid_rows']}/{summary['total_rows']}")
     print(f"  HBp %:        {summary.get('hbp_percent')}")
     print(f"  Accuracy:     {summary.get('avg_accuracy')}")
