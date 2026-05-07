@@ -26,10 +26,14 @@ use chrono::{DateTime, Utc};
 use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use sqlx::FromRow;
 
 const DEFAULT_SOURCE_VERSION: &str = "anamai-moph-2010";
+const QDRANT_URL: &str = "http://qdrant.asgard-infra.svc:6333";
+const QDRANT_COLLECTION: &str = "icd10-th";
+const OLLAMA_URL: &str = "http://host.docker.internal:11434";
+const EMBED_MODEL: &str = "nomic-embed-text";
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct IcdMatch {
@@ -118,24 +122,43 @@ async fn lookup(
         return Err((StatusCode::BAD_REQUEST, "q is required".to_string()));
     }
 
-    // Smart auto cascade: exact → naive (skip prefix).
-    // Prefix mode is too restrictive — misses canonical labels with qualifier
-    // prefixes (e.g. "Non-insulin-dependent diabetes mellitus" doesn't start
-    // with "Diabetes mellitus"). Naive + smart ranking (CHAR_LENGTH ASC,
-    // code ASC) puts root codes first and correctly orders E11 before O24.
+    // Smart auto cascade: exact → naive → (English-only) semantic.
+    // - Prefix mode skipped: too restrictive for canonical labels with
+    //   qualifier prefixes (e.g. "Non-insulin-dependent diabetes mellitus").
+    // - Naive + ORDER BY (CHAR_LENGTH ASC, code ASC) puts root codes first.
+    // - Semantic last-resort, English-only (current nomic-embed-text is
+    //   English-tuned; Thai queries with poor semantic results would
+    //   poison the cascade. BGE-M3 multilingual upgrade = B-48f.2).
     let modes_to_try: Vec<&str> = match req.mode.as_str() {
-        "auto" => vec!["exact", "naive"],
-        "exact" | "prefix" | "naive" => vec![req.mode.as_str()],
+        "auto" => {
+            if has_thai(&q) {
+                vec!["exact", "naive"]  // Skip semantic for Thai queries
+            } else {
+                vec!["exact", "naive", "semantic"]
+            }
+        }
+        "exact" | "prefix" | "naive" | "semantic" => vec![req.mode.as_str()],
         other => return Err((StatusCode::BAD_REQUEST,
-            format!("invalid mode: {other} (want auto|exact|prefix|naive)"))),
+            format!("invalid mode: {other} (want auto|exact|prefix|naive|semantic)"))),
     };
 
     let mut matched_mode = req.mode.clone();
     let mut results: Vec<IcdMatch> = Vec::new();
 
     for mode in &modes_to_try {
-        let rows = run_query(&pool, &q, mode, locale, &source_version, limit).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query: {e}")))?;
+        let rows = if *mode == "semantic" {
+            // Best-effort: don't fail the whole call if Qdrant/Ollama down.
+            match run_semantic(&q, &source_version, limit).await {
+                Ok(rs) => rs,
+                Err(e) => {
+                    tracing::warn!(event = "icd10_semantic_fail", err = %e);
+                    vec![]
+                }
+            }
+        } else {
+            run_query(&pool, &q, mode, locale, &source_version, limit).await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query: {e}")))?
+        };
         if !rows.is_empty() {
             matched_mode = mode.to_string();
             results = rows;
@@ -277,4 +300,75 @@ async fn list_sources(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query: {e}")))?;
 
     Ok(Json(rows))
+}
+
+// ─── Semantic search (Qdrant + Ollama nomic-embed-text) ─────────────────────
+
+/// Detect Thai chars (incl. PUA range used by old MoPH PDFs).
+fn has_thai(s: &str) -> bool {
+    s.chars().any(|c| {
+        let n = c as u32;
+        (0x0E00..=0x0E7F).contains(&n) || (0xF700..=0xF71F).contains(&n)
+    })
+}
+
+async fn run_semantic(
+    query: &str,
+    source_version: &str,
+    limit: u32,
+) -> Result<Vec<IcdMatch>, anyhow::Error> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+
+    // 1. Embed via Ollama.
+    let embed_resp: serde_json::Value = client
+        .post(format!("{}/api/embeddings", OLLAMA_URL))
+        .json(&json!({"model": EMBED_MODEL, "prompt": query}))
+        .send().await?
+        .error_for_status()?
+        .json().await?;
+    let vec_arr = embed_resp.get("embedding")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("ollama: missing embedding field"))?;
+    let vector: Vec<f32> = vec_arr.iter()
+        .filter_map(|v| v.as_f64().map(|x| x as f32))
+        .collect();
+
+    // 2. Qdrant search.
+    let qdrant_body = json!({
+        "vector": vector,
+        "limit": limit,
+        "with_payload": true,
+        "filter": {"must": [
+            {"key": "source_version", "match": {"value": source_version}}
+        ]}
+    });
+    let qdrant_resp: serde_json::Value = client
+        .post(format!("{}/collections/{}/points/search",
+            QDRANT_URL, QDRANT_COLLECTION))
+        .json(&qdrant_body)
+        .send().await?
+        .error_for_status()?
+        .json().await?;
+    let hits = qdrant_resp.get("result")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("qdrant: missing result field"))?;
+
+    let mut out = Vec::with_capacity(hits.len());
+    for h in hits {
+        let p = h.get("payload").cloned().unwrap_or_else(|| json!({}));
+        out.push(IcdMatch {
+            code: p.get("code").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            en_label: p.get("en_label").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            th_label: p.get("th_label").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            chapter: p.get("chapter").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            block: None,
+            billable_flag: true,
+            drg_id: None,
+            locale_metadata: Some(json!({"semantic_score": h.get("score").cloned().unwrap_or(json!(null))})),
+            source_version: p.get("source_version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        });
+    }
+    Ok(out)
 }
