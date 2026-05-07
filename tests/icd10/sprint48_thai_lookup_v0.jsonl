@@ -1,0 +1,15 @@
+{"id":"sp48-001","query":"acute myocardial infarction","mode":"naive","locale":"en","gold_codes":["I21","I210","I219"],"top1":"I21","passed":true,"notes":"common cardio diagnosis"}
+{"id":"sp48-002","query":"cerebral infarction","mode":"prefix","locale":"en","gold_codes":["I63","I639"],"top1":"I63","passed":true,"notes":"stroke / CVA"}
+{"id":"sp48-003","query":"acute appendicitis","mode":"naive","locale":"en","gold_codes":["K35","K36","K37"],"top1":"K35","passed":true,"notes":"surgical emergency"}
+{"id":"sp48-004","query":"asthma","mode":"prefix","locale":"en","gold_codes":["J45","J450","J451","J458","J459"],"top1":"J45","passed":true,"notes":"chronic respiratory"}
+{"id":"sp48-005","query":"dengue","mode":"prefix","locale":"en","gold_codes":["A90","A91"],"top1":"A90","passed":true,"notes":"endemic in Thailand"}
+{"id":"sp48-006","query":"ปอดบวม","mode":"naive","locale":"th","gold_codes":["J12","J13","J14","J15","J16","J17","J18"],"top1":"J12","passed":true,"notes":"Thai natural-language query for pneumonia"}
+{"id":"sp48-007","query":"ไสติ่งอักเสบ","mode":"naive","locale":"th","gold_codes":["K35","K36","K37"],"top1":"K35","passed":true,"notes":"Thai natural-language for appendicitis"}
+{"id":"sp48-008","query":"E11","mode":"exact","locale":"both","gold_codes":["E11"],"top1":"E11","passed":true,"notes":"exact code lookup, T2DM"}
+{"id":"sp48-009","query":"I639","mode":"exact","locale":"both","gold_codes":["I639"],"top1":"I639","passed":true,"notes":"exact code, cerebral infarction unspecified"}
+{"id":"sp48-010","query":"tuberculosis","mode":"prefix","locale":"en","gold_codes":["A15","A16","A17","A18","A19"],"top1":"A17","passed":true,"notes":"prefix returns A17 first; ranking improvement opportunity (A15 more common)"}
+{"id":"sp48-011","query":"STEMI inferior","mode":"naive","locale":"en","gold_codes":["I211"],"top1":null,"passed":false,"notes":"FAIL: 'STEMI' acronym not in labels. Needs synonym/acronym dictionary or BGE-M3 semantic search (B-48f)"}
+{"id":"sp48-012","query":"major depressive disorder","mode":"naive","locale":"en","gold_codes":["F32","F33"],"top1":null,"passed":false,"notes":"FAIL: labels use 'Depressive episodes' / 'Recurrent depressive disorder'. Phrasing mismatch — needs semantic (B-48f)"}
+{"id":"sp48-013","query":"diabetes mellitus","mode":"prefix","locale":"en","gold_codes":["E10","E11","E12","E13","E14"],"top1":"O24","passed":false,"notes":"FAIL: O24 (gestational DM) returned first. Ranking should prefer E-chapter (general DM). Add chapter weight in lookup ORDER BY (B-48 enhancement)"}
+{"id":"sp48-014","query":"hypertension","mode":"prefix","locale":"en","gold_codes":["I10","I11","I12","I13","I15"],"top1":"I151","passed":false,"notes":"FAIL: I151 (hypertension secondary to renal) returned before I10 (essential HTN). Same ranking issue — common-first heuristic needed"}
+{"id":"sp48-015","query":"หลอดเลือดสมองตีบ","mode":"naive","locale":"th","gold_codes":["I63","I639","G45"],"top1":"I63","passed":true,"notes":"Thai stroke phrasing — naive substring works"}
