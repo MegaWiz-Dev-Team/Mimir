@@ -212,6 +212,11 @@ pub fn eval_routes() -> Router<DbPool> {
         // with a different judge config (e.g. ensemble) — clean A/B without re-running
         // the agent inference (which is the expensive part + source of variance).
         .route("/api/v1/eval/runs/{id}/rejudge", axum::routing::post(rejudge_run))
+        // Sprint 47 B-47f: bottleneck attribution — given a run (or a paired
+        // A/B baseline), classify each question as RAG-bottleneck / LLM-
+        // bottleneck / both / neither so the dashboard can show where the
+        // next sprint should invest.
+        .route("/api/v1/eval/runs/{id}/diagnose", get(diagnose_run))
         .route("/api/v1/eval/scores/{id}/review", patch(submit_review))
         .route("/api/v1/eval/champion", get(get_champion))
         .route("/api/v1/eval/benchmark-datasets", get(list_benchmark_datasets))
@@ -718,5 +723,255 @@ async fn rejudge_run(
         "message": "Replay-judge endpoint registered. Full re-scoring logic pending — \
                     use this stub to verify routing works end-to-end. Will be filled in \
                     next sprint cycle once Round 5 results inform priorities."
+    }))
+}
+
+// ─── Sprint 47 B-47f — Bottleneck attribution / diagnose ───────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DiagnoseQuery {
+    /// Optional sibling run for paired A/B (e.g. `?vs=<rag_off_run_id>`).
+    /// When provided, attribution is computed per-question against this baseline.
+    /// When absent, returns aggregate metrics for the single run only.
+    #[serde(default)]
+    pub vs: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DiagnoseAggregate {
+    run_id: String,
+    name: Option<String>,
+    n: i64,
+    hbp: f64,
+    avg_accuracy: f64,
+    avg_completeness: f64,
+    avg_relevance: f64,
+    avg_safety: f64,
+    unsafe_count: i64,
+    avg_latency_ms: f64,
+    rag_chunks_avg: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DiagnoseDelta {
+    /// HBp difference: a (treatment) - b (baseline)
+    hbp_delta_pp: f64,
+    /// Per-dim deltas (0-1 normalized)
+    accuracy_delta: f64,
+    completeness_delta: f64,
+    relevance_delta: f64,
+    safety_delta: f64,
+    /// Per-question attribution counts.
+    n_rag_helped: i64,        // both correct, but treatment HBp > baseline by ≥0.10
+    n_rag_neutral: i64,        // |delta| < 0.10
+    n_rag_hurt: i64,           // baseline > treatment (rare, indicates RAG noise)
+    n_both_failed: i64,        // both <0.5 HBp — neither RAG nor LLM enough
+    n_both_passed: i64,        // both ≥0.7 HBp — easy questions
+}
+
+#[derive(Debug, Serialize)]
+struct DiagnoseResponse {
+    target: DiagnoseAggregate,
+    baseline: Option<DiagnoseAggregate>,
+    delta: Option<DiagnoseDelta>,
+    /// Plain-language summary the UI can show prominently.
+    summary: String,
+    /// Suggested next-sprint focus per the verdict — see Sprint 39d plan.
+    recommendation: String,
+}
+
+async fn aggregate_run(
+    pool: &DbPool,
+    tenant_id: &str,
+    run_id: &str,
+) -> Result<Option<DiagnoseAggregate>, sqlx::Error> {
+    let row: Option<(Option<String>, i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<i64>, Option<f64>, Option<f64>)> = sqlx::query_as(
+        "SELECT
+           r.name,
+           COUNT(s.id)                                              AS n,
+           CAST(AVG(s.accuracy_score) AS DOUBLE)                    AS avg_acc,
+           CAST(AVG(s.completeness_score) AS DOUBLE)                AS avg_comp,
+           CAST(AVG(s.relevance_score) AS DOUBLE)                   AS avg_rel,
+           CAST(AVG(s.safety_score) AS DOUBLE)                      AS avg_safe,
+           CAST(SUM(CASE WHEN s.safety_score < 0 THEN 1 ELSE 0 END) AS SIGNED) AS unsafe_n,
+           CAST(AVG(s.latency_ms) AS DOUBLE)                        AS avg_lat,
+           CAST(AVG(CASE
+                 WHEN s.retrieved_chunk_ids IS NULL THEN NULL
+                 ELSE JSON_LENGTH(s.retrieved_chunk_ids)
+               END) AS DOUBLE)                                       AS chunks_avg
+         FROM eval_runs r
+         LEFT JOIN eval_scores s ON s.run_id = r.id
+         WHERE r.id = ? AND r.tenant_id = ?
+         GROUP BY r.id, r.name",
+    )
+    .bind(run_id)
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((name, n, acc, comp, rel, safe, unsafe_n, lat, chunks)) = row else { return Ok(None); };
+    if n == 0 { return Ok(None); }
+
+    // HBp = (acc_norm + comp_norm + rel_norm + safety) / 4 * 100
+    let acc_norm = ((acc.unwrap_or(1.0) - 1.0) / 4.0).max(0.0);
+    let comp_norm = ((comp.unwrap_or(1.0) - 1.0) / 4.0).max(0.0);
+    let rel_norm = ((rel.unwrap_or(1.0) - 1.0) / 4.0).max(0.0);
+    let safety = safe.unwrap_or(0.0);
+    let hbp = ((acc_norm + comp_norm + rel_norm + safety) / 4.0 * 100.0 * 10.0).round() / 10.0;
+
+    Ok(Some(DiagnoseAggregate {
+        run_id: run_id.to_string(),
+        name,
+        n,
+        hbp,
+        avg_accuracy: round2(acc.unwrap_or(0.0)),
+        avg_completeness: round2(comp.unwrap_or(0.0)),
+        avg_relevance: round2(rel.unwrap_or(0.0)),
+        avg_safety: round2(safety),
+        unsafe_count: unsafe_n.unwrap_or(0),
+        avg_latency_ms: lat.unwrap_or(0.0).round(),
+        rag_chunks_avg: chunks.map(|c| round2(c)),
+    }))
+}
+
+fn round2(x: f64) -> f64 { (x * 100.0).round() / 100.0 }
+
+#[derive(Debug, sqlx::FromRow)]
+struct PerItemRow {
+    benchmark_item_id: Option<String>,
+    accuracy_score: Option<i32>,
+    completeness_score: Option<i32>,
+    relevance_score: Option<i32>,
+    safety_score: Option<i32>,
+}
+
+fn item_hbp(r: &PerItemRow) -> f64 {
+    let acc = ((r.accuracy_score.unwrap_or(1) as f64 - 1.0) / 4.0).max(0.0);
+    let comp = ((r.completeness_score.unwrap_or(1) as f64 - 1.0) / 4.0).max(0.0);
+    let rel = ((r.relevance_score.unwrap_or(1) as f64 - 1.0) / 4.0).max(0.0);
+    let safety = r.safety_score.unwrap_or(0) as f64;
+    (acc + comp + rel + safety) / 4.0
+}
+
+async fn diagnose_run(
+    State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(run_id): Path<String>,
+    Query(req): Query<DiagnoseQuery>,
+) -> Result<Json<DiagnoseResponse>, (axum::http::StatusCode, String)> {
+    let target = aggregate_run(&pool, &tenant.tenant_id, &run_id).await
+        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("aggregate target: {e}")))?
+        .ok_or((axum::http::StatusCode::NOT_FOUND, "run not found".to_string()))?;
+
+    let (baseline, delta, summary, recommendation): (
+        Option<DiagnoseAggregate>, Option<DiagnoseDelta>, String, String,
+    ) = if let Some(vs) = &req.vs {
+        let b = aggregate_run(&pool, &tenant.tenant_id, vs).await
+            .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("aggregate baseline: {e}")))?;
+        if let Some(b) = b {
+            // Per-item attribution.
+            let target_items: Vec<PerItemRow> = sqlx::query_as(
+                "SELECT benchmark_item_id, accuracy_score, completeness_score,
+                        relevance_score, safety_score
+                 FROM eval_scores
+                 WHERE run_id = ? AND tenant_id = ? AND benchmark_item_id IS NOT NULL")
+                .bind(&run_id).bind(&tenant.tenant_id)
+                .fetch_all(&pool).await
+                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("per-item: {e}")))?;
+            let baseline_items: Vec<PerItemRow> = sqlx::query_as(
+                "SELECT benchmark_item_id, accuracy_score, completeness_score,
+                        relevance_score, safety_score
+                 FROM eval_scores
+                 WHERE run_id = ? AND tenant_id = ? AND benchmark_item_id IS NOT NULL")
+                .bind(vs).bind(&tenant.tenant_id)
+                .fetch_all(&pool).await
+                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("per-item: {e}")))?;
+
+            // Build map of benchmark_item_id -> hbp for both
+            use std::collections::HashMap;
+            let target_map: HashMap<&String, f64> = target_items.iter()
+                .filter_map(|r| r.benchmark_item_id.as_ref().map(|id| (id, item_hbp(r))))
+                .collect();
+            let baseline_map: HashMap<&String, f64> = baseline_items.iter()
+                .filter_map(|r| r.benchmark_item_id.as_ref().map(|id| (id, item_hbp(r))))
+                .collect();
+
+            let (mut helped, mut neutral, mut hurt, mut both_failed, mut both_passed) = (0i64, 0i64, 0i64, 0i64, 0i64);
+            for (id, t) in &target_map {
+                if let Some(b) = baseline_map.get(*id) {
+                    let d = t - b;
+                    if *t < 0.5 && *b < 0.5 { both_failed += 1; }
+                    else if *t >= 0.7 && *b >= 0.7 { both_passed += 1; }
+                    else if d >= 0.10 { helped += 1; }
+                    else if d <= -0.10 { hurt += 1; }
+                    else { neutral += 1; }
+                }
+            }
+
+            let delta = DiagnoseDelta {
+                hbp_delta_pp: round2(target.hbp - b.hbp),
+                accuracy_delta: round2(target.avg_accuracy - b.avg_accuracy),
+                completeness_delta: round2(target.avg_completeness - b.avg_completeness),
+                relevance_delta: round2(target.avg_relevance - b.avg_relevance),
+                safety_delta: round2(target.avg_safety - b.avg_safety),
+                n_rag_helped: helped,
+                n_rag_neutral: neutral,
+                n_rag_hurt: hurt,
+                n_both_failed: both_failed,
+                n_both_passed: both_passed,
+            };
+
+            // Plain-language summary + recommendation
+            let total_with_baseline = helped + neutral + hurt + both_failed + both_passed;
+            let summary = if delta.hbp_delta_pp >= 5.0 {
+                format!("RAG strongly contributes (+{:.1}pp HBp). {} of {} questions clearly benefit from retrieval.",
+                    delta.hbp_delta_pp, helped, total_with_baseline)
+            } else if delta.hbp_delta_pp >= 2.0 {
+                format!("RAG mildly helps (+{:.1}pp HBp). Mixed signal: {} helped, {} neutral, {} both failed.",
+                    delta.hbp_delta_pp, helped, neutral, both_failed)
+            } else if delta.hbp_delta_pp >= -2.0 {
+                format!("RAG marginal (Δ {:+.1}pp). LLM is doing the heavy lifting; retrieval may be noise.",
+                    delta.hbp_delta_pp)
+            } else {
+                format!("RAG actively HURTS (Δ {:+.1}pp). {} questions worse with RAG — investigate retrieval poisoning.",
+                    delta.hbp_delta_pp, hurt)
+            };
+            let recommendation = if delta.hbp_delta_pp >= 5.0 {
+                "Sprint 39d focus: invest in retrieval quality (B-47g clinician gold + MedCPT re-embed + semantic re-chunk). Skip corpus retrain — LoRA is near RAG-on ceiling."
+                    .to_string()
+            } else if delta.hbp_delta_pp >= 2.0 {
+                "Mixed: split investment between retrieval and corpus. Run full RAG eval (B-47b RAGAS metrics) for per-dim attribution."
+                    .to_string()
+            } else {
+                "RAG not the bottleneck. Direct LLM/LoRA improvement (corpus expansion, base model swap) is more likely path to lift."
+                    .to_string()
+            };
+
+            (Some(b), Some(delta), summary, recommendation)
+        } else {
+            (None, None, "Baseline run not found.".into(), "Provide ?vs=<run_id> for paired attribution.".into())
+        }
+    } else {
+        let summary = format!(
+            "Single-run summary: {} questions · HBp {:.1}% · {} unsafe · avg {:.1} chunks retrieved.",
+            target.n, target.hbp, target.unsafe_count,
+            target.rag_chunks_avg.unwrap_or(0.0));
+        let recommendation = "Provide ?vs=<baseline_run_id> for bottleneck attribution (RAG vs LLM).".into();
+        (None, None, summary, recommendation)
+    };
+
+    tracing::info!(
+        event = "eval_diagnose",
+        tenant = %tenant.tenant_id,
+        run_id = %run_id,
+        vs = ?req.vs,
+    );
+
+    Ok(Json(DiagnoseResponse {
+        target,
+        baseline,
+        delta,
+        summary,
+        recommendation,
     }))
 }
