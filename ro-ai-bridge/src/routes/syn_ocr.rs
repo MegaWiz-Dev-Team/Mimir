@@ -186,9 +186,9 @@ async fn get_policy(
         r#"
         SELECT
             tenant_id,
-            ocr_cloud_flash_enabled  AS `ocr_cloud_flash_enabled: bool`,
-            ocr_cloud_pro_enabled    AS `ocr_cloud_pro_enabled: bool`,
-            ocr_phi_strict           AS `ocr_phi_strict: bool`,
+            ocr_cloud_flash_enabled,
+            ocr_cloud_pro_enabled,
+            ocr_phi_strict,
             CAST(ocr_monthly_cloud_budget_usd AS DOUBLE) AS ocr_monthly_cloud_budget_usd,
             pii_mode,
             pii_custom_patterns
@@ -656,9 +656,9 @@ async fn get_tenant_policy(pool: &DbPool, tenant_id: &str) -> Result<TenantPolic
         r#"
         SELECT
             tenant_id,
-            ocr_cloud_flash_enabled  AS `ocr_cloud_flash_enabled: bool`,
-            ocr_cloud_pro_enabled    AS `ocr_cloud_pro_enabled: bool`,
-            ocr_phi_strict           AS `ocr_phi_strict: bool`,
+            ocr_cloud_flash_enabled,
+            ocr_cloud_pro_enabled,
+            ocr_phi_strict,
             CAST(ocr_monthly_cloud_budget_usd AS DOUBLE) AS ocr_monthly_cloud_budget_usd,
             pii_mode,
             pii_custom_patterns
