@@ -336,9 +336,24 @@ pub(crate) async fn agent_chat(
             ));
 
             // ─── Wave 3: structured trace for experiment tracking ───
+            // Sprint 47 B-47c: include stable `chunk_id` so eval runner can
+            // persist retrieved_chunk_ids and downstream RAGAS / retrieval
+            // metrics can correlate against rag_benchmark_items gold sets.
             let chunks_json: Vec<serde_json::Value> = rag_results.iter().map(|r| {
                 let content_preview: String = r.content.chars().take(200).collect();
+                // Resolve chunk_id from metadata (Qdrant payload usually has
+                // 'id' or 'chunk_id'); fall back to a deterministic
+                // {source}:{title} composite when absent. This keeps IDs
+                // stable across runs without forcing a schema change in the
+                // upstream knowledge bases.
+                let chunk_id = r.metadata.get("chunk_id")
+                    .or_else(|| r.metadata.get("id"))
+                    .and_then(|v| v.as_str().map(|s| s.to_string())
+                        .or_else(|| v.as_i64().map(|n| n.to_string()))
+                        .or_else(|| v.as_u64().map(|n| n.to_string())))
+                    .unwrap_or_else(|| format!("{}:{}", r.source_type, r.title));
                 serde_json::json!({
+                    "chunk_id": chunk_id,
                     "source": r.source_type,
                     "title": r.title,
                     "score": r.score,

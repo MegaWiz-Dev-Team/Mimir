@@ -601,6 +601,18 @@ async fn run_evaluation_task(
                     let retrieval_chunks_str = full_trace.as_ref()
                         .and_then(|t| t.get("retrieval_chunks"))
                         .map(|v| v.to_string());
+                    // Sprint 47 B-47c: extract bare chunk_id list for fast
+                    // retrieval-metric computation. Avoids re-parsing the
+                    // full JSON every time RAGAS or Recall@k runs.
+                    let retrieved_chunk_ids_str = full_trace.as_ref()
+                        .and_then(|t| t.get("retrieval_chunks"))
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            let ids: Vec<&str> = arr.iter()
+                                .filter_map(|c| c.get("chunk_id").and_then(|v| v.as_str()))
+                                .collect();
+                            serde_json::json!(ids).to_string()
+                        });
                     let step_timings_str = full_trace.as_ref()
                         .and_then(|t| t.get("step_timings_ms"))
                         .map(|v| v.to_string());
@@ -614,8 +626,9 @@ async fn run_evaluation_task(
                           actual_answer, accuracy_score, completeness_score, relevance_score,
                           safety_score, latency_ms, judge_model, judge_reasoning, tenant_id,
                           retrieval_trace, replicate_index, benchmark_item_id,
-                          retrieval_params, retrieval_chunks, step_timings, tool_calls)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                          retrieval_params, retrieval_chunks, step_timings, tool_calls,
+                          retrieved_chunk_ids)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     )
                     .bind(&run_id)
                     .bind(agent_name)
@@ -638,6 +651,7 @@ async fn run_evaluation_task(
                     .bind(&retrieval_chunks_str)
                     .bind(&step_timings_str)
                     .bind(&tools_called_str)
+                    .bind(&retrieved_chunk_ids_str)
                     .execute(&pool)
                     .await?;
 
