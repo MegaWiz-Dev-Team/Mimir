@@ -43,7 +43,6 @@ ro-ai-domain-medical = { version = "0.1.0", path = "ro-ai-domain-medical" }
 async-stream = "0.3.6"
 rust-s3 = { workspace = true }
 sha2 = { workspace = true }
-base64 = "0.22"
 axum-extra = { workspace = true }
 tracing-opentelemetry = "0.32.1"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }

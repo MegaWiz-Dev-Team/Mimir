@@ -41,7 +41,6 @@ use ro_ai_bridge::routes::llm_usage::llm_usage_routes;
 use ro_ai_bridge::routes::mcp::mcp_routes;
 use ro_ai_bridge::routes::models::models_routes;
 use ro_ai_bridge::routes::ocr::ocr_routes;
-use ro_ai_bridge::routes::syn_ocr::syn_ocr_routes;
 use ro_ai_bridge::routes::pipeline::pipeline_routes;
 use ro_ai_bridge::routes::prompts::prompts_routes;
 use ro_ai_bridge::routes::qc::qc_routes;
@@ -190,8 +189,6 @@ async fn main() {
         .nest("/api/v1/feedback", feedback_routes())
         .nest("/api/v1/assistant", assistant_routes())
         .nest("/api/v1", ocr_routes())
-        // Sprint 50: Syn 4-tier OCR — distinct from legacy /api/v1/ocr/extract
-        .nest("/api/v1", syn_ocr_routes())
         .nest("/api/v1", batch_pipeline_routes())
         .nest("/api/v1/db-connector", db_connector_routes())
         .nest("/api/v1", models_routes())

@@ -13,7 +13,7 @@
 // much it cost.
 
 import { useEffect, useState } from "react";
-import { authFetch, API_BASE_URL } from "@/lib/api";
+import { authFetch, SYN_API_BASE_URL as API_BASE_URL } from "@/lib/api";
 
 interface EngineHealth {
     engine: string;

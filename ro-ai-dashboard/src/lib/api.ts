@@ -8,16 +8,34 @@ export const API_BASE_URL = (() => {
         if (window.location.hostname.includes("asgard.internal")) {
             return `${window.location.protocol}//api.asgard.internal/api/v1`;
         }
-        
+
         // If the build bound to localhost, but the user is accessing via an external IP/Domain
-        if ((defaultUrl.includes("localhost") || defaultUrl.includes("127.0.0.1")) && 
-             window.location.hostname !== "localhost" && 
+        if ((defaultUrl.includes("localhost") || defaultUrl.includes("127.0.0.1")) &&
+             window.location.hostname !== "localhost" &&
              window.location.hostname !== "127.0.0.1") {
             // Port 30000 is our standardized K3s NodePort for the API
             return `${window.location.protocol}//${window.location.hostname}:30000/api/v1`;
         }
     }
     return defaultUrl + "/v1";
+})();
+
+// Sprint 50: Syn API extracted into its own service (NodePort 30002).
+// Falls back to the same logic as API_BASE_URL when in browser, swapping
+// the port. Server-side / SSR uses NEXT_PUBLIC_SYN_API_URL.
+export const SYN_API_BASE_URL = (() => {
+    const defaultUrl = process.env.NEXT_PUBLIC_SYN_API_URL || "http://localhost:30002/api/v1";
+    if (typeof window !== "undefined") {
+        if (window.location.hostname.includes("asgard.internal")) {
+            return `${window.location.protocol}//syn.asgard.internal/api/v1`;
+        }
+        if ((defaultUrl.includes("localhost") || defaultUrl.includes("127.0.0.1")) &&
+             window.location.hostname !== "localhost" &&
+             window.location.hostname !== "127.0.0.1") {
+            return `${window.location.protocol}//${window.location.hostname}:30002/api/v1`;
+        }
+    }
+    return defaultUrl;
 })();
 
 function getAuthHeaders(): HeadersInit {

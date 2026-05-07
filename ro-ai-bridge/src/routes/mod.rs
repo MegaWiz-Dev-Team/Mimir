@@ -27,8 +27,6 @@ pub mod llm_usage;
 pub mod mcp;
 pub mod models;
 pub mod ocr;
-// Sprint 50: Syn 4-tier OCR (chandra + PaddleOCR + Gemini Flash + Gemini Pro)
-pub mod syn_ocr;
 pub mod pipeline;
 pub mod prompts;
 pub mod qc;
