@@ -65,6 +65,8 @@ without leaving the Mac-mini local-inference cost envelope ($0/query).
 | **47** 🟦 | Mimir RAG Eval — Rust-native RAGAS for medical RAG (bottleneck attribution) | 4 RAGAS metrics + 2 retrieval metrics + counterfactual ablation; diagnose LLM vs RAG vs both | 📋 proposal (~2 weeks) |
 | **48** 🇹🇭 | Thai Clinical Coding Foundation — ICD-10 + ICD-10-TM + DRG | First Thai-native differentiator; Hermodr-resident; bilingual semantic search; FHIR Condition.code wiring | 📋 proposal (~3-4 weeks) |
 | **49** 🟢 | MedOpenClaw Skill Integration — Phase 1 (5 priority + adapter template) | Port pubmed-search · DDI · clinical-trial-matching · differential-diagnosis · CPIC-pharmacogenomics; ToolRAG scaffold for 869-skill discovery | 📋 proposal (~3 weeks) |
+| **50** 👁️ | **Syn S1 — OCR Foundation (advanced from Q3)** · 4-tier hybrid (chandra + PaddleOCR + Gemini Flash + Gemini Pro) | Norse "goddess of vigilance" service. Multi-component: Heimdall OCR sidecar (port 8084-8085) + Bifrost route + Mimir audit + Eir agent allowlist. Apache 2.0 local primary + opt-in cloud premium. Mega-Care intake synergy. | 📋 proposal (~4 weeks · slot 2026-05-08 → 2026-06-05) |
+| **50b** 🌑 | **Skuggi — PII Guardrail (Pre-LLM Blind)** · runs parallel with Sprint 50 | Heimdall middleware that masks PII (face/Thai-ID/MRN/names) BEFORE any cloud LLM call. Image: OpenCV YuNet + PaddleOCR + Thai regex (zero new lib). Text: Rust regex (Tier 1) + PyThaiNLP (Tier 2). Mode default `mask-and-send`. Irreversible v0. | 📋 proposal (~2 weeks · slot 2026-05-15 → 2026-05-29) |
 
 ---
 
@@ -1359,6 +1361,251 @@ ToolRAG discovery).
   Thai-localized skill descriptions in this sprint's catalog
 - **Sprint 45 Mimir Batch API** — useful (not blocking) for bulk Thai
   description translation
+
+---
+
+## Sprint 50 — 👁️ Syn S1 OCR Foundation (advanced, ~3.5 weeks)
+
+**Codename:** Syn — Norse goddess of vigilance / "watching over". TOR (Tools
+of Recognition) sub-system for visual document processing. Sister services
+Sága (STT, Sprint 52) and Visual BMI (Sprint 53) follow same pattern.
+
+**Trigger:** Asgard roadmap [`Asgard/docs/strategy/roadmap.md`](../../Asgard/docs/strategy/roadmap.md)
+originally placed Syn S1 in Q2 2026 ("Now"); Sprint 39d clinician wait
+opens dev bandwidth that lets it advance from the original Q3 slot. Mega-Care
+synergy is direct: patient intake (Thai ID), prescription scanning, lab
+report ingest. Hospital partner ROI immediate.
+
+### Architectural decision (locked 2026-05-08, ADR-006)
+
+**Stack: 4-tier hybrid OCR (local-first, cloud opt-in)**
+
+| Tier | Engine | License | Cost | Use case | Tenant opt-in? |
+|:---:|---|---|---|---|:---:|
+| **1a** | `datalab-to/chandra` (10.5k ⭐) | Apache 2.0 | $0 (local) | Handwriting · complex tables · forms | default ON |
+| **1b** | `PaddleOCR` PP-OCRv4 (~50k ⭐) | Apache 2.0 | $0 (local) | Thai stock print · fast latency | default ON |
+| **2** | `gemini-3-flash` (cloud) | proprietary API | ~$0.001-0.005 / page | Local low-confidence fallback · multilingual edge cases | **opt-in per tenant** |
+| **3** | `gemini-3.1-pro` (cloud) | proprietary API | ~$0.05-0.20 / page | High-stakes documents (legal, critical lab, complex layouts) · second opinion | **opt-in per tenant + per-call confirmation** |
+
+**Rejected:** `surya` / `marker` from datalab (GPL-3.0). Conflict with Asgard
+Commercial Enterprise tier — viral GPL clause forces Enterprise customers
+embedding Asgard to GPL their entire product. Apache 2.0 alternatives
+preserve the open-core moat.
+
+**Deployment:**
+- **Local tier** (1a/1b): Heimdall sidecar pattern (port 8084 chandra, 8085 PaddleOCR)
+- **Cloud tier** (2/3): existing Heimdall step-up router — same path as
+  Sprint 36 Heimdall Gemini fallback, reuses per-tenant API key resolution
+  + budget tracking from `model_pricing` + `llm_usage` tables
+- **Smart router**: rule-based v0 (see Router rules below); ML-based v1 deferred
+
+**Router rules (engine selection)** — evaluated in order, first match wins:
+
+```
+1. PHI-sensitive flag set on tenant       → force LOCAL (1a or 1b only)
+2. Per-call --engine override (manual)    → that engine
+3. Document type explicit (handwriting,
+   complex_table, form, thai_print)       → 1a or 1b per type
+4. Document size > 5 pages OR             → tier 3 (Pro) IF tenant cloud_pro=ON
+   marked "critical" / "legal"               ELSE tier 2 (Flash) ELSE 1a (best-effort local)
+5. Local engine confidence < 0.70         → tier 2 (Flash) IF tenant cloud_flash=ON
+                                             ELSE return local result + warn
+6. Default                                → 1a chandra → fallback 1b PaddleOCR
+```
+
+Tenant cloud opt-in stored in existing `tenant_settings` table:
+- `ocr_cloud_flash_enabled` (BOOLEAN, default FALSE)
+- `ocr_cloud_pro_enabled` (BOOLEAN, default FALSE; requires Flash also enabled)
+- `ocr_phi_strict` (BOOLEAN, default TRUE — never cloud regardless of above)
+- `ocr_monthly_cloud_budget_usd` (DECIMAL, default 0; per-tenant cap)
+
+Same architectural pattern as future Sága (STT) and Hermóðr (notify).
+
+### Backlog
+
+| ID | Title | Size |
+|---|---|---|
+| **B-50a** | Heimdall: deploy chandra (port 8084) + PaddleOCR (port 8085) as local sidecars | M (3-4d) |
+| **B-50b** | Smart router: rule-based engine selection (PHI flag, doc type, confidence threshold, cloud opt-in, budget cap) | M (2-3d) |
+| **B-50c** | REST endpoint `POST /api/v1/ocr/extract` (multipart → text + bbox + confidence + engine_used + cost_usd) | S (1d) |
+| **B-50d** | Bifrost: image-with-text-content → OCR → existing agent flow (transparent path) | S (1-2d) |
+| **B-50e** | Mimir: `ocr_documents` table + audit (image_hash, ocr_engine, extracted_text, confidence, cost_usd, tenant_id) | S (1d) |
+| **B-50f** | Mimir Curator extension: clinician reviews OCR output, marks errors → corrections corpus | M (2-3d) |
+| **B-50g** | Eir agent allowlist: add `ocr_extract` tool to `eir-medtech`, `eir-pharmacy`, `eir-internal-medicine` | S (1d) |
+| **B-50h** | Test set: 30 Thai medical documents (10 print, 10 handwriting, 10 table) — measure CER per category × per engine (4 engines × 30 docs = 120 cells); target ≤5% print, ≤15% handwriting | M (clinician partner ~2d wall) |
+| **B-50i** | UI: drag-drop upload in Mimir Dashboard `/chat` with OCR preview + text edit + **engine choice + cost preview** before send | M (2d) — bumped for cloud preview |
+| **B-50j** | End-to-end test: lab report image → Eir-medtech → ICD-10 codes (chains B-48h FHIR) | S (1d) |
+| **B-50k** | **Heimdall: Gemini 3 Flash + 3.1 Pro OCR adapter** — reuse existing `gemini_helper::call_text` with vision multimodal payload (`{type:'image_url'}`); per-tenant API key resolution | M (2-3d) |
+| **B-50l** | **Tenant settings: `ocr_cloud_flash_enabled`, `ocr_cloud_pro_enabled`, `ocr_phi_strict`, `ocr_monthly_cloud_budget_usd` cols + admin UI page** | S (1-2d) |
+| **B-50m** | **Cost guard middleware: pre-call USD estimate, monthly budget cap enforcement, audit row in `llm_usage` for every cloud OCR call** | M (1-2d) |
+
+**Total ~ 19-25 dev-days** (~4 calendar weeks · bumped from 3.5 wk for cloud tier additions).
+
+### Acceptance criteria — Sprint 50
+
+- [ ] **Local-tier Thai OCR**: CER ≤5% on print benchmark, ≤15% on handwriting (PaddleOCR + chandra stock baselines)
+- [ ] **Cloud-tier Gemini 3 Flash**: CER ≤3% on print, ≤10% on handwriting (cloud premium baseline)
+- [ ] **Cloud-tier Gemini 3.1 Pro**: CER ≤2% on print, ≤7% on handwriting (high-stakes baseline)
+- [ ] Eir-medtech ingests a lab report image → extracts text → suggests ICD-10 codes (chains Sprint 48 B-48h FHIR)
+- [ ] **Audit trail** captures every OCR call (image_hash + extracted_text + ocr_engine + confidence + cost_usd + tenant_id)
+- [ ] Latency p50 ≤2s local · ≤4s Gemini Flash · ≤8s Gemini Pro for typical 1-2 page lab report
+- [ ] **Cloud safety**: PHI-strict tenant flag MUST block cloud calls 100% (verified via 20 PHI-marked test cases)
+- [ ] **Cost guard**: monthly budget cap enforced — request rejected with explicit message when exceeded
+- [ ] **Cost preview UI**: user sees USD estimate before any cloud OCR call; explicit confirmation for Gemini Pro
+- [ ] Smart router correctly picks engine: ≥85% accuracy on engine-selection benchmark
+- [ ] Multi-tenant: per-tenant OCR audit log; per-tenant cloud opt-in flags + budget cap; image storage isolated per tenant
+
+### Out of scope (deferred to Sprint 51 = Syn S2)
+
+- ❌ eKYC + Thai ID parser (Syn S2)
+- ❌ Face matching / biometric (Syn S2)
+- ❌ Cloud OCR fallback (Google Vision API) — local-first only
+- ❌ Multi-page PDF (use pdftext separately if needed; full PDF→markdown deferred)
+- ❌ Receipt / invoice parser (out of medical scope)
+
+### Cost / value justification
+
+| Benefit | Quantification |
+|---|---|
+| **Mega-Care intake automation** | Reduces patient-intake data entry (current pain point per Mega-Care ops) — ROI within 2 sprints |
+| **Hospital scan ingest** | Lab/prescription/intake form digitization — eliminates manual coder transcription |
+| **Differentiator vs cloud OCR** | Local-first + Thai-first + medical-context + audit trail in single binary surface |
+| **Premium cloud tier** | Gemini Pro for hospital admin (legal docs, complex insurance forms, English medical literature) — opt-in revenue feature |
+| **Cost — Tier 1 local** | $0 inference (chandra + PaddleOCR Apache 2.0) · runs on Mac mini |
+| **Cost — Tier 2 Flash** | ~$0.001-0.005 / page (≈$1-5/1000 pages); typical small clinic 5K pages/mo = $5-25 |
+| **Cost — Tier 3 Pro** | ~$0.05-0.20 / page (≈$50-200/1000 pages); reserve for high-stakes only — typical 100 pages/mo = $5-20 |
+| **Dev** | ~4 wk (3.5 wk local + 0.5 wk cloud tier additions) |
+
+### Open questions (resolve at sprint kickoff)
+
+1. **chandra Thai accuracy** — chandra has no explicit Thai model; is it Thai-capable via multilingual training? **Resolve at B-50h benchmark**; if Thai CER >20% on chandra → use PaddleOCR for Thai stock + chandra only for handwriting/tables.
+2. **MLX runtime for local OCR** — both chandra + PaddleOCR are Python/PyTorch (CPU/CUDA); no MLX path yet. **Recommend** running them as Python sidecars on host (similar to Heimdall pattern); revisit MLX port if Mac-mini latency unacceptable.
+3. **Image storage** — Vault (small files, audit-friendly) vs S3-compatible object store (scale). **Recommend** Vault for v0 (≤10K images); migrate to MinIO if growth.
+4. **Gemini API key model** — per-tenant key (each hospital provides its own Google API key) vs Megawiz pool key (we resell with markup). **Recommend** per-tenant for PDPA cleanliness; Megawiz pool only for Mega-Care internal use.
+5. **Default cloud opt-in** — should Gemini Flash be ON by default for new tenants (cheap, useful) or strictly opt-in? **Recommend strict opt-in** — PHI-first posture; clinician explicit consent before any cloud call.
+6. **Cost preview UX** — block & confirm every cloud call (annoying) vs warn once per session vs only confirm Pro. **Recommend** confirm only Gemini Pro (≥$0.05/call); Flash silent within budget cap.
+
+### Dependencies
+
+- **Sprint 39d clinician work** runs in parallel — different surface (RAG vs OCR), no conflict
+- **Sprint 48 B-48h FHIR** — completes the OCR → ICD-10 → FHIR Condition pipeline end-to-end
+- **No hard dep** on Sprint 45/46/47 — runs independently
+
+### Cross-references
+
+- ADR-006 (this sprint's stack decision): [`Asgard/docs/architecture/ADR-006-Syn-OCR-Stack.md`](../../Asgard/docs/architecture/ADR-006-Syn-OCR-Stack.md)
+- ADR-007 (Skuggi PII guardrail gating cloud OCR): [`Asgard/docs/architecture/ADR-007-Skuggi-PII-Guardrail.md`](../../Asgard/docs/architecture/ADR-007-Skuggi-PII-Guardrail.md)
+- Asgard roadmap (Syn S1 → S2 → Sága → Visual BMI): [`Asgard/docs/strategy/roadmap.md`](../../Asgard/docs/strategy/roadmap.md)
+- Sprint 50b = 🌑 Skuggi PII Guardrail (parallel, ~2 wk) — gates cloud opt-in safety
+- Sprint 51 = Syn S2 eKYC + Thai ID (next, ~2 wk)
+- Sprint 52 = Sága S1 Whisper Foundation (~2 wk)
+- Sprint 53 = Visual BMI / vision LLM (~3 wk)
+
+---
+
+## Sprint 50b — 🌑 Skuggi PII Guardrail (parallel, ~2 weeks)
+
+**Codename:** Skuggi — Old Norse for "shadow". Hides PII in shadow before
+any cloud LLM call sees the document. Sister to Týr (Wazuh SIEM) on
+the security/compliance side, complements Sprint 50 Syn (OCR) and future
+Sága (STT) by gating their cloud-bound calls.
+
+**Trigger:** Sprint 50 introduces cloud OCR (Gemini Flash/Pro). The
+existing PHI-strict tenant flag is all-or-nothing — disabling cloud
+entirely renders the cloud premium tier unusable. Hospitals need
+**granular "redact then cloud-OK" posture** for PDPA compliance + clinical
+productivity. Skuggi delivers that.
+
+### Architectural decision (locked, ADR-007)
+
+**Pattern:** Heimdall pre-LLM middleware (in-process Rust, no extra hop)
+**Image PII stack** (zero new external libs — all reuse Sprint 50 deps):
+- OpenCV YuNet for face detection (built-in since OpenCV 4.7)
+- PaddleOCR text + bounding boxes for Thai-ID/MRN region detection
+- Rust regex on extracted text → match Thai-ID 13-digit / MRN / phone
+- OpenCV blur for redaction
+
+**Text PII stack** (1 new sidecar):
+- **Tier 1: Rust regex in-process** — Thai national ID, MRN, phone, email, DOB, plate (<1ms latency)
+- **Tier 2: PyThaiNLP sidecar (port 8086)** — Thai person names, addresses, hospital names; only invoked when Tier 1 has low coverage suspicion (~50-100ms)
+
+**Modes:**
+| Mode | Behavior | Default |
+|---|---|---|
+| `off` | No redaction | never default |
+| `detect-only` | Log PII found, don't redact (audit/staging) | dev tenants |
+| `mask-and-send` | Redact + send to cloud | ✅ **default for new tenants** |
+| `block-on-pii` | Fail call if PII found (strictest) | high-PHI hospitals |
+
+**Reversibility:** v0 = irreversible (one-way). OCR doesn't need
+rehydration — local document on disk has original PII; cloud just
+returns text structure. Sprint 52+ (Sága voice, vision LLM) gets
+reversible mapping with HSM-protected keys when contextual reasoning
+requires it.
+
+### Backlog
+
+| ID | Title | Size |
+|---|---|---|
+| **B-50b-1** | DB migration: `pii_redactions` audit table + `tenant_settings.pii_mode` enum col + `pii_custom_patterns` JSON | S (1d) |
+| **B-50b-2** | Heimdall: Skuggi middleware Rust trait — wraps every cloud-bound LLM call (text + image) | M (3d) |
+| **B-50b-3** | Image PII detector: OpenCV YuNet face + PaddleOCR text bbox + Thai regex match → OpenCV blur (zero new external lib) | M (2-3d) |
+| **B-50b-4** | Text PII Tier 1: Rust regex (Thai 13-digit national ID, MRN, phone, email, DOB, plate) — pure in-process | S (1-2d) |
+| **B-50b-5** | Text PII Tier 2: PyThaiNLP sidecar (port 8086) for Thai person names + addresses; called on Tier 1 low-coverage signal | M (2d) |
+| **B-50b-6** | Skuggi config UI: per-tenant `pii_mode` selector + custom regex extension form | S (1-2d) |
+| **B-50b-7** | Test set: 50 mixed PII docs (Thai ID, MRN, faces, signatures, addresses) — measure detection recall ≥98%, precision ≥90% | M (2d, clinician partner) |
+| **B-50b-8** | Audit log dashboard: per-tenant PII redaction history (what + when + by whom) | S (1d) |
+
+**Total ~12-15 dev-days** (~2 calendar weeks).
+
+### Acceptance criteria
+
+- [ ] Detection recall ≥98% on test set (false negatives = PHI leak = unacceptable)
+- [ ] Detection precision ≥90% (false positives = noise but not unsafe)
+- [ ] Image: faces, Thai ID/MRN, signatures blurred before cloud call
+- [ ] Text: Thai 13-digit ID, MRN, phone, email, DOB redacted via Tier 1 regex (latency <1ms)
+- [ ] Tier 2 PyThaiNLP captures ≥85% of Thai person names that Tier 1 missed
+- [ ] **Sprint 50 cloud OCR (B-50k) MUST chain through Skuggi when tenant `pii_mode != off`**
+- [ ] PHI-strict tenant: 100% of cloud calls blocked when `pii_mode = block-on-pii` and PII detected
+- [ ] Audit row per redaction: `(tenant_id, image_hash_pre, image_hash_post, redaction_count, pii_types[], engine, ts)`
+- [ ] Skuggi adds ≤300ms p50 latency to cloud OCR call (mostly Tier 2 NER when triggered)
+
+### Dependencies
+
+- **Sprint 50 B-50k** (Gemini OCR adapter) — Skuggi sits between client and Gemini
+- **Sprint 50 B-50l** (tenant cloud opt-in flags) — `pii_mode` adjacent to opt-in flags
+- **Multi-tenant** — uses existing X-Tenant-Id JWT pattern
+
+### Out of scope (deferred)
+
+- ❌ Reversible mapping with HSM-protected keys (Sprint 50.5 / Sprint 52)
+- ❌ Voice PII redaction (Sprint 52 Sága integrates Skuggi for STT)
+- ❌ Custom NER fine-tuning for Thai medical names (Sprint 53+)
+- ❌ Differential privacy / k-anonymity (academic, defer)
+- ❌ Reversible token vault (paid tenant feature, Sprint 51+)
+
+### Cost / value justification
+
+| Benefit | Quantification |
+|---|---|
+| **PDPA compliance for cloud OCR** | Without Skuggi, cloud OCR is unusable for PHI-cautious hospitals — feature dies in v0 |
+| **Audit trail for regulators** | Per-redaction log = evidence of PHI defense for hospital legal/compliance |
+| **Reusable across all cloud LLM calls** | Sprint 52 voice (Sága), Sprint 53 vision LLM, future Eir cloud step-up — all chain Skuggi |
+| **Asgard pattern alignment** | Reuses Sprint 50 deps (OpenCV, PaddleOCR); adds 1 small sidecar (PyThaiNLP); Rust-first middleware |
+| **Cost** | $0 inference (all local PII detection); ~2 wk dev |
+
+### Open questions (resolve at sprint kickoff)
+
+1. **Reversibility v0 trade-off** — irreversible loses ability to rehydrate cloud responses with original PII. **OK for OCR** (we already have local text); revisit at Sprint 52 voice when cloud reasoning needs context.
+2. **Thai NER performance on PyThaiNLP** — 50-100ms latency may be too high for high-volume tenants. **Mitigation**: Tier 2 only fires on Tier 1 low-coverage signal (~10-20% of calls), not every call.
+3. **Custom regex per tenant** — hospitals have varying MRN/HN formats. **Recommend**: tenant_settings JSON column for tenant-specific regex extensions (auditable, easy to add).
+4. **Skuggi as standalone service vs Heimdall middleware** — middleware (in-process) faster. **Recommend** middleware v0 + extract to standalone if Bifrost/Mimir need direct access (Sprint 51+).
+
+### Cross-references
+
+- ADR-007: [`Asgard/docs/architecture/ADR-007-Skuggi-PII-Guardrail.md`](../../Asgard/docs/architecture/ADR-007-Skuggi-PII-Guardrail.md)
+- Sprint 50 (gates this sprint's cloud opt-in): [Sprint 50 above]
+- Future: Sprint 52 Sága integrates Skuggi for voice PII (reversible v1)
 
 ---
 
