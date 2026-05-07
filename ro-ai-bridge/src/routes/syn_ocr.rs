@@ -16,18 +16,20 @@
 //! github.com/MegaWiz-Dev-Team/Syn). The router still records the choice and
 //! the failure so we can iterate on routing logic before engines land.
 
+use crate::config::Config;
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use axum_extra::extract::Multipart;
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -41,6 +43,11 @@ const ENGINE_GEMINI_FLASH: &str = "gemini-3-flash";
 const ENGINE_GEMINI_PRO: &str = "gemini-3.1-pro";
 
 const DEFAULT_LOW_CONFIDENCE: f64 = 0.7;
+
+// B-50k cost estimates per call (refined from Google pricing 2026-Q2; the
+// real cost lookup belongs in B-50m once we have actual usage data).
+const COST_FLASH_USD_PER_CALL: f64 = 0.00010;
+const COST_PRO_USD_PER_CALL: f64 = 0.00100;
 
 // Sidecar URLs default to docker-compose service names; override via env in
 // k8s deployments.
@@ -318,6 +325,7 @@ struct ExtractResponse {
 
 async fn extract(
     headers: HeaderMap,
+    Extension(config): Extension<Arc<Config>>,
     State(pool): State<DbPool>,
     multipart: Multipart,
 ) -> Result<Json<ExtractResponse>, (StatusCode, String)> {
@@ -342,19 +350,44 @@ async fn extract(
     let mut extracted_text: Option<String> = None;
     let mut confidence: Option<f64> = None;
     let mut bbox_count: Option<i64> = None;
+    let mut cost_usd: f64 = 0.0;
     let status;
     let status_message: Option<String>;
 
-    // Day-1: only local sidecars are wired here. Cloud tiers go through
-    // a different adapter in B-50k; for now, route them through the
-    // sidecar call which will return 501 and we record the audit.
-    let outcome = match engine.as_str() {
+    // Cloud-tier guard: even if the router (or manual_override) picked a
+    // cloud engine, the call MUST honour tenant.ocr_phi_strict and the
+    // per-tenant opt-in flag. This is the second line of defence — Skuggi
+    // (Sprint 50b) is the first when pii_mode != off.
+    let cloud_eligible = matches!(engine.as_str(), ENGINE_GEMINI_FLASH | ENGINE_GEMINI_PRO);
+    let cloud_blocked_reason: Option<&'static str> = if cloud_eligible {
+        if policy.ocr_phi_strict {
+            Some("ocr_phi_strict=true blocks cloud OCR")
+        } else if engine == ENGINE_GEMINI_FLASH && !policy.ocr_cloud_flash_enabled {
+            Some("ocr_cloud_flash_enabled=false")
+        } else if engine == ENGINE_GEMINI_PRO
+            && (!policy.ocr_cloud_pro_enabled || !policy.ocr_cloud_flash_enabled)
+        {
+            Some("ocr_cloud_pro_enabled=false (or Flash not also enabled)")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let outcome: Result<SidecarOutcome, SidecarError> = match engine.as_str() {
         ENGINE_CHANDRA => call_local_sidecar(&chandra_base(), &req).await,
         ENGINE_PADDLE => call_local_sidecar(&paddle_base(), &req).await,
-        ENGINE_GEMINI_FLASH | ENGINE_GEMINI_PRO => Err(SidecarError::NotImplemented(format!(
-            "cloud engine {engine} arrives in B-50k"
+        ENGINE_GEMINI_FLASH | ENGINE_GEMINI_PRO => {
+            if let Some(why) = cloud_blocked_reason {
+                Err(SidecarError::Blocked(why.to_string()))
+            } else {
+                call_cloud_gemini(&engine, &req, &config).await
+            }
+        }
+        other => Err(SidecarError::NotImplemented(format!(
+            "unknown engine {other}"
         ))),
-        other => Err(SidecarError::NotImplemented(format!("unknown engine {other}"))),
     };
 
     match outcome {
@@ -362,6 +395,14 @@ async fn extract(
             extracted_text = Some(out.extracted_text);
             confidence = out.confidence;
             bbox_count = out.bbox_count;
+            // Cost recorded only on success; failed cloud calls cost nothing
+            // because we return before billable consumption (the API call
+            // itself isn't billed if it errored — we'll refine in B-50m).
+            cost_usd = match engine.as_str() {
+                ENGINE_GEMINI_FLASH => COST_FLASH_USD_PER_CALL,
+                ENGINE_GEMINI_PRO => COST_PRO_USD_PER_CALL,
+                _ => 0.0,
+            };
             status = "succeeded".to_string();
             status_message = None;
         }
@@ -373,6 +414,14 @@ async fn extract(
             status = "engine_failed".to_string();
             status_message = Some(format!("transport: {e}"));
         }
+        Err(SidecarError::Blocked(why)) => {
+            status = if policy.ocr_phi_strict {
+                "pii_strict_block".to_string()
+            } else {
+                "engine_failed".to_string()
+            };
+            status_message = Some(why);
+        }
     }
 
     let latency_ms = started.elapsed().as_millis() as u64;
@@ -383,7 +432,7 @@ async fn extract(
             id, tenant_id, image_sha256, engine_used, router_reason,
             extracted_text, confidence, bbox_count, cost_usd, latency_ms,
             pii_redacted, status, status_message, requested_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, FALSE, ?, ?, NULL)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, NULL)
         "#,
     )
     .bind(&audit_id)
@@ -394,6 +443,7 @@ async fn extract(
     .bind(extracted_text.clone())
     .bind(confidence)
     .bind(bbox_count)
+    .bind(cost_usd)
     .bind(latency_ms as i64)
     .bind(&status)
     .bind(status_message.clone())
@@ -411,7 +461,7 @@ async fn extract(
         extracted_text,
         confidence,
         bbox_count,
-        cost_usd: 0.0,
+        cost_usd,
         latency_ms,
     }))
 }
@@ -480,6 +530,10 @@ struct SidecarOutcome {
 enum SidecarError {
     NotImplemented(String),
     Transport(String),
+    /// Cloud call refused — tenant policy violation (phi_strict or opt-in
+    /// flag false). Distinct from Transport so the audit row records
+    /// status='pii_strict_block' instead of 'engine_failed'.
+    Blocked(String),
 }
 
 async fn call_local_sidecar(
@@ -537,6 +591,72 @@ async fn call_local_sidecar(
             .and_then(|v| v.as_array())
             .map(|a| a.len() as i64),
     })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// B-50k cloud Gemini adapter (Tier 2 + Tier 3)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Reuses the existing mimir_core_ai::services::ocr vision adapter — same code
+// path the legacy /api/v1/ocr/extract uses, so the API call shape is already
+// production-tested.
+//
+// The Syn engine identifiers (`gemini-3-flash`, `gemini-3.1-pro`) are mapped
+// to the actual API model strings via env override, with safe defaults for
+// what was current in Q2 2026. When Google ships the gemini-3* line in the
+// EU/Asia regions we change SYN_GEMINI_FLASH_API_MODEL only.
+async fn call_cloud_gemini(
+    engine: &str,
+    req: &ExtractRequest,
+    config: &Config,
+) -> Result<SidecarOutcome, SidecarError> {
+    let api_key = config
+        .gemini_api_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| SidecarError::Blocked("GEMINI_API_KEY not configured".to_string()))?;
+
+    let api_model = match engine {
+        ENGINE_GEMINI_FLASH => std::env::var("SYN_GEMINI_FLASH_API_MODEL")
+            .unwrap_or_else(|_| "gemini-3-flash-preview".to_string()),
+        ENGINE_GEMINI_PRO => std::env::var("SYN_GEMINI_PRO_API_MODEL")
+            .unwrap_or_else(|_| "gemini-3-pro-preview".to_string()),
+        _ => {
+            return Err(SidecarError::NotImplemented(format!(
+                "non-cloud engine routed to cloud adapter: {engine}"
+            )))
+        }
+    };
+
+    let api_base = if config.gemini_base_url.ends_with('/') {
+        config.gemini_base_url.clone()
+    } else {
+        format!("{}/", config.gemini_base_url)
+    };
+
+    info!(
+        engine = engine,
+        api_model = api_model.as_str(),
+        bytes = req.image.len(),
+        "calling cloud gemini for OCR"
+    );
+
+    match mimir_core_ai::services::ocr::extract_text_from_image(
+        &req.image,
+        &req.filename,
+        api_key,
+        &api_base,
+        &api_model,
+    )
+    .await
+    {
+        Ok((text, _tokens)) => Ok(SidecarOutcome {
+            extracted_text: text,
+            confidence: None, // Gemini doesn't return a single confidence score
+            bbox_count: None, // No bboxes from chat/completions vision endpoint
+        }),
+        Err(e) => Err(SidecarError::Transport(format!("gemini: {e}"))),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
