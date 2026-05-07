@@ -52,19 +52,42 @@ sampling noise — n=100+ would be needed to separate 1st from 4th place statist
 These are the standing champions to beat. **Rerank helps gemma but hurts flash-lite
 (−9pp)** — gating per-model via `ai_models.metadata`.
 
-### Sprint 51b — Typhoon-Si-Med-Thinking-4B challenger (planned 2026-05-07)
+### Sprint 51b — Typhoon-Si-Med-Thinking-4B challenger (in flight 2026-05-07)
 
 Two Apache-2.0 reasoning models from Typhoon AI (SCB 10X, co-developed with
 Siriraj Informatics, Mahidol University) entered the queue 2026-05-07 for
 HBp evaluation. Plan + acceptance criteria in
 [`03_14_Local_LLM_Optimization_Sprints.md` § Sprint 51b](../03_implementation_plans/03_14_Local_LLM_Optimization_Sprints.md).
 
-| Model | Params | RAM (4-bit) | License | Status | run_id |
-|---|---|---|---|---|---|
-| `typhoon-ai/typhoon-si-med-thinking-4b-research-preview` | 4B | ~3 GB | Apache 2.0 | 📋 queued | – |
-| same — `Q4_K_M-GGUF` (Ollama fallback) | 4B | ~2.5 GB | Apache 2.0 | 📋 queued | – |
+| Model | Params | RAM | License | Serving | Status | run_id |
+|---|---|---|---|---|---|---|
+| `hf.co/typhoon-ai/typhoon-si-med-thinking-4b-research-preview-Q4_K_M-GGUF` | 4B | 2.7 GB | Apache 2.0 | Ollama | 🟢 smoke ok | – |
 
-**Modes to evaluate:**
+**Day-1 (2026-05-07) progress:**
+- ✅ Pulled GGUF Q4_K_M into Ollama (smaller of two paths — 2.7GB vs 8GB safetensors)
+- ❌ MLX path attempted via `mlx_lm.convert` — converted cleanly (2.1GB) but
+  `mlx_lm.server`'s tool-call parser crashes on Typhoon's `<tool_call>` token
+  (known model-card quirk). Pivoted to Ollama. MLX path can be re-tried when
+  upstream `mlx_lm` adds a `--no-tools` flag or the model's `<tool_call>` tail
+  is post-processed away.
+- ✅ Smoke test on a clinical reasoning question:
+    > 55yo man, sudden chest pain → left arm, ECG ST-elevation V1-V4
+    > model: identifies anterior wall LV, LAD occlusion, calls **acute anterior
+    > STEMI** correctly, recommends urgent reperfusion (PCI / thrombolysis).
+  Reasoning + final answer both land in `message.thinking` (Ollama native) /
+  `message.reasoning` (OpenAI-compat) — model doesn't always emit closing
+  `</think>`. HBp harness will need to concatenate `thinking + content` and
+  strip the trailing `<tool_call>` token.
+
+**Day-2 (next session) — full HBp n=20 run:**
+- Add Mimir eval-harness adapter for Ollama `provider=ollama` + reasoning-field
+  parser (extends `routes/eval.rs` and `auto_pipeline.rs::strip_thinking()`)
+- Insert `ai_models` row: `('hf.co/typhoon-ai/...:latest', 'ollama', 'llm', 1)`
+- Call `/api/v1/eval/runs` with `benchmark_dataset_id='hb-pro-asgard-001'`,
+  `model_id=<typhoon>`, `n=20`, judge=`gemini-2.5-flash`
+- Update this scoreboard with the run_id + per-dim scores
+
+**Modes to evaluate (when harness lands):**
 - TEXT_MODE — single answer with `<think></think>` reasoning prefix
 - LIST_MODE — ranked differential diagnosis (most → least likely)
 
