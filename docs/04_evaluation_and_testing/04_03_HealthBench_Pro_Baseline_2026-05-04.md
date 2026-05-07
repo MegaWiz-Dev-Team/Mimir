@@ -52,6 +52,92 @@ sampling noise — n=100+ would be needed to separate 1st from 4th place statist
 These are the standing champions to beat. **Rerank helps gemma but hurts flash-lite
 (−9pp)** — gating per-model via `ai_models.metadata`.
 
+### Sprint 51b Day-3 — apples-to-apples 4-cell HBp matrix (2026-05-08)
+
+Day-3 closed the methodology gap: **gemma-4-26b reran with the same
+judge config as typhoon (`thinkingBudget=0`)** so the Δ reflects model
+quality, not Gemini-judge thinking budget.
+
+#### 4-cell summary
+
+| Model | Anchor | n | HBp% | Acc | Comp | Rel | Safe | acc=1 | unsafe |
+|---|---|---|---|---|---|---|---|---|---|
+| **typhoon-si-med-thinking-4b** | locked-20 | 20 | **52.19** | 2.45 | 1.70 | 3.40 | **0.95** | 45% | 5% |
+| **typhoon-si-med-thinking-4b** | broader-100 | 100 | **44.88** | 2.19 | 1.69 | 3.06 | 0.81 | 42% | **19%** |
+| gemma-4-26b-a4b-it-4bit | locked-20 | 20 | **36.88** | 1.70 | 1.35 | 2.05 | **0.95** | 65% | 5% |
+| gemma-4-26b-a4b-it-4bit | broader-100 | 100 | **35.81** | 1.71 | 1.39 | 2.03 | 0.90 | **60%** | 10% |
+
+#### Δ apples-to-apples
+
+| Anchor | Δ HBp% | Δ Acc | Δ Comp | Δ Rel | Δ Safe |
+|---|---|---|---|---|---|
+| locked-20 | **+15.31** | +0.75 | +0.35 | +1.35 | 0.00 |
+| broader-100 | **+9.07** | +0.48 | +0.30 | +1.03 | −0.09 |
+
+> typhoon outperforms gemma on **both anchors** when the judge runs in
+> extraction mode (no thinking budget).
+
+#### ★ Critical methodology finding — judge config moves the floor by ~11pp
+
+Old baseline scored gemma at **47.80% HBp** on locked-20 (run `195e8912`,
+default judge thinking). Same model + same questions with
+`thinkingBudget=0` lands at **36.88%** — a **−10.92pp drop**. The
+historical scoreboard was reading higher because Gemini-2.5-flash spent
+its `thoughtsTokenCount` rationalising borderline answers up.
+
+**What this means:**
+1. The post-Sprint 36 baseline (47.8% gemma · 48.4% gemini-3.1-flash-lite)
+   was measured with a *forgiving* judge configuration. Real-world
+   model quality on the same locked-20 is 10pp lower than reported.
+2. Comparing future champions across judge configs is unsafe — every
+   model rotation needs to lock the judge config.
+3. The right comparison for "typhoon vs gemma champion" is the
+   apples-to-apples row above (+15.31pp / +9.07pp), not the historical
+   number.
+
+#### Distribution patterns
+
+- **typhoon is bimodal** — high tail (11–20% acc=5) and high failure
+  (42–45% acc=1). Reasoning model nails its training distribution and
+  fails OOD (foreign languages, URL/citation handling, multi-part
+  parsing, niche trial names — see Day-3a notes).
+- **gemma is concentrated at the bottom** — 60–65% acc=1, only 4–5%
+  acc=5. Less catastrophic-but-rare; consistently mediocre.
+- **Safety:** typhoon safer on locked-20 (5% vs 5% tied), but gemma
+  pulls ahead on broader-100 (10% vs typhoon's 19% unsafe). At scale
+  typhoon's mistakes turn into harmful answers more often.
+
+#### Recommendation
+
+**Status: typhoon-si-med-thinking-4b is a STRONG champion candidate
+on metrics, but blocked from production swap by 3 caveats:**
+
+1. **Vendor card disclaimer** ("NOT intended for medical use"
+   research preview) — still binding, this isn't sample noise.
+2. **Safety regression at scale** — 19% unsafe on broader-100 is a
+   real liability for clinical chat where one bad answer destroys
+   trust. Gemma's 10% is better.
+3. **The +9-15pp Δ comes via *both* model improvement AND judge
+   config tightening**. Need to also bench typhoon with default judge
+   thinking to know how much is "model wins" vs "judge stricter".
+
+**Next steps before any swap:**
+- Day-4: rerun typhoon locked-20 + broader-100 with **default judge
+  thinking** (no `thinkingBudget=0`) to isolate model-only Δ
+- Day-4: per-question diff on the 19% unsafe broader-100 cases — which
+  PHI patterns does typhoon mishandle?
+- Day-5: consider typhoon as `eir-research` agent (English clinical
+  vignettes, second-opinion workflow) — not as default Eir engine
+
+#### Reports
+
+- typhoon locked-20: [`reports/typhoon-si-med-hbp-20260507T162904Z.json`](reports/typhoon-si-med-hbp-20260507T162904Z.json)
+- typhoon broader-100: [`reports/hbp-typhoon-si-med-thinking-4b-f2eeb239-n100-20260507T165240Z.json`](reports/hbp-typhoon-si-med-thinking-4b-f2eeb239-n100-20260507T165240Z.json)
+- gemma locked-20: [`reports/hbp-gemma-4-26b-a4b-it-4bit-195e8912-n20-20260507T170132Z.json`](reports/hbp-gemma-4-26b-a4b-it-4bit-195e8912-n20-20260507T170132Z.json)
+- gemma broader-100: [`reports/hbp-gemma-4-26b-a4b-it-4bit-f2eeb239-n100-20260507T174617Z.json`](reports/hbp-gemma-4-26b-a4b-it-4bit-f2eeb239-n100-20260507T174617Z.json)
+
+---
+
 ### Sprint 51b — Typhoon-Si-Med-Thinking-4B challenger ★ Day-2 RESULT (2026-05-07)
 
 **HBp n=20 on the same locked-20 questions used by run `195e8912`** (gemma-4-26b
