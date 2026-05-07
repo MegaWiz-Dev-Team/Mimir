@@ -1498,8 +1498,25 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
 - Asgard roadmap (Syn S1 → S2 → Sága → Visual BMI): [`Asgard/docs/strategy/roadmap.md`](../../Asgard/docs/strategy/roadmap.md)
 - Sprint 50b = 🌑 Skuggi PII Guardrail (parallel, ~2 wk) — gates cloud opt-in safety
 - Sprint 51 = Syn S2 eKYC + Thai ID (next, ~2 wk)
+- Sprint 51b = Typhoon-Si-Med-Thinking-4B Eir reasoning challenger (parallel ~1 wk; see below)
 - Sprint 52 = Sága S1 Whisper Foundation (~2 wk)
 - Sprint 53 = Visual BMI / vision LLM (~3 wk)
+
+### Sprint 50 follow-ups (post-Day-3 ship — open backlog)
+
+- **B-50a.1** ✅ done — torch+cpu wheel index trim, sidecar images 5.34GB → 1.43GB
+- **B-50a.2** — chandra/TrOCR for true Tier 1a engine diversity (v0.1 reuses EasyOCR with paragraph mode tuned for handwriting; revisit when chandra ships a stable wheel)
+- **B-50a.3** ★new — **Typhoon-OCR-7B challenger evaluation** (Tier 1c candidate)
+  - Model: `typhoon-ai/typhoon-ocr-7b` (Apache 2.0, base = Qwen2.5-VL-7B-Instruct, 8B params, Thai-first)
+  - Claim: outperforms GPT-4o + Gemini 2.5 Flash on Thai documents with complex layouts
+  - Format: outputs Markdown for prose + HTML for complex tables → matches what Eir RAG already consumes
+  - Serving: prefer **MLX-VLM on Heimdall** (port 8082, alongside existing gemma chat champion on 8081); ~5GB at 4-bit on Apple Silicon
+  - Smart-router slot: register as `typhoon-local` between Tier 1b (paddleocr-local) and Tier 2 (gemini-3-flash) — escalation target when Tier 1b confidence is low and tenant.ocr_phi_strict=true blocks cloud (currently those tenants have no escalation path beyond EasyOCR)
+  - Bench: extend `Syn/benchmarks/run_bench.py` to include typhoon-local in the engine list; rerun on synthetic seed first then B-50h.1 clinical test set
+  - Acceptance: median CER on Thai print ≤ 0.10 (better than current EasyOCR Tier 1b at 0.10) AND ≤ Gemini-3-flash CER (currently 0.000 on synthetic — won't beat that on perfect text but should match on noisy real scans)
+  - Risk: MLX-VLM Qwen2.5-VL fine-tune compatibility (mlx-vlm shipped Qwen2.5-VL support late 2024 — verify with Typhoon's specific weights). Fallback: Ollama Metal build (slower but stable).
+  - Why it's a Sprint 50.1 not Sprint 50: B-50a Tier 1a/1b shipped; this is a quality-tier addition, not a foundation block. Smart-router infrastructure already supports a 5th engine identifier.
+- **B-50h.1** — clinical test set (50–100 partner-hospital documents) — gated on data ops
 
 ---
 
@@ -1606,6 +1623,66 @@ requires it.
 - ADR-007: [`Asgard/docs/architecture/ADR-007-Skuggi-PII-Guardrail.md`](../../Asgard/docs/architecture/ADR-007-Skuggi-PII-Guardrail.md)
 - Sprint 50 (gates this sprint's cloud opt-in): [Sprint 50 above]
 - Future: Sprint 52 Sága integrates Skuggi for voice PII (reversible v1)
+
+---
+
+## Sprint 51b — Eir Reasoning Model Challengers (proposal, ~1 week)
+
+**Trigger:** Two Apache-2.0 candidates from Typhoon AI (SCB 10X) landed in
+2025 that look credible enough to challenge the current Eir local champion
+`gemma-4-26b-a4b-it-4bit @ 47.8% HBp`. Goal: bench them honestly on
+HealthBench-Pro and decide swap on data.
+
+Run *parallel* to Sprint 51 (Syn S2 eKYC) — uses Heimdall's existing MLX
+hot-swap rotation, no new infra.
+
+### Candidates
+
+| Model | Base | License | Apache | Co-developer | Why interesting |
+|---|---|---|---|---|---|
+| `typhoon-ai/typhoon-si-med-thinking-4b-research-preview` | Qwen3-4B-Instruct-2507 | Apache 2.0 | ✅ | **Siriraj Informatics + SCB 10X** | Reasoning model with `<think></think>` + LIST_MODE; claims to beat Gemini 2.5 Pro on MedQA / MedMCQA / MedXpertQA / MMLU-Pro Health. 4B = **8× smaller than current champion**. |
+| `typhoon-ai/typhoon-si-med-thinking-4b-research-preview-Q4_K_M-GGUF` | same | Apache 2.0 | ✅ | same | GGUF Q4_K_M variant, ~2.5GB on disk. For Ollama Metal fallback if MLX conversion is bumpy. |
+
+### Backlog
+
+- **B-51b-1** — Acquire weights:
+  - Check `mlx-community/typhoon-si-med-thinking-4b-research-preview-4bit` (likely already published)
+  - If not, run `mlx_lm.convert --hf-path typhoon-ai/typhoon-si-med-thinking-4b-research-preview -q` (~10 min)
+- **B-51b-2** — Add to Heimdall MLX hot-swap rotation alongside `gemma-4-26b-a4b-it-4bit`. Tiny model = swap in <10s. Plist same shape as gemma's launchd template.
+- **B-51b-3** — HBp benchmark on `hb-pro-asgard-001` n=20 with the **two reasoning modes** (TEXT_MODE single answer + LIST_MODE ranked diff-diagnosis). Reasoning models need extended `max_new_tokens` (~4096) and the `<think>` tag stripping post-process — extend Mimir Curator harness `eval_runner` to handle this.
+- **B-51b-4** — Compare: Acc / Comp / Rel / Safety / latency / per-question wins. Update [`04_03_HealthBench_Pro_Baseline_2026-05-04.md`](../04_evaluation_and_testing/04_03_HealthBench_Pro_Baseline_2026-05-04.md) scoreboard.
+- **B-51b-5** — Decision gate:
+  - **Swap champion** iff HBp ≥ gemma-4-26b's 47.8% AND safety dim ≥ 0.75 AND no regression on broader-100. Apache 2.0 + 8× smaller is a strong tiebreaker.
+  - **Add as `eir-research` agent** (not champion) iff HBp competitive but Thai-quality regression. Useful for English clinical RAG queries; Eir-cardio/Eir-pediatrics keep gemma for Thai.
+  - **Reject** iff HBp regresses or safety drops below 0.70.
+
+### Acceptance criteria
+
+- [ ] Bench complete (n=20 locked-20 + n=100 broader-100)
+- [ ] Per-question attribution (where does typhoon win/lose vs gemma)
+- [ ] LIST_MODE eval — does ranked-list output help with differential diagnosis questions?
+- [ ] Production-clinical disclaimer reviewed (model card explicitly says "NOT intended for medical use" — research-mode promotion only, not Eir-cardio default)
+- [ ] HBp scoreboard updated
+
+### Why we want this
+
+- **Apache 2.0** is cleaner than Gemma terms (commercial-deployment-friendly for white-label)
+- **Siriraj credibility** — co-developed with Mahidol's medical informatics group; supports MoPH/รพ.รัฐ pitch
+- **Reasoning + LIST_MODE** maps directly to differential-diagnosis use case Eir already needs
+- **4B fits in <3GB at 4-bit** — frees Mac mini headroom for parallel typhoon-ocr-7b (also Apache, same vendor)
+- **Risk-bounded** — runs as a candidate, not a swap; if it loses we lose half a day, no production impact
+
+### Out of scope (explicitly)
+
+- ❌ Direct production clinical use — model card disclaims it; Eir live agents stay on gemma-4-26b until further validation
+- ❌ Thai-language guarantee — vendor doesn't claim Thai support; broader-100 will surface any Thai regression
+- ❌ Continuous training / LoRA on Typhoon — Sprint 39d direction (RAG enhancement) doesn't change
+
+### Cross-references
+
+- HBp baseline: [`04_03_HealthBench_Pro_Baseline_2026-05-04.md`](../04_evaluation_and_testing/04_03_HealthBench_Pro_Baseline_2026-05-04.md)
+- Sprint 50 B-50a.3 (Typhoon-OCR-7B challenger; same vendor, parallel work): see Sprint 50 follow-ups above
+- arXiv 2509.20866 — "On the Robustness of Answer Formats in Medical Reasoning Models" (the paper that introduced this model)
 
 ---
 

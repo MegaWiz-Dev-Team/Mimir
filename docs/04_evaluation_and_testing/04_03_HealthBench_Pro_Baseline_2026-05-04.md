@@ -52,6 +52,28 @@ sampling noise — n=100+ would be needed to separate 1st from 4th place statist
 These are the standing champions to beat. **Rerank helps gemma but hurts flash-lite
 (−9pp)** — gating per-model via `ai_models.metadata`.
 
+### Sprint 51b — Typhoon-Si-Med-Thinking-4B challenger (planned 2026-05-07)
+
+Two Apache-2.0 reasoning models from Typhoon AI (SCB 10X, co-developed with
+Siriraj Informatics, Mahidol University) entered the queue 2026-05-07 for
+HBp evaluation. Plan + acceptance criteria in
+[`03_14_Local_LLM_Optimization_Sprints.md` § Sprint 51b](../03_implementation_plans/03_14_Local_LLM_Optimization_Sprints.md).
+
+| Model | Params | RAM (4-bit) | License | Status | run_id |
+|---|---|---|---|---|---|
+| `typhoon-ai/typhoon-si-med-thinking-4b-research-preview` | 4B | ~3 GB | Apache 2.0 | 📋 queued | – |
+| same — `Q4_K_M-GGUF` (Ollama fallback) | 4B | ~2.5 GB | Apache 2.0 | 📋 queued | – |
+
+**Modes to evaluate:**
+- TEXT_MODE — single answer with `<think></think>` reasoning prefix
+- LIST_MODE — ranked differential diagnosis (most → least likely)
+
+**Decision gate:** swap champion iff HBp ≥ 47.8% AND safety ≥ 0.75 AND no
+regression on broader-100. Apache 2.0 + 8× smaller is a strong tiebreaker
+when the Δ is within sampling noise. Vendor's "NOT intended for medical use"
+disclaimer means production-clinical promotion needs an extra round of safety
+eval beyond stock HBp.
+
 ### Sprint 39 Phase 3 — first LoRA iteration (2026-05-06)
 
 First end-to-end LoRA fine-tune on Eir produced a viable adapter but **did not
