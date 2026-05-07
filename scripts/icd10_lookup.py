@@ -37,7 +37,7 @@ MARIADB_POD = (
 DEFAULT_VERSION = "anamai-moph-2010"
 QDRANT_URL = "http://localhost:6333"
 OLLAMA_URL = "http://localhost:11434"
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = "bge-m3"   # multilingual, dim=1024 — fixes Thai semantic gap
 QDRANT_COLLECTION = "icd10-th"
 
 
@@ -176,15 +176,12 @@ def has_thai(s: str) -> bool:
 
 def search_auto(query: str, locale: str, limit: int,
                 source_version: str) -> tuple[str, list[dict]]:
-    """Cascade: exact → naive → semantic-EN-only.
+    """Cascade: exact → naive → semantic (multilingual).
 
-    - Naive substring with smart ranking handles ~87% of queries cleanly.
-    - Semantic only fires for **English** queries with no naive match
-      (e.g. acronyms / phrasing variations like 'STEMI inferior',
-      'major depressive disorder'). For Thai queries, semantic with the
-      current nomic-embed-text model returns noisy results because the
-      model is English-trained — refresh sprint with BGE-M3 multilingual
-      will close that gap (B-48f.2).
+    Now uses BGE-M3 multilingual embeddings (B-48f.2 upgrade), so Thai
+    queries route through semantic too — closes the Thai phrasing gap
+    (e.g. 'หลอดเลือดสมองตีบ' → 'เนื้อสมองตายเพราะขาดเลือด' via cosine
+    0.60 vs. 0.38 noise).
     """
     rows = search(query, "exact", locale, limit, source_version)
     if rows:
@@ -192,10 +189,6 @@ def search_auto(query: str, locale: str, limit: int,
     rows = search(query, "naive", locale, limit, source_version)
     if rows:
         return "naive", rows
-    # English-only fallback to semantic. Thai queries fail through naive
-    # rather than poison results with English-biased embedding noise.
-    if has_thai(query):
-        return "naive", []
     try:
         rows = search_semantic(query, limit, source_version)
         return "semantic", rows

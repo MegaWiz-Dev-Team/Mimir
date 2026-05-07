@@ -34,9 +34,13 @@ import requests
 
 OLLAMA_URL = "http://localhost:11434"
 QDRANT_URL = "http://localhost:6333"
+# Embedding model + collection are paired — switching one forces the other.
+# Default: BGE-M3 (multilingual, dim=1024, 1.2 GB Ollama tag, supports Thai well).
+# Earlier v0 used nomic-embed-text (dim=768, English-tuned) — kept here as
+# fallback option.
 COLLECTION = "icd10-th"
-EMBED_MODEL = "nomic-embed-text"
-DIM = 768
+EMBED_MODEL = "bge-m3"
+DIM = 1024
 
 MARIADB_POD = (
     "k8s_mariadb_mariadb-fb55894c5-xjjvb_asgard-infra_"

@@ -33,7 +33,10 @@ const DEFAULT_SOURCE_VERSION: &str = "anamai-moph-2010";
 const QDRANT_URL: &str = "http://qdrant.asgard-infra.svc:6333";
 const QDRANT_COLLECTION: &str = "icd10-th";
 const OLLAMA_URL: &str = "http://host.docker.internal:11434";
-const EMBED_MODEL: &str = "nomic-embed-text";
+// BGE-M3 multilingual (dim=1024) — handles Thai semantic well; replaces
+// nomic-embed-text (English-tuned, dim=768) per B-48f.2 upgrade. Qdrant
+// collection icd10-th was rebuilt with dim=1024 vectors at the same time.
+const EMBED_MODEL: &str = "bge-m3";
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct IcdMatch {
@@ -122,21 +125,15 @@ async fn lookup(
         return Err((StatusCode::BAD_REQUEST, "q is required".to_string()));
     }
 
-    // Smart auto cascade: exact → naive → (English-only) semantic.
+    // Smart auto cascade: exact → naive → semantic (multilingual via BGE-M3).
     // - Prefix mode skipped: too restrictive for canonical labels with
     //   qualifier prefixes (e.g. "Non-insulin-dependent diabetes mellitus").
     // - Naive + ORDER BY (CHAR_LENGTH ASC, code ASC) puts root codes first.
-    // - Semantic last-resort, English-only (current nomic-embed-text is
-    //   English-tuned; Thai queries with poor semantic results would
-    //   poison the cascade. BGE-M3 multilingual upgrade = B-48f.2).
+    // - Semantic via BGE-M3 multilingual (B-48f.2 upgrade) — handles Thai
+    //   queries cleanly (e.g. 'ปวดหัว' → R51 Headache via 0.94 cos), so
+    //   the prior English-only guard is no longer needed.
     let modes_to_try: Vec<&str> = match req.mode.as_str() {
-        "auto" => {
-            if has_thai(&q) {
-                vec!["exact", "naive"]  // Skip semantic for Thai queries
-            } else {
-                vec!["exact", "naive", "semantic"]
-            }
-        }
+        "auto" => vec!["exact", "naive", "semantic"],
         "exact" | "prefix" | "naive" | "semantic" => vec![req.mode.as_str()],
         other => return Err((StatusCode::BAD_REQUEST,
             format!("invalid mode: {other} (want auto|exact|prefix|naive|semantic)"))),
