@@ -63,6 +63,9 @@ pub fn syn_ocr_routes() -> Router<DbPool> {
         .route("/syn/ocr/health", get(engine_health))
         .route("/syn/ocr/policy", get(get_policy))
         .route("/syn/ocr/extract", post(extract))
+        // JSON body sibling — Hermodr/MCP cannot send multipart, so agents
+        // call this endpoint with base64-encoded image instead.
+        .route("/syn/ocr/extract-json", post(extract_json))
         .route("/syn/ocr/documents", get(list_documents))
         .route("/syn/ocr/documents/{id}", get(get_document))
 }
@@ -329,9 +332,63 @@ async fn extract(
     State(pool): State<DbPool>,
     multipart: Multipart,
 ) -> Result<Json<ExtractResponse>, (StatusCode, String)> {
-    let started = Instant::now();
     let tenant_id = extract_tenant_id(&headers).to_string();
     let req = parse_multipart(multipart).await?;
+    do_extract(req, tenant_id, pool, config).await
+}
+
+#[derive(Deserialize)]
+struct ExtractJsonRequest {
+    /// Base64-encoded image bytes (no data URI prefix).
+    image_base64: String,
+    /// Optional filename — used for MIME detection (defaults to "upload.png").
+    filename: Option<String>,
+    /// Manual engine override (router rule 1).
+    engine: Option<String>,
+    /// Doc-type hint (router rule 3): "handwriting" | "printed_thai" | ...
+    doc_type: Option<String>,
+    /// Curator-marked high-stakes (router rule 5).
+    high_stakes: Option<bool>,
+    /// Optional language hint passed to the sidecar.
+    hint_lang: Option<String>,
+}
+
+/// JSON-body sibling of /syn/ocr/extract for callers that cannot send
+/// multipart (Hermodr/MCP, simple JSON-RPC clients). Payload contains the
+/// image as base64; everything else mirrors the multipart fields.
+async fn extract_json(
+    headers: HeaderMap,
+    Extension(config): Extension<Arc<Config>>,
+    State(pool): State<DbPool>,
+    Json(payload): Json<ExtractJsonRequest>,
+) -> Result<Json<ExtractResponse>, (StatusCode, String)> {
+    use base64::Engine as _;
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let image = base64::engine::general_purpose::STANDARD
+        .decode(payload.image_base64.as_bytes())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("image_base64 decode: {e}")))?;
+    if image.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "image_base64 decoded to 0 bytes".into()));
+    }
+    let req = ExtractRequest {
+        image,
+        filename: payload.filename.unwrap_or_else(|| "upload.png".to_string()),
+        engine_override: payload.engine,
+        doc_type: payload.doc_type,
+        high_stakes: payload.high_stakes.unwrap_or(false),
+        hint_lang: payload.hint_lang,
+    };
+    do_extract(req, tenant_id, pool, config).await
+}
+
+/// Shared extract pipeline — used by both the multipart and JSON entrypoints.
+async fn do_extract(
+    req: ExtractRequest,
+    tenant_id: String,
+    pool: DbPool,
+    config: Arc<Config>,
+) -> Result<Json<ExtractResponse>, (StatusCode, String)> {
+    let started = Instant::now();
     let image_sha = sha256_hex(&req.image);
 
     // Pull tenant policy (cloud opt-in flags + PHI strict + pii_mode).
