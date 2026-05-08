@@ -52,6 +52,66 @@ sampling noise — n=100+ would be needed to separate 1st from 4th place statist
 These are the standing champions to beat. **Rerank helps gemma but hurts flash-lite
 (−9pp)** — gating per-model via `ai_models.metadata`.
 
+### Sprint 51b — CLOSED at Day-3 (2026-05-08)
+
+Sprint 51b is closed at Day-3. Day-4 was attempted (rerun typhoon with
+default judge thinking to isolate model-only Δ from judge-config Δ) but
+hit a maxOutputTokens budget bug — see "Day-4 attempt aborted" below.
+The Day-3 4-cell apples-to-apples matrix (next section) carries the
+canonical conclusion.
+
+**Final verdict:** typhoon-si-med-thinking-4b is a **strong candidate**
+on apples-to-apples HBp (+15.31pp locked-20 / +9.07pp broader-100 vs
+gemma-4-26b under thinkingBudget=0 judge), but **production champion
+swap is BLOCKED** by:
+1. Vendor card "NOT intended for medical use" research-preview disclaimer
+2. 19% unsafe rate at scale on broader-100 (vs gemma's 10%)
+3. Bimodal accuracy (42-45% acc=1) — out-of-distribution failure modes
+
+**Recommended path:** add typhoon as `eir-research` agent for English
+clinical vignettes / second-opinion workflows; do NOT replace the
+default Eir engine. Re-evaluate when:
+- Vendor lifts the medical-use disclaimer (post research-preview)
+- Thai-language fine-tune lands (current model is English-primary)
+- Day-4 isolation experiment can rerun with proper judge token budget
+
+#### Day-4 attempt aborted (2026-05-08 ~07:25)
+
+Goal was to rerun typhoon × 2 anchors with `--judge-default-thinking`
+(unlimited Gemini thinking budget) to separate "model improvement" from
+"judge-config tightening" in the +9-15pp Day-3 Δ.
+
+**What broke:** `maxOutputTokens=1024` was set for the judgeThink path
+but the judge prompt routinely consumes that with a long
+`expected_answer` (up to 4000 chars) + long `actual_answer` (up to
+4000 chars) + Gemini's internal thinking + the JSON output. Result:
+finishReason=MAX_TOKENS, empty response body, judge JSON parse fails.
+
+| Phase | attempted | scored | judge failed | fail rate |
+|---|---|---|---|---|
+| locked-20 (judgeThink) | 20 | 15 | 5 | 25% |
+| broader-100 (judgeThink) | 99 | 35 | 63 | **64%** |
+
+Partial averages over the surviving rows (cherry-picked, not
+statistically valid):
+
+- locked-20 (n=15): HBp 45.83 · acc 2.13 · safe 0.87
+- broader-100 (n=35): HBp 41.07 · acc 1.97 · safe 0.80
+
+**Lesson:** judgeThink mode needs `maxOutputTokens >= 4096` to
+accommodate Gemini-2.5's thinking footprint plus the full prompt
+context. The bench script is parametric on this; future re-attempts
+should bump the cap before launching n=100.
+
+**Why we're not retrying now:** Day-3 conclusions stand on their own
+(strict-judge apples-to-apples is a clean comparison). Day-4 was
+"icing" to clarify the judge-config sensitivity story; the existing
+Day-3 §"judge config moves the floor by ~11pp" already documents the
+phenomenon. Day-4 retry is queued for Sprint 51c (paired with the
+unsafe per-question diff and the eir-research agent build).
+
+---
+
 ### Sprint 51b Day-3 — apples-to-apples 4-cell HBp matrix (2026-05-08)
 
 Day-3 closed the methodology gap: **gemma-4-26b reran with the same

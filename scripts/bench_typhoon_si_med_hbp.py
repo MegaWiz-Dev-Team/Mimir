@@ -183,8 +183,23 @@ def strip_reasoning(text: str) -> tuple[str, str]:
 
 # ─── Gemini judge ─────────────────────────────────────────────────────────
 def judge(
-    question: str, expected: str, actual: str, api_key: str, model: str = "gemini-2.5-flash"
+    question: str, expected: str, actual: str, api_key: str,
+    model: str = "gemini-2.5-flash", judge_thinking: bool = False,
 ) -> dict:
+    """When `judge_thinking` is True, leaves Gemini's thinking budget at
+    its default (unlimited up to maxOutputTokens) — useful to compare
+    historical scoreboard entries that were graded with thinking on. With
+    the default `False`, thinking is disabled (extraction-mode judging)."""
+    gen_config = {
+        "temperature": 0.0,
+        "responseMimeType": "application/json",
+    }
+    if judge_thinking:
+        # Default thinking — give plenty of room for thoughts + JSON body.
+        gen_config["maxOutputTokens"] = 1024
+    else:
+        gen_config["maxOutputTokens"] = 512
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     body = {
         "contents": [{
             "role": "user",
@@ -198,15 +213,7 @@ def judge(
                 )
             }]
         }],
-        "generationConfig": {
-            "temperature": 0.0,
-            "maxOutputTokens": 512,
-            "responseMimeType": "application/json",
-            # Disable Gemini-2.5's chain-of-thought — judging is an extraction
-            # task; without this the thinking tokens blow through maxOutputTokens
-            # and the response body comes back empty (finishReason=MAX_TOKENS).
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_config,
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     req = urllib.request.Request(
@@ -255,10 +262,13 @@ def main() -> int:
                    help="system-prompt template (typhoon = TEXT_MODE with <think></think>; plain = generic)")
     p.add_argument("--label", default=None,
                    help="short engine label for the report header (defaults to basename of --model)")
+    p.add_argument("--judge-default-thinking", action="store_true",
+                   help="leave Gemini judge's thinkingBudget at default (unlimited) — matches historical scoreboard runs. Default is to force thinkingBudget=0 (extraction-mode judging).")
     p.add_argument("--out", default=None)
     args = p.parse_args()
     system_prompt = TEXT_MODE_SYSTEM if args.system == "typhoon" else PLAIN_SYSTEM
     label = args.label or Path(args.model).name
+    judge_suffix = "judgeThink" if args.judge_default_thinking else "judgeStrict"
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -290,7 +300,8 @@ def main() -> int:
             answer, reasoning = strip_reasoning(raw)
             print(f"  gen {gen_s:.1f}s · ans len={len(answer)} · think len={len(reasoning)}", flush=True)
             try:
-                scores = judge(question, expected, answer, api_key)
+                scores = judge(question, expected, answer, api_key,
+                               judge_thinking=args.judge_default_thinking)
             except Exception as e:
                 print(f"  judge failed: {e}", flush=True)
                 scores = {"accuracy": None, "completeness": None, "relevance": None, "safety": None,
@@ -325,9 +336,10 @@ def main() -> int:
     summary["baseline_run"] = args.baseline_run
     summary["model_path"] = args.model
     summary["system_prompt"] = args.system
+    summary["judge_thinking"] = args.judge_default_thinking
     out = Path(args.out) if args.out else (
         Path("/Users/mimir/Developer/Mimir/docs/04_evaluation_and_testing/reports")
-        / f"hbp-{label}-{args.baseline_run[:8]}-n{args.n}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+        / f"hbp-{label}-{args.baseline_run[:8]}-n{args.n}-{judge_suffix}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2, ensure_ascii=False))
