@@ -180,7 +180,41 @@ support.
 - 📋 Future: clinician-graded subset of the 19 unsafe + 19% bimodal
   failures to validate the Gemini judge's calls
 
-#### Sprint 51c Path B attempted — PARTIAL fix on mlx_lm.server
+#### Sprint 51c Path B+ — FULL fix on mlx_lm.server (live verified)
+
+**Update 2026-05-08 ~08:30:** Path B (json_tools.py only) was partial.
+Path B+ extends with a `has_tools` flag through `_make_state_machine`
+in `mlx_lm/server.py` so the `<tool_call>` sequence transition is only
+added when the request actually passes `tools`. Cache key includes
+`has_tools` so per-(model, stops, state, has_tools) state machines
+coexist.
+
+**Result on typhoon-si-med-thinking-4b @ Heimdall mlx_lm.server :8083**:
+
+```
+Before patch:           HTTP 500 + AttributeError tc.pop()
+After Path B (partial): HTTP 200, finish_reason=tool_calls, empty msg
+After Path B+ (full):   HTTP 200, finish_reason=stop, 947 chars content
+                        ending in "Acute anterior ST-elevation
+                        myocardial infarction (STEMI)" ✅
+```
+
+Patch script: [`Heimdall/scripts/patch_mlx_lm_json_tools.sh`](https://github.com/MegaWiz-Dev-Team/Heimdall/blob/main/scripts/patch_mlx_lm_json_tools.sh)
+(apply / --check / --revert; idempotent; re-apply after every
+`pip install --upgrade mlx-lm`).
+
+**eir-research agent migrated**: agent_configs id=37 now reads
+`provider=heimdall`, `model_id=typhoon-si-med-thinking-4b-mlx-4bit`.
+Production rollout still depends on Heimdall daemon loading typhoon
+(currently serves Qwen3.5-35B as champion); when needed, either:
+- Hot-swap the existing daemon to typhoon-si-med-4b
+- OR spawn second mlx_lm.server on side port (8083 lab pattern)
+
+The bench scripts are unchanged and continue to use
+`mlx_lm.generate()` directly — no HTTP path, no state machine, so
+neither the before-state nor the patched state affects them.
+
+#### Sprint 51c Path B attempted — partial fix on mlx_lm.server (superseded by B+ above)
 
 Goal: route eir-research agent serving from Ollama → MLX-native
 mlx_lm.server (Asgard pattern). Attempted in-session.
