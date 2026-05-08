@@ -180,6 +180,36 @@ support.
 - 📋 Future: clinician-graded subset of the 19 unsafe + 19% bimodal
   failures to validate the Gemini judge's calls
 
+#### Sprint 51c Path B attempted — PARTIAL fix on mlx_lm.server
+
+Goal: route eir-research agent serving from Ollama → MLX-native
+mlx_lm.server (Asgard pattern). Attempted in-session.
+
+**Patched**
+[`Heimdall/.venv/.../mlx_lm/tool_parsers/json_tools.py`](https://github.com/MegaWiz-Dev-Team/Heimdall/blob/main/scripts/patch_mlx_lm_json_tools.sh)
+to wrap `json.loads(...)` in try/except and return `[]` instead of
+raising. Re-applicable script committed:
+`Heimdall/scripts/patch_mlx_lm_json_tools.sh` (apply / --check / --revert).
+
+**Result:**
+- ✅ Server stops crashing on malformed `<tool_call>` JSON. HTTP 200
+  instead of HTTP 500. Defensively useful for any model with
+  irregular tool-call output, not just Typhoon.
+- ❌ `message.content` still empty because mlx_lm.server's sequence
+  state machine (server.py L640+) routes `<tool_call>` tokens to the
+  "tool" channel regardless of whether the request passed `tools`.
+  The chat returns `finish_reason="tool_calls"` with no body.
+
+**Implication:** eir-research agent stays on Ollama for HTTP serving.
+The bench scripts (`scripts/bench_typhoon_si_med_hbp.py`) are
+unaffected — they call `mlx_lm.generate()` directly, not through the
+HTTP server, so no state machine interference.
+
+**Full fix (Sprint 51d):** patch `_build_state_machine` to gate
+tool-call transitions on per-request `tools` field. Currently the SM
+is cached per-model at load time; needs a rework to be request-aware.
+Or wait for upstream `--no-tools` flag.
+
 ---
 
 ### Sprint 51b — CLOSED at Day-3 (2026-05-08)
