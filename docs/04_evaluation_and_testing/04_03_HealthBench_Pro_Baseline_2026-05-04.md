@@ -170,6 +170,49 @@ support.
 | Champion swap recommended? | **NO** — judge-config inversion + vendor disclaimer + 19% unsafe + bimodal acc all point to "stay on gemma-4-26b" |
 | Useful candidate at all? | **YES, as `eir-research` agent** — opt-in English-vignette second-opinion with Curator review |
 
+#### eir-research operational status — STAY at Option B (bench-only)
+
+Sprint 51c closes with `eir-research` agent (id=37) registered in DB
+but **NOT operationally deployed**. Decision: keep at Option B per
+Sprint 51c recommendation:
+
+| Reason | Detail |
+|---|---|
+| ROI low | typhoon NOT champion-ready (vendor disclaimer + 19% unsafe + bimodal); operational deploy means UI + safety + Curator burden for marginal benefit |
+| Risk asymmetric | every clinical chat user adds a "did this AI give bad advice" surface; opt-in second-opinion can wait until value is clearer |
+| Data already captured | bench results in eval_runs/eval_scores (275 rows w/ judge_reasoning) — challenger tracking works without operational traffic |
+
+**Current operational state:**
+
+```
+DB row (agent_configs id=37)         ✅ exists, is_published=0
+ai_models registered                  ✅ typhoon-si-med-thinking-4b-mlx-4bit
+Heimdall daemon loading typhoon       ❌ daemon serves Qwen3.5-35B (champion)
+Mimir UI surface                      ❌ hidden (is_published=0)
+Curator review queue auto-flag        ❌ not wired (B-50f exists, not connected)
+Disclaimer banner in UI               ❌ not implemented
+Patch B+ applied to venv              ✅ json_tools.py + server.py (re-apply on pip upgrades)
+mlx_lm.server :8083 verified         ✅ smoke test only (server killed after)
+```
+
+**Triggers to move to Option A (operational deploy):**
+
+1. **Vendor lifts disclaimer** — Typhoon team removes "NOT intended for
+   medical use" from model card (post research-preview)
+2. **Safety post-processor lands** — Skuggi-equivalent for typhoon
+   output reduces 19% unsafe → ≤10% (matches gemma's broader-100 floor)
+3. **Clinician demand** — explicit request from a hospital partner that
+   wants typhoon's reasoning style, naming the agent
+
+When any trigger fires, Sprint 51e queued (~3-4 hr):
+1. Heimdall daemon load typhoon (hot-swap or second mlx_lm.server :8083)
+2. Mimir agent dispatcher route verification
+3. Re-apply Path B+ patch on production venv
+4. agent_configs is_published=1
+5. UI disclaimer banner + Curator B-50f auto-flag wiring
+6. End-to-end smoke test in dev
+7. Document deployment runbook
+
 #### Sprint 51c follow-ups
 
 - 📋 Future: rerun gemma broader-100 with judgeThink to confirm the
