@@ -1,5 +1,10 @@
 # 🏺 Project Mimir
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Built with Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
+[![Part of Asgard](https://img.shields.io/badge/part%20of-Asgard%20AI%20Platform-purple.svg)](https://github.com/MegaWiz-Dev-Team/Asgard)
+
 > **Mimir (มิเมียร์):** ในตำนานนอร์ส Mimir คือเทพแห่งความรู้และสติปัญญา ผู้รักษาบ่อน้ำศักดิ์สิทธิ์ (Mímisbrunnr)
 > โครงการนี้จึงมีเป้าหมายเพื่อสร้าง **"บ่อน้ำแห่งความรู้"** — AI Core Platform ที่ใช้ได้กับทุกธุรกิจ
 
