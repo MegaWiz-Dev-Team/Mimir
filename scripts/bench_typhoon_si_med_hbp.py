@@ -195,8 +195,13 @@ def judge(
         "responseMimeType": "application/json",
     }
     if judge_thinking:
-        # Default thinking — give plenty of room for thoughts + JSON body.
-        gen_config["maxOutputTokens"] = 1024
+        # Default thinking — Sprint 51b Day-4 found 1024 too small (the
+        # judge prompt carries up to 4000+4000 chars of expected/actual
+        # answers; Gemini-2.5-flash spent thoughtsTokenCount up to ~700
+        # on hard medical cases and ran past the budget, returning empty
+        # bodies for ~64% of broader-100 calls). Bumping to 4096 gives
+        # generous headroom for thinking + JSON output.
+        gen_config["maxOutputTokens"] = 4096
     else:
         gen_config["maxOutputTokens"] = 512
         gen_config["thinkingConfig"] = {"thinkingBudget": 0}
