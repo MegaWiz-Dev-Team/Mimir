@@ -5,13 +5,14 @@ Validates Heimdall Gateway and Mimir Rust-Backend timeouts.
 """
 
 import json
+import os
 import urllib.request
 import urllib.error
 import sys
 from datetime import datetime
 
 HEIMDALL_URL = "http://localhost:8080"
-HEIMDALL_KEY = "hml-REDACTED"
+HEIMDALL_KEY = os.environ["HEIMDALL_API_KEY"]
 MIMIR_API = "http://localhost:30000"
 TENANT = "megacare"
 

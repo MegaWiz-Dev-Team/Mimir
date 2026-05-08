@@ -32,7 +32,7 @@ curl http://localhost:8080/health   # status: "healthy"
 cd ~/Developer/Mimir/ro-ai-bridge
 
 HEIMDALL_API_URL=http://localhost:8080/v1 \
-HEIMDALL_API_KEY=hml-REDACTED \
+HEIMDALL_API_KEY=$HEIMDALL_API_KEY \
 EMBEDDING_API_URL=http://localhost:8001/v1 \
 cargo run --bin ro-ai-bridge
 ```

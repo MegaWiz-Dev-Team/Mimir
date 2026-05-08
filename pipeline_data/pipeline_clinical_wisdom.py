@@ -30,7 +30,7 @@ import urllib.error
 from pathlib import Path
 
 HEIMDALL_API   = "http://localhost:8080"
-HEIMDALL_KEY   = "hml-REDACTED"
+HEIMDALL_KEY   = os.environ["HEIMDALL_API_KEY"]
 QDRANT_API     = "http://localhost:16333"
 GEMINI_API     = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_MODEL   = "gemini-3-flash-preview"

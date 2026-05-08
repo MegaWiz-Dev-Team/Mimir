@@ -40,7 +40,7 @@ import urllib.error
 
 API_BASE       = os.environ.get("API_BASE", "http://localhost:30000")
 HEIMDALL_BASE  = os.environ.get("HEIMDALL_BASE", "http://localhost:8080")
-HEIMDALL_KEY   = os.environ.get("HEIMDALL_KEY", "hml-REDACTED")
+HEIMDALL_KEY   = os.environ["HEIMDALL_API_KEY"]
 TENANT_ID      = os.environ.get("TENANT_ID", "")
 AGENT_NAME     = os.environ.get("AGENT_NAME", "eir")
 BENCHMARK_ID   = os.environ.get("BENCHMARK_ID", "")

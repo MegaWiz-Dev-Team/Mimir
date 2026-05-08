@@ -40,7 +40,7 @@ from pathlib import Path
 
 PMC_FTP_BASE  = os.environ.get("PMC_FTP_BASE", "https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_bulk/oa_comm/xml/")
 HEIMDALL_BASE = os.environ.get("HEIMDALL_BASE", "http://localhost:8080")
-HEIMDALL_KEY  = os.environ.get("HEIMDALL_KEY", "hml-REDACTED")
+HEIMDALL_KEY  = os.environ["HEIMDALL_API_KEY"]
 QDRANT_URL    = os.environ.get("QDRANT_URL", "http://localhost:16333")
 COLLECTION    = "pubmed-abstracts"
 CACHE_DIR     = Path(os.environ.get("CACHE_DIR", "/tmp/pmc-bulk-cache"))

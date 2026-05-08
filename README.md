@@ -221,10 +221,6 @@ NEXT_PUBLIC_API_URL=http://192.168.x.x:30000/api ../Asgard/scripts/k3s-deploy.sh
 
 ---
 
-## 📊 Presentation
-
-- **[Sales Deck: Project Mimir - AI-Native Evolution](https://docs.google.com/presentation/d/18Y9XRoT494pGA0wvd6oSRKrkrX8f9205RjT4a7R4nn8/edit?slide=id.SLIDES_API1144777460_45#slide=id.SLIDES_API1144777460_45)**
-
 ## 📝 ISO 29110 Compliance
 
 โครงการนี้ปฏิบัติตามมาตรฐาน **ISO/IEC 29110** (Software Engineering for Very Small Entities):

@@ -20,10 +20,7 @@ from dataclasses import dataclass
 import requests
 
 HEIMDALL = os.environ.get("HEIMDALL_API_URL", "http://localhost:8080/v1")
-HEIMDALL_KEY = os.environ.get(
-    "HEIMDALL_API_KEY",
-    "hml-REDACTED",
-)
+HEIMDALL_KEY = os.environ["HEIMDALL_API_KEY"]
 MIMIR_API = os.environ.get("MIMIR_API_URL", "http://localhost:30000/api/v1")
 TENANT = os.environ.get("MIMIR_TENANT", "asgard_medical")
 MODEL = os.environ.get("SYNTH_MODEL", "mlx-community/gemma-4-26b-a4b-it-4bit")

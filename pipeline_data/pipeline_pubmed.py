@@ -53,7 +53,7 @@ from google.cloud import bigquery
 # OrbStack k3s ClusterIPs are reachable from host (no kubectl port-forward needed).
 # Override via env if topology changes.
 HEIMDALL_API   = os.environ.get("HEIMDALL_API", "http://localhost:8080")
-HEIMDALL_KEY   = os.environ.get("HEIMDALL_API_KEY", "hml-REDACTED")
+HEIMDALL_KEY   = os.environ["HEIMDALL_API_KEY"]
 QDRANT_HOST    = os.environ.get("QDRANT_HOST", "192.168.194.178")
 QDRANT_PORT    = int(os.environ.get("QDRANT_PORT", "6333"))
 PG_DSN         = os.environ.get(

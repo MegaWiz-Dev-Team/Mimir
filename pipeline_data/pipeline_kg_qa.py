@@ -7,7 +7,10 @@ sys.stdout.reconfigure(line_buffering=True)  # Force line buffering
 
 MIMIR     = "http://localhost:3000"
 QDRANT    = "http://localhost:6333"
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "AIza-REDACTED")
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+if not GEMINI_KEY:
+    sys.stderr.write("Error: GEMINI_API_KEY environment variable not set.\n")
+    sys.exit(1)
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
 TID       = "127d37ee-2de2-4094-8993-f7cff046c0ec"
 
