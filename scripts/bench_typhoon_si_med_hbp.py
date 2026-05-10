@@ -96,10 +96,11 @@ def fetch_locked_questions(run_id: str = "195e8912", n: int = 20) -> list[dict]:
         f"WHERE run_id LIKE '{run_id}%' "
         f"LIMIT {n};"
     )
+    db_pw = os.environ.get("MARIADB_PASSWORD") or "mimir_password"
     proc = subprocess.run(
         [
             "kubectl", "exec", "-n", "asgard-infra", pod, "--",
-            "mariadb", "-u", "mimir", "-pREDACTED-PW", "mimir",
+            "mariadb", "-u", "mimir", f"-p{db_pw}", "mimir",
             "--batch", "--silent",
             "-e", sql,
         ],

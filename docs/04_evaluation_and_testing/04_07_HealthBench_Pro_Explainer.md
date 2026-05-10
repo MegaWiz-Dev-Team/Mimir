@@ -293,3 +293,39 @@ Interpretation:
 ## Changelog
 
 - **2026-05-06** — initial doc (split out from 04_03 to keep results doc focused on numbers)
+- **2026-05-09** — added § 11 Judge config policy (Sprint 51d outcome)
+
+---
+
+## 11. Judge config policy (Sprint 51d)
+
+**Canonical judge config:** `gemini-2.5-flash` with `thinkingBudget=0` (extraction mode).
+
+**Why locked:** Sprint 51c surfaced an 11pp swing on the same dataset depending on whether the judge ran with `thinkingBudget=0` (extraction) or default (unlimited thinking). The two modes are not interchangeable — they produce reproducibly different absolute numbers. Locking at extraction mode gives:
+
+- **Determinism** — fewer moving parts when comparing runs across weeks
+- **Cost discipline** — thinking tokens not billed
+- **Auditability** — judge_thinking flag stored in `eval_runs.config` for every run
+
+**Opt-out for historical apples-to-apples only:** set `JUDGE_THINKING=1` env var when re-grading a model against a pre-Sprint-51d scoreboard row. New runs default to off.
+
+### Sprint 51d gemma rerun finding
+
+The judge-config switch does not boost all models equally:
+
+| Anchor | Model | strict | judgeThink | Δ |
+|---|---|---|---|---|
+| locked-20 | typhoon-si-med-4b | 52.19% | 46.25% | −5.94pp |
+| locked-20 | gemma-4-26b | 36.88% | 47.80% | +10.92pp |
+| broader-100 | typhoon-si-med-4b | 44.88% | 43.19% | −1.69pp |
+| broader-100 | gemma-4-26b | 35.81% | **39.06%** | **+3.25pp** |
+
+Sprint 51d hypothesis going in (extrapolated from the locked-20 boost): "gemma broader-100 judgeThink would be ~46.81%, gaining +11pp like on locked-20." Actual measured = **39.06%**. The +11pp boost did **not** generalize across anchors.
+
+**Lesson:** judge-config sensitivity is dataset-anchor-specific, not a universal multiplier. Don't assume an effect measured on one anchor extends to another.
+
+### Implication for the scoreboard
+
+The single canonical scoreboard column (judgeStrict) is the one used for *all forward decisions*. Pre-Sprint-51d historical entries (judgeThink) are kept for archaeological reference but NOT used to compare against new candidate models. The dual-anchor (locked-20 + broader-100) discipline still holds — both anchors must clear promotion thresholds under the canonical config.
+
+**Cross-reference:** Sprint 51d Day-2 rerun report `reports/hbp-gemma-4-26b-a4b-it-4bit-f2eeb239-n100-judgeThink-20260508T132202Z.json`. Day-3 spec for the next safety calibration step: [04_08_Clinician_Graded_Unsafe_Subset_Spec.md](04_08_Clinician_Graded_Unsafe_Subset_Spec.md).

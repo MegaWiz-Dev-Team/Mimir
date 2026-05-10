@@ -43,8 +43,9 @@ interface QueueResponse {
 
 function engineBadge(engine: string): string {
     if (engine.startsWith("gemini")) return "bg-sky-100 text-sky-800";
-    if (engine === "chandra-local") return "bg-indigo-100 text-indigo-800";
+    if (engine === "typhoon-local") return "bg-violet-100 text-violet-800";
     if (engine === "paddleocr-local") return "bg-emerald-100 text-emerald-800";
+    if (engine === "chandra-local") return "bg-slate-100 text-slate-500"; // retired B-50a.2
     return "bg-slate-100 text-slate-800";
 }
 

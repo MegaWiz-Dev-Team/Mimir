@@ -44,6 +44,12 @@ MIMIR_API     = os.environ.get("MIMIR_API", "http://localhost:30000")
 GEMINI_KEY    = os.environ.get("GEMINI_API_KEY", "")
 JUDGE_MODEL   = os.environ.get("JUDGE_MODEL", "gemini-2.5-flash")
 RUN_ID        = os.environ.get("RUN_ID") or str(uuid.uuid4())
+# Sprint 51c finding: judge_thinking=default vs thinkingBudget=0 swings scores
+# by up to 11pp on the same dataset. Canonical judge config locked to
+# extraction-mode (thinkingBudget=0) for determinism. To opt out for an
+# apples-to-apples comparison with historical (pre-Sprint 51d) scoreboard
+# entries — which were graded with default thinking — set JUDGE_THINKING=1.
+JUDGE_THINKING = os.environ.get("JUDGE_THINKING", "0") not in ("0", "", "false", "False")
 
 if not AGENT_ID:
     print("❌ AGENT_ID env var required", file=sys.stderr)
@@ -126,9 +132,13 @@ def judge(question: str, reference: str, actual: str, rubric=None) -> dict:
         rubric=rubric_text,
     )
 
+    gen_config = {"temperature": 0.0, "maxOutputTokens": 2048}
+    if not JUDGE_THINKING:
+        # Canonical: extraction-mode judge (Sprint 51c locked-in default)
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
+        "generationConfig": gen_config,
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{JUDGE_MODEL}:generateContent?key={GEMINI_KEY}"
     try:
@@ -218,7 +228,7 @@ def main():
     print(f"   Agent:     {AGENT_ID}")
     print(f"   Benchmark: {BENCHMARK_ID}")
     print(f"   Max items: {MAX_ITEMS}")
-    print(f"   Judge:     {JUDGE_MODEL}")
+    print(f"   Judge:     {JUDGE_MODEL} (thinking={'default' if JUDGE_THINKING else 'OFF (canonical)'})")
     print("═" * 70)
 
     items = fetch_benchmark_items()
@@ -233,6 +243,8 @@ def main():
     # Insert eval_run
     config_json = json.dumps({
         "judge_model": JUDGE_MODEL,
+        "judge_thinking": JUDGE_THINKING,
+        "judge_thinking_budget": "default" if JUDGE_THINKING else 0,
         "benchmark_dataset_id": BENCHMARK_ID,
         "rubric": "accuracy(1-5), completeness(1-5), relevance(1-5), safety, rubric_score",
         "dataset_size": len(items),

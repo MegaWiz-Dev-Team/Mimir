@@ -65,18 +65,21 @@ revealed the headline finding the isolation experiment was designed for:
 | locked-20 | typhoon-si-med-4b | 52.19% | **46.25%** | **−5.94pp** |
 | locked-20 | gemma-4-26b | 36.88% | 47.80%¹ | **+10.92pp** |
 | broader-100 | typhoon-si-med-4b | 44.88% | **43.19%** | −1.69pp |
-| broader-100 | gemma-4-26b | 35.81% | ~46.81%² | ~+11pp (estimated) |
+| broader-100 | gemma-4-26b | 35.81% | **39.06%**³ | **+3.25pp** |
 
 ¹ from historical run `195e8912` (default thinking) on the same locked-20 questions
-² gemma broader-100 judgeThink not yet rerun; estimate uses gemma's locked-20 +11pp boost as proxy
+² ~~gemma broader-100 judgeThink not yet rerun; estimate uses gemma's locked-20 +11pp boost as proxy~~ — superseded
+³ Sprint 51d Day-2 rerun: [`reports/hbp-gemma-4-26b-a4b-it-4bit-f2eeb239-n100-judgeThink-20260508T132202Z.json`](reports/hbp-gemma-4-26b-a4b-it-4bit-f2eeb239-n100-judgeThink-20260508T132202Z.json)
 
 ```
-Δ apples-to-apples REVERSES based on judge config:
+Δ apples-to-apples is anchor-dependent (NOT a simple reversal):
   judgeStrict locked-20:    typhoon +15.31pp  (Day-3)
-  judgeThink locked-20:     typhoon  −1.55pp  (Day-4 + historical)
+  judgeThink locked-20:     typhoon  −1.55pp  (Day-4 + historical 47.80%)
   judgeStrict broader-100:  typhoon  +9.07pp  (Day-3)
-  judgeThink broader-100:   typhoon  ~−3.6pp  (estimated)
+  judgeThink broader-100:   typhoon  +4.13pp  (Sprint 51d Day-2 — REVISED from estimated −3.6pp)
 ```
+
+**Sprint 51d correction:** the locked-20 +11pp judgeThink boost for gemma did **not** generalize — gemma broader-100 judgeThink boost is only +3.25pp (vs estimated +11pp). Apples-to-apples on broader-100 favors typhoon in BOTH judge modes; only **locked-20 judgeThink** favors gemma. The sprint 51b "champion swap blocked" recommendation still holds because (a) the locked-20 historical baseline is what scoreboard rows compare against, (b) all the non-bench blockers (vendor warning, 19% unsafe, bimodal accuracy) remain.
 
 **Reading:** Gemma's polite, structured answers gain ~11pp from the
 judge thinking through them carefully. Typhoon's verbose `<think>` chain
@@ -1023,6 +1026,9 @@ Locked items are auto-captured from the first successful run.
       numbers — needs OpenAI's repo + model-graded judge implementation.
 - [ ] Promote `gemini-3.1-pro-preview` as champion via `/eval/runs/{id}/promote`
       (currently no champion is set for `eir`).
+- [ ] **Sprint 52** — bench Qwen 3.6 generation (MoE 35B-A3B + dense 27B) on the
+      locked-20 anchor. Direct successors to already-benched Qwen3.5-35B-A3B-4bit
+      (20.0%) and Qwen3.5-27B-4bit (20.6%) — see Sprint 52 section below for plan.
 
 ---
 
@@ -1510,3 +1516,80 @@ the agent level. Extending it to per-benchmark scoring_fn is a clean next step.
 
 For the medical AI deployment story — **a Mac mini ($800-1500 hardware) with gemma-4-26b
 delivers better-than-Gemini-Pro health Q&A at zero per-query cost.**
+
+---
+
+## 🆕 Sprint 52 — Qwen 3.6 generation refresh (planned, 2026-05-10)
+
+Qwen 3.6 was released by Alibaba on 2026-04-22 (Apache 2.0). Two open-weight
+sizes — MoE 35B/A3B and dense 27B — both with vanilla `mlx-community/` 4-bit
+ports already published. Both are direct successors to Qwen3.5 variants already
+on the local scoreboard, so this is a clean apples-to-apples generation Δ.
+
+### Hypothesis
+
+Qwen 3.5 was the worst MoE on the local board (20.0% HBp, vs gemma-4-26b 40.6%).
+If Qwen 3.6 closes even half the gap (~30%), it becomes a viable secondary
+local champion. If the MoE active-param count (3B) means it stays well behind
+dense 27B-class models, we lock in the lesson and stop chasing Qwen MoE for
+medical chat.
+
+### Candidates
+
+| Slot | HF repo | Type | On-disk | Notes |
+|---|---|---|---|---|
+| **Primary** | `mlx-community/Qwen3.6-35B-A3B-4bit` | MoE 35B / A3B (3B active) | ~20.4 GB | Direct successor to Qwen3.5-35B-A3B-4bit (currently 20.0% HBp). Unified instruct+thinking checkpoint — toggle via `enable_thinking`. |
+| **Fallback** | `mlx-community/Qwen3.6-27B-4bit` | Dense 27B | ~16.1 GB | Direct successor to Qwen3.5-27B-4bit (20.6% HBp). Dense control vs MoE; lets us re-test the rerank-hurts-local pattern. |
+
+Alternates if vanilla mlx-community variants regress vs unsloth's UD quants:
+`unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit`, `unsloth/Qwen3.6-27B-UD-MLX-4bit`. Defer
+unless primary underperforms — adds a quant-method confound.
+
+### Hardware feasibility (M4 Pro, 64 GB)
+
+| Constraint | Budget | Notes |
+|---|---|---|
+| Unified RAM | 64 GB | Both 4-bit weights fit with ≥40 GB headroom even loaded simultaneously. Native ctx 262K → KV cache non-trivial; cap `max_tokens` at 4096 as for current runs. |
+| Disk free | **62 GB available** | ⚠️ Tight. 20.4 + 16.1 = 36.5 GB. After download, free → ~25 GB. **Pre-flight: free disk** by deleting `models--mlx-community--Qwen3.5-35B-A3B-4bit` (19 GB) and `models--mlx-community--Qwen3.5-9B-MLX-4bit` (~5 GB) — already-benched, results captured in scoreboard above. Net: ~24 GB freed. |
+| Heimdall hotswap | works for both | Same launchd-driven pattern as Round 3 fix; no new infra needed. Watch for the rogue-swap failure mode (line ~1103) — acquire the per-tournament lock before kickoff. |
+
+### Plan
+
+- **Day-1 (P0)** — Pre-flight: confirm disk free, delete superseded Qwen3.5 caches,
+  `huggingface-cli download mlx-community/Qwen3.6-35B-A3B-4bit`. Smoke-test via
+  `mlx_lm.server` on :8081 with one HBp item end-to-end.
+- **Day-1 (P0)** — Run primary on locked-20 via `Mimir/scripts/benchmark_all_local_models.py`
+  (or `bench_typhoon_si_med_hbp.py` if `mlx_lm.server` tool-call parser bug recurs).
+  Two passes: `enable_thinking=false` first (apples to Qwen3.5), then `enable_thinking=true`
+  to measure the thinking-mode lift. Same locked-20 items, same `gemini-2.5-flash`
+  judge with `thinkingBudget=0`.
+- **Day-2 (P1)** — Run fallback (dense 27B), same protocol. Compare MoE-vs-dense Δ
+  within the 3.6 generation.
+- **Day-2 (P1)** — If either ≥35% HBp on locked-20, escalate to broader-100 anchor
+  (matches Sprint 51b protocol).
+- **Day-3 (P2)** — A/B with `RERANKER_ENABLED=1` to check whether 3.6 reverses the
+  -9pp rerank penalty seen on local models in Sprint 36 (gemma-4-26b: 47.8% → 38.7%
+  with rerank — see Sprint 36 A/B scoreboard above). Rerank gating is per-model.
+- **Day-3 (P2)** — Update [04_05_Model_Tournament_Analysis](04_05_Model_Tournament_Analysis_2026-05-06.md)
+  with the new entries; refresh MEMORY `mimir_eir_baseline.md` if local champion changes.
+
+### Success criteria
+
+| Outcome | Action |
+|---|---|
+| Qwen3.6-35B-A3B ≥35% HBp on locked-20 | Promote to Tier-A challenger; broader-100 anchor (Day-2). |
+| ≥47.8% (matches gemma-4-26b champion) | Re-bench with rerank A/B; consider as second local champion for `eir-research` agent. |
+| <30% (no real lift over Qwen3.5's 20.0%) | Document Δ, archive, stop chasing Qwen MoE for medical chat. |
+| Safety score <0 (judge tags more unsafe than safe) | Same handling as Qwen3-0.6B / medgemma-4b — exclude from any clinical-context recommendation regardless of HBp%. |
+
+### Cost
+
+$0 for the runs themselves (local MLX). Judge cost: ~$0.04 for 20 items × 4 passes
+(35B no-think, 35B think, 27B no-think, 27B think) at gemini-2.5-flash rates —
+well under the $1 autonomous threshold. Broader-100 escalation, if triggered, is
+~$0.20 per model — still within autonomous budget.
+
+### Reports go in
+
+`docs/04_evaluation_and_testing/reports/hbp-qwen3.6-35b-a3b-4bit-{run_id}-n20-{ts}.json`
+(same naming as existing Sprint 51b reports).
