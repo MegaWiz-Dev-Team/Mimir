@@ -4,13 +4,18 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Shield, ShieldAlert, ShieldCheck, ShieldX, Loader2, AlertCircle, ExternalLink, Save } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Shield, ShieldAlert, ShieldCheck, ShieldX, Loader2, AlertCircle, ExternalLink, Save, History, Filter } from "lucide-react";
 
 import {
     getSkuggiPolicy,
     saveSkuggiPolicy,
+    getSkuggiRedactions,
     SkuggiPolicy,
     SkuggiPiiMode,
+    SkuggiRedactionsResponse,
+    SkuggiRedactionRow,
+    SkuggiDetection,
 } from "@/lib/api";
 
 /**
@@ -79,6 +84,29 @@ function modeIcon(mode: string) {
     }
 }
 
+type TimeRange = "1h" | "24h" | "7d" | "all";
+
+function rangeToSince(r: TimeRange): string | undefined {
+    if (r === "all") return undefined;
+    const ms =
+        r === "1h" ? 60 * 60_000 :
+        r === "24h" ? 24 * 60 * 60_000 :
+        7 * 24 * 60 * 60_000;
+    return new Date(Date.now() - ms).toISOString();
+}
+
+function detectionList(raw: SkuggiRedactionRow["detections"]): SkuggiDetection[] {
+    if (Array.isArray(raw)) return raw as SkuggiDetection[];
+    return [];
+}
+
+function decisionBadgeVariant(decision: string, blocked: boolean): "default" | "destructive" | "outline" | "secondary" {
+    if (blocked) return "destructive";
+    if (decision === "passed") return "secondary";
+    if (decision === "error") return "destructive";
+    return "outline";
+}
+
 export default function SkuggiAdminPage() {
     const [policy, setPolicy] = useState<SkuggiPolicy | null>(null);
     const [selected, setSelected] = useState<SkuggiPiiMode | null>(null);
@@ -86,6 +114,13 @@ export default function SkuggiAdminPage() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [savedTs, setSavedTs] = useState<number | null>(null);
+
+    // B-50b-8 audit history state
+    const [redactions, setRedactions] = useState<SkuggiRedactionsResponse | null>(null);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+    const [range, setRange] = useState<TimeRange>("24h");
+    const [blockedOnly, setBlockedOnly] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -102,6 +137,26 @@ export default function SkuggiAdminPage() {
     }, []);
 
     useEffect(() => { load(); }, [load]);
+
+    const loadHistory = useCallback(async () => {
+        setHistoryLoading(true);
+        setHistoryError(null);
+        try {
+            const r = await getSkuggiRedactions({
+                limit: 100,
+                since: rangeToSince(range),
+                blockedOnly,
+                surface: "text",
+            });
+            setRedactions(r);
+        } catch (e) {
+            setHistoryError(String((e as Error)?.message || e));
+        } finally {
+            setHistoryLoading(false);
+        }
+    }, [range, blockedOnly]);
+
+    useEffect(() => { loadHistory(); }, [loadHistory]);
 
     const dirty = policy && selected && selected !== policy.pii_mode;
 
@@ -246,6 +301,169 @@ export default function SkuggiAdminPage() {
                             </Button>
                         </div>
                     </div>
+
+                    <Card>
+                        <CardHeader className="space-y-3">
+                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                                <div>
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <History className="w-4 h-4 text-indigo-500" />
+                                        Recent Redactions
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Per-call audit from <code className="font-mono">pii_redactions</code>. Heimdall writes one row per cloud-bound LLM call (fire-and-forget) regardless of whether PII fired.
+                                    </CardDescription>
+                                </div>
+                                <Button variant="ghost" size="sm" onClick={loadHistory} disabled={historyLoading}>
+                                    {historyLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Refresh"}
+                                </Button>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+                                {(["1h", "24h", "7d", "all"] as const).map((r) => (
+                                    <Button
+                                        key={r}
+                                        size="sm"
+                                        variant={range === r ? "default" : "outline"}
+                                        onClick={() => setRange(r)}
+                                        className="h-7 text-xs"
+                                    >
+                                        {r === "1h" ? "Last hour" : r === "24h" ? "Last 24h" : r === "7d" ? "Last 7d" : "All"}
+                                    </Button>
+                                ))}
+                                <Button
+                                    size="sm"
+                                    variant={blockedOnly ? "destructive" : "outline"}
+                                    onClick={() => setBlockedOnly((b) => !b)}
+                                    className="h-7 text-xs"
+                                >
+                                    Blocked only
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            {historyError && (
+                                <div className="flex items-center gap-2 text-red-700 bg-red-50/50 border border-red-300 rounded px-3 py-2 text-xs">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {historyError}
+                                </div>
+                            )}
+                            {redactions && (
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                    <div className="rounded border p-3">
+                                        <div className="text-[10px] uppercase text-muted-foreground">Calls</div>
+                                        <div className="text-xl font-semibold">{redactions.summary.total_calls}</div>
+                                    </div>
+                                    <div className="rounded border p-3">
+                                        <div className="text-[10px] uppercase text-muted-foreground">With PII</div>
+                                        <div className="text-xl font-semibold">{redactions.summary.calls_with_pii}</div>
+                                    </div>
+                                    <div className="rounded border p-3">
+                                        <div className="text-[10px] uppercase text-muted-foreground">Blocked</div>
+                                        <div className={`text-xl font-semibold ${redactions.summary.blocked_calls > 0 ? "text-red-600" : ""}`}>
+                                            {redactions.summary.blocked_calls}
+                                        </div>
+                                    </div>
+                                    <div className="rounded border p-3">
+                                        <div className="text-[10px] uppercase text-muted-foreground">Avg latency</div>
+                                        <div className="text-xl font-semibold">{redactions.summary.avg_latency_ms.toFixed(1)}<span className="text-xs font-normal ml-1">ms</span></div>
+                                    </div>
+                                    <div className="rounded border p-3">
+                                        <div className="text-[10px] uppercase text-muted-foreground">Tier 2</div>
+                                        <div className="text-xl font-semibold">{redactions.summary.tier2_count}<span className="text-xs font-normal ml-1">/ {redactions.summary.tier1_count + redactions.summary.tier2_count}</span></div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {historyLoading && !redactions ? (
+                                <div className="py-8 flex items-center justify-center text-muted-foreground text-sm">
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading audit history…
+                                </div>
+                            ) : redactions && redactions.items.length === 0 ? (
+                                <div className="py-8 text-center text-sm text-muted-foreground">
+                                    No redaction rows in this window. Cloud-bound LLM traffic will produce rows; if you expected some, check Heimdall logs.
+                                </div>
+                            ) : redactions ? (
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="text-xs">When</TableHead>
+                                                <TableHead className="text-xs">Mode</TableHead>
+                                                <TableHead className="text-xs">Decision</TableHead>
+                                                <TableHead className="text-xs text-right">PII</TableHead>
+                                                <TableHead className="text-xs">Categories</TableHead>
+                                                <TableHead className="text-xs">Tier</TableHead>
+                                                <TableHead className="text-xs">Provider · Model</TableHead>
+                                                <TableHead className="text-xs text-right">Latency</TableHead>
+                                                <TableHead className="text-xs">Trace</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {redactions.items.map((row) => {
+                                                const ts = new Date(row.created_at);
+                                                const cats = detectionList(row.detections);
+                                                return (
+                                                    <TableRow key={row.id}>
+                                                        <TableCell className="text-xs whitespace-nowrap" title={row.created_at}>
+                                                            {ts.toLocaleString()}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline" className="font-mono text-[10px]">{row.pii_mode_used}</Badge>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant={decisionBadgeVariant(row.decision, row.blocked)} className="text-[10px]">
+                                                                {row.blocked ? "blocked" : row.decision}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="text-xs font-mono text-right">{row.pii_total_count}</TableCell>
+                                                        <TableCell className="text-xs">
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {cats.length === 0 ? (
+                                                                    <span className="text-muted-foreground">—</span>
+                                                                ) : (
+                                                                    cats.map((d, i) => (
+                                                                        <Badge key={`${row.id}-${i}`} variant="secondary" className="text-[10px] font-mono">
+                                                                            {d.category}{d.count > 1 ? `×${d.count}` : ""}
+                                                                        </Badge>
+                                                                    ))
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-xs font-mono">
+                                                            {row.detection_tier || "—"}
+                                                        </TableCell>
+                                                        <TableCell className="text-xs">
+                                                            <span className="font-mono">{row.provider || "?"}</span>
+                                                            {row.model && <span className="text-muted-foreground"> · {row.model}</span>}
+                                                        </TableCell>
+                                                        <TableCell className="text-xs font-mono text-right">
+                                                            {row.latency_ms != null ? `${row.latency_ms}ms` : "—"}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {row.request_id ? (
+                                                                <a
+                                                                    href={`https://laminar.asgard.internal/projects?q=${encodeURIComponent(row.request_id)}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                                                                    title={`Open trace ${row.request_id} in Laminar`}
+                                                                >
+                                                                    <ExternalLink className="w-3 h-3" />
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-muted-foreground">—</span>
+                                                            )}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            ) : null}
+                        </CardContent>
+                    </Card>
 
                     <Card>
                         <CardHeader>

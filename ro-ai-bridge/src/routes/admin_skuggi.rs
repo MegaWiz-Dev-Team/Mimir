@@ -426,6 +426,192 @@ async fn patch_skuggi_policy(
     }))
 }
 
+// ─── Redaction history (B-50b-8) ─────────────────────────────────────────
+//
+// `pii_redactions` is written fire-and-forget by Heimdall (`tenant_config.rs::
+// insert_audit`) on every cloud-bound LLM call after Skuggi runs. The
+// table is the canonical compliance record — every call accounted for,
+// even when no PII fired.
+//
+// This endpoint surfaces the last N rows for the dashboard. Filtering
+// stays simple in v0: `since` (RFC3339), `blocked_only`, `surface`. The
+// dashboard composes its own time-range pills on top.
+
+#[derive(Debug, Deserialize)]
+pub struct RedactionsQuery {
+    /// Max rows. Default 100, capped at 500.
+    pub limit: Option<u32>,
+    /// RFC3339 timestamp lower bound (inclusive).
+    pub since: Option<String>,
+    /// When true, return only rows where Skuggi rejected the call.
+    pub blocked_only: Option<bool>,
+    /// Filter by surface: 'text' (Heimdall) | 'image' (Syn OCR) | 'both'.
+    pub surface: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RedactionRow {
+    pub id: String,
+    pub created_at: String,
+    pub request_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub pii_mode_used: String,
+    pub surface: String,
+    pub detection_tier: Option<String>,
+    pub decision: String,
+    pub pii_total_count: i64,
+    pub blocked: bool,
+    pub detections: serde_json::Value,
+    pub payload_bytes: Option<i64>,
+    pub redacted_bytes: Option<i64>,
+    pub duration_us: Option<i64>,
+    pub latency_ms: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct RedactionsSummary {
+    pub total_calls: usize,
+    pub calls_with_pii: usize,
+    pub blocked_calls: usize,
+    pub avg_latency_ms: f64,
+    pub tier1_count: usize,
+    pub tier2_count: usize,
+}
+
+/// GET `/api/v1/admin/skuggi/redactions` — recent Heimdall (+ Syn OCR)
+/// redaction audit rows for the tenant. Ordered by `created_at DESC`.
+async fn list_redactions(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Query(q): Query<RedactionsQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let limit = q.limit.unwrap_or(100).min(500) as i64;
+    let blocked_only = q.blocked_only.unwrap_or(false);
+
+    // Build SQL incrementally. Bind values match insertion order at the
+    // bottom. Keeping each branch explicit instead of using a dynamic
+    // builder so query plans stay predictable.
+    type Row = (
+        String,                         // id
+        chrono::NaiveDateTime,          // created_at
+        Option<String>,                 // request_id
+        Option<String>,                 // provider
+        Option<String>,                 // model
+        String,                         // pii_mode_used
+        String,                         // surface
+        Option<String>,                 // detection_tier
+        String,                         // decision
+        Option<i64>,                    // pii_total_count
+        Option<i64>,                    // blocked (TINYINT comes back as i64)
+        Option<serde_json::Value>,      // detections
+        Option<i64>,                    // payload_bytes
+        Option<i64>,                    // redacted_bytes
+        Option<i64>,                    // duration_us
+        Option<i32>,                    // latency_ms
+    );
+
+    let base_select = "SELECT id, created_at, request_id, provider, model, \
+        pii_mode_used, surface, detection_tier, decision, pii_total_count, \
+        CAST(blocked AS SIGNED) AS blocked, detections, payload_bytes, redacted_bytes, \
+        duration_us, latency_ms \
+        FROM pii_redactions WHERE tenant_id = ?";
+
+    let mut where_extra = String::new();
+    if blocked_only {
+        where_extra.push_str(" AND blocked = 1");
+    }
+    if let Some(ref s) = q.surface {
+        if s != "both" {
+            where_extra.push_str(" AND surface = ?");
+        }
+    }
+    if q.since.is_some() {
+        where_extra.push_str(" AND created_at >= ?");
+    }
+    let sql = format!(
+        "{}{} ORDER BY created_at DESC LIMIT ?",
+        base_select, where_extra
+    );
+
+    let mut query = sqlx::query_as::<_, Row>(&sql).bind(&tenant_id);
+    if let Some(ref s) = q.surface {
+        if s != "both" {
+            query = query.bind(s);
+        }
+    }
+    if let Some(ref since) = q.since {
+        query = query.bind(since);
+    }
+    query = query.bind(limit);
+
+    let rows: Vec<Row> = query.fetch_all(&pool).await.map_err(|e| {
+        error!("admin/skuggi/redactions DB error tenant={}: {}", tenant_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("redactions query failed: {}", e)})),
+        )
+    })?;
+
+    let mut latency_sum: i64 = 0;
+    let mut latency_count: usize = 0;
+    let mut summary = RedactionsSummary::default();
+    let items: Vec<RedactionRow> = rows
+        .into_iter()
+        .map(|r| {
+            summary.total_calls += 1;
+            let pii_count = r.9.unwrap_or(0);
+            let blocked = r.10.unwrap_or(0) != 0;
+            if pii_count > 0 {
+                summary.calls_with_pii += 1;
+            }
+            if blocked {
+                summary.blocked_calls += 1;
+            }
+            match r.7.as_deref() {
+                Some("tier1") => summary.tier1_count += 1,
+                Some("tier1+tier2") | Some("tier2") => summary.tier2_count += 1,
+                _ => {}
+            }
+            if let Some(ms) = r.15 {
+                latency_sum += ms as i64;
+                latency_count += 1;
+            }
+            RedactionRow {
+                id: r.0,
+                created_at: r.1.and_utc().to_rfc3339(),
+                request_id: r.2,
+                provider: r.3,
+                model: r.4,
+                pii_mode_used: r.5,
+                surface: r.6,
+                detection_tier: r.7,
+                decision: r.8,
+                pii_total_count: pii_count,
+                blocked,
+                detections: r.11.unwrap_or(serde_json::Value::Array(vec![])),
+                payload_bytes: r.12,
+                redacted_bytes: r.13,
+                duration_us: r.14,
+                latency_ms: r.15,
+            }
+        })
+        .collect();
+
+    summary.avg_latency_ms = if latency_count > 0 {
+        latency_sum as f64 / latency_count as f64
+    } else {
+        0.0
+    };
+
+    Ok(Json(json!({
+        "tenant_id": tenant_id,
+        "summary": summary,
+        "items": items,
+    })))
+}
+
 pub fn admin_skuggi_routes() -> Router<DbPool> {
     Router::new()
         .route("/admin/skuggi/corpus", get(list_corpus))
@@ -434,6 +620,7 @@ pub fn admin_skuggi_routes() -> Router<DbPool> {
             "/admin/skuggi/policy",
             get(get_skuggi_policy).patch(patch_skuggi_policy),
         )
+        .route("/admin/skuggi/redactions", get(list_redactions))
 }
 
 #[cfg(test)]
