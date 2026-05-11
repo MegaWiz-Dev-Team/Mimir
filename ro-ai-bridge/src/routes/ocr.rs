@@ -19,6 +19,85 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
 
+/// Subset of Syn's `ExtractResponse` that Mimir cares about. Syn's full
+/// schema lives in `Syn/services/api/src/routes.rs::ExtractResponse`.
+#[derive(Debug, Deserialize)]
+struct SynExtractResponse {
+    audit_id: String,
+    engine_used: String,
+    router_reason: String,
+    status: String,
+    #[serde(default)]
+    extracted_text: Option<String>,
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default)]
+    bbox_count: Option<i64>,
+    #[serde(default)]
+    cost_usd: f64,
+    #[serde(default)]
+    latency_ms: u64,
+}
+
+/// B-50b Path A — delegate an OCR call to Syn's smart-router instead of
+/// hitting Gemini directly. Syn picks the engine (paddleocr / typhoon / Gemini
+/// Flash / Gemini Pro) per its 6-rule router + writes its own audit row.
+/// Mimir's B-50e audit is in addition to Syn's, providing a cross-system view.
+async fn delegate_to_syn(
+    syn_base: &str,
+    tenant_id: &str,
+    image_bytes: Vec<u8>,
+    filename: String,
+    engine_override: Option<String>,
+    doc_type: Option<String>,
+    high_stakes: bool,
+) -> Result<SynExtractResponse, String> {
+    let url = format!(
+        "{}/api/v1/syn/ocr/extract",
+        syn_base.trim_end_matches('/')
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|e| format!("syn client init failed: {e}"))?;
+
+    let mut form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(image_bytes).file_name(filename),
+    );
+    if let Some(e) = engine_override {
+        form = form.text("engine_override", e);
+    }
+    if let Some(d) = doc_type {
+        form = form.text("doc_type", d);
+    }
+    if high_stakes {
+        form = form.text("high_stakes", "true");
+    }
+
+    let resp = client
+        .post(&url)
+        .header("X-Tenant-Id", tenant_id)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("syn POST failed: {e}"))?;
+
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("syn body read failed: {e}"))?;
+
+    if !status.is_success() {
+        return Err(format!("syn returned {}: {}", status, body));
+    }
+
+    serde_json::from_str::<SynExtractResponse>(&body)
+        .map_err(|e| format!("syn response parse failed: {e} — body: {body}"))
+}
+
 /// Estimate USD cost for an OCR call. Treats tokens as output-side since OCR
 /// produces text. Falls back to 0 if pricing not in `model_pricing` table —
 /// matches `insights::estimate_cost` behavior.
@@ -82,9 +161,12 @@ async fn ocr_extract(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mut file_data: Option<Vec<u8>> = None;
     let mut file_name: Option<String> = None;
-    let mut model_override: Option<String> = None;
+    // B-50b-A: accept Syn router hints via multipart fields. The legacy
+    // `model` field maps to Syn's `engine_override` for back-compat.
+    let mut engine_override: Option<String> = None;
+    let mut doc_type: Option<String> = None;
+    let mut high_stakes = false;
 
-    // Parse multipart fields
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
@@ -103,13 +185,30 @@ async fn ocr_extract(
                 })?;
                 file_data = Some(bytes.to_vec());
             }
-            "model" => {
-                model_override = Some(field.text().await.map_err(|e| {
+            "model" | "engine_override" => {
+                engine_override = Some(field.text().await.map_err(|e| {
                     (
                         StatusCode::BAD_REQUEST,
-                        Json(json!({"error": format!("Invalid model field: {}", e)})),
+                        Json(json!({"error": format!("Invalid engine_override field: {}", e)})),
                     )
                 })?);
+            }
+            "doc_type" => {
+                doc_type = Some(field.text().await.map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Invalid doc_type field: {}", e)})),
+                    )
+                })?);
+            }
+            "high_stakes" => {
+                let v = field.text().await.map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Invalid high_stakes field: {}", e)})),
+                    )
+                })?;
+                high_stakes = matches!(v.to_ascii_lowercase().as_str(), "true" | "1" | "yes");
             }
             _ => {
                 warn!("Unknown OCR field: {}", field_name);
@@ -117,7 +216,6 @@ async fn ocr_extract(
         }
     }
 
-    // Validate
     let data = file_data.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -136,113 +234,92 @@ async fn ocr_extract(
         ));
     }
 
-    // Resolve LLM credentials using unified config
-    let user_override = model_override.is_some();
-    let target_model = model_override.unwrap_or_else(|| config.heimdall_model.clone());
-    let model_config = mimir_core_ai::services::db::get_model_by_id(&pool, &target_model)
-        .await
-        .unwrap_or(None);
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let user_override = engine_override.is_some();
 
-    let (api_key, api_base) = crate::routes::sources::resolve_llm_credentials(
-        &config,
-        &model_config,
-        &target_model,
-    )?;
+    // B-50e policy still loaded for visibility (smart-router enforcement now
+    // happens on Syn's side).
+    let _policy = get_ocr_policy(&pool, &tenant_id).await;
 
-    let provider = model_config
-        .as_ref()
-        .map(|m| m.provider.as_str())
-        .unwrap_or("unknown");
-
-    info!("OCR extract request: file={}, model={}", filename, target_model);
-
-    // B-50e: load per-tenant OCR policy (warn + safe default if missing).
-    let tenant_id = extract_tenant_id(&headers);
-    let _policy = get_ocr_policy(&pool, tenant_id).await;
-    // Note: policy enforcement (cloud opt-in check, budget cap, PHI strict)
-    // lands with the smart-router in B-50b. For now we just record + audit.
-
-    let engine_id = engine_id_for(&target_model, provider);
-    let router_reason = if user_override {
-        "manual_override"
-    } else {
-        "default_cloud"
-    };
+    info!(
+        "OCR extract: filename={}, doc_type={:?}, engine_override={:?}, high_stakes={} → delegating to Syn",
+        filename, doc_type, engine_override, high_stakes
+    );
 
     let started = Instant::now();
-    let result =
-        ocr::extract_text_from_image(&data, &filename, &api_key, &api_base, &target_model).await;
+    let syn_result = delegate_to_syn(
+        &config.syn_api_url,
+        &tenant_id,
+        data.clone(),
+        filename.clone(),
+        engine_override.clone(),
+        doc_type,
+        high_stakes,
+    )
+    .await;
     let latency_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
 
-    match result {
-        Ok((content, tokens_used)) => {
-            let cost_usd = estimate_ocr_cost(&pool, &target_model, tokens_used).await;
+    let local_router_reason = if user_override {
+        "manual_override"
+    } else {
+        "delegate_to_syn"
+    };
 
-            // Log token usage (existing behavior — pricing/budget)
-            let _ = crate::routes::llm_usage::insert_llm_usage_log(
-                &pool,
-                tenant_id,
-                &target_model,
-                provider,
-                Some(&format!("{}chat/completions", api_base)),
-                Some("ocr_extract"),
-                0,
-                0,
-                tokens_used as i32,
-                0,
-                "success",
-                None,
-            )
-            .await;
-
-            // B-50e: write OCR audit row.
-            let audit_id = insert_ocr_audit(
+    match syn_result {
+        Ok(syn) => {
+            let cross_ref = format!("syn_audit_id={}", syn.audit_id);
+            // B-50e: write OCR audit row in Mimir's audit layer. Cross-link
+            // Syn's audit_id via status_message so operators can join the two
+            // tables when investigating a request.
+            let mimir_audit_id = insert_ocr_audit(
                 &pool,
                 OcrAuditRow {
-                    tenant_id,
+                    tenant_id: &tenant_id,
                     image_bytes: &data,
-                    engine_used: &engine_id,
-                    engine_version: Some(&target_model),
-                    router_reason: Some(router_reason),
-                    extracted_text: Some(&content),
-                    confidence: None, // Gemini doesn't return; populate when sidecars (B-50a) land
-                    bbox_count: None,
-                    cost_usd,
+                    engine_used: &syn.engine_used,
+                    engine_version: None,
+                    router_reason: Some(&syn.router_reason),
+                    extracted_text: syn.extracted_text.as_deref(),
+                    confidence: syn.confidence,
+                    bbox_count: syn.bbox_count.map(|c| c as i32),
+                    cost_usd: syn.cost_usd,
                     latency_ms: Some(latency_ms),
-                    pii_redacted: false, // Skuggi (B-50b-6) sets this when wired
-                    status: OcrStatus::Succeeded,
-                    status_message: None,
+                    pii_redacted: false,
+                    status: status_from_syn(&syn.status),
+                    status_message: Some(&cross_ref),
                     image_path: None,
-                    requested_by: None, // JWT subject extraction is a follow-up
+                    requested_by: None,
                 },
             )
             .await;
 
             Ok(Json(json!({
-                "audit_id": audit_id,
-                "content": content,
-                "tokens_used": tokens_used,
-                "model": target_model,
-                "engine_used": engine_id,
+                "mimir_audit_id": mimir_audit_id,
+                "syn_audit_id": syn.audit_id,
+                "content": syn.extracted_text.unwrap_or_default(),
+                "engine_used": syn.engine_used,
+                "router_reason": syn.router_reason,
+                "status": syn.status,
+                "confidence": syn.confidence,
+                "bbox_count": syn.bbox_count,
+                "cost_usd": syn.cost_usd,
                 "filename": filename,
-                "content_length": content.len(),
-                "latency_ms": latency_ms,
-                "cost_usd": cost_usd,
+                "mimir_latency_ms": latency_ms,
+                "syn_latency_ms": syn.latency_ms,
             })))
         }
         Err(e) => {
-            error!("OCR extraction failed: {}", e);
-            let msg = format!("OCR extraction failed: {}", e);
+            error!("Syn delegation failed: {}", e);
+            let msg = format!("Syn OCR delegation failed: {}", e);
 
-            // B-50e: still audit the failure.
             let _ = insert_ocr_audit(
                 &pool,
                 OcrAuditRow {
-                    tenant_id,
+                    tenant_id: &tenant_id,
                     image_bytes: &data,
-                    engine_used: &engine_id,
-                    engine_version: Some(&target_model),
-                    router_reason: Some(router_reason),
+                    engine_used: "syn_delegation",
+                    engine_version: None,
+                    router_reason: Some(local_router_reason),
                     extracted_text: None,
                     confidence: None,
                     bbox_count: None,
@@ -262,6 +339,17 @@ async fn ocr_extract(
                 Json(json!({"error": msg})),
             ))
         }
+    }
+}
+
+/// Map Syn's status string back to our OcrStatus enum for the audit row.
+fn status_from_syn(s: &str) -> OcrStatus {
+    match s {
+        "succeeded" => OcrStatus::Succeeded,
+        "pii_blocked" => OcrStatus::PiiBlocked,
+        "budget_exceeded" => OcrStatus::BudgetExceeded,
+        "pii_strict_block" => OcrStatus::PiiStrictBlock,
+        _ => OcrStatus::EngineFailed,
     }
 }
 

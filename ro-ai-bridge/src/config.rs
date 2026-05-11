@@ -32,6 +32,10 @@ pub struct Config {
     pub heimdall_api_key: Option<String>,
     pub heimdall_model: String,
 
+    // Syn (OCR orchestration — Mimir delegates `/api/v1/ocr/extract` to Syn's
+    // smart-router which dispatches to local sidecars + cloud tiers).
+    pub syn_api_url: String,
+
     // Auth
     pub jwt_secret: String,
 }
@@ -87,6 +91,8 @@ impl Config {
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
 
             // Auth
+            syn_api_url: env::var("SYN_API_URL")
+                .unwrap_or_else(|_| "http://syn-api.asgard.svc:8080".to_string()),
             jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string()),
         };
 
