@@ -28,6 +28,7 @@ pub mod mcp;
 pub mod models;
 pub mod ocr;
 pub mod ocr_audit;
+pub mod ocr_budget;
 pub mod pipeline;
 pub mod prompts;
 pub mod qc;
