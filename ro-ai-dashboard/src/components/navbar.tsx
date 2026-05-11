@@ -209,6 +209,7 @@ export function Navbar() {
                 { name: "Settings", href: "/settings", icon: Settings },
                 { name: "Tenants", href: "/tenants", icon: Building2 },
                 { name: "Users", href: "/users", icon: Users },
+                { name: "Skuggi PII", href: "/admin/skuggi", icon: ShieldCheck },
             ],
         },
     ];
