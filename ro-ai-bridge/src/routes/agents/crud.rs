@@ -544,6 +544,7 @@ mod tests {
             use_rag: Some(true),
             use_knowledge_graph: Some(false),
             tools: None,
+            mcp_servers: None,
             personality_traits: None,
             greeting: Some("Hello".into()),
             avatar_url: None,

@@ -1,4 +1,5 @@
 pub mod admin_knowledge;
+pub mod admin_skuggi;
 pub mod agents;
 pub mod app_settings;
 pub mod ask;
