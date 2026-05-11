@@ -1013,6 +1013,38 @@ export async function extractSourceOcrWithAi(
     return res.json();
 }
 
+// ─── B-50b — Skuggi PII Guardrail policy ──────────────────────────────────
+
+export type SkuggiPiiMode = "off" | "detect-only" | "mask-and-send" | "block-on-pii";
+
+export interface SkuggiPolicy {
+    tenant_id: string;
+    pii_mode: SkuggiPiiMode | string;
+    /** False signals config drift — Heimdall falls back to mask-and-send. */
+    pii_mode_valid: boolean;
+}
+
+/** GET the tenant's current Skuggi PII guardrail mode. */
+export async function getSkuggiPolicy(): Promise<SkuggiPolicy> {
+    const res = await authFetch(`${API_BASE_URL}/admin/skuggi/policy`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch Skuggi policy: HTTP ${res.status}`);
+    return res.json();
+}
+
+/** PATCH the tenant's Skuggi PII guardrail mode. */
+export async function saveSkuggiPolicy(pii_mode: SkuggiPiiMode): Promise<SkuggiPolicy> {
+    const res = await authFetch(`${API_BASE_URL}/admin/skuggi/policy`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pii_mode }),
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to save Skuggi policy: HTTP ${res.status} — ${body}`);
+    }
+    return res.json();
+}
+
 export interface PageIndexResponse {
     success: boolean;
     message: string;
