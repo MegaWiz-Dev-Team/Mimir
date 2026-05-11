@@ -1045,6 +1045,64 @@ export async function saveSkuggiPolicy(pii_mode: SkuggiPiiMode): Promise<SkuggiP
     return res.json();
 }
 
+export interface SkuggiDetection {
+    category: string;
+    count: number;
+}
+
+export interface SkuggiRedactionRow {
+    id: string;
+    created_at: string;
+    request_id: string | null;
+    provider: string | null;
+    model: string | null;
+    pii_mode_used: string;
+    surface: string;
+    detection_tier: string | null;
+    decision: string;
+    pii_total_count: number;
+    blocked: boolean;
+    detections: SkuggiDetection[] | unknown;
+    payload_bytes: number | null;
+    redacted_bytes: number | null;
+    duration_us: number | null;
+    latency_ms: number | null;
+}
+
+export interface SkuggiRedactionsSummary {
+    total_calls: number;
+    calls_with_pii: number;
+    blocked_calls: number;
+    avg_latency_ms: number;
+    tier1_count: number;
+    tier2_count: number;
+}
+
+export interface SkuggiRedactionsResponse {
+    tenant_id: string;
+    summary: SkuggiRedactionsSummary;
+    items: SkuggiRedactionRow[];
+}
+
+/** Recent Skuggi PII redaction audit rows for the tenant. */
+export async function getSkuggiRedactions(opts?: {
+    limit?: number;
+    since?: string;
+    blockedOnly?: boolean;
+    surface?: "text" | "image" | "both";
+}): Promise<SkuggiRedactionsResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set("limit", String(opts.limit));
+    if (opts?.since) params.set("since", opts.since);
+    if (opts?.blockedOnly) params.set("blocked_only", "true");
+    if (opts?.surface) params.set("surface", opts.surface);
+    const qs = params.toString();
+    const url = `${API_BASE_URL}/admin/skuggi/redactions${qs ? `?${qs}` : ""}`;
+    const res = await authFetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch Skuggi redactions: HTTP ${res.status}`);
+    return res.json();
+}
+
 export interface PageIndexResponse {
     success: boolean;
     message: string;
