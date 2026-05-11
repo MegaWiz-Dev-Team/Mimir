@@ -2373,3 +2373,44 @@ export async function explainRetrieval(scoreId: number): Promise<RunInsight> {
     if (!res.ok) return { error: `HTTP ${res.status}` };
     return res.json();
 }
+
+// ─── B-50m OCR Cost Guard ─────────────────────────────────────────────────
+
+export interface OcrAdminPolicy {
+    tenant_id: string;
+    ocr_phi_strict: boolean;
+    ocr_cloud_flash_enabled: boolean;
+    ocr_cloud_pro_enabled: boolean;
+    ocr_monthly_cloud_budget_usd: number;
+    current_month_spend_usd: number;
+    current_month_remaining_usd: number | null;
+    pii_mode: string;
+}
+
+export interface OcrAdminPolicyUpdate {
+    ocr_phi_strict?: boolean;
+    ocr_cloud_flash_enabled?: boolean;
+    ocr_cloud_pro_enabled?: boolean;
+    ocr_monthly_cloud_budget_usd?: number;
+}
+
+/** Fetch tenant's OCR cost-guard policy + live month-to-date spend. */
+export async function getOcrAdminPolicy(): Promise<OcrAdminPolicy> {
+    const res = await authFetch(`${API_BASE_URL}/ocr/admin/policy`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch OCR policy: HTTP ${res.status}`);
+    return res.json();
+}
+
+/** Partial update of tenant's OCR cost-guard policy. Returns the updated policy. */
+export async function saveOcrAdminPolicy(update: OcrAdminPolicyUpdate): Promise<OcrAdminPolicy> {
+    const res = await authFetch(`${API_BASE_URL}/ocr/admin/policy`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(update),
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to save OCR policy: HTTP ${res.status} — ${body}`);
+    }
+    return res.json();
+}

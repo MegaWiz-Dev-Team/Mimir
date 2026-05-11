@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Activity, Zap, Clock, DollarSign, Loader2, TrendingUp, AlertCircle, Shield, Bell, BarChart3 } from "lucide-react";
+import { Activity, Zap, Clock, DollarSign, Loader2, TrendingUp, AlertCircle, Shield, Bell, BarChart3, Eye, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
     fetchLlmUsage, fetchLlmUsageSummary, LlmUsageLog, LlmUsageSummary,
     getBudgetConfig, saveBudgetConfig, getAlerts, getBenchmark,
     BudgetConfig, UsageAlert, BenchmarkEntry,
+    getOcrAdminPolicy, saveOcrAdminPolicy, OcrAdminPolicy,
 } from "@/lib/api";
 
 type DateRange = "today" | "7d" | "30d" | "all";
@@ -39,7 +40,7 @@ export default function LlmAnalyticsPage() {
     const [dateRange, setDateRange] = useState<DateRange>("7d");
     const [currentPage, setCurrentPage] = useState(1);
     const [totalLogs, setTotalLogs] = useState(0);
-    const [analyticsTab, setAnalyticsTab] = useState<"usage" | "budget" | "benchmark">("usage");
+    const [analyticsTab, setAnalyticsTab] = useState<"usage" | "budget" | "benchmark" | "ocr">("usage");
 
     // Budget
     const [budgets, setBudgets] = useState<BudgetConfig[]>([]);
@@ -49,6 +50,12 @@ export default function LlmAnalyticsPage() {
     const [newBudgetModel, setNewBudgetModel] = useState("");
     const [newBudgetLimit, setNewBudgetLimit] = useState(100000);
     const [newBudgetThreshold, setNewBudgetThreshold] = useState(80);
+
+    // B-50m OCR cost guard
+    const [ocrPolicy, setOcrPolicy] = useState<OcrAdminPolicy | null>(null);
+    const [ocrBudgetDraft, setOcrBudgetDraft] = useState<string>("");
+    const [savingOcr, setSavingOcr] = useState(false);
+    const [ocrError, setOcrError] = useState<string | null>(null);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -85,7 +92,41 @@ export default function LlmAnalyticsPage() {
         if (analyticsTab === "benchmark") {
             getBenchmark().then(setBenchmark).catch(() => { });
         }
+        if (analyticsTab === "ocr") {
+            getOcrAdminPolicy()
+                .then((p) => {
+                    setOcrPolicy(p);
+                    setOcrBudgetDraft(p.ocr_monthly_cloud_budget_usd.toFixed(2));
+                    setOcrError(null);
+                })
+                .catch((e) => setOcrError(String(e?.message || e)));
+        }
     }, [analyticsTab]);
+
+    const refreshOcrPolicy = useCallback(async () => {
+        try {
+            const p = await getOcrAdminPolicy();
+            setOcrPolicy(p);
+            setOcrBudgetDraft(p.ocr_monthly_cloud_budget_usd.toFixed(2));
+            setOcrError(null);
+        } catch (e) {
+            setOcrError(String((e as Error)?.message || e));
+        }
+    }, []);
+
+    const handleSaveOcrPolicy = async (patch: Parameters<typeof saveOcrAdminPolicy>[0]) => {
+        setSavingOcr(true);
+        setOcrError(null);
+        try {
+            const updated = await saveOcrAdminPolicy(patch);
+            setOcrPolicy(updated);
+            setOcrBudgetDraft(updated.ocr_monthly_cloud_budget_usd.toFixed(2));
+        } catch (e) {
+            setOcrError(String((e as Error)?.message || e));
+        } finally {
+            setSavingOcr(false);
+        }
+    };
 
     const handleSaveBudget = async () => {
         if (!newBudgetModel) return;
@@ -189,6 +230,10 @@ export default function LlmAnalyticsPage() {
                 <Button variant={analyticsTab === "benchmark" ? "default" : "ghost"} size="sm"
                     onClick={() => setAnalyticsTab("benchmark")} className="text-xs">
                     <BarChart3 className="w-3.5 h-3.5 mr-1.5" /> Benchmark
+                </Button>
+                <Button variant={analyticsTab === "ocr" ? "default" : "ghost"} size="sm"
+                    onClick={() => setAnalyticsTab("ocr")} className="text-xs">
+                    <Eye className="w-3.5 h-3.5 mr-1.5" /> OCR Cost Guard
                 </Button>
             </div>
 
@@ -511,6 +556,207 @@ export default function LlmAnalyticsPage() {
                         )}
                     </CardContent>
                 </Card>
+            )}
+
+            {analyticsTab === "ocr" && (
+                <div className="space-y-4">
+                    {ocrError && (
+                        <div className="rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 px-4 py-3 text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <div>{ocrError}</div>
+                        </div>
+                    )}
+
+                    {!ocrPolicy ? (
+                        <div className="flex items-center justify-center py-12">
+                            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : (
+                        <>
+                            {/* Spend headroom card */}
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <DollarSign className="w-4 h-4 text-purple-500" />
+                                        Monthly Cloud OCR Spend
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-3">
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div>
+                                            <div className="text-xs text-muted-foreground">Spent this month</div>
+                                            <div className="text-2xl font-semibold">${ocrPolicy.current_month_spend_usd.toFixed(4)}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-xs text-muted-foreground">Monthly cap</div>
+                                            <div className="text-2xl font-semibold">
+                                                {ocrPolicy.ocr_monthly_cloud_budget_usd > 0
+                                                    ? `$${ocrPolicy.ocr_monthly_cloud_budget_usd.toFixed(2)}`
+                                                    : "—"}
+                                            </div>
+                                            <div className="text-[10px] text-muted-foreground">
+                                                {ocrPolicy.ocr_monthly_cloud_budget_usd === 0 && "no cap configured"}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-xs text-muted-foreground">Remaining</div>
+                                            <div className="text-2xl font-semibold">
+                                                {ocrPolicy.current_month_remaining_usd !== null
+                                                    ? `$${ocrPolicy.current_month_remaining_usd.toFixed(4)}`
+                                                    : "∞"}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Progress bar when cap is set */}
+                                    {ocrPolicy.ocr_monthly_cloud_budget_usd > 0 && (() => {
+                                        const pct = Math.min(
+                                            100,
+                                            (ocrPolicy.current_month_spend_usd / ocrPolicy.ocr_monthly_cloud_budget_usd) * 100
+                                        );
+                                        const color = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-green-500";
+                                        return (
+                                            <div className="space-y-1">
+                                                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                                    <div className={`h-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+                                                </div>
+                                                <div className="text-[10px] text-muted-foreground">{pct.toFixed(1)}% of cap used</div>
+                                            </div>
+                                        );
+                                    })()}
+                                </CardContent>
+                            </Card>
+
+                            {/* Policy editor card */}
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Shield className="w-4 h-4 text-blue-500" />
+                                        OCR Cost Guard Policy
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {/* PHI strict */}
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <div className="text-sm font-medium">PHI Strict</div>
+                                            <div className="text-xs text-muted-foreground">Hard block — never send to cloud regardless of opt-in</div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant={ocrPolicy.ocr_phi_strict ? "default" : "outline"}
+                                            disabled={savingOcr}
+                                            onClick={() => handleSaveOcrPolicy({ ocr_phi_strict: !ocrPolicy.ocr_phi_strict })}
+                                        >
+                                            {ocrPolicy.ocr_phi_strict ? "ON" : "OFF"}
+                                        </Button>
+                                    </div>
+
+                                    {/* Tier 2 Flash opt-in */}
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <div className="text-sm font-medium">Tier 2 — Gemini 3 Flash</div>
+                                            <div className="text-xs text-muted-foreground">Cloud escalation when local confidence &lt; threshold</div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant={ocrPolicy.ocr_cloud_flash_enabled ? "default" : "outline"}
+                                            disabled={savingOcr || ocrPolicy.ocr_phi_strict}
+                                            onClick={() => handleSaveOcrPolicy({ ocr_cloud_flash_enabled: !ocrPolicy.ocr_cloud_flash_enabled })}
+                                        >
+                                            {ocrPolicy.ocr_cloud_flash_enabled ? "ON" : "OFF"}
+                                        </Button>
+                                    </div>
+
+                                    {/* Tier 3 Pro opt-in */}
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <div className="text-sm font-medium">Tier 3 — Gemini 3.1 Pro</div>
+                                            <div className="text-xs text-muted-foreground">Curator high-stakes only (requires Tier 2 enabled)</div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant={ocrPolicy.ocr_cloud_pro_enabled ? "default" : "outline"}
+                                            disabled={savingOcr || ocrPolicy.ocr_phi_strict || !ocrPolicy.ocr_cloud_flash_enabled}
+                                            onClick={() => handleSaveOcrPolicy({ ocr_cloud_pro_enabled: !ocrPolicy.ocr_cloud_pro_enabled })}
+                                        >
+                                            {ocrPolicy.ocr_cloud_pro_enabled ? "ON" : "OFF"}
+                                        </Button>
+                                    </div>
+
+                                    {/* Monthly budget editor */}
+                                    <div className="space-y-2 pt-2 border-t">
+                                        <div className="text-sm font-medium">Monthly Cloud Budget (USD)</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            Hard cap. Cloud OCR calls reject with 402 once exceeded. Set 0 for "no cap".
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={ocrBudgetDraft}
+                                                onChange={(e) => setOcrBudgetDraft(e.target.value)}
+                                                className="max-w-32 font-mono"
+                                            />
+                                            <Button
+                                                size="sm"
+                                                disabled={savingOcr}
+                                                onClick={() => {
+                                                    const v = parseFloat(ocrBudgetDraft);
+                                                    if (Number.isNaN(v) || v < 0) {
+                                                        setOcrError("Budget must be ≥ 0");
+                                                        return;
+                                                    }
+                                                    handleSaveOcrPolicy({ ocr_monthly_cloud_budget_usd: v });
+                                                }}
+                                            >
+                                                {savingOcr ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                                            </Button>
+                                            <Button size="sm" variant="outline" disabled={savingOcr} onClick={refreshOcrPolicy}>
+                                                Refresh
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    {/* PII mode (read-only display — Skuggi B-50b-2 handles it) */}
+                                    <div className="pt-2 border-t">
+                                        <div className="text-sm font-medium">Skuggi PII Mode</div>
+                                        <div className="text-xs text-muted-foreground">Set via PII admin page (B-50b-2)</div>
+                                        <Badge variant="outline" className="mt-1 font-mono text-xs">{ocrPolicy.pii_mode}</Badge>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Laminar drill-down link */}
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <BarChart3 className="w-4 h-4 text-indigo-500" />
+                                        Laminar Trace Dashboard
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-2">
+                                    <div className="text-xs text-muted-foreground">
+                                        Per-call OCR traces, latency breakdowns, and engine-by-engine cost — visualized in Laminar (Sága).
+                                        Mimir's local audit (above) is the source of truth for budget enforcement; Laminar is for drill-down.
+                                    </div>
+                                    <Button size="sm" variant="outline" asChild>
+                                        <a
+                                            href="https://laminar.asgard.internal/projects"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1.5"
+                                        >
+                                            Open Laminar Dashboard
+                                            <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                    </Button>
+                                </CardContent>
+                            </Card>
+                        </>
+                    )}
+                </div>
             )}
         </div>
     );
