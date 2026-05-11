@@ -189,6 +189,8 @@ async fn main() {
         .nest("/api/v1/feedback", feedback_routes())
         .nest("/api/v1/assistant", assistant_routes())
         .nest("/api/v1", ocr_routes())
+        // Sprint 50b — Skuggi PII test corpus admin (B-50b)
+        .nest("/api/v1", ro_ai_bridge::routes::admin_skuggi::admin_skuggi_routes())
         .nest("/api/v1", batch_pipeline_routes())
         .nest("/api/v1/db-connector", db_connector_routes())
         .nest("/api/v1", models_routes())
