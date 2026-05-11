@@ -1013,6 +1013,57 @@ export async function extractSourceOcrWithAi(
     return res.json();
 }
 
+// ─── B-50i — Inline OCR upload for chat ──────────────────────────────────
+//
+// Response shape varies by which Mimir version is deployed:
+//   - Legacy (pre-B-50b): { content, tokens_used, model, filename, content_length }
+//   - Post-B-50b (Syn delegation): { audit_id, engine_used, status, extracted_text,
+//     confidence, cost_usd, latency_ms, ... }
+// We accept both and normalize to `text`.
+export interface OcrExtractResult {
+    text: string;
+    engine_used?: string;
+    audit_id?: string;
+    cost_usd?: number;
+    latency_ms?: number;
+    confidence?: number;
+    raw: Record<string, unknown>;
+}
+
+/** Upload a file for OCR via Mimir's `/ocr/extract`. Returns normalized text
+ * plus whatever metadata the server provides (varies by version). */
+export async function extractOcrFromFile(
+    file: File,
+    opts?: { model?: string; docType?: string }
+): Promise<OcrExtractResult> {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (opts?.model) fd.append("model", opts.model);
+    if (opts?.docType) fd.append("doc_type", opts.docType);
+    const res = await authFetch(`${API_BASE_URL}/ocr/extract`, {
+        method: "POST",
+        body: fd,
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || `OCR failed: HTTP ${res.status}`);
+    }
+    const body = await res.json();
+    const text =
+        (typeof body.extracted_text === "string" && body.extracted_text) ||
+        (typeof body.content === "string" && body.content) ||
+        "";
+    return {
+        text,
+        engine_used: body.engine_used || body.model,
+        audit_id: body.audit_id,
+        cost_usd: typeof body.cost_usd === "number" ? body.cost_usd : undefined,
+        latency_ms: typeof body.latency_ms === "number" ? body.latency_ms : undefined,
+        confidence: typeof body.confidence === "number" ? body.confidence : undefined,
+        raw: body,
+    };
+}
+
 export interface PageIndexResponse {
     success: boolean;
     message: string;

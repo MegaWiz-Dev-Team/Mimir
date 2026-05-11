@@ -25,8 +25,10 @@ import {
     modelsToProviders,
     updatePersonaConfig,
     fetchVectorStats,
+    extractOcrFromFile,
+    OcrExtractResult,
 } from "@/lib/api";
-import { Send, Trash2, User, Bot, Loader2, AlertCircle, BookOpen, Database, Zap, Cloud, HardDrive, X, Save, CheckCircle2, Copy, Check, Brain } from "lucide-react";
+import { Send, Trash2, User, Bot, Loader2, AlertCircle, BookOpen, Database, Zap, Cloud, HardDrive, X, Save, CheckCircle2, Copy, Check, Brain, Paperclip, FileText } from "lucide-react";
 
 interface Message {
     role: "user" | "assistant";
@@ -147,6 +149,16 @@ function PlaygroundContent() {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortRef = useRef<(() => void) | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // B-50i — attached document for OCR. The user uploads, we OCR, and the
+    // extracted text is shown in an editable preview. On Send, we prepend
+    // the (possibly edited) text to their message inside a marker block.
+    const [ocrFile, setOcrFile] = useState<File | null>(null);
+    const [ocrResult, setOcrResult] = useState<OcrExtractResult | null>(null);
+    const [ocrText, setOcrText] = useState<string>("");
+    const [ocrLoading, setOcrLoading] = useState(false);
+    const [ocrError, setOcrError] = useState<string | null>(null);
 
     // Get selected persona and provider details
     const selectedPersona = personas.find(p => p.name === persona) || personas[0];
@@ -293,15 +305,59 @@ function PlaygroundContent() {
         }
     }, []);
 
+    const handleFilePick = useCallback(async (file: File | null) => {
+        setOcrError(null);
+        if (!file) {
+            setOcrFile(null);
+            setOcrResult(null);
+            setOcrText("");
+            return;
+        }
+        setOcrFile(file);
+        setOcrLoading(true);
+        try {
+            const result = await extractOcrFromFile(file);
+            setOcrResult(result);
+            setOcrText(result.text);
+        } catch (e) {
+            setOcrError(String((e as Error)?.message || e));
+            setOcrResult(null);
+            setOcrText("");
+        } finally {
+            setOcrLoading(false);
+        }
+    }, []);
+
+    const clearOcrAttachment = useCallback(() => {
+        setOcrFile(null);
+        setOcrResult(null);
+        setOcrText("");
+        setOcrError(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    }, []);
+
     const handleSend = useCallback(async () => {
-        if (!input.trim() || loading) return;
+        if ((!input.trim() && !ocrText.trim()) || loading) return;
 
         const userMessage = input.trim();
+        // B-50i — if a document is attached, prepend OCR text in an explicit
+        // marker block so the LLM (and conversation history readers) can tell
+        // document content from the user's typed words.
+        const effectiveMessage = ocrText.trim()
+            ? `[Attached Document${ocrResult?.engine_used ? ` — extracted via ${ocrResult.engine_used}` : ""}${ocrResult?.audit_id ? ` (audit_id=${ocrResult.audit_id})` : ""}]\n${ocrText.trim()}\n[End of document]\n\n${userMessage}`
+            : userMessage;
         setInput("");
         setError(null);
+        // Clear the attachment now that it's been folded into the message —
+        // each upload is one-shot, not sticky across turns.
+        const sentOcrPreview = ocrText.trim() ? `[Attached: ${ocrFile?.name || "document"}]` : "";
+        clearOcrAttachment();
 
-        // Add user message
-        setMessages(prev => [...prev, { role: "user", content: userMessage }]);
+        // Add user message — include a small preview line if a doc was attached
+        setMessages(prev => [...prev, {
+            role: "user",
+            content: sentOcrPreview ? `${sentOcrPreview}\n${userMessage}` : userMessage,
+        }]);
         setLoading(true);
 
         try {
@@ -316,7 +372,7 @@ function PlaygroundContent() {
                 }]);
 
                 abortRef.current = streamChat(
-                    { tier, message: userMessage, persona, provider, model },
+                    { tier, message: effectiveMessage, persona, provider, model },
                     (token) => {
                         // On token
                         setMessages(prev => {
@@ -369,7 +425,7 @@ function PlaygroundContent() {
                 // Non-streaming mode
                 const response: ChatResponse = await sendChat({
                     tier,
-                    message: userMessage,
+                    message: effectiveMessage,
                     persona,
                     provider,
                     model,
@@ -393,7 +449,7 @@ function PlaygroundContent() {
             setError(err instanceof Error ? err.message : "Unknown error");
             setLoading(false);
         }
-    }, [input, loading, tier, persona, provider, model, useStreaming]);
+    }, [input, loading, tier, persona, provider, model, useStreaming, ocrText, ocrResult, ocrFile, clearOcrAttachment]);
 
     const handleClear = () => {
         setMessages([{
@@ -880,17 +936,79 @@ function PlaygroundContent() {
                             </div>
                         )}
 
+                        {/* B-50i — OCR attachment preview */}
+                        {ocrError && (
+                            <div className="flex items-center gap-2 text-destructive bg-destructive/10 p-3 rounded-lg">
+                                <AlertCircle className="h-4 w-4" />
+                                <p className="text-sm">OCR failed: {ocrError}</p>
+                            </div>
+                        )}
+                        {ocrLoading && (
+                            <div className="flex items-center gap-2 text-muted-foreground bg-muted/40 p-3 rounded-lg">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <p className="text-sm">Extracting text from {ocrFile?.name}…</p>
+                            </div>
+                        )}
+                        {ocrResult && !ocrLoading && (
+                            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 text-sm">
+                                        <FileText className="h-4 w-4 text-emerald-600" />
+                                        <span className="font-medium truncate">{ocrFile?.name}</span>
+                                        {ocrResult.engine_used && (
+                                            <Badge variant="outline" className="text-xs font-mono">{ocrResult.engine_used}</Badge>
+                                        )}
+                                        {typeof ocrResult.confidence === "number" && (
+                                            <Badge variant="secondary" className="text-xs">conf {ocrResult.confidence.toFixed(2)}</Badge>
+                                        )}
+                                        {typeof ocrResult.cost_usd === "number" && ocrResult.cost_usd > 0 && (
+                                            <Badge variant="secondary" className="text-xs">${ocrResult.cost_usd.toFixed(4)}</Badge>
+                                        )}
+                                    </div>
+                                    <Button size="sm" variant="ghost" onClick={clearOcrAttachment} className="h-7">
+                                        <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
+                                <textarea
+                                    value={ocrText}
+                                    onChange={(e) => setOcrText(e.target.value)}
+                                    placeholder="Extracted text (editable before send)"
+                                    className="w-full min-h-[100px] max-h-[200px] text-xs font-mono p-2 rounded border bg-background resize-y"
+                                    disabled={loading}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    Edit the extracted text if OCR mistakes need fixing. On Send, this is prepended to your message inside an [Attached Document] marker so the agent can tell document content from your typed words.
+                                </p>
+                            </div>
+                        )}
+
                         {/* Input */}
                         <div className="flex gap-2">
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*,application/pdf"
+                                className="hidden"
+                                onChange={(e) => handleFilePick(e.target.files?.[0] || null)}
+                            />
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={loading || ocrLoading}
+                                title="Attach image/PDF for OCR"
+                            >
+                                <Paperclip className="h-4 w-4" />
+                            </Button>
                             <Input
-                                placeholder="Type your message..."
+                                placeholder={ocrResult ? "Add a question about the attached document..." : "Type your message..."}
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 disabled={loading}
                                 className="flex-1"
                             />
-                            <Button onClick={handleSend} disabled={loading || !input.trim()}>
+                            <Button onClick={handleSend} disabled={loading || ocrLoading || (!input.trim() && !ocrText.trim())}>
                                 {loading ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
