@@ -65,7 +65,7 @@ without leaving the Mac-mini local-inference cost envelope ($0/query).
 | **47** 🟦 | Mimir RAG Eval — Rust-native RAGAS for medical RAG (bottleneck attribution) | 4 RAGAS metrics + 2 retrieval metrics + counterfactual ablation; diagnose LLM vs RAG vs both | 📋 proposal (~2 weeks) |
 | **48** 🇹🇭 | Thai Clinical Coding Foundation — ICD-10 + ICD-10-TM + DRG | First Thai-native differentiator; Hermodr-resident; bilingual semantic search; FHIR Condition.code wiring | 📋 proposal (~3-4 weeks) |
 | **49** 🟢 | MedOpenClaw Skill Integration — Phase 1 (5 priority + adapter template) | Port pubmed-search · DDI · clinical-trial-matching · differential-diagnosis · CPIC-pharmacogenomics; ToolRAG scaffold for 869-skill discovery | 📋 proposal (~3 weeks) |
-| **50** 👁️ | **Syn S1 — OCR Foundation (advanced from Q3)** · 4-tier hybrid (chandra + PaddleOCR + Gemini Flash + Gemini Pro) | Norse "goddess of vigilance" service. Multi-component: Heimdall OCR sidecar (port 8084-8085) + Bifrost route + Mimir audit + Eir agent allowlist. Apache 2.0 local primary + opt-in cloud premium. Mega-Care intake synergy. | 📋 proposal (~4 weeks · slot 2026-05-08 → 2026-06-05) |
+| **50** 👁️ | **Syn S1 — OCR Foundation (advanced from Q3)** · 3-tier hybrid (PaddleOCR + Typhoon-OCR + Gemini Flash + Gemini Pro) — collapsed from 4-tier per B-50a.2 | Norse "goddess of vigilance" service. Multi-component: PaddleOCR sidecar (port 8091) + Typhoon-OCR on Ollama + Bifrost route + Mimir audit + Eir agent allowlist. Apache 2.0 local primary + opt-in cloud premium. Mega-Care intake synergy. | 🚧 active (2026-05-08 → 2026-06-05) |
 | **50b** 🌑 | **Skuggi — PII Guardrail (Pre-LLM Blind)** · runs parallel with Sprint 50 | Heimdall middleware that masks PII (face/Thai-ID/MRN/names) BEFORE any cloud LLM call. Image: OpenCV YuNet + PaddleOCR + Thai regex (zero new lib). Text: Rust regex (Tier 1) + PyThaiNLP (Tier 2). Mode default `mask-and-send`. Irreversible v0. | 📋 proposal (~2 weeks · slot 2026-05-15 → 2026-05-29) |
 
 ---
@@ -1378,14 +1378,16 @@ report ingest. Hospital partner ROI immediate.
 
 ### Architectural decision (locked 2026-05-08, ADR-006)
 
-**Stack: 4-tier hybrid OCR (local-first, cloud opt-in)**
+**Stack: 3-tier hybrid OCR (local-first, cloud opt-in)** — revised 2026-05-08 per B-50a.2
 
 | Tier | Engine | License | Cost | Use case | Tenant opt-in? |
 |:---:|---|---|---|---|:---:|
-| **1a** | `datalab-to/chandra` (10.5k ⭐) | Apache 2.0 | $0 (local) | Handwriting · complex tables · forms | default ON |
-| **1b** | `PaddleOCR` PP-OCRv4 (~50k ⭐) | Apache 2.0 | $0 (local) | Thai stock print · fast latency | default ON |
+| **1b** | `PaddleOCR` PP-OCRv4 (~50k ⭐) | Apache 2.0 | $0 (local) | Thai stock print · forms · fast latency | default ON |
+| **1c** | `Typhoon-OCR 1.5-3B` (Ollama-local VLM) | Apache 2.0 | $0 (local) | Handwriting · complex tables · mixed-language · quality-uncertain | default ON |
 | **2** | `gemini-3-flash` (cloud) | proprietary API | ~$0.001-0.005 / page | Local low-confidence fallback · multilingual edge cases | **opt-in per tenant** |
 | **3** | `gemini-3.1-pro` (cloud) | proprietary API | ~$0.05-0.20 / page | High-stakes documents (legal, critical lab, complex layouts) · second opinion | **opt-in per tenant + per-call confirmation** |
+
+> **Tier 1a retired (B-50a.2, 2026-05-08).** chandra-ocr v0.2.0 turned out to be a 10.6 GB VLM, not the lightweight EasyOCR-class engine originally assumed. Bench showed Typhoon-OCR Tier 1c CER 0.000 vs chandra-local 0.193 on Thai handwriting — Typhoon dominates. Slot `1a` kept retired (not reissued) for audit-log continuity. Full assessment: [Syn/docs/B-50a.2_chandra_assessment_2026-05-08.md](https://github.com/MegaWiz-Dev-Team/Syn/blob/main/docs/B-50a.2_chandra_assessment_2026-05-08.md). ADR-006 revised: [Asgard/docs/architecture/ADR-006-Syn-OCR-Stack.md](https://github.com/MegaWiz-Dev-Team/Asgard/blob/main/docs/architecture/ADR-006-Syn-OCR-Stack.md).
 
 **Rejected:** `surya` / `marker` from datalab (GPL-3.0). Conflict with Asgard
 Commercial Enterprise tier — viral GPL clause forces Enterprise customers
@@ -1393,7 +1395,8 @@ embedding Asgard to GPL their entire product. Apache 2.0 alternatives
 preserve the open-core moat.
 
 **Deployment:**
-- **Local tier** (1a/1b): Heimdall sidecar pattern (port 8084 chandra, 8085 PaddleOCR)
+- **Local tier** (1b): Heimdall sidecar pattern (port 8085 PaddleOCR via Syn-Sidecars repo)
+- **Local tier** (1c): Ollama-hosted Typhoon-OCR on Mac mini (port 11434, OpenAI-compat surface)
 - **Cloud tier** (2/3): existing Heimdall step-up router — same path as
   Sprint 36 Heimdall Gemini fallback, reuses per-tenant API key resolution
   + budget tracking from `model_pricing` + `llm_usage` tables
@@ -1402,15 +1405,15 @@ preserve the open-core moat.
 **Router rules (engine selection)** — evaluated in order, first match wins:
 
 ```
-1. PHI-sensitive flag set on tenant       → force LOCAL (1a or 1b only)
+1. PHI-sensitive flag set on tenant       → force LOCAL (1b or 1c only)
 2. Per-call --engine override (manual)    → that engine
-3. Document type explicit (handwriting,
-   complex_table, form, thai_print)       → 1a or 1b per type
+3. Document type explicit (handwriting,   → 1c Typhoon (handwriting,
+   complex_table, form, thai_print)         complex_table); 1b PaddleOCR (form, thai_print)
 4. Document size > 5 pages OR             → tier 3 (Pro) IF tenant cloud_pro=ON
-   marked "critical" / "legal"               ELSE tier 2 (Flash) ELSE 1a (best-effort local)
+   marked "critical" / "legal"               ELSE tier 2 (Flash) ELSE 1c (best-effort local)
 5. Local engine confidence < 0.70         → tier 2 (Flash) IF tenant cloud_flash=ON
                                              ELSE return local result + warn
-6. Default                                → 1a chandra → fallback 1b PaddleOCR
+6. Default                                → 1b PaddleOCR → fallback 1c Typhoon
 ```
 
 Tenant cloud opt-in stored in existing `tenant_settings` table:
@@ -1425,14 +1428,16 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
 
 | ID | Title | Size |
 |---|---|---|
-| **B-50a** | Heimdall: deploy chandra (port 8084) + PaddleOCR (port 8085) as local sidecars | M (3-4d) |
+| **B-50a** | ~~Heimdall: deploy chandra + PaddleOCR sidecars~~ → 3-tier per B-50a.2: PaddleOCR sidecar (port 8091) + Typhoon-OCR on Ollama. Status: ✅ | M (3-4d) |
+| **B-50a.2** | chandra integration assessment + bench → **decided Option B (drop chandra)**, ADR-006 revised, migration PRs across Asgard / Syn / Syn-Sidecars / Mimir | S (~1d total incl. migration) ✅ |
+| **B-50a.3** | Typhoon-OCR Tier 1c (Ollama-local VLM, OpenAI-compat surface) — live | S (1d) ✅ |
 | **B-50b** | Smart router: rule-based engine selection (PHI flag, doc type, confidence threshold, cloud opt-in, budget cap) | M (2-3d) |
-| **B-50c** | REST endpoint `POST /api/v1/ocr/extract` (multipart → text + bbox + confidence + engine_used + cost_usd) | S (1d) |
+| **B-50c** | REST endpoint `POST /api/v1/ocr/extract` (multipart → text + bbox + confidence + engine_used + cost_usd) | S (1d) ✅ |
 | **B-50d** | Bifrost: image-with-text-content → OCR → existing agent flow (transparent path) | S (1-2d) |
-| **B-50e** | Mimir: `ocr_documents` table + audit (image_hash, ocr_engine, extracted_text, confidence, cost_usd, tenant_id) | S (1d) |
+| **B-50e** | Mimir: `ocr_documents` table + audit (image_hash, ocr_engine, extracted_text, confidence, cost_usd, tenant_id) | S (1d) 🚧 |
 | **B-50f** | Mimir Curator extension: clinician reviews OCR output, marks errors → corrections corpus | M (2-3d) |
-| **B-50g** | Eir agent allowlist: add `ocr_extract` tool to `eir-medtech`, `eir-pharmacy`, `eir-internal-medicine` | S (1d) |
-| **B-50h** | Test set: 30 Thai medical documents (10 print, 10 handwriting, 10 table) — measure CER per category × per engine (4 engines × 30 docs = 120 cells); target ≤5% print, ≤15% handwriting | M (clinician partner ~2d wall) |
+| **B-50g** | Eir agent allowlist: add `ocr_extract` tool to `eir-medtech`, `eir-pharmacy`, `eir-internal-medicine` | S (1d) 🚧 3/19 |
+| **B-50h** | Test set: 30 Thai medical documents (10 print, 10 handwriting, 10 table) — measure CER per category × per engine (3 engines × 30 docs = 90 cells); target ≤5% print, ≤15% handwriting | M (clinician partner ~2d wall) |
 | **B-50i** | UI: drag-drop upload in Mimir Dashboard `/chat` with OCR preview + text edit + **engine choice + cost preview** before send | M (2d) — bumped for cloud preview |
 | **B-50j** | End-to-end test: lab report image → Eir-medtech → ICD-10 codes (chains B-48h FHIR) | S (1d) |
 | **B-50k** | **Heimdall: Gemini 3 Flash + 3.1 Pro OCR adapter** — reuse existing `gemini_helper::call_text` with vision multimodal payload (`{type:'image_url'}`); per-tenant API key resolution | M (2-3d) |
@@ -1443,7 +1448,7 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
 
 ### Acceptance criteria — Sprint 50
 
-- [ ] **Local-tier Thai OCR**: CER ≤5% on print benchmark, ≤15% on handwriting (PaddleOCR + chandra stock baselines)
+- [ ] **Local-tier Thai OCR**: CER ≤5% on print benchmark, ≤15% on handwriting (PaddleOCR + Typhoon-OCR baselines — chandra retired per B-50a.2)
 - [ ] **Cloud-tier Gemini 3 Flash**: CER ≤3% on print, ≤10% on handwriting (cloud premium baseline)
 - [ ] **Cloud-tier Gemini 3.1 Pro**: CER ≤2% on print, ≤7% on handwriting (high-stakes baseline)
 - [ ] Eir-medtech ingests a lab report image → extracts text → suggests ICD-10 codes (chains Sprint 48 B-48h FHIR)
@@ -1471,15 +1476,15 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
 | **Hospital scan ingest** | Lab/prescription/intake form digitization — eliminates manual coder transcription |
 | **Differentiator vs cloud OCR** | Local-first + Thai-first + medical-context + audit trail in single binary surface |
 | **Premium cloud tier** | Gemini Pro for hospital admin (legal docs, complex insurance forms, English medical literature) — opt-in revenue feature |
-| **Cost — Tier 1 local** | $0 inference (chandra + PaddleOCR Apache 2.0) · runs on Mac mini |
+| **Cost — Tier 1 local** | $0 inference (PaddleOCR Apache 2.0 sidecar + Typhoon-OCR Apache 2.0 via Ollama) · runs on Mac mini |
 | **Cost — Tier 2 Flash** | ~$0.001-0.005 / page (≈$1-5/1000 pages); typical small clinic 5K pages/mo = $5-25 |
 | **Cost — Tier 3 Pro** | ~$0.05-0.20 / page (≈$50-200/1000 pages); reserve for high-stakes only — typical 100 pages/mo = $5-20 |
 | **Dev** | ~4 wk (3.5 wk local + 0.5 wk cloud tier additions) |
 
 ### Open questions (resolve at sprint kickoff)
 
-1. **chandra Thai accuracy** — chandra has no explicit Thai model; is it Thai-capable via multilingual training? **Resolve at B-50h benchmark**; if Thai CER >20% on chandra → use PaddleOCR for Thai stock + chandra only for handwriting/tables.
-2. **MLX runtime for local OCR** — both chandra + PaddleOCR are Python/PyTorch (CPU/CUDA); no MLX path yet. **Recommend** running them as Python sidecars on host (similar to Heimdall pattern); revisit MLX port if Mac-mini latency unacceptable.
+1. ~~chandra Thai accuracy~~ — **Resolved by B-50a.2 (2026-05-08).** chandra-ocr-2 turned out to be a 10.6 GB VLM; bench showed Typhoon-OCR (Tier 1c) dominates on Thai handwriting (CER 0.000 vs 0.193). Stack collapsed to 3-tier; chandra retired. Slot `1a` kept retired for audit continuity.
+2. **MLX runtime for local OCR** — PaddleOCR runs as Python/Torch sidecar; Typhoon-OCR runs natively on Ollama (Metal-accelerated on Mac mini). No MLX port needed for either; revisit if latency becomes unacceptable.
 3. **Image storage** — Vault (small files, audit-friendly) vs S3-compatible object store (scale). **Recommend** Vault for v0 (≤10K images); migrate to MinIO if growth.
 4. **Gemini API key model** — per-tenant key (each hospital provides its own Google API key) vs Megawiz pool key (we resell with markup). **Recommend** per-tenant for PDPA cleanliness; Megawiz pool only for Mega-Care internal use.
 5. **Default cloud opt-in** — should Gemini Flash be ON by default for new tenants (cheap, useful) or strictly opt-in? **Recommend strict opt-in** — PHI-first posture; clinician explicit consent before any cloud call.
@@ -1505,8 +1510,8 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
 ### Sprint 50 follow-ups (post-Day-3 ship — open backlog)
 
 - **B-50a.1** ✅ done — torch+cpu wheel index trim, sidecar images 5.34GB → 1.43GB
-- **B-50a.2** — chandra/TrOCR for true Tier 1a engine diversity (v0.1 reuses EasyOCR with paragraph mode tuned for handwriting; revisit when chandra ships a stable wheel)
-- **B-50a.3** ★new — **Typhoon-OCR-7B challenger evaluation** (Tier 1c candidate)
+- **B-50a.2** ✅ **resolved 2026-05-08** — assessed chandra-ocr v0.2.0 (10.6 GB VLM), benched against Typhoon Tier 1c. Decided **Option B: drop chandra**, stack collapsed 4-tier → 3-tier. Migration PRs across Asgard / Syn / Syn-Sidecars / Mimir. Full assessment in Syn/docs/B-50a.2_chandra_assessment_2026-05-08.md.
+- **B-50a.3** ✅ **shipped 2026-05-08** — **Typhoon-OCR Tier 1c live via Ollama** (Tier 1c replaces what was originally Tier 1a chandra slot for handwriting / complex tables)
   - Model: `typhoon-ai/typhoon-ocr-7b` (Apache 2.0, base = Qwen2.5-VL-7B-Instruct, 8B params, Thai-first)
   - Claim: outperforms GPT-4o + Gemini 2.5 Flash on Thai documents with complex layouts
   - Format: outputs Markdown for prose + HTML for complex tables → matches what Eir RAG already consumes
@@ -1515,7 +1520,7 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
   - Bench: extend `Syn/benchmarks/run_bench.py` to include typhoon-local in the engine list; rerun on synthetic seed first then B-50h.1 clinical test set
   - Acceptance: median CER on Thai print ≤ 0.10 (better than current EasyOCR Tier 1b at 0.10) AND ≤ Gemini-3-flash CER (currently 0.000 on synthetic — won't beat that on perfect text but should match on noisy real scans)
   - Risk: MLX-VLM Qwen2.5-VL fine-tune compatibility (mlx-vlm shipped Qwen2.5-VL support late 2024 — verify with Typhoon's specific weights). Fallback: Ollama Metal build (slower but stable).
-  - Why it's a Sprint 50.1 not Sprint 50: B-50a Tier 1a/1b shipped; this is a quality-tier addition, not a foundation block. Smart-router infrastructure already supports a 5th engine identifier.
+  - Why it was originally a Sprint 50.1 — turns out Typhoon's quality + the chandra cost/quality math (B-50a.2) made it Sprint 50 critical-path. Tier 1a retired, Typhoon promoted to default handwriting engine.
 - **B-50h.1** — clinical test set (50–100 partner-hospital documents) — gated on data ops
 
 ---
