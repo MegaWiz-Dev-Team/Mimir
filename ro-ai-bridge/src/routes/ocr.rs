@@ -156,6 +156,11 @@ pub fn ocr_routes() -> Router<DbPool> {
             "/ocr/admin/policy",
             axum::routing::get(get_admin_policy).patch(patch_admin_policy),
         )
+        // Recent OCR calls for this tenant — SQL-backed view of ocr_documents
+        // (B-50e audit table). Used by the dashboard "Recent OCR Calls" table.
+        // Laminar still provides span-tree drill-down on a per-call basis via
+        // the link-out card; this endpoint is hot-path / same-blast-radius.
+        .route("/ocr/admin/recent", axum::routing::get(get_admin_recent))
 }
 
 #[derive(Debug, Deserialize)]
@@ -275,6 +280,102 @@ async fn patch_admin_policy(
         "ocr_cloud_pro_enabled": policy.cloud_pro_enabled,
         "ocr_monthly_cloud_budget_usd": policy.monthly_budget_usd,
         "current_month_spend_usd": spend,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecentOcrQuery {
+    /// Page size. Defaults to 20, capped at 100 to keep the dashboard payload
+    /// small. The dashboard table only renders recent activity; long-tail
+    /// drill-down belongs in Laminar.
+    pub limit: Option<u32>,
+    /// Filter by status (e.g. "succeeded", "budget_exceeded"). Optional.
+    pub status: Option<String>,
+}
+
+/// GET `/api/v1/ocr/admin/recent` — most-recent rows from `ocr_documents` for
+/// this tenant. Backs the dashboard "Recent OCR Calls" table. We do NOT
+/// proxy Laminar here: SQL is hot-path / same-blast-radius as Mimir, and the
+/// audit table already has cost/engine/status/latency. The Laminar link-out
+/// card handles deep span-tree drill-down on a per-row basis.
+async fn get_admin_recent(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    axum::extract::Query(q): axum::extract::Query<RecentOcrQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let limit = q.limit.unwrap_or(20).min(100) as i64;
+
+    // Two query shapes: with and without status filter. Keeping them separate
+    // avoids dynamic SQL building for a single optional filter.
+    let rows: Result<Vec<(String, String, Option<String>, Option<f64>, Option<i32>, f64, Option<i32>, bool, String, Option<String>, chrono::NaiveDateTime, Option<String>)>, _> =
+        if let Some(ref status_filter) = q.status {
+            sqlx::query_as(
+                r#"
+                SELECT id, engine_used, router_reason, CAST(confidence AS DOUBLE) AS confidence,
+                       bbox_count, CAST(cost_usd AS DOUBLE) AS cost_usd, latency_ms,
+                       pii_redacted, status, status_message, created_at, requested_by
+                FROM ocr_documents
+                WHERE tenant_id = ? AND status = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                "#,
+            )
+            .bind(&tenant_id)
+            .bind(status_filter)
+            .bind(limit)
+            .fetch_all(&pool)
+            .await
+        } else {
+            sqlx::query_as(
+                r#"
+                SELECT id, engine_used, router_reason, CAST(confidence AS DOUBLE) AS confidence,
+                       bbox_count, CAST(cost_usd AS DOUBLE) AS cost_usd, latency_ms,
+                       pii_redacted, status, status_message, created_at, requested_by
+                FROM ocr_documents
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                "#,
+            )
+            .bind(&tenant_id)
+            .bind(limit)
+            .fetch_all(&pool)
+            .await
+        };
+
+    let rows = rows.map_err(|e| {
+        error!("GET ocr recent DB error tenant={}: {}", tenant_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("query failed: {}", e)})),
+        )
+    })?;
+
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, engine, reason, conf, bbox, cost, latency, pii, status, msg, created, user)| {
+            json!({
+                "id": id,
+                "engine_used": engine,
+                "router_reason": reason,
+                "confidence": conf,
+                "bbox_count": bbox,
+                "cost_usd": cost,
+                "latency_ms": latency,
+                "pii_redacted": pii,
+                "status": status,
+                "status_message": msg,
+                "created_at": created.and_utc().to_rfc3339(),
+                "requested_by": user,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "tenant_id": tenant_id,
+        "count": items.len(),
+        "items": items,
     })))
 }
 

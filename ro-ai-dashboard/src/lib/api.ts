@@ -2414,3 +2414,40 @@ export async function saveOcrAdminPolicy(update: OcrAdminPolicyUpdate): Promise<
     }
     return res.json();
 }
+
+export interface OcrRecentItem {
+    id: string;
+    engine_used: string;
+    router_reason: string | null;
+    confidence: number | null;
+    bbox_count: number | null;
+    cost_usd: number;
+    latency_ms: number | null;
+    pii_redacted: boolean;
+    status: string;
+    status_message: string | null;
+    created_at: string;
+    requested_by: string | null;
+}
+
+export interface OcrRecentResponse {
+    tenant_id: string;
+    count: number;
+    items: OcrRecentItem[];
+}
+
+/** Recent OCR calls for the tenant — backs the dashboard "Recent OCR Calls"
+ * table. SQL-backed (ocr_documents); Laminar handles span-tree drill-down. */
+export async function getOcrRecent(opts?: {
+    limit?: number;
+    status?: string;
+}): Promise<OcrRecentResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set("limit", String(opts.limit));
+    if (opts?.status) params.set("status", opts.status);
+    const qs = params.toString();
+    const url = `${API_BASE_URL}/ocr/admin/recent${qs ? `?${qs}` : ""}`;
+    const res = await authFetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch recent OCR calls: HTTP ${res.status}`);
+    return res.json();
+}

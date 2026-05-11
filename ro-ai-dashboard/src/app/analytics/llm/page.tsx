@@ -12,6 +12,7 @@ import {
     getBudgetConfig, saveBudgetConfig, getAlerts, getBenchmark,
     BudgetConfig, UsageAlert, BenchmarkEntry,
     getOcrAdminPolicy, saveOcrAdminPolicy, OcrAdminPolicy,
+    getOcrRecent, OcrRecentItem,
 } from "@/lib/api";
 
 type DateRange = "today" | "7d" | "30d" | "all";
@@ -56,6 +57,8 @@ export default function LlmAnalyticsPage() {
     const [ocrBudgetDraft, setOcrBudgetDraft] = useState<string>("");
     const [savingOcr, setSavingOcr] = useState(false);
     const [ocrError, setOcrError] = useState<string | null>(null);
+    const [ocrRecent, setOcrRecent] = useState<OcrRecentItem[] | null>(null);
+    const [ocrRecentError, setOcrRecentError] = useState<string | null>(null);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -100,8 +103,24 @@ export default function LlmAnalyticsPage() {
                     setOcrError(null);
                 })
                 .catch((e) => setOcrError(String(e?.message || e)));
+            getOcrRecent({ limit: 20 })
+                .then((r) => {
+                    setOcrRecent(r.items);
+                    setOcrRecentError(null);
+                })
+                .catch((e) => setOcrRecentError(String(e?.message || e)));
         }
     }, [analyticsTab]);
+
+    const refreshOcrRecent = useCallback(async () => {
+        try {
+            const r = await getOcrRecent({ limit: 20 });
+            setOcrRecent(r.items);
+            setOcrRecentError(null);
+        } catch (e) {
+            setOcrRecentError(String((e as Error)?.message || e));
+        }
+    }, []);
 
     const refreshOcrPolicy = useCallback(async () => {
         try {
@@ -725,6 +744,99 @@ export default function LlmAnalyticsPage() {
                                         <div className="text-xs text-muted-foreground">Set via PII admin page (B-50b-2)</div>
                                         <Badge variant="outline" className="mt-1 font-mono text-xs">{ocrPolicy.pii_mode}</Badge>
                                     </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Recent OCR calls — SQL-backed view of ocr_documents */}
+                            <Card>
+                                <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Activity className="w-4 h-4 text-emerald-500" />
+                                        Recent OCR Calls
+                                    </CardTitle>
+                                    <Button size="sm" variant="ghost" onClick={refreshOcrRecent}>
+                                        Refresh
+                                    </Button>
+                                </CardHeader>
+                                <CardContent>
+                                    {ocrRecentError && (
+                                        <div className="mb-3 flex items-center gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                            <AlertCircle className="w-3 h-3" />
+                                            <div>{ocrRecentError}</div>
+                                        </div>
+                                    )}
+                                    {ocrRecent == null ? (
+                                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                            <Loader2 className="w-3 h-3 animate-spin" /> Loading recent calls…
+                                        </div>
+                                    ) : ocrRecent.length === 0 ? (
+                                        <div className="text-xs text-muted-foreground">
+                                            No OCR calls recorded yet for this tenant.
+                                        </div>
+                                    ) : (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="text-xs">When</TableHead>
+                                                    <TableHead className="text-xs">Engine</TableHead>
+                                                    <TableHead className="text-xs">Status</TableHead>
+                                                    <TableHead className="text-xs text-right">Cost</TableHead>
+                                                    <TableHead className="text-xs text-right">Latency</TableHead>
+                                                    <TableHead className="text-xs text-right">Conf.</TableHead>
+                                                    <TableHead className="text-xs">PII</TableHead>
+                                                    <TableHead className="text-xs">Trace</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {ocrRecent.map((row) => {
+                                                    const ts = new Date(row.created_at);
+                                                    const statusColor =
+                                                        row.status === "succeeded" ? "default"
+                                                            : row.status === "budget_exceeded" || row.status === "pii_strict_block" ? "destructive"
+                                                                : "outline";
+                                                    return (
+                                                        <TableRow key={row.id}>
+                                                            <TableCell className="text-xs whitespace-nowrap" title={row.created_at}>
+                                                                {ts.toLocaleString()}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs font-mono">
+                                                                {row.engine_used}
+                                                                {row.router_reason && (
+                                                                    <span className="block text-[10px] text-muted-foreground">{row.router_reason}</span>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Badge variant={statusColor} className="text-[10px]">{row.status}</Badge>
+                                                            </TableCell>
+                                                            <TableCell className="text-xs font-mono text-right">
+                                                                {row.cost_usd > 0 ? `$${row.cost_usd.toFixed(4)}` : "—"}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs font-mono text-right">
+                                                                {row.latency_ms != null ? `${row.latency_ms}ms` : "—"}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs font-mono text-right">
+                                                                {row.confidence != null ? row.confidence.toFixed(2) : "—"}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs">
+                                                                {row.pii_redacted ? <Shield className="w-3 h-3 text-emerald-600" /> : null}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <a
+                                                                    href={`https://laminar.asgard.internal/projects?q=${encodeURIComponent(row.id)}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                                                                    title="Open trace in Laminar (Sága)"
+                                                                >
+                                                                    <ExternalLink className="w-3 h-3" />
+                                                                </a>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    )}
                                 </CardContent>
                             </Card>
 
