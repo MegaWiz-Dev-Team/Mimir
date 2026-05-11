@@ -27,6 +27,7 @@ pub mod llm_usage;
 pub mod mcp;
 pub mod models;
 pub mod ocr;
+pub mod ocr_audit;
 pub mod pipeline;
 pub mod prompts;
 pub mod qc;

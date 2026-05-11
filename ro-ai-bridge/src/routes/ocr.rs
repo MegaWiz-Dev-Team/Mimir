@@ -1,4 +1,7 @@
 use crate::config::Config;
+use crate::routes::ocr_audit::{
+    get_ocr_policy, insert_ocr_audit, OcrAuditRow, OcrStatus,
+};
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
     extract::State,
@@ -13,7 +16,51 @@ use mimir_core_ai::services::ocr;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{error, info, warn};
+
+/// Estimate USD cost for an OCR call. Treats tokens as output-side since OCR
+/// produces text. Falls back to 0 if pricing not in `model_pricing` table —
+/// matches `insights::estimate_cost` behavior.
+async fn estimate_ocr_cost(pool: &DbPool, model_id: &str, tokens_used: u32) -> f64 {
+    let pricing: Option<(f64, f64)> = sqlx::query_as(
+        "SELECT CAST(input_per_1m_usd AS DOUBLE), CAST(output_per_1m_usd AS DOUBLE)
+         FROM model_pricing WHERE model_id = ?",
+    )
+    .bind(model_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    if let Some((_, output_per_m)) = pricing {
+        (tokens_used as f64) / 1_000_000.0 * output_per_m
+    } else {
+        0.0
+    }
+}
+
+/// Map a (model, provider) tuple to the audit engine identifier defined in
+/// ADR-006. Until B-50a sidecars land, only the cloud tiers populate; local
+/// engines will be added when the smart-router (B-50b) goes live.
+fn engine_id_for(model: &str, provider: &str) -> String {
+    let m = model.to_ascii_lowercase();
+    if m.contains("gemini-3.1-pro") || m.contains("gemini-2.5-pro") {
+        "gemini-3.1-pro".to_string()
+    } else if m.contains("gemini-3") || m.contains("gemini-2.5-flash") || m.contains("flash") {
+        "gemini-3-flash".to_string()
+    } else if m.contains("typhoon") {
+        "typhoon-ocr-local".to_string()
+    } else if m.contains("paddleocr") {
+        "paddleocr-local".to_string()
+    } else if matches!(provider, "google" | "gemini") {
+        // Generic Gemini fallback — assume Flash since it's the default cloud tier.
+        "gemini-3-flash".to_string()
+    } else if !provider.is_empty() {
+        provider.to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
 
 pub fn ocr_routes() -> Router<DbPool> {
     Router::new()
@@ -90,6 +137,7 @@ async fn ocr_extract(
     }
 
     // Resolve LLM credentials using unified config
+    let user_override = model_override.is_some();
     let target_model = model_override.unwrap_or_else(|| config.heimdall_model.clone());
     let model_config = mimir_core_ai::services::db::get_model_by_id(&pool, &target_model)
         .await
@@ -108,43 +156,113 @@ async fn ocr_extract(
 
     info!("OCR extract request: file={}, model={}", filename, target_model);
 
-    // Call Gemini/Vision OCR via the ocr module
-    let (content, tokens_used) =
-        ocr::extract_text_from_image(&data, &filename, &api_key, &api_base, &target_model)
-            .await
-            .map_err(|e| {
-                error!("OCR extraction failed: {}", e);
-                (
-                    StatusCode::BAD_GATEWAY,
-                    Json(json!({"error": format!("OCR extraction failed: {}", e)})),
-                )
-            })?;
-
-    // Log usage
+    // B-50e: load per-tenant OCR policy (warn + safe default if missing).
     let tenant_id = extract_tenant_id(&headers);
-    let _ = crate::routes::llm_usage::insert_llm_usage_log(
-        &pool,
-        tenant_id,
-        &target_model,
-        provider,
-        Some(&format!("{}chat/completions", api_base)),
-        Some("ocr_extract"),
-        0,
-        0,
-        tokens_used as i32,
-        0,
-        "success",
-        None,
-    )
-    .await;
+    let _policy = get_ocr_policy(&pool, tenant_id).await;
+    // Note: policy enforcement (cloud opt-in check, budget cap, PHI strict)
+    // lands with the smart-router in B-50b. For now we just record + audit.
 
-    Ok(Json(json!({
-        "content": content,
-        "tokens_used": tokens_used,
-        "model": target_model,
-        "filename": filename,
-        "content_length": content.len()
-    })))
+    let engine_id = engine_id_for(&target_model, provider);
+    let router_reason = if user_override {
+        "manual_override"
+    } else {
+        "default_cloud"
+    };
+
+    let started = Instant::now();
+    let result =
+        ocr::extract_text_from_image(&data, &filename, &api_key, &api_base, &target_model).await;
+    let latency_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
+
+    match result {
+        Ok((content, tokens_used)) => {
+            let cost_usd = estimate_ocr_cost(&pool, &target_model, tokens_used).await;
+
+            // Log token usage (existing behavior — pricing/budget)
+            let _ = crate::routes::llm_usage::insert_llm_usage_log(
+                &pool,
+                tenant_id,
+                &target_model,
+                provider,
+                Some(&format!("{}chat/completions", api_base)),
+                Some("ocr_extract"),
+                0,
+                0,
+                tokens_used as i32,
+                0,
+                "success",
+                None,
+            )
+            .await;
+
+            // B-50e: write OCR audit row.
+            let audit_id = insert_ocr_audit(
+                &pool,
+                OcrAuditRow {
+                    tenant_id,
+                    image_bytes: &data,
+                    engine_used: &engine_id,
+                    engine_version: Some(&target_model),
+                    router_reason: Some(router_reason),
+                    extracted_text: Some(&content),
+                    confidence: None, // Gemini doesn't return; populate when sidecars (B-50a) land
+                    bbox_count: None,
+                    cost_usd,
+                    latency_ms: Some(latency_ms),
+                    pii_redacted: false, // Skuggi (B-50b-6) sets this when wired
+                    status: OcrStatus::Succeeded,
+                    status_message: None,
+                    image_path: None,
+                    requested_by: None, // JWT subject extraction is a follow-up
+                },
+            )
+            .await;
+
+            Ok(Json(json!({
+                "audit_id": audit_id,
+                "content": content,
+                "tokens_used": tokens_used,
+                "model": target_model,
+                "engine_used": engine_id,
+                "filename": filename,
+                "content_length": content.len(),
+                "latency_ms": latency_ms,
+                "cost_usd": cost_usd,
+            })))
+        }
+        Err(e) => {
+            error!("OCR extraction failed: {}", e);
+            let msg = format!("OCR extraction failed: {}", e);
+
+            // B-50e: still audit the failure.
+            let _ = insert_ocr_audit(
+                &pool,
+                OcrAuditRow {
+                    tenant_id,
+                    image_bytes: &data,
+                    engine_used: &engine_id,
+                    engine_version: Some(&target_model),
+                    router_reason: Some(router_reason),
+                    extracted_text: None,
+                    confidence: None,
+                    bbox_count: None,
+                    cost_usd: 0.0,
+                    latency_ms: Some(latency_ms),
+                    pii_redacted: false,
+                    status: OcrStatus::EngineFailed,
+                    status_message: Some(&msg),
+                    image_path: None,
+                    requested_by: None,
+                },
+            )
+            .await;
+
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": msg})),
+            ))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -217,12 +335,14 @@ async fn ocr_extract_source(
         })?;
 
     // Determine target model
-    let mut target_model = config.heimdall_model.clone();
-    if let Some(p) = payload {
-        if let Some(m) = &p.model {
-            target_model = m.clone();
-        }
-    }
+    let user_override = payload
+        .as_ref()
+        .and_then(|p| p.model.as_ref())
+        .is_some();
+    let target_model = payload
+        .as_ref()
+        .and_then(|p| p.model.clone())
+        .unwrap_or_else(|| config.heimdall_model.clone());
 
     // Resolve LLM credentials using unified config
     let model_config = mimir_core_ai::services::db::get_model_by_id(&pool, &target_model)
@@ -245,79 +365,147 @@ async fn ocr_extract_source(
         id, s3_key, target_model
     );
 
+    // B-50e: load tenant policy. Enforcement deferred to B-50b smart-router.
+    let _policy = get_ocr_policy(&pool, tenant_id).await;
+    let engine_id = engine_id_for(&target_model, provider);
+    let router_reason = if user_override {
+        "manual_override"
+    } else {
+        "default_cloud"
+    };
+
     // Update status
     let _ = sqlx::query("UPDATE data_sources SET last_sync_status = 'OCR_RUNNING' WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await;
 
-    // Call Gemini/Vision API via OCR module
-    let (content, tokens_used) =
-        ocr::extract_text_from_image(&data, s3_key, &api_key, &api_base, &target_model)
-            .await
-            .map_err(|e| {
-                error!("OCR failed for source {}: {}", id, e);
-                // Revert status
-                let pool_clone = pool.clone();
-                tokio::spawn(async move {
-                    let _ = sqlx::query(
-                        "UPDATE data_sources SET last_sync_status = 'OCR_FAILED' WHERE id = ?",
-                    )
-                    .bind(id)
-                    .execute(&pool_clone)
-                    .await;
-                });
-                (
-                    StatusCode::BAD_GATEWAY,
-                    Json(json!({"error": format!("OCR failed: {}", e)})),
+    let started = Instant::now();
+    let result =
+        ocr::extract_text_from_image(&data, s3_key, &api_key, &api_base, &target_model).await;
+    let latency_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
+
+    match result {
+        Ok((content, tokens_used)) => {
+            // Update source with OCR result
+            let mb = content.len() as f64 / 1_048_576.0;
+            let update_res = sqlx::query(
+                "UPDATE data_sources SET raw_markdown = ?, mb_size = ?, last_sync_status = 'COMPLETED', last_sync_at = CURRENT_TIMESTAMP WHERE id = ?"
+            )
+            .bind(&content)
+            .bind(mb)
+            .bind(id)
+            .execute(&pool)
+            .await;
+            if let Err(e) = update_res {
+                error!("Failed to update source {} after OCR: {}", id, e);
+            }
+
+            let cost_usd = estimate_ocr_cost(&pool, &target_model, tokens_used).await;
+
+            // Log usage
+            let _ = crate::routes::llm_usage::insert_llm_usage_log(
+                &pool,
+                tenant_id,
+                &target_model,
+                provider,
+                Some(&format!("{}chat/completions", api_base)),
+                Some("ocr_extract_source"),
+                0,
+                0,
+                tokens_used as i32,
+                0,
+                "success",
+                None,
+            )
+            .await;
+
+            // B-50e: write OCR audit row.
+            let audit_id = insert_ocr_audit(
+                &pool,
+                OcrAuditRow {
+                    tenant_id,
+                    image_bytes: &data,
+                    engine_used: &engine_id,
+                    engine_version: Some(&target_model),
+                    router_reason: Some(router_reason),
+                    extracted_text: Some(&content),
+                    confidence: None,
+                    bbox_count: None,
+                    cost_usd,
+                    latency_ms: Some(latency_ms),
+                    pii_redacted: false,
+                    status: OcrStatus::Succeeded,
+                    status_message: None,
+                    image_path: Some(s3_key),
+                    requested_by: None,
+                },
+            )
+            .await;
+
+            info!(
+                "OCR completed for source {}: {} chars, {} tokens, audit={}",
+                id,
+                content.len(),
+                tokens_used,
+                audit_id
+            );
+
+            Ok(Json(json!({
+                "source_id": id,
+                "audit_id": audit_id,
+                "content": content,
+                "content_length": content.len(),
+                "tokens_used": tokens_used,
+                "model": target_model,
+                "engine_used": engine_id,
+                "latency_ms": latency_ms,
+                "cost_usd": cost_usd,
+                "status": "COMPLETED"
+            })))
+        }
+        Err(e) => {
+            error!("OCR failed for source {}: {}", id, e);
+            let msg = format!("OCR failed: {}", e);
+
+            // Revert status
+            let pool_clone = pool.clone();
+            tokio::spawn(async move {
+                let _ = sqlx::query(
+                    "UPDATE data_sources SET last_sync_status = 'OCR_FAILED' WHERE id = ?",
                 )
-            })?;
+                .bind(id)
+                .execute(&pool_clone)
+                .await;
+            });
 
-    // Update source with OCR result
-    let mb = content.len() as f64 / 1_048_576.0;
-    let _ = sqlx::query(
-        "UPDATE data_sources SET raw_markdown = ?, mb_size = ?, last_sync_status = 'COMPLETED', last_sync_at = CURRENT_TIMESTAMP WHERE id = ?"
-    )
-    .bind(&content)
-    .bind(mb)
-    .bind(id)
-    .execute(&pool)
-    .await
-    .map_err(|e| {
-        error!("Failed to update source {} after OCR: {}", id, e);
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to save OCR result"})))
-    })?;
+            // B-50e: audit the failure.
+            let _ = insert_ocr_audit(
+                &pool,
+                OcrAuditRow {
+                    tenant_id,
+                    image_bytes: &data,
+                    engine_used: &engine_id,
+                    engine_version: Some(&target_model),
+                    router_reason: Some(router_reason),
+                    extracted_text: None,
+                    confidence: None,
+                    bbox_count: None,
+                    cost_usd: 0.0,
+                    latency_ms: Some(latency_ms),
+                    pii_redacted: false,
+                    status: OcrStatus::EngineFailed,
+                    status_message: Some(&msg),
+                    image_path: Some(s3_key),
+                    requested_by: None,
+                },
+            )
+            .await;
 
-    // Log usage
-    let _ = crate::routes::llm_usage::insert_llm_usage_log(
-        &pool,
-        tenant_id,
-        &target_model,
-        provider,
-        Some(&format!("{}chat/completions", api_base)),
-        Some("ocr_extract_source"),
-        0,
-        0,
-        tokens_used as i32,
-        0,
-        "success",
-        None,
-    )
-    .await;
-
-    info!(
-        "OCR completed for source {}: {} chars, {} tokens",
-        id,
-        content.len(),
-        tokens_used
-    );
-
-    Ok(Json(json!({
-        "source_id": id,
-        "content": content,
-        "content_length": content.len(),
-        "tokens_used": tokens_used,
-        "model": target_model,
-        "status": "COMPLETED"
-    })))
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": msg})),
+            ))
+        }
+    }
 }
