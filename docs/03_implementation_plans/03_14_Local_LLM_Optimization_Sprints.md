@@ -65,7 +65,7 @@ without leaving the Mac-mini local-inference cost envelope ($0/query).
 | **47** 🟦 | Mimir RAG Eval — Rust-native RAGAS for medical RAG (bottleneck attribution) | 4 RAGAS metrics + 2 retrieval metrics + counterfactual ablation; diagnose LLM vs RAG vs both | 📋 proposal (~2 weeks) |
 | **48** 🇹🇭 | Thai Clinical Coding Foundation — ICD-10 + ICD-10-TM + DRG | First Thai-native differentiator; Hermodr-resident; bilingual semantic search; FHIR Condition.code wiring | 📋 proposal (~3-4 weeks) |
 | **49** 🟢 | MedOpenClaw Skill Integration — Phase 1 (5 priority + adapter template) | Port pubmed-search · DDI · clinical-trial-matching · differential-diagnosis · CPIC-pharmacogenomics; ToolRAG scaffold for 869-skill discovery | 📋 proposal (~3 weeks) |
-| **50** 👁️ | **Syn S1 — OCR Foundation (advanced from Q3)** · 3-tier hybrid (PaddleOCR + Typhoon-OCR + Gemini Flash + Gemini Pro) — collapsed from 4-tier per B-50a.2 | Norse "goddess of vigilance" service. Multi-component: PaddleOCR sidecar (port 8091) + Typhoon-OCR on Ollama + Bifrost route + Mimir audit + Eir agent allowlist. Apache 2.0 local primary + opt-in cloud premium. Mega-Care intake synergy. | 🚧 active (2026-05-08 → 2026-06-05) |
+| **50** 👁️ | **Syn S1 — OCR Foundation (advanced from Q3)** · 3-tier hybrid (PaddleOCR + Typhoon-OCR + Gemini Flash + Gemini Pro) — collapsed from 4-tier per B-50a.2 | Norse "goddess of vigilance" service. Multi-component: PaddleOCR sidecar (port 8091) + Typhoon-OCR on Ollama + Bifrost route + Mimir audit + Eir agent allowlist. Apache 2.0 local primary + opt-in cloud premium. Mega-Care intake synergy. **Lane A complete 2026-05-11** (PRs open: Mimir #264-270, Bifrost #13, Asgard #35, Syn #5). Remaining: B-50f Curator OCR review, B-50k cloud adapter (gated on Skuggi), B-50h.1 clinician data. | 🚧 Lane A done; cloud-tier gated on Sprint 50b |
 | **50b** 🌑 | **Skuggi — PII Guardrail (Pre-LLM Blind)** · runs parallel with Sprint 50 | Heimdall middleware that masks PII (face/Thai-ID/MRN/names) BEFORE any cloud LLM call. Image: OpenCV YuNet + PaddleOCR + Thai regex (zero new lib). Text: Rust regex (Tier 1) + PyThaiNLP (Tier 2). Mode default `mask-and-send`. Irreversible v0. | 📋 proposal (~2 weeks · slot 2026-05-15 → 2026-05-29) |
 
 ---
@@ -1431,18 +1431,18 @@ Same architectural pattern as future Sága (STT) and Hermóðr (notify).
 | **B-50a** | ~~Heimdall: deploy chandra + PaddleOCR sidecars~~ → 3-tier per B-50a.2: PaddleOCR sidecar (port 8091) + Typhoon-OCR on Ollama. Status: ✅ | M (3-4d) |
 | **B-50a.2** | chandra integration assessment + bench → **decided Option B (drop chandra)**, ADR-006 revised, migration PRs across Asgard / Syn / Syn-Sidecars / Mimir | S (~1d total incl. migration) ✅ |
 | **B-50a.3** | Typhoon-OCR Tier 1c (Ollama-local VLM, OpenAI-compat surface) — live | S (1d) ✅ |
-| **B-50b** | Smart router: rule-based engine selection (PHI flag, doc type, confidence threshold, cloud opt-in, budget cap) | M (2-3d) |
+| **B-50b** | Smart router: rule-based engine selection (PHI flag, doc type, confidence threshold, cloud opt-in, budget cap) — **Path A: Mimir delegates to Syn's router** | M (2-3d) ✅ Mimir #265 |
 | **B-50c** | REST endpoint `POST /api/v1/ocr/extract` (multipart → text + bbox + confidence + engine_used + cost_usd) | S (1d) ✅ |
-| **B-50d** | Bifrost: image-with-text-content → OCR → existing agent flow (transparent path) | S (1-2d) |
-| **B-50e** | Mimir: `ocr_documents` table + audit (image_hash, ocr_engine, extracted_text, confidence, cost_usd, tenant_id) | S (1d) 🚧 |
+| **B-50d** | Bifrost: image-with-text-content → OCR → existing agent flow (transparent path) | S (1-2d) ✅ Bifrost #13 |
+| **B-50e** | Mimir: `ocr_documents` table + audit (image_hash, ocr_engine, extracted_text, confidence, cost_usd, tenant_id) | S (1d) ✅ Mimir #264 |
 | **B-50f** | Mimir Curator extension: clinician reviews OCR output, marks errors → corrections corpus | M (2-3d) |
-| **B-50g** | Eir agent allowlist: add `ocr_extract` tool to `eir-medtech`, `eir-pharmacy`, `eir-internal-medicine` | S (1d) 🚧 3/19 |
-| **B-50h** | Test set: 30 Thai medical documents (10 print, 10 handwriting, 10 table) — measure CER per category × per engine (3 engines × 30 docs = 90 cells); target ≤5% print, ≤15% handwriting | M (clinician partner ~2d wall) |
-| **B-50i** | UI: drag-drop upload in Mimir Dashboard `/chat` with OCR preview + text edit + **engine choice + cost preview** before send | M (2d) — bumped for cloud preview |
-| **B-50j** | End-to-end test: lab report image → Eir-medtech → ICD-10 codes (chains B-48h FHIR) | S (1d) |
-| **B-50k** | **Heimdall: Gemini 3 Flash + 3.1 Pro OCR adapter** — reuse existing `gemini_helper::call_text` with vision multimodal payload (`{type:'image_url'}`); per-tenant API key resolution | M (2-3d) |
-| **B-50l** | **Tenant settings: `ocr_cloud_flash_enabled`, `ocr_cloud_pro_enabled`, `ocr_phi_strict`, `ocr_monthly_cloud_budget_usd` cols + admin UI page** | S (1-2d) |
-| **B-50m** | **Cost guard middleware: pre-call USD estimate, monthly budget cap enforcement, audit row in `llm_usage` for every cloud OCR call** | M (1-2d) |
+| **B-50g** | Eir agent allowlist: add `ocr_extract` tool to clinical Eir variants (`eir` + `eir-cardio/sleep/ent/pediatrics` — original `medtech/pharmacy/internal-medicine` names were stale; reconciled to actual sprint38 roster) | S (1d) ✅ Mimir #269 |
+| **B-50h** | Test set: 30 Thai medical documents (10 print, 10 handwriting, 10 table) — measure CER per category × per engine (3 engines × 30 docs = 90 cells); target ≤5% print, ≤15% handwriting | M (clinician partner ~2d wall) — **B-50h.0 harness shipped** (Syn #5; baseline regex PII F1 ≥ 0.91); B-50h.1 (clinician data) still pending |
+| **B-50i** | UI: drag-drop upload in Mimir Dashboard `/chat` with OCR preview + text edit + **engine choice + cost preview** before send | M (2d) ✅ Mimir #270 |
+| **B-50j** | End-to-end test: lab report image → Eir clinical agent → ICD-10 codes (chains B-48h FHIR) | S (1d) ✅ Asgard #35 (runbook + shell smoke script; needs deployed stack to execute) |
+| **B-50k** | **Heimdall: Gemini 3 Flash + 3.1 Pro OCR adapter** — reuse existing `gemini_helper::call_text` with vision multimodal payload (`{type:'image_url'}`); per-tenant API key resolution | M (2-3d) — **gated on Sprint 50b Skuggi** before any tenant flips `cloud_flash_enabled` |
+| **B-50l** | **Tenant settings: `ocr_cloud_flash_enabled`, `ocr_cloud_pro_enabled`, `ocr_phi_strict`, `ocr_monthly_cloud_budget_usd` cols + admin UI page** | S (1-2d) ✅ Mimir #266/#267/#268 |
+| **B-50m** | **Cost guard middleware: pre-call USD estimate, monthly budget cap enforcement, audit row in `llm_usage` for every cloud OCR call** | M (1-2d) ✅ Mimir #266 (+ #267 dashboard + #268 Recent OCR Calls table) |
 
 **Total ~ 19-25 dev-days** (~4 calendar weeks · bumped from 3.5 wk for cloud tier additions).
 
