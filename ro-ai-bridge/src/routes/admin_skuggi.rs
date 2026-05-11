@@ -317,10 +317,123 @@ async fn score_batch(
     })))
 }
 
+// ─── Tenant policy (pii_mode) ────────────────────────────────────────────
+//
+// Skuggi consults `tenant_configs.pii_mode` on every cloud-bound LLM call
+// (see Heimdall `tenant_config.rs::get_pii_mode`). Heimdall caches the
+// value for 60s — so admin changes via this endpoint take effect within
+// one cache window. Document but don't add cache-bust plumbing in v0.
+
+/// Canonical pii_mode values. Mirrors Heimdall's `PiiMode` enum.
+const ALLOWED_PII_MODES: &[&str] = &["off", "detect-only", "mask-and-send", "block-on-pii"];
+
+#[derive(Debug, Serialize)]
+pub struct SkuggiPolicy {
+    pub tenant_id: String,
+    pub pii_mode: String,
+    /// True when the stored value matches one of the canonical modes.
+    /// False is a config-drift signal — usually means a manual DB edit
+    /// landed an unknown string; Heimdall falls back to mask-and-send.
+    pub pii_mode_valid: bool,
+}
+
+async fn fetch_pii_mode(pool: &DbPool, tenant_id: &str) -> Result<String, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT pii_mode FROM tenant_configs WHERE tenant_id = ? LIMIT 1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await?;
+    // Default matches Heimdall's safe-default when row is missing
+    Ok(row.map(|(m,)| m).unwrap_or_else(|| "mask-and-send".to_string()))
+}
+
+/// GET `/api/v1/admin/skuggi/policy` — read the tenant's current pii_mode.
+async fn get_skuggi_policy(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+) -> Result<Json<SkuggiPolicy>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let pii_mode = fetch_pii_mode(&pool, &tenant_id).await.map_err(|e| {
+        error!("admin/skuggi/policy GET tenant={}: {}", tenant_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("policy read failed: {}", e)})),
+        )
+    })?;
+    let pii_mode_valid = ALLOWED_PII_MODES.contains(&pii_mode.as_str());
+    Ok(Json(SkuggiPolicy { tenant_id, pii_mode, pii_mode_valid }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchSkuggiPolicy {
+    /// Must be one of `off | detect-only | mask-and-send | block-on-pii`.
+    pub pii_mode: String,
+}
+
+/// PATCH `/api/v1/admin/skuggi/policy` — update the tenant's pii_mode.
+///
+/// Validates the new value against the canonical set. Returns the
+/// updated policy. Heimdall's per-tenant cache (60s TTL) catches up
+/// within one window — no explicit cache-bust in v0.
+async fn patch_skuggi_policy(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(payload): Json<PatchSkuggiPolicy>,
+) -> Result<Json<SkuggiPolicy>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+
+    if !ALLOWED_PII_MODES.contains(&payload.pii_mode.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "pii_mode must be one of {:?}",
+                    ALLOWED_PII_MODES
+                ),
+            })),
+        ));
+    }
+
+    let result = sqlx::query(
+        "UPDATE tenant_configs SET pii_mode = ? WHERE tenant_id = ?",
+    )
+    .bind(&payload.pii_mode)
+    .bind(&tenant_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| {
+        error!("admin/skuggi/policy PATCH tenant={}: {}", tenant_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("policy update failed: {}", e)})),
+        )
+    })?;
+
+    if result.rows_affected() == 0 {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": format!("no tenant_configs row for tenant_id={}", tenant_id),
+            })),
+        ));
+    }
+
+    Ok(Json(SkuggiPolicy {
+        tenant_id,
+        pii_mode: payload.pii_mode,
+        pii_mode_valid: true,
+    }))
+}
+
 pub fn admin_skuggi_routes() -> Router<DbPool> {
     Router::new()
         .route("/admin/skuggi/corpus", get(list_corpus))
         .route("/admin/skuggi/score-batch", post(score_batch))
+        .route(
+            "/admin/skuggi/policy",
+            get(get_skuggi_policy).patch(patch_skuggi_policy),
+        )
 }
 
 #[cfg(test)]

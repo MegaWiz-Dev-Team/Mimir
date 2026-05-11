@@ -1013,55 +1013,36 @@ export async function extractSourceOcrWithAi(
     return res.json();
 }
 
-// ─── B-50i — Inline OCR upload for chat ──────────────────────────────────
-//
-// Response shape varies by which Mimir version is deployed:
-//   - Legacy (pre-B-50b): { content, tokens_used, model, filename, content_length }
-//   - Post-B-50b (Syn delegation): { audit_id, engine_used, status, extracted_text,
-//     confidence, cost_usd, latency_ms, ... }
-// We accept both and normalize to `text`.
-export interface OcrExtractResult {
-    text: string;
-    engine_used?: string;
-    audit_id?: string;
-    cost_usd?: number;
-    latency_ms?: number;
-    confidence?: number;
-    raw: Record<string, unknown>;
+// ─── B-50b — Skuggi PII Guardrail policy ──────────────────────────────────
+
+export type SkuggiPiiMode = "off" | "detect-only" | "mask-and-send" | "block-on-pii";
+
+export interface SkuggiPolicy {
+    tenant_id: string;
+    pii_mode: SkuggiPiiMode | string;
+    /** False signals config drift — Heimdall falls back to mask-and-send. */
+    pii_mode_valid: boolean;
 }
 
-/** Upload a file for OCR via Mimir's `/ocr/extract`. Returns normalized text
- * plus whatever metadata the server provides (varies by version). */
-export async function extractOcrFromFile(
-    file: File,
-    opts?: { model?: string; docType?: string }
-): Promise<OcrExtractResult> {
-    const fd = new FormData();
-    fd.append("file", file);
-    if (opts?.model) fd.append("model", opts.model);
-    if (opts?.docType) fd.append("doc_type", opts.docType);
-    const res = await authFetch(`${API_BASE_URL}/ocr/extract`, {
-        method: "POST",
-        body: fd,
+/** GET the tenant's current Skuggi PII guardrail mode. */
+export async function getSkuggiPolicy(): Promise<SkuggiPolicy> {
+    const res = await authFetch(`${API_BASE_URL}/admin/skuggi/policy`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch Skuggi policy: HTTP ${res.status}`);
+    return res.json();
+}
+
+/** PATCH the tenant's Skuggi PII guardrail mode. */
+export async function saveSkuggiPolicy(pii_mode: SkuggiPiiMode): Promise<SkuggiPolicy> {
+    const res = await authFetch(`${API_BASE_URL}/admin/skuggi/policy`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pii_mode }),
     });
     if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(err.error || `OCR failed: HTTP ${res.status}`);
+        const body = await res.text();
+        throw new Error(`Failed to save Skuggi policy: HTTP ${res.status} — ${body}`);
     }
-    const body = await res.json();
-    const text =
-        (typeof body.extracted_text === "string" && body.extracted_text) ||
-        (typeof body.content === "string" && body.content) ||
-        "";
-    return {
-        text,
-        engine_used: body.engine_used || body.model,
-        audit_id: body.audit_id,
-        cost_usd: typeof body.cost_usd === "number" ? body.cost_usd : undefined,
-        latency_ms: typeof body.latency_ms === "number" ? body.latency_ms : undefined,
-        confidence: typeof body.confidence === "number" ? body.confidence : undefined,
-        raw: body,
-    };
+    return res.json();
 }
 
 export interface PageIndexResponse {
@@ -2422,46 +2403,5 @@ export async function diagnoseScore(scoreId: number): Promise<RunInsight> {
 export async function explainRetrieval(scoreId: number): Promise<RunInsight> {
     const res = await authFetch(`${API_BASE_URL}/eval/scores/${scoreId}/explain-retrieval`, { method: "POST" });
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    return res.json();
-}
-
-// ─── B-50m OCR Cost Guard ─────────────────────────────────────────────────
-
-export interface OcrAdminPolicy {
-    tenant_id: string;
-    ocr_phi_strict: boolean;
-    ocr_cloud_flash_enabled: boolean;
-    ocr_cloud_pro_enabled: boolean;
-    ocr_monthly_cloud_budget_usd: number;
-    current_month_spend_usd: number;
-    current_month_remaining_usd: number | null;
-    pii_mode: string;
-}
-
-export interface OcrAdminPolicyUpdate {
-    ocr_phi_strict?: boolean;
-    ocr_cloud_flash_enabled?: boolean;
-    ocr_cloud_pro_enabled?: boolean;
-    ocr_monthly_cloud_budget_usd?: number;
-}
-
-/** Fetch tenant's OCR cost-guard policy + live month-to-date spend. */
-export async function getOcrAdminPolicy(): Promise<OcrAdminPolicy> {
-    const res = await authFetch(`${API_BASE_URL}/ocr/admin/policy`, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Failed to fetch OCR policy: HTTP ${res.status}`);
-    return res.json();
-}
-
-/** Partial update of tenant's OCR cost-guard policy. Returns the updated policy. */
-export async function saveOcrAdminPolicy(update: OcrAdminPolicyUpdate): Promise<OcrAdminPolicy> {
-    const res = await authFetch(`${API_BASE_URL}/ocr/admin/policy`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(update),
-    });
-    if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`Failed to save OCR policy: HTTP ${res.status} — ${body}`);
-    }
     return res.json();
 }
