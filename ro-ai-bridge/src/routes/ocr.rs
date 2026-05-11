@@ -2,6 +2,9 @@ use crate::config::Config;
 use crate::routes::ocr_audit::{
     get_ocr_policy, insert_ocr_audit, OcrAuditRow, OcrStatus,
 };
+use crate::routes::ocr_budget::{
+    check_budget, current_month_spend, estimate_pre_call_cost, BudgetCheckError, TierIntent,
+};
 use crate::routes::tenant::extract_tenant_id;
 use axum::{
     extract::State,
@@ -145,6 +148,134 @@ pub fn ocr_routes() -> Router<DbPool> {
     Router::new()
         .route("/ocr/extract", post(ocr_extract))
         .route("/ocr/extract-source/{id}", post(ocr_extract_source))
+        // B-50m admin: read + update tenant OCR policy (cloud opt-in flags +
+        // monthly budget). Mimir-side direct-DB so the dashboard has one
+        // API surface to talk to; Syn has an equivalent endpoint but talking
+        // to it requires extra plumbing through Mimir's auth.
+        .route(
+            "/ocr/admin/policy",
+            axum::routing::get(get_admin_policy).patch(patch_admin_policy),
+        )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchOcrPolicy {
+    pub ocr_cloud_flash_enabled: Option<bool>,
+    pub ocr_cloud_pro_enabled: Option<bool>,
+    pub ocr_phi_strict: Option<bool>,
+    pub ocr_monthly_cloud_budget_usd: Option<f64>,
+}
+
+/// GET `/api/v1/ocr/admin/policy` — returns the tenant's current OCR policy
+/// plus live month-to-date cloud spend. The dashboard reads this to render
+/// the "Cost guard" admin card + budget editor.
+async fn get_admin_policy(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+    let policy = get_ocr_policy(&pool, &tenant_id).await;
+    let spend = current_month_spend(&pool, &tenant_id).await;
+    let remaining = if policy.monthly_budget_usd > 0.0 {
+        Some((policy.monthly_budget_usd - spend).max(0.0))
+    } else {
+        None
+    };
+    Ok(Json(json!({
+        "tenant_id": tenant_id,
+        "ocr_phi_strict": policy.phi_strict,
+        "ocr_cloud_flash_enabled": policy.cloud_flash_enabled,
+        "ocr_cloud_pro_enabled": policy.cloud_pro_enabled,
+        "ocr_monthly_cloud_budget_usd": policy.monthly_budget_usd,
+        "current_month_spend_usd": spend,
+        "current_month_remaining_usd": remaining,
+        "pii_mode": policy.pii_mode,
+    })))
+}
+
+/// PATCH `/api/v1/ocr/admin/policy` — partial update of tenant_configs OCR
+/// cols. Only non-NULL fields in the body are applied. Validates budget ≥ 0
+/// and Pro-tier requires Flash-tier.
+async fn patch_admin_policy(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+    Json(payload): Json<PatchOcrPolicy>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers).to_string();
+
+    if let Some(b) = payload.ocr_monthly_cloud_budget_usd {
+        if b < 0.0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "ocr_monthly_cloud_budget_usd must be ≥ 0 (use 0 for 'no cap')"
+                })),
+            ));
+        }
+    }
+    // Pro requires Flash (mirrors Syn's validation + ADR-006 rule)
+    if matches!(payload.ocr_cloud_pro_enabled, Some(true))
+        && matches!(payload.ocr_cloud_flash_enabled, Some(false))
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "enabling Tier 3 Pro requires Tier 2 Flash to also be enabled (ADR-006)"
+            })),
+        ));
+    }
+
+    let mut sets: Vec<&str> = Vec::new();
+    if payload.ocr_phi_strict.is_some() { sets.push("ocr_phi_strict = ?"); }
+    if payload.ocr_cloud_flash_enabled.is_some() { sets.push("ocr_cloud_flash_enabled = ?"); }
+    if payload.ocr_cloud_pro_enabled.is_some() { sets.push("ocr_cloud_pro_enabled = ?"); }
+    if payload.ocr_monthly_cloud_budget_usd.is_some() {
+        sets.push("ocr_monthly_cloud_budget_usd = ?");
+    }
+    if sets.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "no fields to update"})),
+        ));
+    }
+
+    let sql = format!(
+        "UPDATE tenant_configs SET {} WHERE tenant_id = ?",
+        sets.join(", ")
+    );
+    let mut q = sqlx::query(&sql);
+    if let Some(v) = payload.ocr_phi_strict { q = q.bind(v); }
+    if let Some(v) = payload.ocr_cloud_flash_enabled { q = q.bind(v); }
+    if let Some(v) = payload.ocr_cloud_pro_enabled { q = q.bind(v); }
+    if let Some(v) = payload.ocr_monthly_cloud_budget_usd { q = q.bind(v); }
+    q = q.bind(&tenant_id);
+
+    let result = q.execute(&pool).await.map_err(|e| {
+        error!("PATCH ocr policy DB error tenant={}: {}", tenant_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("update failed: {}", e)})),
+        )
+    })?;
+
+    info!(
+        "Tenant {} OCR policy patched: {} row(s) affected",
+        tenant_id,
+        result.rows_affected()
+    );
+
+    // Return the updated policy for confirmation
+    let policy = get_ocr_policy(&pool, &tenant_id).await;
+    let spend = current_month_spend(&pool, &tenant_id).await;
+    Ok(Json(json!({
+        "tenant_id": tenant_id,
+        "rows_affected": result.rows_affected(),
+        "ocr_phi_strict": policy.phi_strict,
+        "ocr_cloud_flash_enabled": policy.cloud_flash_enabled,
+        "ocr_cloud_pro_enabled": policy.cloud_pro_enabled,
+        "ocr_monthly_cloud_budget_usd": policy.monthly_budget_usd,
+        "current_month_spend_usd": spend,
+    })))
 }
 
 /// POST /api/v1/ocr/extract
@@ -237,13 +368,73 @@ async fn ocr_extract(
     let tenant_id = extract_tenant_id(&headers).to_string();
     let user_override = engine_override.is_some();
 
-    // B-50e policy still loaded for visibility (smart-router enforcement now
-    // happens on Syn's side).
-    let _policy = get_ocr_policy(&pool, &tenant_id).await;
+    // B-50e policy + B-50m budget gate: enforce BEFORE delegating so a
+    // budget-blown tenant never reaches Syn (saves the cloud-API call cost
+    // and gives the user a fast 402).
+    let policy = get_ocr_policy(&pool, &tenant_id).await;
+    let intent = TierIntent::from_hints(engine_override.as_deref(), high_stakes);
+    let current_spend = current_month_spend(&pool, &tenant_id).await;
+    let est_cost = estimate_pre_call_cost(intent, high_stakes);
+
+    if let Err(err) = check_budget(&policy, intent, current_spend, est_cost) {
+        let (status_code, ocr_status, audit_msg) = match &err {
+            BudgetCheckError::PhiStrict => (
+                StatusCode::FORBIDDEN,
+                OcrStatus::PiiStrictBlock,
+                err.to_string(),
+            ),
+            BudgetCheckError::BudgetExceeded { .. } => (
+                StatusCode::PAYMENT_REQUIRED,
+                OcrStatus::BudgetExceeded,
+                err.to_string(),
+            ),
+        };
+        warn!(
+            "OCR budget gate rejected (tenant={}, intent={:?}): {}",
+            tenant_id, intent, err
+        );
+
+        // B-50e audit the rejection so operators see the block in ocr_documents.
+        let _ = insert_ocr_audit(
+            &pool,
+            OcrAuditRow {
+                tenant_id: &tenant_id,
+                image_bytes: &data,
+                engine_used: "budget_gate",
+                engine_version: None,
+                router_reason: Some("pre_call_budget_check"),
+                extracted_text: None,
+                confidence: None,
+                bbox_count: None,
+                cost_usd: 0.0,
+                latency_ms: Some(0),
+                pii_redacted: false,
+                status: ocr_status,
+                status_message: Some(&audit_msg),
+                image_path: None,
+                requested_by: None,
+            },
+        )
+        .await;
+
+        return Err((
+            status_code,
+            Json(json!({
+                "error": audit_msg,
+                "policy": {
+                    "phi_strict": policy.phi_strict,
+                    "monthly_budget_usd": policy.monthly_budget_usd,
+                    "current_month_spend_usd": current_spend,
+                    "cloud_flash_enabled": policy.cloud_flash_enabled,
+                    "cloud_pro_enabled": policy.cloud_pro_enabled,
+                }
+            })),
+        ));
+    }
 
     info!(
-        "OCR extract: filename={}, doc_type={:?}, engine_override={:?}, high_stakes={} → delegating to Syn",
-        filename, doc_type, engine_override, high_stakes
+        "OCR extract: filename={}, doc_type={:?}, engine_override={:?}, high_stakes={}, intent={:?}, spend=${:.4}/{:.2} → delegating to Syn",
+        filename, doc_type, engine_override, high_stakes, intent, current_spend, policy.monthly_budget_usd
     );
 
     let started = Instant::now();
