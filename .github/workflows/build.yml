@@ -43,7 +43,12 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # PAT_TOKEN preferred when set — needed when the ghcr package
+          # already exists under a different repo/owner relationship,
+          # since GITHUB_TOKEN gets 403 on push to "foreign" packages.
+          # Matches the Bifrost build workflow's cross-repo pattern.
+          # Fall back to GITHUB_TOKEN for first-deploy / fresh repos.
+          password: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
