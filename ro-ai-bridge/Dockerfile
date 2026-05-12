@@ -23,6 +23,10 @@ COPY ro-ai-bridge/src src/
 COPY ro-ai-bridge/mimir-core-ai mimir-core-ai/
 COPY ro-ai-bridge/ro-ai-domain-game ro-ai-domain-game/
 COPY ro-ai-bridge/ro-ai-domain-medical ro-ai-domain-medical/
+# Sprint 50b additions to the Cargo workspace — must be copied or
+# cargo errors "failed to load manifest for workspace member".
+COPY ro-ai-bridge/skuggi-core skuggi-core/
+COPY ro-ai-bridge/mimir-text-metrics mimir-text-metrics/
 COPY ro-ai-bridge/config config/
 COPY ro-ai-bridge/migrations migrations/
 
