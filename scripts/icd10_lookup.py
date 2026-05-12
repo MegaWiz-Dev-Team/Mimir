@@ -2,6 +2,26 @@
 """
 Sprint 48 — ICD-10 / ICD-10-TM lookup CLI.
 
+⚠ DEPRECATED for application use — the Rust handler shipped.
+   - HTTP endpoint: `GET /api/v1/icd10/lookup?q=…&locale=th|en|both`
+     (Mimir `ro-ai-bridge/src/routes/icd10.rs`)
+   - MCP tool:      `icd10_tm_lookup` in Hermodr `services/eir_medical.rs`
+     — calls the Mimir endpoint via the eir_medical sidecar.
+
+   This script remains as an OPERATOR / OPS shim only. It opens a
+   `docker exec` shell into the MariaDB pod and queries `icd10_codes`
+   directly — useful when the HTTP stack is down and you need to verify
+   ingest, sanity-check coverage, or debug a deploy. Don't wire it into
+   application or CI flows; use the HTTP endpoint or MCP tool instead.
+
+   For Eir agents in Thai clinical workflows: prefer the Thai-aware
+   `icd10_tm_lookup` MCP tool (returns bilingual th_label + en_label +
+   DRG mapping). Hermodr's older `icd10_lookup` proxies NLM US
+   Clinical Tables (ICD-10-CM, English only) — international research
+   only.
+
+─── Original docstring ─────────────────────────────────────────────────
+
 Quick way to test the icd10_codes table before the Rust Hermodr handler ships.
 Mirrors the planned Hermodr API:
 
