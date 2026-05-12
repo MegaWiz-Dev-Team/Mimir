@@ -23,7 +23,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: mimir-api, context: ./ro-ai-bridge, dockerfile: ./ro-ai-bridge/Dockerfile }
+          # ro-ai-bridge Dockerfile expects Mimir-repo-root context: it
+          # uses prefixed paths `COPY ro-ai-bridge/...` and pulls in
+          # `docs/` from the parent (for openapi include_str!). Context
+          # MUST be the repo root, not the sub-directory.
+          - { name: mimir-api, context: ., dockerfile: ./ro-ai-bridge/Dockerfile }
+          # Dashboard uses standard relative COPYs — context can stay scoped.
           - { name: mimir-dashboard, context: ./ro-ai-dashboard, dockerfile: ./ro-ai-dashboard/Dockerfile }
     permissions:
       contents: read
