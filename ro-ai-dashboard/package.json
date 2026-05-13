@@ -20,10 +20,13 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-dropzone": "^15.0.0",
+    "react-force-graph-3d": "^1.29.1",
     "react-markdown": "^10.1.0",
     "recharts": "^3.7.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.4.1"
+    "tailwind-merge": "^3.4.1",
+    "three": "^0.184.0",
+    "three-spritetext": "^1.10.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -32,6 +35,7 @@
     "@types/jest": "^30.0.0",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "^20",
+    "@types/three": "^0.184.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

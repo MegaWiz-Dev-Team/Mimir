@@ -2120,8 +2120,12 @@ export interface ExtractionRun {
     error_message?: string;
 }
 
-export async function fetchGraphStats(): Promise<GraphStats> {
-    const res = await authFetch(`${API_BASE_URL}/graph/stats`, { cache: "no-store" });
+export async function fetchGraphStats(params?: { tenantOverride?: string }): Promise<GraphStats> {
+    const opts: RequestInit = { cache: "no-store" };
+    if (params?.tenantOverride) {
+        opts.headers = { "X-Tenant-Id": params.tenantOverride };
+    }
+    const res = await authFetch(`${API_BASE_URL}/graph/stats`, opts);
     if (!res.ok) throw new Error("Failed to fetch graph stats");
     return res.json();
 }
@@ -2158,12 +2162,19 @@ export async function fetchEntityNeighbors(entityId: string, depth?: number): Pr
 export async function fetchGraphVisualization(params?: {
     limit?: number;
     type?: string;
+    includePrimekg?: boolean;
+    tenantOverride?: string;
 }): Promise<GraphVisualizationData> {
     const query = new URLSearchParams();
     if (params?.limit) query.set("limit", String(params.limit));
     if (params?.type) query.set("type", params.type);
+    if (params?.includePrimekg) query.set("include_primekg", "true");
     const qs = query.toString();
-    const res = await authFetch(`${API_BASE_URL}/graph/visualization${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    const opts: RequestInit = { cache: "no-store" };
+    if (params?.tenantOverride) {
+        opts.headers = { "X-Tenant-Id": params.tenantOverride };
+    }
+    const res = await authFetch(`${API_BASE_URL}/graph/visualization${qs ? `?${qs}` : ""}`, opts);
     if (!res.ok) throw new Error("Failed to fetch graph visualization data");
     return res.json();
 }
