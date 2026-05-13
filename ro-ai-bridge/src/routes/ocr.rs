@@ -370,7 +370,7 @@ async fn ocr_extract(
 
     // B-50e policy + B-50m budget gate: enforce BEFORE delegating so a
     // budget-blown tenant never reaches Syn (saves the cloud-API call cost
-    // and gives the user a fast 402).
+    // and gives the user a fast 429).
     let policy = get_ocr_policy(&pool, &tenant_id).await;
     let intent = TierIntent::from_hints(engine_override.as_deref(), high_stakes);
     let current_spend = current_month_spend(&pool, &tenant_id).await;
@@ -384,7 +384,7 @@ async fn ocr_extract(
                 err.to_string(),
             ),
             BudgetCheckError::BudgetExceeded { .. } => (
-                StatusCode::PAYMENT_REQUIRED,
+                StatusCode::TOO_MANY_REQUESTS,
                 OcrStatus::BudgetExceeded,
                 err.to_string(),
             ),

@@ -501,6 +501,7 @@ mod tests {
             gemini_base_url: String::new(),
             gemini_api_key: None,
             gemini_model: String::new(),
+            syn_api_url: String::new(),
         }
     }
 
