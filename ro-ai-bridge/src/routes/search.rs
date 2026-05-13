@@ -109,6 +109,9 @@ pub struct SearchFilters {
     /// Only search within these source types (e.g., "pdf", "url", "manual").
     #[serde(default)]
     pub source_types: Option<Vec<String>>,
+    /// Filter by patient ID (resolved to source_ids before query).
+    #[serde(default)]
+    pub patient_id: Option<String>,
 }
 
 /// Response body for POST /api/search
@@ -223,10 +226,42 @@ async fn search_handler(
         "🔍 /api/search parallel query"
     );
 
-    let filters = payload.filters.unwrap_or_default();
+    let mut filters = payload.filters.unwrap_or_default();
+
+    // Resolve patient_id to source_ids if specified
+    if let Some(patient_id) = filters.patient_id.as_ref() {
+        let patient_source_ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT id FROM data_sources WHERE tenant_id = ? AND patient_id = ? AND last_sync_status = 'COMPLETED'"
+        )
+        .bind(&tenant_id)
+        .bind(patient_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+        if !patient_source_ids.is_empty() {
+            // Merge with existing source_ids (intersection if both present)
+            if let Some(ref existing) = filters.source_ids {
+                let merged: Vec<i64> = existing.iter()
+                    .filter(|id| patient_source_ids.contains(id))
+                    .copied()
+                    .collect();
+                filters.source_ids = if merged.is_empty() { None } else { Some(merged) };
+            } else {
+                filters.source_ids = Some(patient_source_ids);
+            }
+        } else {
+            // No sources for this patient, return empty results
+            filters.source_ids = Some(vec![]);
+        }
+
+        // Clear patient_id from filters (it's been resolved)
+        filters.patient_id = None;
+    }
+
     let trace_enabled = payload.trace.unwrap_or(false);
     let mut trace_collector = TraceCollector::new(trace_enabled);
-    
+
     let alpha = payload.alpha.unwrap_or(0.7);
     let threshold = payload.threshold.unwrap_or(0.0);
     let hop_limit = payload.hop_limit.unwrap_or(2).clamp(1, 3);

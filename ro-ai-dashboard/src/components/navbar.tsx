@@ -7,7 +7,8 @@ import Cookies from "js-cookie";
 import {
     LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon,
     Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
-    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree, Beaker
+    Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree, Beaker,
+    ClipboardList
 } from "lucide-react";
 import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
 
@@ -210,6 +211,7 @@ export function Navbar() {
                 { name: "Tenants", href: "/tenants", icon: Building2 },
                 { name: "Users", href: "/users", icon: Users },
                 { name: "Skuggi PII", href: "/admin/skuggi", icon: ShieldCheck },
+                { name: "OCR Review", href: "/admin/ocr-review", icon: ClipboardList },
             ],
         },
     ];

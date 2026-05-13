@@ -1,3 +1,4 @@
+pub mod a2a;
 pub mod backup;
 pub mod bm25;
 pub mod chunking;

@@ -32,6 +32,7 @@ pub fn sources_routes() -> Router<DbPool> {
             "/{id}",
             put(crud::update_source).delete(crud::delete_source),
         )
+        .route("/{id}/file", get(upload::download_file))
         .route("/{id}/sync", post(sync::sync_source))
         .route("/{id}/extract-ai", post(config::extract_with_ai))
         .route("/{id}/extract", post(extraction::extract_source))

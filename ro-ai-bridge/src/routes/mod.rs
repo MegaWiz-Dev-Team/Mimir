@@ -1,3 +1,4 @@
+pub mod a2a;
 pub mod admin_knowledge;
 pub mod admin_skuggi;
 pub mod agents;
@@ -53,3 +54,4 @@ pub mod search;
 pub mod search_benchmark;
 pub mod search_optimize;
 pub mod swarm;
+pub mod insurance;

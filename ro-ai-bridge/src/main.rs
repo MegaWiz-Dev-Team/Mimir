@@ -13,6 +13,7 @@ use mimir_core_ai::middleware::request_id::request_id_middleware;
 use mimir_core_ai::services::cron;
 use mimir_core_ai::services::db;
 use ro_ai_bridge::config::Config;
+use ro_ai_bridge::routes::a2a::a2a_routes;
 use ro_ai_bridge::routes::admin_knowledge::admin_knowledge_routes;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
@@ -54,6 +55,7 @@ use ro_ai_bridge::routes::search_benchmark::search_benchmark_routes;
 use ro_ai_bridge::routes::search_optimize::search_optimize_routes;
 use ro_ai_bridge::routes::swarm::swarm_routes;
 use ro_ai_bridge::routes::rag_eval::rag_eval_routes;
+use ro_ai_bridge::routes::insurance::insurance_routes;
 
 #[tokio::main]
 async fn main() {
@@ -217,6 +219,10 @@ async fn main() {
         .merge(search_benchmark_routes())
         // Sprint 18: Swarm Multi Agent
         .nest("/api/v1/tenants/{tenant_id}", swarm_routes())
+        // Sprint 52: Insurance Underwriting Sidecar Backend Mocks
+        .nest("/api/v1/insurance", insurance_routes())
+        // Phase 2: Agent-to-Agent Cross-Tenant Routing
+        .nest("/api/v1/a2a", a2a_routes())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))

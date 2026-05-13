@@ -54,32 +54,30 @@ impl IamService {
     /// Authenticate a user and return (access_token, tenant_id)
     pub async fn login(&self, username: &str, password: &str) -> Result<(String, String)> {
         // Find user by username
-        let user_row = sqlx::query!(
-            "SELECT id, password_hash FROM users WHERE username = ?",
-            username
+        let user: (String, String) = sqlx::query_as(
+            "SELECT id, password_hash FROM users WHERE username = ?"
         )
+        .bind(username)
         .fetch_optional(&self.db)
-        .await?;
+        .await?
+        .ok_or_else(|| anyhow!("Invalid credentials"))?;
 
-        let user = user_row.ok_or_else(|| anyhow!("Invalid credentials"))?;
-
-        if !Self::verify_password(password, &user.password_hash)? {
+        if !Self::verify_password(password, &user.1)? {
             return Err(anyhow!("Invalid credentials"));
         }
 
         // Get tenant and role (for MVP, we assume a user has 1 primary tenant linked)
-        let tenant_row = sqlx::query!(
-            "SELECT tenant_id, role FROM tenant_users WHERE user_id = ? LIMIT 1",
-            user.id
+        let tenant: (String, String) = sqlx::query_as(
+            "SELECT tenant_id, role FROM tenant_users WHERE user_id = ? LIMIT 1"
         )
+        .bind(&user.0)
         .fetch_optional(&self.db)
-        .await?;
+        .await?
+        .ok_or_else(|| anyhow!("User has no assigned tenant"))?;
 
-        let tenant = tenant_row.ok_or_else(|| anyhow!("User has no assigned tenant"))?;
+        let token = self.generate_jwt(&user.0, &tenant.0, &tenant.1)?;
 
-        let token = self.generate_jwt(&user.id, &tenant.tenant_id, &tenant.role)?;
-
-        Ok((token, tenant.tenant_id))
+        Ok((token, tenant.0))
     }
 
     /// Authenticate a user via SSO (bypassing password). Uses JIT provisioning.
@@ -129,20 +127,19 @@ impl IamService {
         };
 
         // 2. Get tenant and role
-        let tenant_row = sqlx::query!(
-            "SELECT tenant_id, role FROM tenant_users WHERE user_id = ? LIMIT 1",
-            user_id
+        let tenant: (String, String) = sqlx::query_as(
+            "SELECT tenant_id, role FROM tenant_users WHERE user_id = ? LIMIT 1"
         )
+        .bind(&user_id)
         .fetch_optional(&self.db)
-        .await?;
-
-        let tenant = tenant_row.ok_or_else(|| anyhow!("User has no assigned tenant in Mimir database"))?;
+        .await?
+        .ok_or_else(|| anyhow!("User has no assigned tenant in Mimir database"))?;
 
         // 3. Mint JWT payload — prefer Mimir DB role, allow Zitadel SuperAdmin to elevate
-        let final_role = if role == "SuperAdmin" || tenant.role == "admin" { "admin" } else { &tenant.role };
-        let token = self.generate_jwt(&user_id, &tenant.tenant_id, final_role)?;
+        let final_role = if role == "SuperAdmin" || tenant.1 == "admin" { "admin" } else { &tenant.1 };
+        let token = self.generate_jwt(&user_id, &tenant.0, final_role)?;
 
-        Ok((token, tenant.tenant_id, final_role.to_string()))
+        Ok((token, tenant.0.clone(), final_role.to_string()))
     }
 
     /// Generate JWT Access Token

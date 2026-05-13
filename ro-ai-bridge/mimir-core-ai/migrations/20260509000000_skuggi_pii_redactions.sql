@@ -8,6 +8,15 @@
 -- This migration only ADDS columns the Heimdall path needs that aren't
 -- already there. All ALTER are idempotent via IF NOT EXISTS guards.
 
+CREATE TABLE IF NOT EXISTS pii_redactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id VARCHAR(50) NOT NULL,
+    surface VARCHAR(30) DEFAULT 'image',
+    total_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_tenant (tenant_id)
+);
+
 ALTER TABLE pii_redactions
     ADD COLUMN IF NOT EXISTS request_id      VARCHAR(64)  NULL  COMMENT 'Heimdall request correlation id (X-Request-Id) — null for Syn OCR rows',
     ADD COLUMN IF NOT EXISTS provider        VARCHAR(40)  NULL  COMMENT 'gemini / openai / openrouter / local — null for image rows',
@@ -29,5 +38,5 @@ ALTER TABLE pii_redactions
 -- Ensure tenant_configs.pii_mode has a sensible default for new tenants.
 -- Existing rows keep whatever they had; only the column default changes.
 ALTER TABLE tenant_configs
-    MODIFY COLUMN pii_mode VARCHAR(30) NOT NULL DEFAULT 'mask-and-send'
+    ADD COLUMN IF NOT EXISTS pii_mode VARCHAR(30) NOT NULL DEFAULT 'mask-and-send'
     COMMENT 'off | detect-only | mask-and-send | block-on-pii (Skuggi mode, ADR-007)';

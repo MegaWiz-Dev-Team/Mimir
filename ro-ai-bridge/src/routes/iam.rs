@@ -208,7 +208,10 @@ async fn create_tenant(
     let iam_service = IamService::new(pool, config.jwt_secret.clone());
     match iam_service.create_tenant(payload).await {
         Ok(tenant) => Ok((StatusCode::CREATED, Json(tenant))),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => {
+            tracing::error!("Failed to create tenant: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 

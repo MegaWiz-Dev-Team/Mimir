@@ -48,13 +48,18 @@ pub fn validate_file_size(size_bytes: u64) -> Result<()> {
 
 /// Build the S3 object key for a file upload.
 ///
-/// Format: `{tenant_id}/{source_id}/{folder_path}/{filename}`
+/// Format (without patient_id): `{tenant_id}/{source_id}/{folder_path}/{filename}`
+/// Format (with patient_id): `{tenant_id}/patients/{patient_id}/{source_id}/{folder_path}/{filename}`
 /// When `folder_path` is empty, the folder segment is omitted.
-pub fn build_s3_key(tenant_id: &str, source_id: &str, folder_path: &str, filename: &str) -> String {
+pub fn build_s3_key(tenant_id: &str, source_id: &str, folder_path: &str, filename: &str, patient_id: Option<&str>) -> String {
+    let base = match patient_id {
+        Some(pid) => format!("{}/patients/{}/{}", tenant_id, pid, source_id),
+        None => format!("{}/{}", tenant_id, source_id),
+    };
     if folder_path.is_empty() {
-        format!("{}/{}/{}", tenant_id, source_id, filename)
+        format!("{}/{}", base, filename)
     } else {
-        format!("{}/{}/{}/{}", tenant_id, source_id, folder_path, filename)
+        format!("{}/{}/{}", base, folder_path, filename)
     }
 }
 
@@ -152,7 +157,7 @@ mod tests {
     // ========================================
     #[test]
     fn test_build_s3_key_with_folder() {
-        let key = build_s3_key("1", "5", "finance", "q1.pdf");
+        let key = build_s3_key("1", "5", "finance", "q1.pdf", None);
         assert_eq!(key, "1/5/finance/q1.pdf");
     }
 
@@ -161,8 +166,26 @@ mod tests {
     // ========================================
     #[test]
     fn test_build_s3_key_without_folder() {
-        let key = build_s3_key("1", "5", "", "report.csv");
+        let key = build_s3_key("1", "5", "", "report.csv", None);
         assert_eq!(key, "1/5/report.csv");
+    }
+
+    // ========================================
+    // UT-002i: build_s3_key with patient_id
+    // ========================================
+    #[test]
+    fn test_build_s3_key_with_patient_id() {
+        let key = build_s3_key("1", "5", "", "report.pdf", Some("patient_42"));
+        assert_eq!(key, "1/patients/patient_42/5/report.pdf");
+    }
+
+    // ========================================
+    // UT-002j: build_s3_key with patient_id and folder path
+    // ========================================
+    #[test]
+    fn test_build_s3_key_with_patient_id_and_folder() {
+        let key = build_s3_key("1", "5", "scans", "xray.pdf", Some("patient_42"));
+        assert_eq!(key, "1/patients/patient_42/5/scans/xray.pdf");
     }
 
     // ========================================

@@ -127,6 +127,7 @@ pub(crate) async fn upload_file(
     let mut user_source_type: Option<String> = None;
     let mut storage_mode = "markdown".to_string();
     let mut folder_path = String::new();
+    let mut patient_id: Option<String> = None;
 
     // Parse multipart fields
     while let Some(field) = multipart.next_field().await.map_err(|e| {
@@ -181,6 +182,14 @@ pub(crate) async fn upload_file(
                         Json(json!({"error": format!("Invalid folder_path field: {}", e)})),
                     )
                 })?;
+            }
+            "patient_id" => {
+                patient_id = Some(field.text().await.map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Invalid patient_id field: {}", e)})),
+                    )
+                })?);
             }
             _ => {
                 warn!("Unknown multipart field: {}", field_name);
@@ -286,10 +295,11 @@ pub(crate) async fn upload_file(
     });
 
     let insert_result = sqlx::query(
-        r#"INSERT INTO data_sources (tenant_id, name, source_type, config_json, last_sync_status, mb_size, storage_mode, file_hash)
-        VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)"#
+        r#"INSERT INTO data_sources (tenant_id, patient_id, name, source_type, config_json, last_sync_status, mb_size, storage_mode, file_hash)
+        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)"#
     )
     .bind(tenant_id)
+    .bind(&patient_id)
     .bind(&name)
     .bind(&source_type)
     .bind(&config_json)
@@ -311,6 +321,7 @@ pub(crate) async fn upload_file(
         &source_id.to_string(),
         &folder_path,
         &original_filename,
+        patient_id.as_deref(),
     );
 
     // Attempt S3 upload
@@ -585,4 +596,79 @@ pub(crate) async fn upload_file(
             "mb_size": mb_size
         })),
     ))
+}
+
+// ─── Download Handler ──────────────────────────────────────────────────────
+
+/// GET /api/v1/sources/{id}/file
+///
+/// Downloads a file from S3/RustFS and streams it to the client.
+/// Query param: `tenant_id` (optional, extracted from header if not provided)
+pub(crate) async fn download_file(
+    headers: HeaderMap,
+    Extension(config): Extension<Arc<Config>>,
+    State(pool): State<DbPool>,
+    axum::extract::Path(source_id): axum::extract::Path<i64>,
+) -> Result<impl axum::response::IntoResponse, (StatusCode, Json<Value>)> {
+    let tenant_id = extract_tenant_id(&headers);
+
+    // Query data_sources to get s3_key and metadata
+    let source: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT s3_key, name FROM data_sources WHERE id = ? AND tenant_id = ?",
+    )
+    .bind(source_id)
+    .bind(&tenant_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        error!("DB error fetching source {}: {}", source_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?;
+
+    let (s3_key, name) = source.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("Source {} not found", source_id)})),
+        )
+    })?;
+
+    // Download from S3
+    let file_bytes = download_from_s3(&config, &s3_key)
+        .await
+        .map_err(|e| {
+            error!("Failed to download file {} from S3: {}", source_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to download file"})),
+            )
+        })?;
+
+    // Determine Content-Type based on file extension
+    let content_type = match s3_key.rsplit('.').next() {
+        Some("pdf") => "application/pdf",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("txt") => "text/plain",
+        Some("csv") => "text/csv",
+        _ => "application/octet-stream",
+    };
+
+    let filename = name.unwrap_or_else(|| "file".to_string());
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+
+    use axum::http::header::{HeaderMap as RespHeaders, HeaderValue};
+
+    let mut headers = RespHeaders::new();
+    headers.insert("content-type", HeaderValue::from_static(content_type));
+    headers.insert(
+        "content-disposition",
+        HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+
+    Ok((headers, file_bytes))
 }
