@@ -176,7 +176,7 @@ pub fn check_budget(
             // cloud_flash_enabled/cloud_pro_enabled off; the cap-zero case is
             // ambiguous on its own.
             if policy.monthly_budget_usd > 0.0
-                && current_spend + estimated_cost > policy.monthly_budget_usd
+                && current_spend + estimated_cost >= policy.monthly_budget_usd
             {
                 return Err(BudgetCheckError::BudgetExceeded {
                     spent: current_spend,
@@ -243,6 +243,25 @@ mod tests {
         let p = policy_with_cap(false, 0.0);
         // even with spend > 0, cap=0 means "no cap" — allow
         assert!(check_budget(&p, TierIntent::Cloud, 999.0, 0.005).is_ok());
+    }
+
+    #[test]
+    fn exact_boundary_is_rejected() {
+        // spend + estimated_cost == cap must trigger BudgetExceeded (not slip through).
+        // This is the critical Sprint 54 cloud-enablement gate — the hard stop must
+        // fire at exactly the cap boundary, not just past it.
+        let p = policy_with_cap(false, 10.0);
+        assert!(matches!(
+            check_budget(&p, TierIntent::Cloud, 9.995, 0.005),
+            Err(BudgetCheckError::BudgetExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn one_cent_under_cap_passes() {
+        let p = policy_with_cap(false, 10.0);
+        // spend=9.994 + est=0.005 = 9.999 < 10.0 — within cap
+        assert!(check_budget(&p, TierIntent::Cloud, 9.994, 0.005).is_ok());
     }
 
     #[test]
