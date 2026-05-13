@@ -392,6 +392,25 @@ pub fn build_visualization_data_cypher(has_type: bool) -> String {
     )
 }
 
+/// Build Cypher for PrimeKG bridge: tenant entities that have SAME_AS edges into PrimeKG.
+/// Returns the linked PrimeKG node plus the SAME_AS edge so we can render the bridge.
+pub fn build_visualization_primekg_bridge_cypher(has_type: bool) -> String {
+    let type_filter = if has_type {
+        " AND n.entity_type = $entity_type"
+    } else {
+        ""
+    };
+    format!(
+        "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id{} \
+         WITH n LIMIT $limit \
+         MATCH (n)-[s:SAME_AS]->(pk:PrimeKG) \
+         RETURN n.name AS tenant_name, pk.name AS primekg_name, \
+                coalesce(pk.type, 'Other') AS primekg_type, \
+                elementId(s) AS rel_id",
+        type_filter
+    )
+}
+
 /// Build Cypher for 1-hop path between two entities.
 pub fn build_direct_path_cypher() -> &'static str {
     "MATCH (a:Entity {name: $from_name, tenant_id: $tenant_id})-[r:RELATES_TO]->(b:Entity {name: $to_name, tenant_id: $tenant_id}) \
@@ -782,11 +801,14 @@ impl Neo4jService {
     }
 
     /// Get visualization data (nodes + edges) for a tenant.
+    /// When `include_primekg` is true, also fetches PrimeKG entities linked via SAME_AS
+    /// edges so the user can see biomedical context around tenant entities.
     pub async fn get_visualization_data(
         &self,
         tenant_id: &str,
         limit: i64,
         entity_type: Option<&str>,
+        include_primekg: bool,
     ) -> Result<GraphVisualizationData> {
         let has_type = entity_type.map(|t| !t.is_empty()).unwrap_or(false);
         let cypher = build_visualization_data_cypher(has_type);
@@ -827,6 +849,49 @@ impl Neo4jService {
                         target: to_name,
                         label: rel_type,
                     });
+                }
+            }
+        }
+
+        if include_primekg {
+            let bridge_cypher = build_visualization_primekg_bridge_cypher(has_type);
+            let mut bq = neo4rs::query(&bridge_cypher)
+                .param("tenant_id", tenant_id)
+                .param("limit", limit);
+            if has_type {
+                bq = bq.param("entity_type", entity_type.unwrap());
+            }
+            match self.graph.execute(bq).await {
+                Ok(mut bridge_result) => {
+                    while let Some(row) = bridge_result.next().await? {
+                        let tenant_name: String = row.get("tenant_name").unwrap_or_default();
+                        let pk_name: String = row.get("primekg_name").unwrap_or_default();
+                        let pk_type: String = row.get("primekg_type").unwrap_or_default();
+                        let rel_id: String = row.get("rel_id").unwrap_or_default();
+
+                        if pk_name.is_empty() {
+                            continue;
+                        }
+
+                        nodes
+                            .entry(format!("primekg:{}", pk_name))
+                            .or_insert_with(|| VisualizationNode {
+                                id: pk_name.clone(),
+                                label: pk_name.clone(),
+                                entity_type: pk_type.clone(),
+                                color: entity_type_color(&pk_type).to_string(),
+                                size: entity_type_size(&pk_type),
+                            });
+                        edges.push(VisualizationEdge {
+                            id: rel_id,
+                            source: tenant_name,
+                            target: pk_name,
+                            label: "SAME_AS".to_string(),
+                        });
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "PrimeKG bridge query failed; returning tenant-only result");
                 }
             }
         }

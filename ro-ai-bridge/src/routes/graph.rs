@@ -51,6 +51,7 @@ pub struct PathQuery {
 #[derive(Debug, Deserialize)]
 pub struct VisualizationQuery {
     pub limit: Option<u32>,
+    pub include_primekg: Option<bool>,
     #[serde(rename = "type")]
     pub entity_type: Option<String>,
 }
@@ -669,11 +670,12 @@ async fn get_visualization(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
     let limit = params.limit.unwrap_or(200).min(1000) as i64;
-    info!(event = "graph_visualization", tenant_id = tenant_id, limit = limit, "Fetching visualization data");
+    let include_primekg = params.include_primekg.unwrap_or(false);
+    info!(event = "graph_visualization", tenant_id = tenant_id, limit = limit, include_primekg = include_primekg, "Fetching visualization data");
 
     if let Some(neo4j) = get_neo4j_svc().await {
         let type_filter = params.entity_type.as_deref();
-        match neo4j.get_visualization_data(tenant_id, limit, type_filter).await {
+        match neo4j.get_visualization_data(tenant_id, limit, type_filter, include_primekg).await {
             Ok(data) => {
                 let nodes: Vec<Value> = data.nodes.iter().map(|n| json!({
                     "id": n.id,
