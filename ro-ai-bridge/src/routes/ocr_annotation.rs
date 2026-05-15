@@ -89,9 +89,9 @@ pub fn ocr_annotation_routes() -> Router<DbPool> {
     Router::new()
         .route("/datasets", get(list_datasets))
         .route("/tasks", get(list_tasks))
-        .route("/tasks/:task_id", get(get_task))
-        .route("/tasks/:task_id/save", post(save_annotation))
-        .route("/tasks/:task_id/image", get(stream_image))
+        .route("/tasks/{task_id}", get(get_task))
+        .route("/tasks/{task_id}/save", post(save_annotation))
+        .route("/tasks/{task_id}/image", get(stream_image))
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────────

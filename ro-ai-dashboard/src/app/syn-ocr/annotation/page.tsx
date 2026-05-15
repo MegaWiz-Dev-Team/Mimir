@@ -50,6 +50,7 @@ export default function AnnotationPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<"save" | "skip" | null>(null);
 
   // Load datasets on mount
   useEffect(() => {
@@ -136,6 +137,9 @@ export default function AnnotationPage() {
       });
 
       if (res.ok) {
+        setSaveMessage("save");
+        setTimeout(() => setSaveMessage(null), 2000);
+
         if (final) {
           // Move to next task
           const currentIdx = tasks.findIndex(t => t.id === currentTask.id);
@@ -151,6 +155,43 @@ export default function AnnotationPage() {
     } catch (e) {
       console.error("Failed to save annotation:", e);
       alert("Error saving annotation");
+    }
+    setSaving(false);
+  };
+
+  const handleSkip = async () => {
+    if (!currentTask) return;
+    setSaving(true);
+
+    try {
+      const res = await authFetch(`${API_BASE}/ocr-annotation/tasks/${currentTask.id}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ground_truth: "",
+          confidence: "high",
+          issues: [],
+          notes: "",
+          final_submit: false,
+        }),
+      });
+
+      if (res.ok) {
+        setSaveMessage("skip");
+        setTimeout(() => setSaveMessage(null), 2000);
+
+        // Move to next task
+        const currentIdx = tasks.findIndex(t => t.id === currentTask.id);
+        const nextTask = tasks[currentIdx + 1];
+        if (nextTask) {
+          loadTask(nextTask.id);
+        } else {
+          setView("datasets");
+          loadDatasets();
+        }
+      }
+    } catch (e) {
+      console.error("Failed to skip task:", e);
     }
     setSaving(false);
   };
@@ -202,21 +243,22 @@ export default function AnnotationPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-4" data-testid="dataset-list">
               {datasets.map(dataset => {
                 const progressPercent = Math.round((dataset.completed / dataset.total_cases) * 100);
                 return (
-                  <Card key={dataset.id} className="hover:shadow-lg transition-shadow">
+                  <Card key={dataset.id} className="hover:shadow-lg transition-shadow" data-testid="dataset-item">
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
-                          <CardTitle className="text-lg">{dataset.name}</CardTitle>
+                          <CardTitle className="text-lg" data-testid="dataset-name">{dataset.name}</CardTitle>
                           <p className="text-sm text-gray-500 dark:text-gray-400">v{dataset.version} • {dataset.total_cases} images</p>
                         </div>
                         <Button
                           onClick={() => startAnnotating(dataset)}
                           disabled={dataset.pending === 0 && dataset.in_progress === 0}
                           className="bg-blue-600 hover:bg-blue-700"
+                          data-testid="annotate-btn"
                         >
                           Annotate →
                         </Button>
@@ -225,7 +267,7 @@ export default function AnnotationPage() {
                     <CardContent>
                       <div className="space-y-3">
                         {/* Progress bar */}
-                        <div>
+                        <div data-testid="progress-bar">
                           <div className="flex justify-between mb-1 text-sm">
                             <span className="font-medium">{progressPercent}% Complete</span>
                             <span className="text-gray-500">{dataset.completed}/{dataset.total_cases}</span>
@@ -239,7 +281,7 @@ export default function AnnotationPage() {
                         </div>
 
                         {/* Status breakdown */}
-                        <div className="flex gap-4 text-sm">
+                        <div className="flex gap-4 text-sm" data-testid="status-counts">
                           <div>
                             <span className="text-gray-500">In Progress: </span>
                             <span className="font-medium text-blue-600">{dataset.in_progress}</span>
@@ -267,21 +309,22 @@ export default function AnnotationPage() {
     const progressPercent = getProgressPercent();
 
     return (
-      <div className="min-h-screen bg-white dark:bg-slate-950 p-8">
+      <div className="min-h-screen bg-white dark:bg-slate-950 p-8" data-testid="annotation-editor">
         <div className="max-w-6xl mx-auto">
           {/* Header with back button */}
-          <div className="flex items-center justify-between mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between mb-8 pb-6 border-b border-gray-200 dark:border-gray-800" data-testid="task-header">
             <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
                 onClick={() => setView("datasets")}
                 className="gap-2"
+                data-testid="back-to-datasets"
               >
                 <ChevronLeft className="w-4 h-4" /> Back
               </Button>
               <div>
-                <h2 className="text-2xl font-bold">{currentTask.case_id_label}</h2>
-                <p className="text-sm text-gray-500">{taskIndex} of {selectedDataset?.total_cases}</p>
+                <h2 className="text-2xl font-bold" data-testid="task-id">{currentTask.case_id_label}</h2>
+                <p className="text-sm text-gray-500" data-testid="task-progress">{taskIndex} of {selectedDataset?.total_cases}</p>
               </div>
             </div>
             <div className="text-right">
@@ -302,7 +345,7 @@ export default function AnnotationPage() {
           ) : (
             <div className="grid grid-cols-2 gap-8">
               {/* Image Column */}
-              <div>
+              <div data-testid="image-preview">
                 <div className="aspect-square bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden flex items-center justify-center">
                   {imageUrl ? (
                     <img src={imageUrl} alt={currentTask.case_id_label} className="w-full h-full object-contain" />
@@ -323,6 +366,7 @@ export default function AnnotationPage() {
                     onChange={(e) => setGroundTruth(e.target.value)}
                     placeholder="Type the correct text from the image..."
                     className="w-full h-32 p-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    data-testid="ground-truth-input"
                   />
                 </div>
 
@@ -350,6 +394,7 @@ export default function AnnotationPage() {
                     value={confidence}
                     onChange={(e) => setConfidence(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    data-testid="confidence-select"
                   >
                     <option value="high">High</option>
                     <option value="medium">Medium</option>
@@ -361,17 +406,26 @@ export default function AnnotationPage() {
                 <div>
                   <label className="block text-sm font-semibold mb-2">Issues</label>
                   <div className="space-y-2">
-                    {["Handwritten", "Blurry", "Partial", "Damaged"].map(issue => (
-                      <label key={issue} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={issues.includes(issue)}
-                          onChange={() => toggleIssue(issue)}
-                          className="w-4 h-4 rounded"
-                        />
-                        <span className="text-sm">{issue}</span>
-                      </label>
-                    ))}
+                    {["Handwritten", "Blurry", "Partial", "Damaged"].map((issue, idx) => {
+                      const testIdMap: Record<string, string> = {
+                        "Handwritten": "issue-handwritten",
+                        "Blurry": "issue-blurry",
+                        "Partial": "issue-partial",
+                        "Damaged": "issue-damaged",
+                      };
+                      return (
+                        <label key={issue} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={issues.includes(issue)}
+                            onChange={() => toggleIssue(issue)}
+                            className="w-4 h-4 rounded"
+                            data-testid={testIdMap[issue]}
+                          />
+                          <span className="text-sm">{issue}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -384,16 +438,37 @@ export default function AnnotationPage() {
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Optional notes..."
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    data-testid="notes-input"
                   />
                 </div>
+
+                {/* Success Messages */}
+                {saveMessage === "save" && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-400" data-testid="save-success">
+                    ✓ Annotation saved successfully
+                  </div>
+                )}
+                {saveMessage === "skip" && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-400" data-testid="skip-success">
+                    ✓ Task skipped, moving to next...
+                  </div>
+                )}
+
+                {/* Status Badge */}
+                {currentTask.status && (
+                  <div data-testid="task-status">
+                    <StatusBadge status={currentTask.status} />
+                  </div>
+                )}
 
                 {/* Actions */}
                 <div className="pt-4 border-t border-gray-200 dark:border-gray-800 space-y-2">
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      onClick={() => setView("datasets")}
+                      onClick={handleSkip}
                       disabled={saving}
+                      data-testid="skip-btn"
                     >
                       Skip
                     </Button>
@@ -401,6 +476,7 @@ export default function AnnotationPage() {
                       variant="outline"
                       onClick={() => handleSaveAnnotation(false)}
                       disabled={saving || !groundTruth.trim()}
+                      data-testid="save-draft-btn"
                     >
                       {saving ? "Saving..." : "Save Draft"}
                     </Button>
@@ -408,11 +484,12 @@ export default function AnnotationPage() {
                       onClick={() => handleSaveAnnotation(true)}
                       disabled={saving || !groundTruth.trim()}
                       className="bg-green-600 hover:bg-green-700 ml-auto"
+                      data-testid="complete-btn"
                     >
                       {saving ? "Saving..." : "Complete →"}
                     </Button>
                   </div>
-                  <p className="text-xs text-gray-500 text-center">
+                  <p className="text-xs text-gray-500 text-center" data-testid="annotator-info">
                     Annotated by: {currentTask.annotator_id || "you"}
                   </p>
                 </div>
