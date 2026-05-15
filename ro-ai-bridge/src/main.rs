@@ -31,6 +31,7 @@ use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::eval::eval_routes;
 use ro_ai_bridge::routes::training::training_routes;
 use ro_ai_bridge::routes::icd10::icd10_routes;
+use ro_ai_bridge::routes::knowledge::knowledge_routes;
 use ro_ai_bridge::routes::rag_benchmark::rag_benchmark_routes;
 use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
 use ro_ai_bridge::routes::feedback::feedback_routes;
@@ -161,6 +162,8 @@ async fn main() {
         .merge(training_routes())
         // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
         .merge(icd10_routes())
+        // Sprint 55: Collection-specific knowledge search
+        .nest("/api/v1/knowledge", knowledge_routes())
         // Sprint 47 B-47g: clinician-curated rag_benchmark_items
         .merge(rag_benchmark_routes())
         .nest("/api/v1/app-settings", ro_ai_bridge::routes::app_settings::app_settings_routes())
@@ -214,9 +217,9 @@ async fn main() {
         .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes())
         .nest("/api/v1", ro_ai_bridge::routes::features::features_routes())
         // Sprint 32: RAG Ensemble Playground (Phase 2)
-        .merge(search_routes())
-        .merge(search_optimize_routes())
-        .merge(search_benchmark_routes())
+        .nest("/api/v1", search_routes())
+        .nest("/api/v1", search_optimize_routes())
+        .nest("/api/v1", search_benchmark_routes())
         // Sprint 18: Swarm Multi Agent
         .nest("/api/v1/tenants/{tenant_id}", swarm_routes())
         // Sprint 52: Insurance Underwriting Sidecar Backend Mocks
