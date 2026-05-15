@@ -145,10 +145,10 @@ const MAX_BENCHMARK_ITEMS: usize = 500;
 
 pub fn search_benchmark_routes() -> Router<DbPool> {
     Router::new()
-        .route("/api/search/benchmark", post(benchmark_handler))
-        .route("/api/search/benchmark/history", get(benchmark_history))
-        .route("/api/search/benchmark/eval-set", post(create_eval_set))
-        .route("/api/search/benchmark/eval-sets", get(list_eval_sets))
+        .route("/search/benchmark", post(benchmark_handler))
+        .route("/search/benchmark/history", get(benchmark_history))
+        .route("/search/benchmark/eval-set", post(create_eval_set))
+        .route("/search/benchmark/eval-sets", get(list_eval_sets))
 }
 
 // ── Scoring Functions (Pure — No I/O) ────────────────

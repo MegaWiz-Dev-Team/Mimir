@@ -154,7 +154,7 @@ const DEFAULT_COLLECTIONS: &[&str] = &["golden_qa", "source_chunks"];
 // ── Route Registration ───────────────────────────────
 
 pub fn search_routes() -> Router<DbPool> {
-    Router::new().route("/api/search", post(search_handler))
+    Router::new().route("/search", post(search_handler))
 }
 
 // ── Handler ──────────────────────────────────────────

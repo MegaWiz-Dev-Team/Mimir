@@ -102,7 +102,7 @@ Rules:
 // ── Route Registration ───────────────────────────────
 
 pub fn search_optimize_routes() -> Router<DbPool> {
-    Router::new().route("/api/search/optimize", post(optimize_handler))
+    Router::new().route("/search/optimize", post(optimize_handler))
 }
 
 // ── Handler ──────────────────────────────────────────
