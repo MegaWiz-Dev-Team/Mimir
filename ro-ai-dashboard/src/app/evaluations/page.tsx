@@ -6,12 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle, GitCompare, BarChart3, ThumbsUp, ThumbsDown, Beaker, Database, Workflow, Brain, Loader2, Sparkles, AlertTriangle, Crown } from "lucide-react";
+import { RefreshCw, ArrowLeft, ChevronDown, ChevronUp, Star, Clock, Target, CheckCircle, GitCompare, BarChart3, ThumbsUp, ThumbsDown, Beaker, Database, Workflow, Brain, Loader2, Sparkles, AlertTriangle, Crown, Settings } from "lucide-react";
 import { fetchRunInsights, regenerateRunInsights, diagnoseScore, explainRetrieval, promoteRun, RunInsight } from "@/lib/api";
 import Link from "next/link";
 import { EvalWizard } from "@/components/evaluations/eval-wizard";
 import { EvalScoreOverride } from "@/components/evaluations/eval-score-override";
 import { compareModels, getFeedbackSummary, authFetch, API_BASE_URL } from "@/lib/api";
+import { logVersion, VERSION } from "@/lib/version";
+import { EvalTabNav } from "@/components/evaluations/eval-tab-nav";
+import { EvalTabId, getAllTabs, getTabById } from "@/components/evaluations/eval-tab-registry";
 
 const API_BASE = API_BASE_URL;
 
@@ -139,7 +142,7 @@ export default function EvaluationsPage() {
     const [expandedCell, setExpandedCell] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadingScores, setLoadingScores] = useState(false);
-    const [activeTab, setActiveTab] = useState<"runs" | "matrix" | "performance" | "extraction" | "retrieval" | "pipeline" | "ai-analysis">("runs");
+    const [activeTab, setActiveTab] = useState<EvalTabId>("runs");
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [diagnoses, setDiagnoses] = useState<Record<number, any>>({});
     const [retrievalExplanations, setRetrievalExplanations] = useState<Record<number, any>>({});
@@ -176,6 +179,10 @@ export default function EvaluationsPage() {
     // Pipeline scorecard state
     const [pipelineData, setPipelineData] = useState<any>(null);
     const [loadingPipeline, setLoadingPipeline] = useState(false);
+
+    // OCR evaluation state
+    const [ocrData, setOcrData] = useState<any>(null);
+    const [loadingOcr, setLoadingOcr] = useState(false);
 
     const loadRuns = useCallback(async () => {
         try {
@@ -235,6 +242,11 @@ export default function EvaluationsPage() {
     }, []);
 
     useEffect(() => { loadRuns(); }, [loadRuns]);
+
+    // Log version on mount
+    useEffect(() => {
+        logVersion();
+    }, []);
 
     useEffect(() => {
         if (selectedRunId) {
@@ -321,6 +333,24 @@ export default function EvaluationsPage() {
                 .then(r => r.json()).then(setPipelineData)
                 .catch(console.warn).finally(() => setLoadingPipeline(false));
         }
+        if (activeTab === "ocr" && !ocrData) {
+            setLoadingOcr(true);
+            authFetch(`${API_BASE}/evaluations/ocr-summary`, { cache: "no-store" })
+                .then(r => {
+                    if (!r.ok) {
+                        console.error(`OCR API error: ${r.status} ${r.statusText}`);
+                        throw new Error(`HTTP ${r.status}`);
+                    }
+                    return r.json();
+                })
+                .then(data => {
+                    console.log("OCR data loaded:", data);
+                    setOcrData(data);
+                })
+                .catch(e => {
+                    console.error("OCR fetch failed:", e);
+                }).finally(() => setLoadingOcr(false));
+        }
     }, [activeTab]);
 
     const allModels = matrix?.models || [];
@@ -338,6 +368,12 @@ export default function EvaluationsPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Agent Evaluation</h1>
                     <p className="text-muted-foreground">Agent × Model performance matrix with hybrid scoring</p>
                 </div>
+                <Button asChild variant="outline" size="sm">
+                    <Link href="/tenants" className="flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        Tenant Config
+                    </Link>
+                </Button>
 
                 <div className="flex items-end gap-3">
                     <div className="grid w-[280px] gap-1.5">
@@ -363,31 +399,13 @@ export default function EvaluationsPage() {
                 </div>
             </div>
 
-            {/* Tab Navigation */}
-            <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-900 rounded-lg p-1 mb-6 flex-wrap">
-                <button onClick={() => setActiveTab("runs")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "runs" ? "bg-white dark:bg-zinc-800 shadow-sm border border-violet-200" : "text-gray-500 hover:text-gray-700"
-                        }`}>
-                    <BarChart3 className="w-4 h-4 text-violet-600" /> Runs
-                </button>
-                <button onClick={() => setActiveTab("matrix")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "matrix" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                        }`}>
-                    <Target className="w-4 h-4" /> Run Detail
-                </button>
-                <button onClick={() => setActiveTab("ai-analysis")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "ai-analysis" ? "bg-white dark:bg-zinc-800 shadow-sm border border-violet-200" : "text-gray-500 hover:text-gray-700"
-                        }`}>
-                    <Brain className="w-4 h-4 text-violet-600" /> AI Analysis
-                </button>
-                <button onClick={() => setActiveTab("performance")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "performance" ? "bg-white dark:bg-zinc-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                        }`}>
-                    <GitCompare className="w-4 h-4" /> Cross-Run Compare
-                </button>
-                <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Pipeline health →</span>
-                    <Link href="/rag-playground" className="hover:text-violet-600 underline-offset-2 hover:underline">RAG Playground</Link>
+            {/* Tab Navigation - Dynamic */}
+            <div className="mb-6">
+                <EvalTabNav activeTab={activeTab} onChange={setActiveTab} />
+                <div className="mt-4 text-right">
+                    <Link href="/rag-playground" className="text-xs text-purple-700 dark:text-purple-300 hover:text-purple-900 dark:hover:text-purple-100 font-medium">
+                        RAG Playground <span className="text-lg">→</span>
+                    </Link>
                 </div>
             </div>
 
@@ -1305,8 +1323,114 @@ export default function EvaluationsPage() {
                 </div>
             )}
 
+            {/* ─── OCR Evaluation ────────────────────────────────────────────── */}
+            {activeTab === "ocr" && (
+                <div className="space-y-6">
+                    {loadingOcr ? (
+                        <div className="flex items-center justify-center py-12">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : !ocrData ? (
+                        <Card>
+                            <CardContent className="text-center py-8 text-muted-foreground">
+                                No OCR evaluation data found. Run OCR benchmark first.
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <>
+                            {/* Summary Header */}
+                            <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                                <h3 className="font-semibold text-purple-900 dark:text-purple-100 mb-1">OCR Engine Comparison</h3>
+                                <p className="text-sm text-purple-700 dark:text-purple-300">{ocrData.details?.length || 0} test results across {ocrData.summary?.length || 0} engines</p>
+                            </div>
+
+                            {/* Summary Cards */}
+                            <div className="grid gap-4 md:grid-cols-3">
+                                {ocrData.summary?.map((engine: any) => (
+                                    <Card key={engine.engine} className="hover:shadow-lg transition-shadow">
+                                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                            <CardTitle className="text-sm font-semibold capitalize">{engine.engine.replace('-', ' ')}</CardTitle>
+                                            <Crown className={`h-4 w-4 ${parseInt(engine.success_rate) === 100 ? 'text-amber-500' : 'text-gray-400'}`} />
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <div className={`text-2xl font-bold ${parseInt(engine.success_rate) > 80 ? "text-emerald-600" : "text-orange-600"}`}>{engine.success_rate}</div>
+                                                    <p className="text-xs text-muted-foreground">Success Rate</p>
+                                                </div>
+                                                <div>
+                                                    <div className="text-sm font-medium">{engine.avg_cer !== 0 ? (engine.avg_cer * 100).toFixed(1) + "%" : "—"}</div>
+                                                    <p className="text-xs text-muted-foreground">Avg Confidence</p>
+                                                </div>
+                                                <div>
+                                                    <div className="text-sm font-medium text-green-600">${engine.total_cost?.toFixed(5)}</div>
+                                                    <p className="text-xs text-muted-foreground">Total Cost</p>
+                                                </div>
+                                                <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
+                                                    <div className="text-sm font-medium">{engine.success}/{engine.total}</div>
+                                                    <p className="text-xs text-muted-foreground">Succeeded/Total</p>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+
+                            {/* Details Table */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <BarChart3 className="w-5 h-5 text-purple-600" /> Detailed Results
+                                    </CardTitle>
+                                    <p className="text-sm text-muted-foreground">Compare confidence, speed, and cost across all test images and engines</p>
+                                </CardHeader>
+                                <CardContent>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Image</TableHead>
+                                                <TableHead>Engine</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead className="text-right">Confidence</TableHead>
+                                                <TableHead className="text-right">Latency</TableHead>
+                                                <TableHead className="text-right">Cost</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {ocrData.details?.map((detail: any, idx: number) => (
+                                                <TableRow key={idx}>
+                                                    <TableCell className="font-mono text-xs max-w-xs truncate" title={detail.filename}>{detail.filename.slice(0, 12)}...{detail.filename.slice(-8)}</TableCell>
+                                                    <TableCell><span className="inline-block px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-100 text-xs rounded font-medium">{detail.engine}</span></TableCell>
+                                                    <TableCell>
+                                                        <StatusBadge status={detail.status} />
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {detail.cer ? (
+                                                            <span className={typeof detail.cer === 'number' && detail.cer > 0.90 ? "font-bold text-emerald-600" : "text-orange-600"}>
+                                                                {typeof detail.cer === 'number' ? `${(detail.cer * 100).toFixed(1)}%` : detail.cer}
+                                                            </span>
+                                                        ) : <span className="text-gray-400">—</span>}
+                                                    </TableCell>
+                                                    <TableCell className="text-right"><span className="text-sm">{(detail.latency_ms/1000).toFixed(2)}s</span></TableCell>
+                                                    <TableCell className="text-right font-medium">${detail.cost_usd?.toFixed(5)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </>
+                    )}
+                </div>
+            )}
+
             {/* ─── AI Analysis (Wave 2) ─────────────────────────────────────── */}
             {activeTab === "ai-analysis" && <AiAnalysisTab runId={selectedRunId} runName={selectedRun?.name || ""} />}
+
+            {/* Version Footer */}
+            <div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800 text-center text-xs text-muted-foreground">
+                <p>🚀 Mimir Dashboard v{VERSION.version} • {VERSION.features.join(" + ")} • Asgard-Prudential</p>
+            </div>
         </div>
     );
 }
