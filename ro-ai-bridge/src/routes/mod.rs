@@ -29,6 +29,7 @@ pub mod llm_usage;
 pub mod mcp;
 pub mod models;
 pub mod ocr;
+pub mod ocr_annotation;
 pub mod ocr_audit;
 pub mod ocr_budget;
 pub mod pipeline;
@@ -45,6 +46,8 @@ pub mod tenant_query;
 pub mod training;
 // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
 pub mod icd10;
+// Sprint 55: Collection-specific knowledge search endpoints
+pub mod knowledge;
 // Sprint 47 B-47g: clinician-curated rag_benchmark_items (gold for retrieval metrics)
 pub mod rag_benchmark;
 pub mod vault;

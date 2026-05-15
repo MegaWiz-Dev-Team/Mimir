@@ -295,11 +295,10 @@ pub(crate) async fn upload_file(
     });
 
     let insert_result = sqlx::query(
-        r#"INSERT INTO data_sources (tenant_id, patient_id, name, source_type, config_json, last_sync_status, mb_size, storage_mode, file_hash)
-        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)"#
+        r#"INSERT INTO data_sources (tenant_id, name, source_type, config_json, last_sync_status, mb_size, storage_mode, file_hash)
+        VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)"#
     )
     .bind(tenant_id)
-    .bind(&patient_id)
     .bind(&name)
     .bind(&source_type)
     .bind(&config_json)

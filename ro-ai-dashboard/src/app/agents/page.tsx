@@ -42,6 +42,7 @@ import {
     ChevronLeft, Loader2, Globe, Zap, Database, Wrench, Sparkles,
     ThumbsUp, ThumbsDown, Clock, Hash, X, LayoutGrid, MessageSquare,
     ExternalLink, Wand2, Save, Dna, Stethoscope, BarChart3, Wand, Crown,
+    BookOpen, Layers,
 } from "lucide-react";
 import Link from "next/link";
 import remarkGfm from "remark-gfm";
@@ -536,7 +537,7 @@ export default function AgentStudioPage() {
 
     // ─── Tool options ───────────────────────────────────────────────────────────
 
-    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_search", "primekg_search", "clinical_kb_search"];
+    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_search", "primekg_search", "clinical_kb_search", "pubmed_search", "icd10_search"];
 
     const toggleTool = (tool: string) => {
         setFormTools(prev =>
@@ -1661,6 +1662,8 @@ export default function AgentStudioPage() {
                                             {tool === "memvid_search" && <Clock className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
                                             {tool === "primekg_search" && <Dna className={`w-5 h-5 ${formTools.includes(tool) ? "text-teal-600" : "text-gray-400"}`} />}
                                             {tool === "clinical_kb_search" && <Stethoscope className={`w-5 h-5 ${formTools.includes(tool) ? "text-rose-600" : "text-gray-400"}`} />}
+                                            {tool === "pubmed_search" && <BookOpen className={`w-5 h-5 ${formTools.includes(tool) ? "text-blue-600" : "text-gray-400"}`} />}
+                                            {tool === "icd10_search" && <Layers className={`w-5 h-5 ${formTools.includes(tool) ? "text-amber-600" : "text-gray-400"}`} />}
                                             <div>
                                                 <span className="text-sm font-medium">{tool}</span>
                                                 <p className="text-xs text-gray-400 mt-1">
@@ -1670,6 +1673,8 @@ export default function AgentStudioPage() {
                                                     {tool === "memvid_search" && <span className="text-orange-600 dark:text-orange-400 font-medium">Deep Memory Retrieval</span>}
                                                     {tool === "primekg_search" && <span className="text-teal-600 dark:text-teal-400 font-medium">PrimeKG · 129K Medical Entities</span>}
                                                     {tool === "clinical_kb_search" && <span className="text-rose-600 dark:text-rose-400 font-medium">Clinical Guidelines · Sleep/ENT/Drug/CPAP</span>}
+                                                    {tool === "pubmed_search" && <span className="text-blue-600 dark:text-blue-400 font-medium">PubMed · 196K Biomedical Abstracts</span>}
+                                                    {tool === "icd10_search" && <span className="text-amber-600 dark:text-amber-400 font-medium">ICD-10-TM · 15K Medical Codes</span>}
                                                 </p>
                                             </div>
                                         </div>

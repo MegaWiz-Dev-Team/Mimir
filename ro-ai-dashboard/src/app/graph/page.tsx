@@ -76,8 +76,8 @@ export default function GraphPage() {
         setError(null);
         try {
             const [statsData, vizData] = await Promise.all([
-                fetchGraphStats(),
-                fetchGraphVisualization({ limit: nodeLimit, type: filterType || undefined }),
+                fetchGraphStats({ tenantOverride: "asgard_medical" }),
+                fetchGraphVisualization({ limit: nodeLimit, type: filterType || undefined, tenantOverride: "asgard_medical" }),
             ]);
             setStats(statsData);
             setNodes(vizData.nodes);
@@ -246,12 +246,9 @@ export default function GraphPage() {
 
         setSelectedNode(clicked);
         if (clicked) {
-            const entityId = parseInt(clicked.id);
-            if (!isNaN(entityId)) {
-                fetchEntityNeighbors(entityId, 1)
-                    .then((data) => setSelectedNeighbors({ nodes: data.nodes, edges: data.edges }))
-                    .catch(() => setSelectedNeighbors(null));
-            }
+            fetchEntityNeighbors(clicked.id, 1)
+                .then((data) => setSelectedNeighbors({ nodes: data.nodes, edges: data.edges }))
+                .catch(() => setSelectedNeighbors(null));
         } else {
             setSelectedNeighbors(null);
         }

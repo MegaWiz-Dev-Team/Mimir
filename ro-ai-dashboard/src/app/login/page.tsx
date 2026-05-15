@@ -57,10 +57,19 @@ export default function LoginPage() {
             try {
                 let ssoConfig: { issuer: string, client_id: string, redirect_uri: string };
                 try {
-                    const res = await fetch(`${API_BASE_URL}/auth/sso-config`);
-                    if (!res.ok) throw new Error("Failed to load SSO configuration");
+                    const fetchUrl = `${API_BASE_URL}/auth/sso-config`;
+                    console.log("[LOGIN] Fetching SSO config from:", fetchUrl);
+                    const res = await fetch(fetchUrl);
+                    console.log("[LOGIN] SSO config response:", res.status, res.ok);
+                    if (!res.ok) {
+                        const errText = await res.text();
+                        console.error("[LOGIN] SSO config error:", errText);
+                        throw new Error("Failed to load SSO configuration");
+                    }
                     ssoConfig = await res.json();
-                } catch (e) {
+                    console.log("[LOGIN] SSO config loaded:", ssoConfig);
+                } catch (e: any) {
+                    console.error("[LOGIN] SSO fetch error:", e);
                     throw new Error("Unable to contact backend for SSO configuration");
                 }
 
@@ -83,8 +92,9 @@ export default function LoginPage() {
                 }
 
                 let redirectUri = ssoConfig.redirect_uri;
-                if (redirectUri.includes("localhost:3001")) {
-                    redirectUri = `${window.location.protocol}//${window.location.host}/login/callback`;
+                if (redirectUri.includes("localhost:3001") || redirectUri.includes("localhost:30001")) {
+                    // Use Ingress URL for redirect (mimir.asgard.internal has TLS registered with Yggdrasil)
+                    redirectUri = `https://mimir.asgard.internal/login/callback`;
                 }
 
                 const authUrl = new URL(`${issuer}/oauth/v2/authorize`);

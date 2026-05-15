@@ -231,7 +231,7 @@ async fn list_runs(
     Extension(tenant): Extension<TenantContext>,
 ) -> Json<Vec<EvalRun>> {
     let runs = sqlx::query_as::<_, EvalRun>(
-        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, config,
+        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, NULL AS config,
                 parent_run_id, baseline_run_id, hypothesis, variable_under_test, expected_change,
                 is_champion, CAST(total_cost_usd AS DOUBLE) AS total_cost_usd
          FROM eval_runs WHERE tenant_id = ? ORDER BY started_at DESC",
@@ -253,7 +253,7 @@ async fn get_run_detail(
     Path(id): Path<String>,
 ) -> Json<Option<RunDetailResponse>> {
     let run = sqlx::query_as::<_, EvalRun>(
-        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, config,
+        "SELECT id, name, status, total_combinations, completed_combinations, started_at, finished_at, NULL AS config,
                 parent_run_id, baseline_run_id, hypothesis, variable_under_test, expected_change,
                 is_champion, CAST(total_cost_usd AS DOUBLE) AS total_cost_usd
          FROM eval_runs WHERE id = ? AND tenant_id = ?",
@@ -557,7 +557,7 @@ async fn get_lock_items(
 ) -> Json<serde_json::Value> {
     // Prefer item_ids stored in config (set by runner); fall back to scanning eval_scores.benchmark_item_id.
     let row: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT config FROM eval_runs WHERE id = ? AND tenant_id = ?",
+        "SELECT CAST(config AS CHAR) AS config FROM eval_runs WHERE id = ? AND tenant_id = ?",
     )
     .bind(&id)
     .bind(&tenant.tenant_id)

@@ -8,7 +8,7 @@ import {
     LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon,
     Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
     Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree, Beaker,
-    ClipboardList
+    ClipboardList, Network
 } from "lucide-react";
 import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
 
@@ -175,6 +175,7 @@ export function Navbar() {
                 { name: "Knowledge", href: "/knowledge", icon: BookOpen },
                 { name: "Vector", href: "/vector", icon: Search },
                 { name: "Graph", href: "/graph", icon: Share2 },
+                { name: "Medical Graph", href: "/medical-graph", icon: Network },
                 { name: "Page Index", href: "/pageindex", icon: ListTree },
                 { name: "Quality", href: "/quality_control", icon: ShieldCheck },
             ],
@@ -200,6 +201,7 @@ export function Navbar() {
                 { name: "Coverage", href: "/coverage", icon: BarChart3 },
                 { name: "LLM Analytics", href: "/analytics/llm", icon: Activity },
                 { name: "Evaluations", href: "/evaluations", icon: FlaskConical },
+                { name: "Annotation", href: "/syn-ocr/annotation", icon: ClipboardList },
                 { name: "Logs", href: "/conversations", icon: MessageSquare },
             ],
         },

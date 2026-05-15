@@ -24,6 +24,7 @@ use crate::routes::tenant::extract_tenant_id;
 use crate::routes::vector::embed_texts;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::qdrant::QdrantService;
+use mimir_core_ai::middleware::tenant::tenant_auth_middleware;
 
 /// Strip `<think>...</think>` blocks from Qwen-style reasoning responses,
 /// then extract the first JSON object or array from the remaining text.
@@ -69,6 +70,7 @@ pub fn batch_pipeline_routes() -> Router<DbPool> {
         .route("/pipeline-overview", get(get_pipeline_overview))
         .route("/{id}/pipeline-status", get(get_pipeline_status))
         .route("/{id}/pipeline-cancel", axum::routing::post(cancel_pipeline_run))
+        .layer(axum::middleware::from_fn(tenant_auth_middleware))
 }
 
 /// Sweep orphaned pipeline runs stuck in 'running' from a previous pod lifecycle.
@@ -170,6 +172,7 @@ pub async fn run_pipeline_for_source(
     let model_clone = model.clone();
     let prompt_version_clone = prompt_version.clone();
     let run_label_clone = run_label.clone();
+    let source_name_clone = source_name.clone();
 
     let handle_run_id = run_id_clone.clone();
     let handle = tokio::spawn(async move {
@@ -301,7 +304,9 @@ pub async fn run_pipeline_for_source(
                             "payload": {
                                 "content": content,
                                 "chunk_id": chunk_id,
+                                "chunk_text": content,
                                 "source_id": source_id,
+                                "source_name": source_name_clone,
                                 "tenant_id": tenant_clone,
                                 "is_active": true,
                             }

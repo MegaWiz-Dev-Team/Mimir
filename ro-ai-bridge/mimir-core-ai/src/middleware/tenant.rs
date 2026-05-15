@@ -27,22 +27,57 @@ pub struct TenantContext {
 }
 
 pub async fn tenant_auth_middleware(
-    _config: Option<Extension<Arc<Config>>>,
+    config: Option<Extension<Arc<Config>>>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Read tenant_id from X-Tenant-Id header (same convention as other routes).
-    // Falls back to "default_tenant" if missing — eval routes are admin-scoped.
-    let tenant_id = req.headers()
+    // Try to read tenant_id from X-Tenant-Id header first
+    let header_tenant = req.headers()
         .get("x-tenant-id")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("default_tenant")
-        .to_string();
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
+    if let Some(tenant_id) = header_tenant {
+        req.extensions_mut().insert(TenantContext {
+            user_id: tenant_id.clone(),
+            tenant_id,
+            role: "viewer".to_string(),
+        });
+        return Ok(next.run(req).await);
+    }
+
+    // Fallback: Try to extract from JWT token
+    if let Some(Extension(cfg)) = config {
+        let auth_header = req.headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| s.starts_with("Bearer "))
+            .map(|s| s.to_string());
+
+        if let Some(auth_val) = auth_header {
+            let token = &auth_val[7..]; // Remove "Bearer " prefix
+            if let Ok(claims) = jsonwebtoken::decode::<TenantClaims>(
+                token,
+                &jsonwebtoken::DecodingKey::from_secret(cfg.jwt_secret.as_bytes()),
+                &jsonwebtoken::Validation::default(),
+            ) {
+                let tenant_id = claims.claims.tenant_id.clone();
+                req.extensions_mut().insert(TenantContext {
+                    user_id: claims.claims.sub.clone(),
+                    tenant_id,
+                    role: claims.claims.role.clone(),
+                });
+                return Ok(next.run(req).await);
+            }
+        }
+    }
+
+    // If both header and JWT are missing, use default
     req.extensions_mut().insert(TenantContext {
-        user_id: format!("{}_admin", tenant_id),
-        tenant_id,
-        role: "admin".to_string(),
+        user_id: "unknown".to_string(),
+        tenant_id: "default_tenant".to_string(),
+        role: "viewer".to_string(),
     });
 
     Ok(next.run(req).await)

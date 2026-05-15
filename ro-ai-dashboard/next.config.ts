@@ -11,6 +11,16 @@ if (!process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === 'production') {
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: '/api/v1/:path*',
+          destination: `${process.env.NEXT_PUBLIC_API_URL}/api/v1/:path*`,
+        },
+      ],
+    };
+  },
 };
 
 export default nextConfig;

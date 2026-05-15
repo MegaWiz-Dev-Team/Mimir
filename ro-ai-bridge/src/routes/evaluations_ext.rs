@@ -12,7 +12,7 @@ use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use crate::agents::eval::{evaluate_agent, judge_response};
 use mimir_core_ai::services::db::DbPool;
+use mimir_core_ai::middleware::tenant::TenantContext;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,8 @@ pub fn evaluations_ext_routes() -> Router<DbPool> {
         .route("/retrieval-summary", get(retrieval_summary))
         // Sprint 28: E2E Pipeline evaluation
         .route("/pipeline-scorecard", get(pipeline_scorecard))
+        // OCR evaluation type
+        .route("/ocr-summary", get(ocr_summary))
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────────────
@@ -951,5 +954,106 @@ async fn pipeline_scorecard(
         "fully_complete": fully_complete,
         "completion_rate": if total_sources > 0 { (fully_complete as f64 / total_sources as f64 * 100.0) as i32 } else { 0 },
         "sources": scorecards,
+    })))
+}
+
+/// GET /api/v1/evaluations/ocr-summary — OCR benchmark evaluation results
+async fn ocr_summary(
+    State(pool): State<DbPool>,
+    Extension(tenant_ctx): Extension<TenantContext>,
+    Query(params): Query<serde_json::Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant_id = &tenant_ctx.tenant_id;
+    info!("OCR summary requested for tenant_id: {} (user: {})", tenant_id, tenant_ctx.user_id);
+
+    // Get summary by engine
+    let summary: Vec<(String, i64, i64, f64, f64)> = sqlx::query_as(
+        r#"
+        SELECT
+            engine_used,
+            CAST(COUNT(*) AS SIGNED) as total,
+            CAST(SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) AS SIGNED) as success_count,
+            COALESCE(CAST(ROUND(AVG(CASE WHEN confidence IS NOT NULL THEN confidence ELSE NULL END), 4) AS DOUBLE), 0.0) as avg_confidence,
+            COALESCE(CAST(ROUND(SUM(cost_usd), 6) AS DOUBLE), 0.0) as total_cost
+        FROM ocr_documents
+        WHERE tenant_id = ?
+        GROUP BY engine_used
+        ORDER BY engine_used
+        "#,
+    )
+    .bind(&tenant_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        error!("OCR summary query failed: {:?}", e);
+        e
+    })
+    .unwrap_or_default();
+
+    info!("OCR summary: {} engines found", summary.len());
+
+    // Get detailed results (with limit/pagination)
+    let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(100) as i64;
+    let offset = params.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as i64;
+    info!("OCR details query: tenant_id={}, limit={}, offset={}", tenant_id, limit, offset);
+
+    let details: Vec<(String, String, String, Option<f64>, i32, f64)> = sqlx::query_as(
+        r#"
+        SELECT
+            image_sha256 as image_ref,
+            engine_used,
+            status,
+            CAST(confidence AS DOUBLE) as confidence,
+            latency_ms,
+            CAST(cost_usd AS DOUBLE) as cost_usd
+        FROM ocr_documents
+        WHERE tenant_id = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        "#,
+    )
+    .bind(&tenant_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        error!("OCR details query failed: {:?}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{:?}", e)})))
+    })?;
+
+    Ok(Json(json!({
+        "type": "ocr",
+        "tenant_id": tenant_id,
+        "summary": summary.iter().map(|(engine, total, success, avg_cer, cost)| {
+            let success_rate = if *total > 0 {
+                (*success as f64 / *total as f64 * 100.0) as i32
+            } else {
+                0
+            };
+            json!({
+                "engine": engine,
+                "total": total,
+                "success": success,
+                "success_rate": format!("{}%", success_rate),
+                "avg_cer": avg_cer,
+                "total_cost": cost,
+            })
+        }).collect::<Vec<_>>(),
+        "details": details.iter().map(|(filename, engine, status, cer, latency, cost)| {
+            json!({
+                "filename": filename,
+                "engine": engine,
+                "status": status,
+                "cer": cer.map(|c| format!("{:.2}%", c)),
+                "latency_ms": latency,
+                "cost_usd": cost,
+            })
+        }).collect::<Vec<_>>(),
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "total_results": details.len(),
+        }
     })))
 }

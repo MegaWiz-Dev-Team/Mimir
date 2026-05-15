@@ -1,0 +1,308 @@
+---
+# Medical Data Source Ingestion Pipeline
+# Tenant: asgard_medical
+# Orchestration: Sequential phases with dependencies
+
+pipeline:
+  name: asgard_medical_medical_sources
+  version: "1.0"
+  created_at: "2026-05-15"
+  tenant: asgard_medical
+
+  phases:
+    # ─────────────────────────────────────────────────────────────
+    # Phase 1: ICD-10-TM Clinical Coding Foundation
+    # ─────────────────────────────────────────────────────────────
+    icd10_foundation:
+      name: "ICD-10-TM Thai Clinical Coding (15,376 codes)"
+      description: |
+        Load WHO ICD-10 + Thai ICD-10-TM codes from anamai
+        (Department of Health, MoPH)
+
+      steps:
+        - name: "Create ICD-10 schema"
+          type: "sql_migration"
+          file: "ro-ai-bridge/migrations/sprint48_icd10_codes.sql"
+          depends_on: []
+
+        - name: "Ingest anamai ICD-10-TM codes"
+          type: "python_script"
+          script: "scripts/icd10_tm_anamai_ingest.py"
+          depends_on: ["Create ICD-10 schema"]
+          params:
+            source: "anamai"
+            vintage: "2010"
+            total_codes: 15376
+
+        - name: "Build ICD-10 semantic embeddings (Qdrant)"
+          type: "python_script"
+          script: "scripts/icd10_embed_qdrant.py"
+          depends_on: ["Ingest anamai ICD-10-TM codes"]
+          params:
+            embedding_model: "bge-m3"
+            collection_name: "icd10-th"
+
+      duration_estimate: "15 min"
+      status: "ready"
+
+    # ─────────────────────────────────────────────────────────────
+    # Phase 2: Clinical Calculator Reference Database
+    # ─────────────────────────────────────────────────────────────
+    clinical_calculators:
+      name: "Clinical Decision Support Calculators"
+      description: |
+        Load schemas for CHADS2, MELD, eGFR, Wells, NEXUS, GCS, ESI
+
+      steps:
+        - name: "Create clinical_calculators table"
+          type: "sql"
+          sql: |
+            CREATE TABLE IF NOT EXISTS clinical_calculators (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenant_id VARCHAR(50) NOT NULL,
+              calculator_id VARCHAR(100) NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              category VARCHAR(50) NOT NULL,
+              inputs JSON NOT NULL,
+              description TEXT,
+              formula TEXT,
+              output_range VARCHAR(100),
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uk_tenant_calculator (tenant_id, calculator_id),
+              INDEX idx_category (category)
+            );
+          depends_on: []
+
+        - name: "Ingest calculator schemas"
+          type: "python_script"
+          script: "scripts/ingest_medical_sources.py"
+          params:
+            source: "clinical-calc"
+          depends_on: ["Create clinical_calculators table"]
+
+      calculators:
+        - id: "chads2"
+          name: "CHADS2 Score"
+          category: "cardiology"
+          inputs: ["age", "hypertension", "heart_failure", "diabetes", "prior_stroke"]
+          output_range: "0-6"
+
+        - id: "meld"
+          name: "MELD Score"
+          category: "hepatology"
+          inputs: ["bilirubin_mg_dl", "inr", "creatinine_mg_dl"]
+          output_range: "6-40"
+
+        - id: "egfr"
+          name: "eGFR (CKD-EPI)"
+          category: "nephrology"
+          inputs: ["creatinine", "age", "gender"]
+          output_range: "0-150 mL/min"
+
+        - id: "wells_pe"
+          name: "Wells PE Risk Score"
+          category: "pulmonology"
+          inputs: ["clinical_suspicion", "heart_rate", "rr", "o2_sat", "signs_dvt"]
+          output_range: "0-12.5"
+
+        - id: "nexus"
+          name: "NEXUS C-spine Criteria"
+          category: "trauma"
+          inputs: ["midline_tenderness", "intoxication", "neuro_deficit", "focal_pain"]
+          output_range: "binary (image needed / safe to clear)"
+
+        - id: "gcs"
+          name: "Glasgow Coma Scale"
+          category: "neurology"
+          inputs: ["eye_response", "verbal_response", "motor_response"]
+          output_range: "3-15"
+
+        - id: "esi_triage"
+          name: "ESI Triage Level"
+          category: "emergency"
+          inputs: ["high_risk_situation", "urgent_needs", "high_risk_status"]
+          output_range: "1-5"
+
+      duration_estimate: "10 min"
+      status: "ready"
+
+    # ─────────────────────────────────────────────────────────────
+    # Phase 3: Drug Reference Database
+    # ─────────────────────────────────────────────────────────────
+    drug_reference:
+      name: "Drug Interaction & Safety Reference"
+      description: |
+        Load drug interaction severity levels and basic pharmacology
+        (Open FDA compatible schema)
+
+      steps:
+        - name: "Create drug_interactions table"
+          type: "sql"
+          sql: |
+            CREATE TABLE IF NOT EXISTS drug_interactions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenant_id VARCHAR(50) NOT NULL,
+              drug1 VARCHAR(255) NOT NULL,
+              drug2 VARCHAR(255) NOT NULL,
+              severity ENUM('contraindicated', 'serious', 'moderate', 'minor') NOT NULL,
+              description TEXT,
+              mechanism TEXT,
+              management TEXT,
+              source VARCHAR(100),
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              INDEX idx_severity (severity),
+              INDEX idx_drugs (drug1, drug2)
+            );
+          depends_on: []
+
+        - name: "Ingest drug reference data"
+          type: "python_script"
+          script: "scripts/ingest_medical_sources.py"
+          params:
+            source: "drug"
+          depends_on: ["Create drug_interactions table"]
+
+      severity_levels:
+        - level: "contraindicated"
+          description: "Do not use together under any circumstances"
+          action: "Hard block in pharmacy tool"
+
+        - level: "serious"
+          description: "Serious interaction - requires monitoring"
+          action: "Flag in pharmacy tool, require clinical review"
+
+        - level: "moderate"
+          description: "Moderate interaction - use with caution"
+          action: "Warn in pharmacy tool, suggest alternatives"
+
+        - level: "minor"
+          description: "Minor interaction - usually insignificant"
+          action: "Informational only"
+
+      duration_estimate: "8 min"
+      status: "ready"
+
+    # ─────────────────────────────────────────────────────────────
+    # Phase 4: Medical Guidelines & Protocols
+    # ─────────────────────────────────────────────────────────────
+    clinical_guidelines:
+      name: "Clinical Guidelines & Protocols"
+      description: |
+        Load guideline references (ACC/AHA, ESC, AASM, etc)
+        Full PDFs deferred to Phase 5 (document ingestion)
+
+      steps:
+        - name: "Create clinical_guidelines table"
+          type: "sql"
+          sql: |
+            CREATE TABLE IF NOT EXISTS clinical_guidelines (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenant_id VARCHAR(50) NOT NULL,
+              guideline_id VARCHAR(100) NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              source VARCHAR(100) NOT NULL,
+              year INT,
+              category VARCHAR(50),
+              url VARCHAR(500),
+              content_summary TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uk_tenant_guideline (tenant_id, guideline_id)
+            );
+          depends_on: []
+
+        - name: "Ingest guideline metadata"
+          type: "python_script"
+          script: "scripts/ingest_medical_sources.py"
+          params:
+            source: "guidelines"
+          depends_on: ["Create clinical_guidelines table"]
+
+      guidelines:
+        - id: "acc_aha_2023_hypertension"
+          name: "2023 ACC/AHA Hypertension Guidelines"
+          source: "American College of Cardiology / American Heart Association"
+          year: 2023
+          category: "cardiology"
+
+        - id: "esc_2021_chest_pain"
+          name: "2021 ESC Chest Pain Guidelines"
+          source: "European Society of Cardiology"
+          year: 2021
+          category: "cardiology"
+
+        - id: "aasm_2023_sleep_apnea"
+          name: "2023 AASM Sleep Apnea Management"
+          source: "American Academy of Sleep Medicine"
+          year: 2023
+          category: "sleep_medicine"
+
+      duration_estimate: "5 min"
+      status: "ready"
+
+    # ─────────────────────────────────────────────────────────────
+    # Phase 5: PrimeKG Graph Integration (Optional)
+    # ─────────────────────────────────────────────────────────────
+    primeg_graph:
+      name: "PrimeKG Biomedical Knowledge Graph"
+      description: |
+        Load disease-gene-drug relationships from PrimeKG
+        Requires: Neo4j service, PrimeKG datasets
+
+      steps:
+        - name: "Setup Neo4j graph schema"
+          type: "neo4j_cypher"
+          script: "scripts/primeg_schema_setup.cypher"
+          depends_on: []
+
+        - name: "Ingest PrimeKG entities"
+          type: "python_script"
+          script: "scripts/primeg_ingest.py"
+          params:
+            sources: ["primekg_entities.csv"]
+          depends_on: ["Setup Neo4j graph schema"]
+
+      status: "deferred (needs manual data download)"
+      duration_estimate: "30 min"
+
+    # ─────────────────────────────────────────────────────────────
+    # Phase 6: Vector Embeddings for RAG
+    # ─────────────────────────────────────────────────────────────
+    qdrant_embeddings:
+      name: "Vector Embeddings for Semantic Search"
+      description: |
+        Generate and load BGE-M3 embeddings into Qdrant for:
+        - ICD-10-TM codes (semantic matching)
+        - Guidelines (document search)
+        - Clinical tools (capability discovery)
+
+      collections:
+        - name: "icd10-th"
+          description: "ICD-10-TM with Thai + English bilingual embeddings"
+          model: "bge-m3"
+          size: 15376
+          depends_on: ["Phase 1: ICD-10-TM Thai Clinical Coding"]
+
+        - name: "clinical-guidelines"
+          description: "Medical guideline snippets with semantic search"
+          model: "bge-m3"
+          size: "TBD (after full-text ingest)"
+          depends_on: ["Phase 4: Medical Guidelines & Protocols"]
+
+      status: "partially ready (ICD-10 ready, guidelines deferred)"
+      duration_estimate: "20 min"
+
+  execution_order:
+    - icd10_foundation        # Must be first (schema dependency)
+    - clinical_calculators    # Independent
+    - drug_reference          # Independent
+    - clinical_guidelines     # Independent
+    - primeg_graph            # Optional, requires manual data
+    - qdrant_embeddings       # Depends on earlier phases
+
+  estimated_total_time: "~60 minutes (excluding manual data downloads)"
+
+  post_ingest_verification:
+    - "SELECT COUNT(*) FROM icd10_codes WHERE tenant_id IS NULL"
+    - "SELECT COUNT(*) FROM data_sources WHERE tenant_id='asgard_medical' AND source_type='clinical_calculator'"
+    - "SELECT COUNT(*) FROM clinical_guidelines WHERE tenant_id='asgard_medical'"
+    - "SELECT * FROM qdrant_collections WHERE name LIKE 'icd10%' OR name LIKE 'clinical%'"

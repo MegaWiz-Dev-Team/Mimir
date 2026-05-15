@@ -10,6 +10,7 @@ use opentelemetry::global;
 use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
 
 use mimir_core_ai::middleware::request_id::request_id_middleware;
+use mimir_core_ai::middleware::tenant::tenant_auth_middleware;
 use mimir_core_ai::services::cron;
 use mimir_core_ai::services::db;
 use ro_ai_bridge::config::Config;
@@ -34,6 +35,7 @@ use ro_ai_bridge::routes::icd10::icd10_routes;
 use ro_ai_bridge::routes::knowledge::knowledge_routes;
 use ro_ai_bridge::routes::rag_benchmark::rag_benchmark_routes;
 use ro_ai_bridge::routes::evaluations_ext::evaluations_ext_routes;
+use ro_ai_bridge::routes::ocr_annotation::ocr_annotation_routes;
 use ro_ai_bridge::routes::feedback::feedback_routes;
 use ro_ai_bridge::routes::assistant::assistant_routes;
 use ro_ai_bridge::routes::graph::graph_routes;
@@ -184,7 +186,8 @@ async fn main() {
         .nest("/api/v1/agents", agents_routes())
         .nest("/api/v1/agents", chat_routes())
         .nest("/api/v1/conversations", conversations_routes())
-        .nest("/api/v1/evaluations", evaluations_ext_routes())
+        .nest("/api/v1/evaluations", evaluations_ext_routes().layer(middleware::from_fn(tenant_auth_middleware)))
+        .nest("/api/v1/ocr-annotation", ocr_annotation_routes().layer(middleware::from_fn(tenant_auth_middleware)))
         .nest("/api/v1/rag-eval", rag_eval_routes())
         .nest("/api/v1/settings", budget_settings_routes())
         .merge(budget_usage_routes())

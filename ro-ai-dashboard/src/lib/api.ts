@@ -4,17 +4,24 @@ import Cookies from "js-cookie";
 export const API_BASE_URL = (() => {
     const defaultUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:30000/api";
     if (typeof window !== "undefined") {
-        // Use Ingress route for Asgard environment
+        // Always use localhost:30000 when running locally via port-forward
+        // (matches kubectl port-forward setup)
+        if (window.location.hostname === "localhost") {
+            return `http://localhost:30000/api/v1`;
+        }
+
+        // For asgard.internal, use relative path to avoid mixed content
+        // (browser will use same protocol as page)
         if (window.location.hostname.includes("asgard.internal")) {
-            return `${window.location.protocol}//api.asgard.internal/api/v1`;
+            return `/api/v1`;
         }
 
         // If the build bound to localhost, but the user is accessing via an external IP/Domain
         if ((defaultUrl.includes("localhost") || defaultUrl.includes("127.0.0.1")) &&
              window.location.hostname !== "localhost" &&
              window.location.hostname !== "127.0.0.1") {
-            // Port 30000 is our standardized K3s NodePort for the API
-            return `${window.location.protocol}//${window.location.hostname}:30000/api/v1`;
+            // For remote access via IP/domain, use HTTP (NodePort 30000)
+            return `http://${window.location.hostname}:30000/api/v1`;
         }
     }
     return defaultUrl + "/v1";

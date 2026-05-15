@@ -1,11 +1,11 @@
 export const VERSION = {
-  version: "2026-05-16-v2.3.10",
+  version: "2026-05-16-v2.3.11",
   buildDate: new Date().toISOString(),
-  features: ["OCR-Benchmark", "Confidence-Display", "Menu-Reorganized", "Tenant-Config", "Tenant-Auth", "Eval-All-Types"],
+  features: ["OCR-Benchmark", "Confidence-Display", "Menu-Reorganized", "Tenant-Config", "Tenant-Auth", "Eval-All-Types", "OCR-Annotation"],
   components: {
-    mimir: "2.3.0",
-    dashboard: "2.3.0",
-    api: "0.3.0"
+    mimir: "2.3.1",
+    dashboard: "2.3.1",
+    api: "0.3.1"
   }
 };
 
