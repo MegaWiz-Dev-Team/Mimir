@@ -10,12 +10,10 @@ import {
     searchGraphEntities,
     fetchEntityNeighbors,
     findGraphPaths,
-    fetchExtractionRuns,
     GraphStats,
     GraphEntity,
     VisualizationNode,
     VisualizationEdge,
-    ExtractionRun,
 } from "@/lib/api";
 import {
     Search,
@@ -33,7 +31,6 @@ import {
 
 // Entity type color map (matches backend)
 const ENTITY_COLORS: Record<string, string> = {
-    // Tenant entity types
     Person: "#4A90D9",
     Organization: "#27AE60",
     Location: "#E67E22",
@@ -44,21 +41,8 @@ const ENTITY_COLORS: Record<string, string> = {
     Symptom: "#E91E63",
     Item: "#00BCD4",
     Monster: "#795548",
-    // PrimeKG global types
-    Disease: "#C0392B",
-    GeneProtein: "#2980B9",
-    BiologicalProcess: "#27AE60",
-    Pathway: "#16A085",
-    Anatomy: "#8E44AD",
-    MolecularFunction: "#D4AC0D",
-    CellularComponent: "#CA6F1E",
-    EffectPhenotype: "#CB4335",
-    Exposure: "#7F8C8D",
     Other: "#95A5A6",
 };
-
-const isPrimeKG = (entity: { tenant_id?: string | null; source_id?: number }) =>
-    entity.tenant_id === null || entity.tenant_id === "" || entity.source_id === undefined;
 
 export default function GraphPage() {
     const [stats, setStats] = useState<GraphStats | null>(null);
@@ -66,7 +50,6 @@ export default function GraphPage() {
     const [edges, setEdges] = useState<VisualizationEdge[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [extractionRuns, setExtractionRuns] = useState<ExtractionRun[]>([]);
 
     // Search & filter
     const [searchQuery, setSearchQuery] = useState("");
@@ -92,15 +75,13 @@ export default function GraphPage() {
         setLoading(true);
         setError(null);
         try {
-            const [statsData, vizData, runsData] = await Promise.all([
+            const [statsData, vizData] = await Promise.all([
                 fetchGraphStats(),
                 fetchGraphVisualization({ limit: nodeLimit, type: filterType || undefined }),
-                fetchExtractionRuns().catch(() => ({ runs: [] })), // Graceful degradation if endpoint missing
             ]);
             setStats(statsData);
             setNodes(vizData.nodes);
             setEdges(vizData.edges);
-            setExtractionRuns(runsData.runs);
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -265,9 +246,12 @@ export default function GraphPage() {
 
         setSelectedNode(clicked);
         if (clicked) {
-            fetchEntityNeighbors(clicked.id, 1)
-                .then((data) => setSelectedNeighbors({ nodes: data.nodes, edges: data.edges }))
-                .catch(() => setSelectedNeighbors(null));
+            const entityId = parseInt(clicked.id);
+            if (!isNaN(entityId)) {
+                fetchEntityNeighbors(entityId, 1)
+                    .then((data) => setSelectedNeighbors({ nodes: data.nodes, edges: data.edges }))
+                    .catch(() => setSelectedNeighbors(null));
+            }
         } else {
             setSelectedNeighbors(null);
         }
@@ -394,16 +378,11 @@ export default function GraphPage() {
                                             key={entity.id}
                                             className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
                                         >
-                                            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: entity.color || ENTITY_COLORS[entity.entity_type] || "#95A5A6" }} />
+                                            <div className="w-2 h-2 rounded-full" style={{ background: entity.color || ENTITY_COLORS[entity.entity_type] || "#95A5A6" }} />
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-xs font-medium truncate">{entity.name}</div>
                                                 <div className="text-xs text-muted-foreground">{entity.entity_type}</div>
                                             </div>
-                                            {isPrimeKG(entity) && (
-                                                <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                                    PrimeKG
-                                                </span>
-                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -520,12 +499,9 @@ export default function GraphPage() {
                                 <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
                                     <Share2 className="w-16 h-16 mb-4 opacity-20" />
                                     <h3 className="text-lg font-medium mb-2">No Knowledge Graph Data</h3>
-                                    <p className="text-sm text-center max-w-md mb-6">
-                                        Your knowledge graph is currently empty. To populate it, you need to trigger entity extraction from your data sources.
+                                    <p className="text-sm text-center max-w-md">
+                                        Your knowledge graph is empty. Trigger entity extraction from your data sources to populate it.
                                     </p>
-                                    <Button onClick={() => window.location.href = '/sources'} variant="default">
-                                        Go to Sources to Extract
-                                    </Button>
                                 </div>
                             ) : loading ? (
                                 <div className="flex items-center justify-center py-24">
@@ -631,54 +607,6 @@ export default function GraphPage() {
                             </div>
                         </CardContent>
                     </Card>
-                    {/* Extraction Runs History */}
-                    {extractionRuns.length > 0 && (
-                        <Card className="mt-6">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-sm flex items-center gap-2">
-                                    <Database className="w-4 h-4" /> Extraction History
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left whitespace-nowrap">
-                                        <thead className="text-xs text-muted-foreground bg-muted/50 uppercase">
-                                            <tr>
-                                                <th className="px-4 py-2 rounded-tl-lg">ID</th>
-                                                <th className="px-4 py-2">Source ID</th>
-                                                <th className="px-4 py-2">Status</th>
-                                                <th className="px-4 py-2">Entities</th>
-                                                <th className="px-4 py-2">Relations</th>
-                                                <th className="px-4 py-2 rounded-tr-lg">Started</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {extractionRuns.map((run) => (
-                                                <tr key={run.id} className="border-b last:border-0 hover:bg-muted/50 border-gray-100 dark:border-zinc-800">
-                                                    <td className="px-4 py-2 font-medium">#{run.id}</td>
-                                                    <td className="px-4 py-2 text-muted-foreground">{run.source_id}</td>
-                                                    <td className="px-4 py-2">
-                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                            run.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                                                            run.status === "failed" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                                                            "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                                        }`}>
-                                                            {run.status} {run.status === "running" && <Loader2 className="w-3 h-3 inline ml-1 animate-spin" />}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-2 text-purple-600 dark:text-purple-400">+{run.entities_found}</td>
-                                                    <td className="px-4 py-2 text-blue-600 dark:text-blue-400">+{run.relations_found}</td>
-                                                    <td className="px-4 py-2 text-muted-foreground text-xs">
-                                                        {new Date(run.started_at).toLocaleString()}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
                 </div>
             </div>
         </div>

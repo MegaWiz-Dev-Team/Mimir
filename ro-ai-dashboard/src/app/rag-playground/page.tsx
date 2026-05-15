@@ -241,7 +241,7 @@ export default function RAGPlaygroundPage() {
         };
       }
 
-      let endpoint = `${apiOrigin}/api/search`;
+      let endpoint = `${apiOrigin}/api/v1/search`;
       let requestBody: any = body;
 
       if (mode === "swarm") {
@@ -296,7 +296,7 @@ export default function RAGPlaygroundPage() {
     setOptimizing(true);
 
     try {
-      const resp = await authFetch(`${apiOrigin}/api/search/optimize`, {
+      const resp = await authFetch(`${apiOrigin}/api/v1/search/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
