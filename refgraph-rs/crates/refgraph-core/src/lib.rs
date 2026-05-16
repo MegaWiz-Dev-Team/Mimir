@@ -1,7 +1,7 @@
-//! RefGraph: Multi-domain data consolidation engine for Asgard RAG
+//! RefGraph: Multi-domain semantic entity graph consolidation engine
 //!
-//! Consolidates data from multiple sources into a semantic graph,
-//! with compression, deduplication, and manifest-based domain rules.
+//! Consolidates data from multiple sources into a semantic entity graph,
+//! with deduplication, semantic consolidation, and manifest-based domain configuration.
 
 pub mod error;
 pub mod graph;

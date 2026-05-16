@@ -1,9 +1,9 @@
-//! Mimir output formatter for RAG ingestion
+//! RefGraph output formatter for RAG ingestion
 
 use crate::{error::Result, graph::SemanticGraph, manifest::ManifestConfig};
 use serde::{Deserialize, Serialize};
 
-/// Output format for Mimir RAG ingestion
+/// Output format for RefGraph
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefGraphOutput {
     /// Consolidated entities ready for embedding
@@ -16,7 +16,7 @@ pub struct RefGraphOutput {
     pub metadata: ConsolidationMetadata,
 }
 
-/// Entity formatted for Mimir
+/// Entity formatted for RefGraph
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefGraphEntity {
     pub id: String,
