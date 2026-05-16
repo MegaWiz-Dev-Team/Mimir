@@ -1,0 +1,36 @@
+# Insurance Product Knowledge Ingestion Pipeline (S1 + S2)
+
+# Core dependencies
+pydantic>=2.0.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# Testing
+pytest>=7.0.0
+pytest-mock>=3.10.0
+pytest-cov>=4.0.0
+
+# Data processing
+python-dotenv>=1.0.0
+
+# NER & entity extraction (compatible with Python 3.9)
+spacy>=3.0.0,<3.5.0
+
+# Knowledge graph
+neo4j>=5.0.0
+
+# Vector DB (compatible with Python 3.9)
+qdrant-client>=1.7.0,<2.0.0
+
+# S2: Thai language support
+pythainlp>=2.3.0
+deepcut>=0.6.0
+
+# S2: Document parsing (PDF, DOCX)
+pypdf>=3.10.0
+python-docx>=0.8.11
+
+# S2: Image processing & OCR
+Pillow>=9.0.0
+opencv-python>=4.5.0
+pytesseract>=0.3.10
