@@ -597,26 +597,53 @@ Tomorrow:
 
 ---
 
-## May 28 → June 2 (Bridge)
+## May 28 → June 2 (Bridge: Build Orchestration)
 
-After May 28:
+**Architecture Decision: Option A (Sequential Pipeline)**
+
+RefGraph → JSON → Mimir (clean separation, reusable for S2/S3/S4)
+
+After May 28 RefGraph complete:
 ```
-May 29-June 1 (Rest + small tasks):
-  ☐ Review RefGraph for any last fixes
-  ☐ Prepare real data files (Prudential, AXA, Thai Health)
-  ☐ Create test queries (10 standardized searches)
-  ☐ Set up Grafana dashboard refresh
+May 29 (Day 9, 2-3 hours): Build S1 Orchestration Pipeline
+  Morning:
+    ☐ Design: RefGraph CLI → consolidated.json → Mimir API
+    ☐ Review Mimir API /ingest endpoint format
+    ☐ Plan error handling (what if one step fails?)
+  
+  Afternoon:
+    ☐ Write s1_consolidate_and_ingest.sh (bash script)
+    ☐ Test with sample data (10 chunks)
+    ☐ Verify JSON output format
+    ☐ Test curl to Mimir API (/api/ingest)
+    ☐ Commit: "feat: S1 orchestration pipeline (RefGraph → Mimir)"
+
+May 30-June 1 (Data Prep + Validation):
+  ☐ Load real insurance data (Prudential, AXA, Thai Health samples)
+  ☐ Test end-to-end: script runs without errors
+  ☐ Verify Mimir ingestion completes
+  ☐ Create 10 standardized test queries
+  ☐ Create Hit Rate@3 validation script
 
 June 2 (S1 Execution Begins):
-  ☐ Load real data into RefGraph
-  ☐ Run consolidation pipeline
-  ☐ Ingest results into Mimir
-  ☐ Test Hit Rate@3 ≥ 75%
+  ☐ Run: s1_consolidate_and_ingest.sh prudential_raw_data.jsonl
+    └─ RefGraph consolidates (2 min)
+    └─ Outputs: consolidated.json (500+ entities)
+    └─ Mimir API ingests + indexes (1 min)
+  ☐ Run Hit Rate@3 validation queries
+  ☐ Validate ≥ 75% success rate
 
 June 12 (Go/No-Go):
-  ☐ Decision based on Hit Rate results
-  ☐ If <50% → activate Plan B (switch to Typhoon)
+  ☐ Final decision based on Hit Rate results
+  ☐ If <50% → activate Plan B (switch to Typhoon embedding model)
 ```
+
+**Why Option A (Sequential Pipeline):**
+- ✅ RefGraph reusable for S2 (medical), S3 (legal), S4 (finance)
+- ✅ Clean separation: RefGraph = consolidation, Mimir = ingestion
+- ✅ Easy to debug: intermediate JSON file visible
+- ✅ Fast to build: 2-3 hour script May 29
+- ✅ Deployment simple: binary + script
 
 ---
 
