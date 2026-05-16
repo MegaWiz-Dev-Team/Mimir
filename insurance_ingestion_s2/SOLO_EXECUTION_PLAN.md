@@ -253,36 +253,150 @@ Success: <2 seconds for 1000 chunks, <500MB memory
 
 ---
 
-### Day 8 (May 27-28): Documentation & Final Review
-**Goal:** Production-ready, documented, verified
+### Day 8 (May 27-28): Heimdall Integration + Final Review
+**Goal:** LLM-enhanced extraction + production-ready release
 
 ```
-May 27 (Full day):
+May 27 Morning (2-3 hours):
+  ☐ Integrate Heimdall (LLM gateway):
+    - Add Heimdall endpoint to manifest config
+    - Create extract_with_heimdall() method
+    - Use Heimdall to enhance entity confidence scoring
+    - Write 5 integration tests with Heimdall
+
+May 27 Afternoon (2 hours):
+  ☐ Integrate Sága/Laminar (if needed for any TTS):
+    - Document Sága endpoints
+    - Plan for future enhancement (optional May 28)
   ☐ Code review (all 9 modules):
     - Check error handling
     - Verify test coverage (aim for 83%)
     - Look for clippy warnings
-  ☐ Update CLAUDE.md with test examples:
-    - Add 5 real test cases
-    - Document common patterns
-    - Explain TDD workflow used
 
-May 28 Morning (2 hours):
+May 28 Morning (2-3 hours):
   ☐ Final cleanup:
     - cargo fmt (format code)
     - cargo clippy (lint)
     - cargo test (all tests pass)
-  ☐ Generate coverage report:
-    cargo tarpaulin --out Html
+  ☐ Final Heimdall integration test:
+    - Test extract + Heimdall enhancement pipeline
+    - Verify confidence improvements
+    - Measure latency (should be <500ms per entity)
 
 May 28 Afternoon (1-2 hours):
-  ☐ Final git commit: "docs: production release v1.0.0"
+  ☐ Final git commit: "feat: Heimdall LLM integration + docs: production release v1.0.0"
   ☐ Tag release: git tag v1.0.0
+  ☐ Generate coverage report: cargo tarpaulin --out Html
   ☐ Verify all tests still pass
   ☐ Create RELEASE_NOTES.md
 
-Success: All tests passing, zero warnings, 83% coverage
+Success: Heimdall integrated, all tests passing, zero warnings, 83% coverage
 ```
+
+---
+
+## Heimdall Integration (May 27-28)
+
+### What is Heimdall?
+
+Heimdall is Asgard's LLM Gateway. It provides:
+- Text classification & understanding (via local MLX models)
+- Entity confidence enhancement (improve extraction confidence)
+- Semantic validation (verify extracted entities make sense)
+- Support for local (fast, free) + cloud (more capable) LLMs
+
+### How to Integrate into extract.rs
+
+**Step 1: Add Heimdall config to manifest.rs**
+```rust
+pub struct ManifestConfig {
+    // ... existing fields ...
+    pub heimdall_enabled: bool,        // Enable LLM enhancement
+    pub heimdall_uri: String,          // Heimdall endpoint (http://localhost:8001)
+    pub heimdall_model: String,        // Model to use (bge-m3, typhoon, etc)
+    pub confidence_threshold: f32,     // Min confidence (0.0-1.0)
+}
+```
+
+**Step 2: Add Heimdall client to extract.rs**
+```rust
+impl EntityExtractor {
+    async fn enhance_with_heimdall(
+        &self,
+        entity: &Entity,
+        heimdall_uri: &str,
+    ) -> Result<Entity> {
+        // Call Heimdall to validate entity + boost confidence
+        let response = reqwest::Client::new()
+            .post(format!("{}/api/classify", heimdall_uri))
+            .json(&entity.text)
+            .send()
+            .await?;
+        
+        let confidence_boost = response.json::<f32>().await?;
+        Ok(Entity {
+            confidence: (entity.confidence + confidence_boost) / 2.0,
+            ..entity.clone()
+        })
+    }
+}
+```
+
+**Step 3: Update extract() method**
+```rust
+pub async fn extract(&self, text: &str) -> Result<Vec<Entity>> {
+    // Pattern-based extraction (fast)
+    let mut entities = self.extract_patterns(text)?;
+    
+    // Optional: Heimdall enhancement (if enabled + available)
+    if self.config.heimdall_enabled {
+        for entity in &mut entities {
+            if let Ok(enhanced) = self.enhance_with_heimdall(entity, &self.config.heimdall_uri).await {
+                *entity = enhanced;
+            }
+        }
+    }
+    
+    Ok(entities)
+}
+```
+
+**Step 4: Test with Heimdall**
+```rust
+#[tokio::test]
+async fn test_extract_with_heimdall_enhancement() {
+    let mut config = ManifestConfig::insurance();
+    config.heimdall_enabled = true;
+    config.heimdall_uri = "http://localhost:8001".to_string();
+    
+    let extractor = EntityExtractor::new_with_config(config);
+    let entities = extractor.extract("Critical Illness coverage").await.unwrap();
+    
+    // Confidence should be boosted by Heimdall
+    assert!(entities[0].confidence > 0.85);
+}
+```
+
+### Heimdall Benefits
+
+- ✅ Higher confidence scores (semantic validation)
+- ✅ Better handling of domain language (insurance terms)
+- ✅ Can fall back to pattern-based if Heimdall unavailable
+- ✅ No blocking dependency (if Heimdall down, still works)
+- ✅ Improves Hit Rate@3 (better entity quality)
+
+### Timeline
+
+- **May 19-27:** Pattern-based extraction (critical path)
+- **May 27 Optional:** Add Heimdall enhancement (if time allows)
+- **May 28 Optional:** Sága/Laminar integration (future enhancement)
+
+### Notes
+
+- Heimdall is accessed via HTTP, runs on port 8001
+- Can use local models (free, fast) or cloud (more capable)
+- Falls back gracefully if Heimdall unavailable
+- May add 50-200ms latency per entity (profile if concerned)
 
 ---
 
