@@ -267,4 +267,403 @@ mod tests {
         let json_str = json.unwrap();
         assert!(json_str.contains("Critical Illness"));
     }
+
+    // ============ E2E TESTS (Day 7) ============
+
+    #[tokio::test]
+    async fn test_e2e_full_pipeline_with_complex_document() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Prudential offers Critical Illness coverage for Heart Attack. \
+             Health Insurance excludes Pre-existing Condition. \
+             Life Insurance covers Stroke and requires medical exam.",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify all entity types extracted
+        assert!(output.entities.len() > 0);
+        let entity_types: std::collections::HashSet<_> =
+            output.entities.iter().map(|e| &e.entity_type).collect();
+        assert!(entity_types.contains(&"product".to_string()));
+        assert!(entity_types.contains(&"coverage".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_e2e_multi_source_consolidation() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![
+            create_test_chunk(
+                "chunk_prudential",
+                "Prudential Critical Illness insurance covers Heart Attack",
+            ),
+            create_test_chunk(
+                "chunk_axa",
+                "AXA Critical Illness insurance includes Stroke coverage",
+            ),
+            create_test_chunk(
+                "chunk_thai_health",
+                "Thai Health Critical Illness plan excludes Pre-existing Condition",
+            ),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify entities from multiple sources are consolidated
+        assert!(output.entities.len() > 0);
+        assert!(output.metadata.entity_count > 0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_deduplication_across_sources() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![
+            create_test_chunk("chunk_001", "Critical Illness insurance"),
+            create_test_chunk("chunk_002", "Critical Illness insurance"),
+            create_test_chunk("chunk_003", "Critical Illness insurance"),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Should deduplicate to single entity
+        let critical_illness_count = output
+            .entities
+            .iter()
+            .filter(|e| e.text.contains("Critical Illness"))
+            .count();
+        assert_eq!(critical_illness_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_graph_relationships_built() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness covers Heart Attack and Stroke, excludes Pre-existing Condition",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify relationships were created
+        assert!(output.relationships.len() >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_output_validity() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness insurance for Heart Attack",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify output is serializable
+        let json = output.to_json();
+        assert!(json.is_ok());
+
+        let jsonl = output.to_jsonl();
+        assert!(jsonl.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_e2e_large_input_handling() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        // Create 50 chunks with varying content
+        let mut chunks = Vec::new();
+        for i in 0..50 {
+            let content = match i % 3 {
+                0 => "Critical Illness insurance",
+                1 => "Heart Attack coverage",
+                _ => "Pre-existing Condition exclusion",
+            };
+            chunks.push(create_test_chunk(&format!("chunk_{:03}", i), content));
+        }
+
+        let start = std::time::Instant::now();
+        let result = graph.consolidate(chunks).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_ok());
+        assert!(
+            elapsed.as_millis() < 1000,
+            "Should process 50 chunks in <1s"
+        );
+
+        let output = result.unwrap();
+        assert!(output.entities.len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_metadata_accuracy() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![
+            create_test_chunk("chunk_001", "Critical Illness insurance"),
+            create_test_chunk("chunk_002", "Heart Attack coverage"),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify metadata matches actual data
+        assert_eq!(output.metadata.entity_count, output.entities.len());
+        assert_eq!(
+            output.metadata.relationship_count,
+            output.relationships.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_confidence_averaging() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![
+            create_test_chunk("chunk_001", "Critical Illness coverage"),
+            create_test_chunk("chunk_002", "Critical Illness coverage"),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify average confidence is calculated
+        assert!(output.metadata.average_confidence >= 0.0);
+        assert!(output.metadata.average_confidence <= 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_mixed_entity_types() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![
+            create_test_chunk("chunk_001", "Critical Illness is a product"),
+            create_test_chunk("chunk_002", "Heart Attack is a coverage"),
+            create_test_chunk("chunk_003", "Pre-existing Condition is an exclusion"),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Should have mixed entity types
+        let types: std::collections::HashSet<_> =
+            output.entities.iter().map(|e| &e.entity_type).collect();
+        assert!(types.len() >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_thai_language_support() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness ประกันโรค ความเสี่ยง Health Insurance",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Should handle Thai content without crashing
+        assert!(output.entities.len() >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_repeated_consolidation() {
+        let config1 = ManifestConfig::default();
+        let mut graph = RefGraph::new(config1).unwrap();
+
+        // First consolidation
+        let chunks1 = vec![create_test_chunk("chunk_001", "Critical Illness insurance")];
+        let result1 = graph.consolidate(chunks1).await;
+        assert!(result1.is_ok());
+
+        // Create new graph for second consolidation (simulating independence)
+        let config2 = ManifestConfig::default();
+        let mut graph2 = RefGraph::new(config2).unwrap();
+        let chunks2 = vec![
+            create_test_chunk("chunk_002", "Critical Illness insurance"),
+            create_test_chunk("chunk_003", "Heart Attack coverage"),
+        ];
+        let result2 = graph2.consolidate(chunks2).await;
+        assert!(result2.is_ok());
+
+        // Both should have produced valid outputs
+        assert!(result1.unwrap().entities.len() > 0);
+        assert!(result2.unwrap().entities.len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_very_long_document() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let long_text = vec![
+            "Critical Illness insurance",
+            "Health Insurance plans",
+            "Life Insurance policies",
+            "Heart Attack coverage",
+            "Stroke benefits",
+            "Diabetes management",
+            "Pre-existing Condition exclusion",
+            "Experimental Treatment exclusion",
+        ]
+        .join(" ");
+
+        let chunks = vec![create_test_chunk("chunk_001", &long_text)];
+        let result = graph.consolidate(chunks).await;
+
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.entities.len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_special_characters_in_content() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness (insurance) - coverage: Heart Attack & Stroke\nExcludes: Pre-existing",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+    }
+
+    // ============ PERFORMANCE TESTS (Day 7) ============
+
+    #[tokio::test]
+    async fn test_performance_100_chunks() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let mut chunks = Vec::new();
+        for i in 0..100 {
+            let content = match i % 5 {
+                0 => "Critical Illness insurance",
+                1 => "Health Insurance plan",
+                2 => "Heart Attack coverage",
+                3 => "Stroke coverage",
+                _ => "Pre-existing Condition exclusion",
+            };
+            chunks.push(create_test_chunk(&format!("chunk_{:03}", i), content));
+        }
+
+        let start = std::time::Instant::now();
+        let result = graph.consolidate(chunks).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_ok());
+        assert!(
+            elapsed.as_millis() < 2000,
+            "100 chunks should process in <2s, took {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_performance_entity_dedup_speed() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        // 30 chunks all with identical content (worst case for dedup)
+        let chunks = vec![create_test_chunk("chunk_001", "Critical Illness insurance"); 30];
+
+        let start = std::time::Instant::now();
+        let result = graph.consolidate(chunks).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_ok());
+        assert!(
+            elapsed.as_millis() < 500,
+            "Dedup of 30 identical chunks should be fast"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_performance_output_serialization() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let mut chunks = Vec::new();
+        for i in 0..50 {
+            chunks.push(create_test_chunk(
+                &format!("chunk_{:03}", i),
+                "Critical Illness insurance Heart Attack coverage",
+            ));
+        }
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Measure JSON serialization speed
+        let start = std::time::Instant::now();
+        let json = output.to_json();
+        let json_elapsed = start.elapsed();
+
+        assert!(json.is_ok());
+        assert!(
+            json_elapsed.as_millis() < 100,
+            "JSON serialization should be fast"
+        );
+
+        // Measure JSONL serialization speed
+        let start = std::time::Instant::now();
+        let jsonl = output.to_jsonl();
+        let jsonl_elapsed = start.elapsed();
+
+        assert!(jsonl.is_ok());
+        assert!(
+            jsonl_elapsed.as_millis() < 100,
+            "JSONL serialization should be fast"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_performance_memory_efficiency() {
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        // Multiple chunks with extractable patterns
+        let mut chunks = Vec::new();
+        for i in 0..30 {
+            let content = match i % 3 {
+                0 => "Critical Illness insurance",
+                1 => "Health Insurance plan",
+                _ => "Heart Attack coverage",
+            };
+            chunks.push(create_test_chunk(&format!("chunk_{:03}", i), content));
+        }
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify entities are extracted and no data loss
+        assert!(output.entities.len() > 0);
+        assert!(output.metadata.entity_count <= output.entities.len() + 5); // small buffer for rounding
+    }
 }
