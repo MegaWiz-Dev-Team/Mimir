@@ -1,64 +1,63 @@
-[package]
-name = "refgraph"
-version = "0.1.0"
-edition = "2021"
-authors = ["Asgard Team <paripol@megawiz.co>"]
-description = "RefGraph: Multi-domain data consolidation engine for Asgard RAG"
-license = "AGPL-3.0-or-later"
-repository = "https://github.com/megawiz/Mimir"
+[workspace]
+members = [
+    "crates/refgraph-core",
+    "crates/refgraph-neo4j",
+    "crates/refgraph-domains",
+    "crates/refgraph-cli",
+]
+resolver = "2"
 
-[lib]
-name = "refgraph"
-path = "src/lib.rs"
+[workspace.dependencies]
+# Async runtime
+tokio          = { version = "1.49", features = ["full"] }
 
-[[bin]]
-name = "refgraph"
-path = "src/main.rs"
-
-[dependencies]
-# Core
-tokio = { version = "1.35", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-log = "0.4"
-env_logger = "0.11"
+# Serialization
+serde          = { version = "1.0", features = ["derive"] }
+serde_json     = "1.0"
+toml           = "1.1"
 
 # Database
-neo4rs = "0.8"
+neo4rs         = "0.8"
 
-# Algorithms & Data Structures
-itertools = "0.12"
-hashbrown = "0.14"
+# Traits
+async-trait    = "0.1"
 
-# HTTP & API
-reqwest = { version = "0.11", features = ["json"] }
-hyper = { version = "0.14", features = ["full"] }
-axum = "0.7"
+# Error handling
+thiserror      = "2.0"
+anyhow         = "1.0"
 
-# Text Processing
+# HTTP & networking
+reqwest        = { version = "0.13", features = ["json", "rustls-tls"] }
+url            = "2.5"
+
+# Text processing
 unicode-normalization = "0.1"
-regex = "1.10"
+regex          = "1.10"
+scraper        = "0.27"
 
-# Error Handling
-thiserror = "1.0"
-anyhow = "1.0"
+# Logging
+tracing        = "0.1.44"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# Testing & Validation
-validator = { version = "0.16", features = ["derive"] }
-
-# Performance
-rayon = "1.7"
-parking_lot = "0.12"
+# Algorithms & data structures
+itertools      = "0.14"
+hashbrown      = "0.15"
+rayon          = "1.10"
 
 # Time
-chrono = { version = "0.4", features = ["serde"] }
+chrono         = { version = "0.4", features = ["serde"] }
+
+# IDs
+uuid           = { version = "1.23", features = ["v4", "serde"] }
+
+# Hashing
+sha2           = "0.10"
 
 # CLI
-clap = { version = "4.4", features = ["derive"] }
+clap           = { version = "4.6", features = ["derive"] }
 
-[dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.8"
+[workspace.lints.clippy]
+all = "warn"
 
 [profile.release]
 opt-level = 3

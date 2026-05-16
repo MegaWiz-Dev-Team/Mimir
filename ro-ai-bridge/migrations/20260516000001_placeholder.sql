@@ -1,0 +1,3 @@
+-- Placeholder migration for version compatibility
+-- This migration was previously recorded in the database
+-- but the actual migration file was missing

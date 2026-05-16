@@ -1,0 +1,20 @@
+[package]
+name = "refgraph-domains"
+version = "0.1.0"
+edition = "2021"
+description = "Domain type definitions for RefGraph (insurance, medical, legal, finance)"
+license = "AGPL-3.0-only OR LicenseRef-Commercial"
+authors = ["RefGraph Contributors"]
+repository = "https://github.com/refgraph-rs/refgraph"
+readme = "../../README.md"
+keywords = ["domains", "insurance", "medical", "legal", "finance"]
+categories = ["data-structures"]
+
+[dependencies]
+refgraph-core = { path = "../refgraph-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lib]
+name = "refgraph_domains"
+path = "src/lib.rs"
