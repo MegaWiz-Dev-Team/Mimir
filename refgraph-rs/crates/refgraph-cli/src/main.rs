@@ -24,8 +24,8 @@ macro_rules! log_debug {
 #[command(
     name = "RefGraph",
     version = "0.1.0",
-    author = "Asgard Team",
-    about = "Multi-domain data consolidation for Mimir RAG"
+    author = "RefGraph Contributors",
+    about = "Multi-domain semantic entity graph consolidation"
 )]
 struct Args {
     /// Domain (insurance, medical, legal, finance)
