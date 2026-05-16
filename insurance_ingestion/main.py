@@ -10,7 +10,6 @@ Usage:
 
 import sys
 import argparse
-import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -64,6 +63,11 @@ Examples:
         action="store_true",
         help="Suppress progress output",
     )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Use mock/synthetic results (Phase 5 testing without K8s)",
+    )
     return parser.parse_args()
 
 
@@ -72,6 +76,7 @@ def run_pipeline(
     config: PipelineConfig = None,
     skip_ingest: bool = False,
     quiet: bool = False,
+    mock_mode: bool = False,
 ) -> dict:
     """Execute pipeline phases.
 
@@ -146,7 +151,7 @@ def run_pipeline(
             logger5.info("=" * 70)
             logger5.info("PHASE 5: VALIDATE SEARCH QUALITY & ACCEPTANCE CRITERIA")
             logger5.info("=" * 70)
-            result5 = run_phase5(config, logger5)
+            result5 = run_phase5(config, logger5, mock_mode=mock_mode)
             results["phase_results"]["phase5"] = result5
 
             # Check fallback criteria
@@ -201,6 +206,7 @@ def main():
         config=config,
         skip_ingest=args.skip_ingest,
         quiet=args.quiet,
+        mock_mode=args.mock,
     )
 
     # Print results summary
