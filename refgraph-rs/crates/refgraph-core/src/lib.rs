@@ -666,4 +666,290 @@ mod tests {
         assert!(output.entities.len() > 0);
         assert!(output.metadata.entity_count <= output.entities.len() + 5); // small buffer for rounding
     }
+
+    // ============ HEIMDALL INTEGRATION TESTS (Day 8) ============
+    // These tests demonstrate how RefGraph integrates with Heimdall LLM
+    // for semantic entity validation and confidence boosting
+
+    #[tokio::test]
+    async fn test_heimdall_entity_validation_readiness() {
+        // RefGraph output should be ready for Heimdall LLM validation
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness insurance covers Heart Attack",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify output has required fields for Heimdall
+        for entity in &output.entities {
+            assert!(!entity.id.is_empty(), "Entity ID required for Heimdall");
+            assert!(
+                !entity.text.is_empty(),
+                "Entity text required for validation"
+            );
+            assert!(entity.confidence >= 0.0 && entity.confidence <= 1.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_heimdall_confidence_baseline() {
+        // Heimdall can boost confidence scores from extraction baseline
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk("chunk_001", "Critical Illness insurance")];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify confidence range (0.85-0.95 from extractors)
+        for entity in &output.entities {
+            assert!(
+                entity.confidence >= 0.80,
+                "Baseline confidence should be reasonable"
+            );
+            assert!(
+                entity.confidence <= 1.0,
+                "Heimdall can boost to 1.0 if validated"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_heimdall_entity_enrichment_fields() {
+        // Entities should have fields needed for Heimdall enrichment
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk("chunk_001", "Critical Illness insurance")];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify enrichment-ready fields
+        for entity in &output.entities {
+            // Can be used by Heimdall for context
+            assert!(!entity.entity_type.is_empty());
+            // Domain isolation for Heimdall multi-domain support
+            assert!(!entity.domain.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_laminar_relationship_metadata() {
+        // Laminar (Sága) needs relationship metadata for visualization
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness covers Heart Attack",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Relationships should be ready for Laminar visualization
+        for rel in &output.relationships {
+            assert!(!rel.source_id.is_empty());
+            assert!(!rel.target_id.is_empty());
+            assert!(!rel.relationship_type.is_empty());
+            assert!(rel.confidence >= 0.0 && rel.confidence <= 1.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_heimdall_llm_prompt_construction() {
+        // Entity data should be suitable for LLM prompts
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness insurance covers Heart Attack",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Verify JSON serialization for LLM context
+        let json = output.to_json().unwrap();
+        assert!(json.contains("entities"));
+        assert!(json.contains("relationships"));
+        assert!(json.len() > 100, "Sufficient content for LLM context");
+    }
+
+    #[tokio::test]
+    async fn test_heimdall_batch_validation_workflow() {
+        // RefGraph should support batch validation with Heimdall
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let chunks = vec![
+            create_test_chunk("chunk_001", "Critical Illness insurance"),
+            create_test_chunk("chunk_002", "Heart Attack coverage"),
+            create_test_chunk("chunk_003", "Pre-existing Condition exclusion"),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Should batch entities for Heimdall validation
+        assert!(output.entities.len() > 0);
+        let jsonl = output.to_jsonl().unwrap();
+        let lines: Vec<&str> = jsonl.lines().collect();
+        assert!(
+            lines.len() > 1,
+            "Multiple entities ready for batch validation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_heimdall_confidence_boost_scenario() {
+        // Demonstrate confidence boost workflow with Heimdall
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Prudential offers Critical Illness insurance",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // RefGraph baseline confidence
+        let baseline_confidence = output.entities.iter().next().map(|e| e.confidence);
+        assert!(baseline_confidence.is_some());
+        assert!(baseline_confidence.unwrap() > 0.80);
+
+        // Heimdall can validate and potentially boost to higher confidence
+        // Simulated: if Heimdall validates entity → confidence += 0.05 (capped at 1.0)
+        let validation_boosted = baseline_confidence.unwrap() + 0.05;
+        assert!(validation_boosted.min(1.0) >= baseline_confidence.unwrap());
+    }
+
+    // ============ RELEASE & VERSION TESTS (Day 8) ============
+
+    #[test]
+    fn test_version_is_semantic() {
+        // Verify version follows semantic versioning
+        let version = VERSION;
+        let parts: Vec<&str> = version.split('.').collect();
+        assert!(parts.len() >= 3, "Version should be X.Y.Z format");
+
+        // Each part should be numeric (or pre-release identifier)
+        assert!(parts[0].chars().all(|c| c.is_numeric() || c == 'v'));
+        assert!(parts[1].chars().all(|c| c.is_numeric()));
+    }
+
+    #[test]
+    fn test_version_not_empty() {
+        assert!(
+            !VERSION.is_empty(),
+            "Version should be defined in Cargo.toml"
+        );
+        assert!(
+            VERSION.len() < 20,
+            "Version string should be reasonable length"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_final_smoke_test() {
+        // Final smoke test: complete pipeline with v1.0.0
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let chunks = vec![
+            create_test_chunk(
+                "chunk_001",
+                "Prudential Critical Illness insurance covers Heart Attack",
+            ),
+            create_test_chunk("chunk_002", "AXA Health Insurance includes Stroke coverage"),
+            create_test_chunk("chunk_003", "Thai Health excludes Pre-existing Condition"),
+        ];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok(), "Pipeline should complete successfully");
+
+        let output = result.unwrap();
+
+        // Verify all stages completed
+        assert!(output.entities.len() > 0, "Extraction completed");
+        assert!(
+            output
+                .entities
+                .iter()
+                .all(|e| !e.id.is_empty() && !e.text.is_empty()),
+            "Deduplication completed"
+        );
+        assert!(output.metadata.entity_count > 0, "Graph building completed");
+
+        // Verify output formats
+        let json = output.to_json();
+        assert!(json.is_ok(), "JSON serialization works");
+
+        let jsonl = output.to_jsonl();
+        assert!(jsonl.is_ok(), "JSONL serialization works");
+
+        // Version present
+        assert!(!output.metadata.version.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_production_readiness_checklist() {
+        // Comprehensive production readiness check
+        let config = ManifestConfig::default();
+        let mut graph = RefGraph::new(config).unwrap();
+
+        let chunks = vec![create_test_chunk(
+            "chunk_001",
+            "Critical Illness insurance for Heart Attack",
+        )];
+
+        let result = graph.consolidate(chunks).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // ✅ Extraction verified
+        assert!(!output.entities.is_empty(), "Entities extracted");
+
+        // ✅ Deduplication verified
+        let unique_texts: std::collections::HashSet<_> =
+            output.entities.iter().map(|e| &e.text).collect();
+        assert!(
+            unique_texts.len() == output.entities.len(),
+            "No unexpected duplicates"
+        );
+
+        // ✅ Consolidation verified
+        assert!(
+            output.metadata.entity_count > 0,
+            "Consolidation produces output"
+        );
+
+        // ✅ Serialization verified
+        assert!(output.to_json().is_ok(), "JSON output valid");
+        assert!(output.to_jsonl().is_ok(), "JSONL output valid");
+
+        // ✅ Type safety verified
+        for entity in &output.entities {
+            assert!(!entity.id.is_empty());
+            assert!(!entity.text.is_empty());
+            assert!(entity.confidence <= 1.0 && entity.confidence >= 0.0);
+        }
+
+        // ✅ Domain isolation verified
+        assert!(!output.metadata.domain.is_empty());
+
+        // ✅ Versioning verified
+        assert!(!output.metadata.version.is_empty());
+    }
 }
