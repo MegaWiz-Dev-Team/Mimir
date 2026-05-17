@@ -15,6 +15,7 @@ use std::path::PathBuf;
 mod extract;
 mod heimdall;
 mod hit_rate;
+mod hit_rate_direct;
 mod ingest;
 mod qdrant;
 mod scrape;
@@ -71,6 +72,30 @@ enum Command {
         /// Tenant ID stored in payload + used by /api/v1/search filters
         #[arg(long, default_value = "asgard_insurance")]
         tenant_id: String,
+    },
+    /// Run 10 standard queries → Hit Rate@3 against Qdrant DIRECTLY.
+    ///
+    /// Bypasses mimir-api `/api/v1/search` because that route's query
+    /// embedder (`embed_texts` in routes/vector.rs) generates fake hash
+    /// vectors instead of calling Heimdall. This command embeds the query
+    /// via Heimdall (real BGE-M3) and searches Qdrant directly, giving
+    /// the baseline number that *would* be reported if the Mimir bug
+    /// were fixed.
+    TestHitRateDirect {
+        #[arg(long, default_value = "http://localhost:8080", env = "HEIMDALL_URL")]
+        heimdall_url: String,
+        #[arg(long, env = "HEIMDALL_API_KEY")]
+        heimdall_key: Option<String>,
+        #[arg(long, default_value = "bge-m3")]
+        embed_model: String,
+        #[arg(long, default_value = "http://localhost:6333", env = "QDRANT_URL")]
+        qdrant_url: String,
+        #[arg(long, default_value = "source_chunks")]
+        collection: String,
+        #[arg(long, default_value = "asgard_insurance")]
+        tenant_id: String,
+        #[arg(long, default_value_t = 3)]
+        top_k: usize,
     },
     /// Run 10 standard queries → Hit Rate@3 report against /api/v1/search.
     TestHitRate {
@@ -142,6 +167,27 @@ async fn main() -> Result<()> {
             tenant_id,
             top_k,
         } => hit_rate::run(&mimir_url, &tenant_id, top_k).await,
+        Command::TestHitRateDirect {
+            heimdall_url,
+            heimdall_key,
+            embed_model,
+            qdrant_url,
+            collection,
+            tenant_id,
+            top_k,
+        } => {
+            let api_key = heimdall_key
+                .ok_or_else(|| anyhow::anyhow!("--heimdall-key or HEIMDALL_API_KEY env required"))?;
+            let cfg = hit_rate_direct::DirectConfig {
+                heimdall_url,
+                heimdall_api_key: api_key,
+                heimdall_model: embed_model,
+                qdrant_url,
+                qdrant_collection: collection,
+                tenant_id,
+            };
+            hit_rate_direct::run(cfg, top_k).await
+        }
         Command::Pipeline {
             config,
             out_dir,

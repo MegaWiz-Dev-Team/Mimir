@@ -23,6 +23,13 @@ pub struct VectorDense {
     pub dense: Vec<f32>,
 }
 
+#[derive(Debug)]
+pub struct SearchHit {
+    pub score: f64,
+    pub content: String,
+    pub source_id: u64,
+}
+
 #[derive(Debug, Deserialize)]
 struct UpsertResponse {
     #[allow(dead_code)]
@@ -71,6 +78,55 @@ impl QdrantClient {
         }
         let _: UpsertResponse = resp.json().await.context("parse upsert response")?;
         Ok(n)
+    }
+
+    /// Search by dense vector with tenant filter. Returns top-k hits with payload.
+    pub async fn search(
+        &self,
+        collection: &str,
+        dense_vector: &[f32],
+        tenant_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchHit>> {
+        let body = serde_json::json!({
+            "vector": {"name": "dense", "vector": dense_vector},
+            "limit": limit,
+            "with_payload": true,
+            "filter": {"must": [
+                {"key": "tenant_id", "match": {"value": tenant_id}},
+                {"key": "is_active", "match": {"value": true}},
+            ]},
+        });
+        let url = format!("{}/collections/{}/points/search", self.base_url, collection);
+        let resp = self.client.post(&url).json(&body).send().await
+            .context("POST /collections/{c}/points/search")?;
+        let status = resp.status();
+        let raw = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("Qdrant search HTTP {}: {}", status, &raw[..raw.len().min(300)]);
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&raw).context("parse search response")?;
+        let arr = parsed
+            .get("result")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow::anyhow!("missing result array"))?;
+        let mut hits = Vec::with_capacity(arr.len());
+        for item in arr {
+            let score = item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let content = item
+                .get("payload")
+                .and_then(|p| p.get("content"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+            let source_id = item
+                .get("payload")
+                .and_then(|p| p.get("source_id"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            hits.push(SearchHit { score, content, source_id });
+        }
+        Ok(hits)
     }
 
     /// Get current point count in a collection. Useful for verification.
