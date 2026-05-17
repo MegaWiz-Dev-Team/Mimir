@@ -12,6 +12,7 @@ pub mod extraction;
 pub mod feedback;
 pub mod gemini_helper;
 pub mod iam;
+pub mod iam_jwt;
 pub mod ingress;
 pub mod link_discovery;
 pub mod llm_provider;
