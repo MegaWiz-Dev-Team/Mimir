@@ -10,7 +10,8 @@ use axum::{
 use sqlx::MySqlPool;
 use std::sync::Arc;
 
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
+use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::models::iam::{
     CreateRoleRequest, CreateTenantRequest, CreateUserRequest, UpdateRoleRequest,
     UpdateTenantConfigRequest, UpdateTenantRequest, UpdateUserPasswordRequest,
@@ -36,7 +37,7 @@ pub fn iam_routes() -> Router<MySqlPool> {
         // Custom Roles — Issue #191
         .route("/roles", get(list_roles).post(create_role))
         .route("/roles/{id}", patch(update_role).delete(delete_role))
-        .route_layer(middleware::from_fn(tenant_auth_middleware))
+        .route_layer(middleware::from_fn(dual_mode_auth_middleware))
 }
 
 /// GET /api/v1/iam/tenants/{id}/features
