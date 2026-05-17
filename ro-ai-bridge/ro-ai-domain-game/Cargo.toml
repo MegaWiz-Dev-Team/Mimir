@@ -8,7 +8,7 @@ anyhow.workspace = true
 async-trait = "0.1.89"
 axum.workspace = true
 dotenvy.workspace = true
-mimir-core-ai = { version = "0.1.0", path = "../mimir-core-ai" }
+mimir-core-ai = { version = "0.2.0", path = "../mimir-core-ai" }
 regex.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 rig-core.workspace = true
