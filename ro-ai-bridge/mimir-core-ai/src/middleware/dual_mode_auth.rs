@@ -127,8 +127,11 @@ pub async fn dual_mode_auth_middleware(
         .get("authorization")
         .and_then(|v| v.to_str().ok());
 
-    let token = match auth_header {
-        Some(h) if h.starts_with("Bearer ") => &h[7..],
+    // Parse the Authorization header. Per RFC 6750/7235 the auth scheme name
+    // is CASE-INSENSITIVE ("Bearer" / "bearer" / "BEARER" all valid). We also
+    // trim whitespace around the token so "Bearer   abc.def.ghi" works.
+    let token = match auth_header.and_then(parse_bearer_token) {
+        Some(t) if !t.is_empty() => t,
         _ => {
             tracing::warn!(auth_mode = "missing", "auth.failure");
             return Err(StatusCode::UNAUTHORIZED);
@@ -159,6 +162,21 @@ pub async fn dual_mode_auth_middleware(
 
     req.extensions_mut().insert(ctx);
     Ok(next.run(req).await)
+}
+
+/// Parse `Authorization: <scheme> <token>` per RFC 6750/7235.
+///
+/// Returns `Some(token)` iff the scheme is "Bearer" (case-insensitive) and
+/// at least one space follows it. Returns `None` for any other shape so the
+/// caller emits a single 401 path. Token is trimmed of leading/trailing
+/// whitespace.
+fn parse_bearer_token(header: &str) -> Option<&str> {
+    let (scheme, rest) = header.split_once(' ')?;
+    if scheme.eq_ignore_ascii_case("Bearer") {
+        Some(rest.trim())
+    } else {
+        None
+    }
 }
 
 async fn validate_yggdrasil(

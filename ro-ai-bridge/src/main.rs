@@ -150,6 +150,13 @@ async fn main() {
     // env vars). When unset, /api/v1/iam/* falls through to legacy HS256-only validation
     // using `config.jwt_secret`. Pattern: memory/asgard_jwt_auth_pattern.md
     // (Heimdall 0.6.0 = reference impl).
+    if config.jwt_secret == "dev_secret_key" {
+        tracing::warn!(
+            event = "insecure_jwt_secret_default",
+            "JWT_SECRET is the default 'dev_secret_key' — set the JWT_SECRET env var \
+             before exposing this binary outside a dev box"
+        );
+    }
     let auth_state = Arc::new(
         mimir_core_ai::middleware::dual_mode_auth::AuthState::from_env(
             config.jwt_secret.clone(),
