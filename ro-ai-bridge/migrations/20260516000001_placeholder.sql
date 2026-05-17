@@ -1,0 +1,2 @@
+-- Placeholder migration for version compatibility
+-- See ro-ai-bridge/mimir-core-ai/migrations/20260516000001_placeholder.sql
