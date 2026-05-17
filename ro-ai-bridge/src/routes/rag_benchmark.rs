@@ -29,7 +29,8 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
+use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -127,7 +128,7 @@ pub fn rag_benchmark_routes() -> Router<DbPool> {
             "/api/v1/rag-benchmark/items/{question_id}/candidates",
             get(list_candidates),
         )
-        .layer(axum::middleware::from_fn(tenant_auth_middleware))
+        .layer(axum::middleware::from_fn(dual_mode_auth_middleware))
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────────

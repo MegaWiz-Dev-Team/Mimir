@@ -32,7 +32,8 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
+use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -253,7 +254,7 @@ pub fn training_routes() -> Router<DbPool> {
         .route("/api/v1/training/runs", get(list_runs).post(create_run))
         .route("/api/v1/training/runs/{id}", get(get_run).patch(patch_run))
         .route("/api/v1/training/runs/{id}/log", post(log_tick))
-        .layer(axum::middleware::from_fn(tenant_auth_middleware))
+        .layer(axum::middleware::from_fn(dual_mode_auth_middleware))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
