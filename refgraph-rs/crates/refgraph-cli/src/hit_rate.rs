@@ -1,16 +1,15 @@
 //! Hit Rate@K validator.
 //!
 //! Runs 10 standard insurance queries against
-//! `POST {mimir_url}/api/v1/insurance/rag/search` (the insurance RAG endpoint
-//! shipped in the currently-deployed ro-ai-bridge image) and computes
-//! Hit Rate@K — fraction of queries where any top-K result contains at least
-//! one expected term.
+//! `POST {mimir_url}/api/v1/search` (the multi-source RAG endpoint —
+//! Vector + Graph + Tree fusion with rerank) and computes Hit Rate@K —
+//! fraction of queries where any top-K result contains at least one
+//! expected term.
 //!
-//! NOTE on deployment: the newer multi-source `POST /api/search` route
-//! exists in ro-ai-bridge source but is not in the deployed image at
-//! `ghcr.io/megawiz-dev-team/mimir-api:latest`. Re-deploy Mimir to get
-//! Vector+Graph+Tree fusion; until then `/api/v1/insurance/rag/search`
-//! is the available endpoint.
+//! Available since mimir-api:s1 (built 2026-05-17 from
+//! feat/curator-review-ui). The endpoint takes JSON
+//! `{query, tenant_id, limit}` and returns
+//! `{results: [{content, title, score, source_type, metadata}], ...}`.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -27,6 +26,7 @@ use crate::types::{
 struct SearchRequest<'a> {
     query: &'a str,
     tenant_id: &'a str,
+    limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,13 +77,13 @@ impl SearchHit {
 
 pub async fn run(mimir_url: &str, tenant_id: &str, top_k: usize) -> Result<()> {
     let queries = standard_queries();
+    // /api/v1/search SOURCE_TIMEOUT_SECS=45 — client must wait longer than
+    // the slowest source timeout to see structured "0 results" rather than
+    // a client-side abort.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(60))
         .build()?;
-    let endpoint = format!(
-        "{}/api/v1/insurance/rag/search",
-        mimir_url.trim_end_matches('/')
-    );
+    let endpoint = format!("{}/api/v1/search", mimir_url.trim_end_matches('/'));
     info!("Hit Rate@{} — {} queries → {}", top_k, queries.len(), endpoint);
 
     let mut per_query = Vec::new();
@@ -163,6 +163,7 @@ async fn run_one_query(
     let body = SearchRequest {
         query: &tq.query,
         tenant_id,
+        limit: top_k,
     };
 
     let start = Instant::now();
