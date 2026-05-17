@@ -23,7 +23,8 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
+use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -101,7 +102,7 @@ pub fn icd10_routes() -> Router<DbPool> {
         .route("/api/v1/icd10/lookup", get(lookup))
         .route("/api/v1/icd10/code/{code}", get(get_code))
         .route("/api/v1/icd10/sources", get(list_sources))
-        .layer(axum::middleware::from_fn(tenant_auth_middleware))
+        .layer(axum::middleware::from_fn(dual_mode_auth_middleware))
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────────
