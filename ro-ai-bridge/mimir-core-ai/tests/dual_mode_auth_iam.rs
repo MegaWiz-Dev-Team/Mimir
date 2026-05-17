@@ -168,6 +168,51 @@ async fn garbage_token_returns_401() {
 }
 
 #[tokio::test]
+async fn lowercase_bearer_scheme_accepted() {
+    // RFC 6750/7235: the auth scheme name is case-insensitive.
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
+    let token = mint_hs256(
+        TEST_HS256_SECRET,
+        json!({
+            "iss": "mimir-auth",
+            "sub": "user-123",
+            "tenant_id": "asgard_medical",
+            "role": "admin",
+            "exp": now() + 3600,
+        }),
+    );
+    // "bearer" (lowercase), not "Bearer"
+    let status = send_with_header(app, Some(&format!("bearer {}", token))).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn extra_whitespace_around_token_accepted() {
+    // "Bearer    <token>   " — leading and trailing whitespace tolerated.
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
+    let token = mint_hs256(
+        TEST_HS256_SECRET,
+        json!({
+            "iss": "mimir-auth",
+            "sub": "user-123",
+            "tenant_id": "asgard_medical",
+            "role": "admin",
+            "exp": now() + 3600,
+        }),
+    );
+    let status = send_with_header(app, Some(&format!("Bearer    {}    ", token))).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn non_bearer_scheme_rejected() {
+    // Basic auth or other schemes get 401, never a fall-through.
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
+    let status = send_with_header(app, Some("Basic dXNlcjpwYXNz")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn hs256_valid_token_returns_200() {
     let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let token = mint_hs256(
