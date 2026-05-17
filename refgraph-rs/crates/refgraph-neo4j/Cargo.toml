@@ -1,0 +1,34 @@
+[package]
+name = "refgraph-neo4j"
+version = "0.1.0"
+edition = "2021"
+description = "Neo4j persistence layer for RefGraph"
+license = "Apache-2.0"
+authors = ["RefGraph Contributors"]
+repository = "https://github.com/refgraph-rs/refgraph"
+readme = "../../README.md"
+keywords = ["neo4j", "graph-database", "persistence"]
+categories = ["database"]
+
+[dependencies]
+refgraph-core = { workspace = true }
+tokio          = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+neo4rs         = { workspace = true }
+async-trait    = { workspace = true }
+thiserror      = { workspace = true }
+anyhow         = { workspace = true }
+url            = { workspace = true }
+tracing        = { workspace = true }
+chrono         = { workspace = true }
+uuid           = { workspace = true }
+
+[dev-dependencies]
+tokio-test    = "0.4"
+testcontainers = "0.27"
+testcontainers-modules = "0.15"
+
+[lib]
+name = "refgraph_neo4j"
+path = "src/lib.rs"
