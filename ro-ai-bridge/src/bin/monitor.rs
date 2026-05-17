@@ -9,7 +9,8 @@ use axum::{
 use dotenvy::dotenv;
 use futures::stream::Stream;
 use mimir_core_ai::config::QAConfig;
-use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
+use mimir_core_ai::middleware::dual_mode_auth::{dual_mode_auth_middleware, AuthState};
+use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::qa_qc::pipeline::{resume_pipeline_with_config, run_pipeline_with_config};
 use mimir_core_ai::services::db::{init_db, DbPool};
 use serde::{Deserialize, Serialize};
@@ -144,6 +145,25 @@ async fn main() -> Result<()> {
         iam,
     });
 
+    // Sprint 52 — dual-mode JWT auth state (per Mimir PR #294).
+    // monitor.rs doesn't use the workspace Config struct, so we read JWT_SECRET
+    // directly from env. Yggdrasil RS256 validation activates iff
+    // YGGDRASIL_ISSUER + JWT_AUDIENCE are also set.
+    let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
+    if jwt_secret == "dev_secret_key" {
+        tracing::warn!(
+            event = "insecure_jwt_secret_default",
+            "JWT_SECRET is the default 'dev_secret_key' in monitor binary — \
+             set JWT_SECRET env before exposing this binary outside a dev box"
+        );
+    }
+    let auth_state = Arc::new(AuthState::from_env(jwt_secret));
+    if auth_state.jwt_enabled() {
+        info!("Yggdrasil JWT validation active in monitor binary");
+    } else {
+        info!("Yggdrasil JWT validation off in monitor — set YGGDRASIL_ISSUER to enable");
+    }
+
     let auth_routes = Router::new()
         // Quality Control
         .route("/api/v1/qc/clusters", get(get_qc_clusters))
@@ -185,7 +205,7 @@ async fn main() -> Result<()> {
         )
         // Wiki content endpoint
         .route("/api/v1/wiki/{filename}", get(get_wiki_content))
-        .layer(axum::middleware::from_fn(tenant_auth_middleware));
+        .layer(axum::middleware::from_fn(dual_mode_auth_middleware));
 
     let iam_router = ro_ai_bridge::routes::iam::iam_routes().with_state(pool.clone());
     let eval_router = ro_ai_bridge::routes::eval::eval_routes().with_state(pool.clone());
@@ -196,6 +216,11 @@ async fn main() -> Result<()> {
         .nest("/api/v1/iam", iam_router)
         .merge(eval_router)
         .merge(auth_routes)
+        // Sprint 52 — auth_state Extension must be visible to the auth_routes
+        // middleware layer above + to iam_router (whose route_layer uses the
+        // same middleware). Attached on the parent app so all nested/merged
+        // sub-routers see it.
+        .layer(Extension(auth_state))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
