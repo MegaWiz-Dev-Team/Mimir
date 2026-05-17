@@ -18,8 +18,7 @@ use axum::{
     Router,
 };
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use mimir_core_ai::config::Config;
-use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
+use mimir_core_ai::middleware::dual_mode_auth::{dual_mode_auth_middleware, AuthState};
 use mimir_core_ai::middleware::tenant::TenantContext;
 use mimir_core_ai::services::iam_jwt::JwtValidator;
 use serde_json::json;
@@ -71,24 +70,11 @@ fn now() -> usize {
         .as_secs() as usize
 }
 
-/// Build a Config with placeholder values; only `jwt_secret` matters for
-/// the middleware under test.
-fn test_config(jwt_secret: &str) -> Arc<Config> {
-    Arc::new(Config {
-        port: 0,
-        mariadb_url: String::new(),
-        qdrant_url: String::new(),
-        redis_url: String::new(),
-        s3_endpoint: String::new(),
-        s3_bucket: String::new(),
-        s3_access_key: String::new(),
-        s3_secret_key: String::new(),
-        s3_region: String::new(),
-        heimdall_api_url: String::new(),
-        heimdall_api_key: None,
-        heimdall_model: String::new(),
-        jwt_secret: jwt_secret.to_string(),
-    })
+/// Build an `AuthState` for the middleware. Tests construct this directly
+/// instead of going through `from_env()` so they can inject a specific
+/// validator (or omit it for the no-validator path).
+fn test_auth_state(jwt_secret: &str, validator: Option<JwtValidator>) -> Arc<AuthState> {
+    Arc::new(AuthState::new(jwt_secret.to_string(), validator))
 }
 
 /// Handler that just returns the TenantContext that the middleware inserted.
@@ -98,18 +84,13 @@ async fn ok_handler(Extension(ctx): Extension<TenantContext>) -> String {
 }
 
 /// Build the test router. Layer order matters: `from_fn` is the auth
-/// middleware (outer), then the route handler (inner). Both `Config` and
-/// the optional `JwtValidator` extensions are attached to the router.
-fn build_app(
-    config: Arc<Config>,
-    validator: Option<JwtValidator>,
-) -> Router {
-    let validator_ext: Arc<Option<JwtValidator>> = Arc::new(validator);
+/// middleware (outer), then the route handler (inner). The single
+/// `Extension<Arc<AuthState>>` is what the middleware needs.
+fn build_app(auth_state: Arc<AuthState>) -> Router {
     Router::new()
         .route("/ok", get(ok_handler))
         .layer(from_fn(dual_mode_auth_middleware))
-        .layer(Extension(validator_ext))
-        .layer(Extension(config))
+        .layer(Extension(auth_state))
 }
 
 async fn start_oidc_and_jwks_server() -> MockServer {
@@ -166,14 +147,14 @@ async fn send_with_header(app: Router, header_value: Option<&str>) -> StatusCode
 
 #[tokio::test]
 async fn missing_authorization_header_returns_401() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let status = send_with_header(app, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn malformed_bearer_returns_401() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     // Missing the "Bearer " prefix
     let status = send_with_header(app, Some("just-some-token")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -181,14 +162,14 @@ async fn malformed_bearer_returns_401() {
 
 #[tokio::test]
 async fn garbage_token_returns_401() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let status = send_with_header(app, Some("Bearer not.a.jwt")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn hs256_valid_token_returns_200() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let token = mint_hs256(
         TEST_HS256_SECRET,
         json!({
@@ -205,7 +186,7 @@ async fn hs256_valid_token_returns_200() {
 
 #[tokio::test]
 async fn hs256_wrong_secret_returns_401() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let token = mint_hs256(
         "completely-different-secret",
         json!({
@@ -222,7 +203,7 @@ async fn hs256_wrong_secret_returns_401() {
 
 #[tokio::test]
 async fn hs256_wrong_issuer_returns_401() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let token = mint_hs256(
         TEST_HS256_SECRET,
         json!({
@@ -239,7 +220,7 @@ async fn hs256_wrong_issuer_returns_401() {
 
 #[tokio::test]
 async fn hs256_expired_returns_401() {
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     let token = mint_hs256(
         TEST_HS256_SECRET,
         json!({
@@ -259,7 +240,7 @@ async fn rs256_valid_token_returns_200() {
     let server = start_oidc_and_jwks_server().await;
     let issuer = server.uri();
     let validator = JwtValidator::new(issuer.clone(), "mimir".to_string());
-    let app = build_app(test_config(TEST_HS256_SECRET), Some(validator));
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, Some(validator)));
     let token = mint_rs256(json!({
         "sub": "machine-user@yggdrasil",
         "iss": issuer,
@@ -276,7 +257,7 @@ async fn rs256_valid_token_returns_200() {
 #[tokio::test]
 async fn rs256_no_validator_configured_returns_401() {
     // JwtValidator is None — JWT mode off. RS256 token must be rejected.
-    let app = build_app(test_config(TEST_HS256_SECRET), None);
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, None));
     // Mint a syntactically-valid RS256 token (signature ignored — middleware
     // bails before validation because validator is None).
     let token = mint_rs256(json!({
@@ -294,7 +275,7 @@ async fn rs256_expired_returns_401() {
     let server = start_oidc_and_jwks_server().await;
     let issuer = server.uri();
     let validator = JwtValidator::new(issuer.clone(), "mimir".to_string());
-    let app = build_app(test_config(TEST_HS256_SECRET), Some(validator));
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, Some(validator)));
     let token = mint_rs256(json!({
         "sub": "x",
         "iss": issuer,
@@ -310,7 +291,7 @@ async fn rs256_wrong_audience_returns_401() {
     let server = start_oidc_and_jwks_server().await;
     let issuer = server.uri();
     let validator = JwtValidator::new(issuer.clone(), "mimir".to_string());
-    let app = build_app(test_config(TEST_HS256_SECRET), Some(validator));
+    let app = build_app(test_auth_state(TEST_HS256_SECRET, Some(validator)));
     let token = mint_rs256(json!({
         "sub": "x",
         "iss": issuer,

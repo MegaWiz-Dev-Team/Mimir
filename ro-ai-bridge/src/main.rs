@@ -146,14 +146,16 @@ async fn main() {
         .unwrap_or(60);
     let cron_state = cron::start_cron_worker(pool.clone(), cron_tick_seconds);
 
-    // Sprint 52 — Yggdrasil JWT validator (opt-in via YGGDRASIL_ISSUER + JWT_AUDIENCE
-    // env vars). When unset, /api/v1/iam/* falls through to legacy HS256-only validation.
-    // Pattern: memory/asgard_jwt_auth_pattern.md (Heimdall 0.6.0 = reference impl).
-    let jwt_validator_opt = mimir_core_ai::services::iam_jwt::JwtValidator::from_env();
-    let jwt_enabled = jwt_validator_opt.is_some();
-    let jwt_validator: Arc<Option<mimir_core_ai::services::iam_jwt::JwtValidator>> =
-        Arc::new(jwt_validator_opt);
-    if jwt_enabled {
+    // Sprint 52 — Yggdrasil JWT auth state (opt-in via YGGDRASIL_ISSUER + JWT_AUDIENCE
+    // env vars). When unset, /api/v1/iam/* falls through to legacy HS256-only validation
+    // using `config.jwt_secret`. Pattern: memory/asgard_jwt_auth_pattern.md
+    // (Heimdall 0.6.0 = reference impl).
+    let auth_state = Arc::new(
+        mimir_core_ai::middleware::dual_mode_auth::AuthState::from_env(
+            config.jwt_secret.clone(),
+        ),
+    );
+    if auth_state.jwt_enabled() {
         info!(
             event = "yggdrasil_jwt_enabled",
             "Yggdrasil JWT validation active for /api/v1/iam/*"
@@ -245,7 +247,7 @@ async fn main() {
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(pool)
         .layer(Extension(config.clone()))
-        .layer(Extension(jwt_validator))
+        .layer(Extension(auth_state))
         .layer(Extension(cron_state))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .layer(cors);
