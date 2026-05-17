@@ -25,6 +25,18 @@
 //! JWTs starting with `ey`. The `alg` field in the decoded header is the only
 //! reliable signal.
 //!
+//! ## Why a dedicated `AuthState`, not `Extension<Arc<Config>>`
+//!
+//! There are TWO `Config` structs in the workspace — `mimir_core_ai::config::Config`
+//! (this crate, smaller) and `ro_ai_bridge::config::Config` (binary crate, bigger,
+//! adds LLM provider config etc.). The `Extension` extractor matches by exact
+//! `TypeId`, so a middleware in `mimir-core-ai` cannot pick up the binary
+//! crate's Config Extension that `main.rs` attaches. The legacy
+//! `tenant_auth_middleware` papered over this by declaring `Option<Extension<...>>`
+//! and ignoring the value. This middleware actually needs `jwt_secret`, so we
+//! define a focused `AuthState` dep instead — `main.rs` constructs it from
+//! whichever Config it has and attaches as an Extension.
+//!
 //! ## Failure modes
 //!
 //! - Missing Authorization header → 401
@@ -41,7 +53,6 @@
 //! - `tracing::info!(auth_mode = "jwt" | "hs256", sub, tenant, "auth.success")`
 //! - `tracing::warn!(auth_mode = "...", error, "auth.failure")`
 
-use crate::config::Config;
 use crate::middleware::tenant::{TenantClaims, TenantContext};
 use crate::services::iam_jwt::JwtValidator;
 use axum::{
@@ -54,26 +65,60 @@ use axum::{
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use std::sync::Arc;
 
-/// Type alias for the optional JwtValidator extension. Wrapped in `Arc` so
-/// the validator (with its JWKS cache) is shared across requests; `Option`
-/// so JWT mode can be off when `YGGDRASIL_ISSUER` env is unset (matches the
-/// opt-in rollout pattern from Heimdall).
-pub type JwtValidatorExt = Extension<Arc<Option<JwtValidator>>>;
+/// Focused dependency set for `dual_mode_auth_middleware`.
+///
+/// Constructed at app bootstrap and attached as an Extension before the
+/// middleware layer. Avoids the cross-crate Config type-mismatch trap (see
+/// the module-level "Why a dedicated AuthState" note).
+///
+/// - `legacy_jwt_secret` — shared secret used to validate HS256 tokens issued
+///   by `IamService::generate_jwt` (username/password and OIDC code-exchange
+///   login flows). Read from `JWT_SECRET` env at startup, owned by Config.
+/// - `jwt_validator` — `Some(_)` iff `YGGDRASIL_ISSUER` (and optionally
+///   `JWT_AUDIENCE`) env vars are set. When `None`, RS256 tokens get 401 and
+///   only legacy HS256 path is active. Opt-in pattern matches Heimdall 0.6.0.
+pub struct AuthState {
+    pub legacy_jwt_secret: String,
+    pub jwt_validator: Option<JwtValidator>,
+}
+
+impl AuthState {
+    pub fn new(legacy_jwt_secret: String, jwt_validator: Option<JwtValidator>) -> Self {
+        Self {
+            legacy_jwt_secret,
+            jwt_validator,
+        }
+    }
+
+    /// Convenience for bootstrap: caller passes the HS256 secret, we read the
+    /// optional Yggdrasil config from env. Same opt-in rollout as Heimdall.
+    pub fn from_env(legacy_jwt_secret: String) -> Self {
+        Self {
+            legacy_jwt_secret,
+            jwt_validator: JwtValidator::from_env(),
+        }
+    }
+
+    /// True iff Yggdrasil RS256 mode is currently enabled. Useful for the
+    /// startup log line in `main.rs` so operators can confirm env wiring.
+    pub fn jwt_enabled(&self) -> bool {
+        self.jwt_validator.is_some()
+    }
+}
 
 /// Drop-in replacement for `tenant_auth_middleware` that actually validates
 /// the bearer token instead of trusting the `X-Tenant-Id` header.
 ///
 /// Wiring (in `ro-ai-bridge/src/main.rs` after constructing the router):
 /// ```ignore
-/// let jwt_validator = JwtValidator::from_env();
-/// let validator_ext = Arc::new(jwt_validator);
+/// let auth_state = Arc::new(AuthState::from_env(config.jwt_secret.clone()));
+/// info!(jwt_enabled = auth_state.jwt_enabled(), "auth bootstrap");
 /// // ...
-/// .nest("/api/v1/iam", iam_routes())   // iam_routes uses dual_mode_auth internally
-/// .layer(Extension(validator_ext))
+/// .nest("/api/v1/iam", iam_routes())   // routes call dual_mode_auth_middleware via route_layer
+/// .layer(Extension(auth_state))
 /// ```
 pub async fn dual_mode_auth_middleware(
-    Extension(config): Extension<Arc<Config>>,
-    validator: Option<JwtValidatorExt>,
+    Extension(auth_state): Extension<Arc<AuthState>>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -100,8 +145,8 @@ pub async fn dual_mode_auth_middleware(
     };
 
     let ctx = match header.alg {
-        Algorithm::RS256 => validate_yggdrasil(token, validator).await,
-        Algorithm::HS256 => validate_legacy_hs256(token, &config.jwt_secret),
+        Algorithm::RS256 => validate_yggdrasil(token, auth_state.jwt_validator.as_ref()).await,
+        Algorithm::HS256 => validate_legacy_hs256(token, &auth_state.legacy_jwt_secret),
         other => {
             tracing::warn!(
                 auth_mode = "rejected",
@@ -118,22 +163,12 @@ pub async fn dual_mode_auth_middleware(
 
 async fn validate_yggdrasil(
     token: &str,
-    validator: Option<JwtValidatorExt>,
+    validator: Option<&JwtValidator>,
 ) -> Result<TenantContext, StatusCode> {
-    let validator_ext = validator.ok_or_else(|| {
+    let validator = validator.ok_or_else(|| {
         tracing::warn!(
             auth_mode = "jwt",
             error = "JwtValidator not configured (YGGDRASIL_ISSUER unset)",
-            "auth.failure"
-        );
-        StatusCode::UNAUTHORIZED
-    })?;
-
-    let validator_opt: &Option<JwtValidator> = &validator_ext.0;
-    let validator = validator_opt.as_ref().ok_or_else(|| {
-        tracing::warn!(
-            auth_mode = "jwt",
-            error = "JwtValidator None (YGGDRASIL_ISSUER unset)",
             "auth.failure"
         );
         StatusCode::UNAUTHORIZED
