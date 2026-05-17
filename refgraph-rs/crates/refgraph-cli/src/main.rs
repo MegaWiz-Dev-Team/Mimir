@@ -3,18 +3,21 @@
 //! Commands:
 //!   scrape         Fetch insurance URLs → chunks JSONL
 //!   extract        Chunks JSONL → entities JSONL (refgraph-core)
-//!   ingest         Chunks JSONL → Mimir API
-//!   test-hit-rate  Run 10 standard queries against /api/search
+//!   ingest         Chunks JSONL → Heimdall embed + Qdrant upsert (direct,
+//!                  bypasses buggy mimir-api embed-chunks endpoint)
+//!   test-hit-rate  Run 10 standard queries against /api/v1/search
 //!   pipeline       Run scrape → extract → ingest → test-hit-rate
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-mod scrape;
 mod extract;
-mod ingest;
+mod heimdall;
 mod hit_rate;
+mod ingest;
+mod qdrant;
+mod scrape;
 mod types;
 
 #[derive(Parser)]
@@ -28,53 +31,69 @@ struct Cli {
 enum Command {
     /// Scrape insurance URLs → chunks JSONL
     Scrape {
-        /// Path to insurer_urls.json config
         #[arg(long, default_value = "config/insurer_urls.json")]
         config: PathBuf,
-        /// Output chunks JSONL
         #[arg(long, short)]
         out: PathBuf,
     },
-    /// Extract entities from chunks JSONL → entities JSONL
+    /// Extract entities from chunks JSONL → entities JSONL (refgraph-core)
     Extract {
-        /// Input chunks JSONL
         #[arg(long, short)]
         input: PathBuf,
-        /// Output entities JSONL
         #[arg(long, short)]
         out: PathBuf,
     },
-    /// Ingest chunks JSONL into Mimir
+    /// Ingest chunks JSONL → Heimdall embeddings → Qdrant upsert (direct).
+    ///
+    /// Bypasses the buggy mimir-api `/vector/embed-chunks` endpoint
+    /// (filters on a non-existent `chunks.tenant_id` column AND uses a
+    /// hash-based pseudo-embedder). This command goes direct so
+    /// `/api/v1/search` sees real BGE-M3 vectors.
     Ingest {
-        /// Input chunks JSONL
+        /// Input chunks JSONL (one chunk per line — phase1 or scrape output)
         #[arg(long, short)]
         input: PathBuf,
-        /// Mimir API URL
-        #[arg(long, default_value = "http://localhost:8080")]
-        mimir_url: String,
-        /// Tenant ID
+        /// Heimdall gateway URL
+        #[arg(long, default_value = "http://localhost:8080", env = "HEIMDALL_URL")]
+        heimdall_url: String,
+        /// Heimdall API key (Bearer). Default to local launchd value.
+        #[arg(long, env = "HEIMDALL_API_KEY")]
+        heimdall_key: Option<String>,
+        /// Embedding model id
+        #[arg(long, default_value = "bge-m3")]
+        embed_model: String,
+        /// Qdrant URL
+        #[arg(long, default_value = "http://localhost:6333", env = "QDRANT_URL")]
+        qdrant_url: String,
+        /// Qdrant collection (matches what /api/v1/search reads)
+        #[arg(long, default_value = "source_chunks")]
+        collection: String,
+        /// Tenant ID stored in payload + used by /api/v1/search filters
         #[arg(long, default_value = "asgard_insurance")]
         tenant_id: String,
     },
-    /// Run 10 standard queries → Hit Rate@3 report
+    /// Run 10 standard queries → Hit Rate@3 report against /api/v1/search.
     TestHitRate {
-        /// Mimir API URL
-        #[arg(long, default_value = "http://localhost:8080")]
+        #[arg(long, default_value = "http://localhost:8090", env = "MIMIR_URL")]
         mimir_url: String,
-        /// Tenant ID
         #[arg(long, default_value = "asgard_insurance")]
         tenant_id: String,
-        /// Top-K cutoff for Hit Rate (default 3)
         #[arg(long, default_value_t = 3)]
         top_k: usize,
     },
-    /// Run end-to-end pipeline
+    /// Run end-to-end: scrape → extract → ingest → test-hit-rate
     Pipeline {
         #[arg(long, default_value = "config/insurer_urls.json")]
         config: PathBuf,
         #[arg(long, default_value = "data/output")]
         out_dir: PathBuf,
         #[arg(long, default_value = "http://localhost:8080")]
+        heimdall_url: String,
+        #[arg(long, env = "HEIMDALL_API_KEY")]
+        heimdall_key: Option<String>,
+        #[arg(long, default_value = "http://localhost:6333")]
+        qdrant_url: String,
+        #[arg(long, default_value = "http://localhost:8090")]
         mimir_url: String,
         #[arg(long, default_value = "asgard_insurance")]
         tenant_id: String,
@@ -98,9 +117,26 @@ async fn main() -> Result<()> {
         Command::Extract { input, out } => extract::run(&input, &out),
         Command::Ingest {
             input,
-            mimir_url,
+            heimdall_url,
+            heimdall_key,
+            embed_model,
+            qdrant_url,
+            collection,
             tenant_id,
-        } => ingest::run(&input, &mimir_url, &tenant_id).await,
+        } => {
+            let api_key = heimdall_key
+                .ok_or_else(|| anyhow::anyhow!("--heimdall-key or HEIMDALL_API_KEY env required"))?;
+            let cfg = ingest::IngestConfig {
+                heimdall_url,
+                heimdall_api_key: api_key,
+                heimdall_model: embed_model,
+                qdrant_url,
+                qdrant_collection: collection,
+                tenant_id,
+                ..Default::default()
+            };
+            ingest::run(&input, cfg).await
+        }
         Command::TestHitRate {
             mimir_url,
             tenant_id,
@@ -109,15 +145,27 @@ async fn main() -> Result<()> {
         Command::Pipeline {
             config,
             out_dir,
+            heimdall_url,
+            heimdall_key,
+            qdrant_url,
             mimir_url,
             tenant_id,
         } => {
+            let api_key = heimdall_key
+                .ok_or_else(|| anyhow::anyhow!("--heimdall-key or HEIMDALL_API_KEY env required"))?;
             let chunks_path = out_dir.join("chunks.jsonl");
             let entities_path = out_dir.join("entities.jsonl");
             std::fs::create_dir_all(&out_dir)?;
             scrape::run(&config, &chunks_path).await?;
             extract::run(&chunks_path, &entities_path)?;
-            ingest::run(&chunks_path, &mimir_url, &tenant_id).await?;
+            let cfg = ingest::IngestConfig {
+                heimdall_url,
+                heimdall_api_key: api_key,
+                qdrant_url,
+                tenant_id: tenant_id.clone(),
+                ..Default::default()
+            };
+            ingest::run(&chunks_path, cfg).await?;
             hit_rate::run(&mimir_url, &tenant_id, 3).await?;
             Ok(())
         }
