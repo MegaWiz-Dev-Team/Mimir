@@ -550,22 +550,48 @@ async fn embed_chunks(
         .unwrap_or_default();
     let embed_model = llm_config.resolve_slot("embedding", None, None).model;
 
-    // Fetch chunks from DB
-    let chunks: Vec<(i64, String, i64)> = if let Some(sid) = payload.source_id {
+    // Fetch chunks from DB.
+    //
+    // The `chunks` table has no `tenant_id` column — tenant ownership is on
+    // `data_sources`. Filter via JOIN. Previous code referenced a
+    // non-existent `chunks.tenant_id` and used `unwrap_or_default()`, which
+    // silently returned `Vec::new()` whenever MariaDB raised
+    // ER_BAD_FIELD_ERROR — every embed-chunks call appeared to succeed with
+    // zero chunks even when chunks were present.
+    let chunks_result: Result<Vec<(i64, String, i64)>, sqlx::Error> = if let Some(sid) = payload.source_id {
         sqlx::query_as(
-            "SELECT id, content, source_id FROM chunks WHERE source_id = ? AND tenant_id = ?",
+            "SELECT c.id, c.content, c.source_id \
+             FROM chunks c JOIN data_sources d ON c.source_id = d.id \
+             WHERE c.source_id = ? AND d.tenant_id = ?",
         )
         .bind(sid)
         .bind(&tenant_id)
         .fetch_all(&pool)
         .await
-        .unwrap_or_default()
     } else {
-        sqlx::query_as("SELECT id, content, source_id FROM chunks WHERE tenant_id = ?")
-            .bind(&tenant_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default()
+        sqlx::query_as(
+            "SELECT c.id, c.content, c.source_id \
+             FROM chunks c JOIN data_sources d ON c.source_id = d.id \
+             WHERE d.tenant_id = ?",
+        )
+        .bind(&tenant_id)
+        .fetch_all(&pool)
+        .await
+    };
+
+    let chunks = match chunks_result {
+        Ok(c) => c,
+        Err(e) => {
+            error!("embed-chunks DB error (tenant={}): {}", tenant_id, e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "embedded": 0,
+                    "error": format!("DB error: {}", e),
+                })),
+            )
+                .into_response();
+        }
     };
 
     if chunks.is_empty() {
