@@ -6,7 +6,9 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tracing::info;
+use std::sync::OnceLock;
+use tokenizers::Tokenizer;
+use tracing::{info, warn};
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -245,8 +247,73 @@ pub fn chunk_recursive(text: &str, max_size: usize) -> Result<Vec<ChunkResult>> 
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Rough token count estimate (~4 chars per token for English).
+/// Lazy-loaded BGE-M3 tokenizer. Path comes from env `BGE_M3_TOKENIZER_PATH`.
+/// When unset or file unreadable, falls back to `chars/4` heuristic.
+///
+/// The default Asgard stack pre-caches the BGE-M3 tokenizer.json at:
+///   `Heimdall/gateway/.fastembed_cache/models--BAAI--bge-m3/snapshots/<sha>/tokenizer.json`
+/// — operators should set BGE_M3_TOKENIZER_PATH to that absolute path
+/// (or any other tokenizer.json compatible with BGE-M3 vocab).
+///
+/// Sprint 48 C.2 context: previous `chars/4` heuristic was English-specific
+/// and silently over-counted Thai tokens by ~3-4x (Thai BPE tokens are
+/// roughly 1 token per char, not 0.25). Insurance chunk-size budgets were
+/// thus undersized for Thai input. This loads the real tokenizer so chunk
+/// math matches what the embedder will see.
+static BGE_M3_TOKENIZER: OnceLock<Option<Tokenizer>> = OnceLock::new();
+
+fn bge_m3_tokenizer() -> Option<&'static Tokenizer> {
+    BGE_M3_TOKENIZER
+        .get_or_init(|| {
+            let path = match std::env::var("BGE_M3_TOKENIZER_PATH") {
+                Ok(p) if !p.is_empty() => p,
+                _ => {
+                    info!(
+                        "BGE_M3_TOKENIZER_PATH unset — token counts fall back to chars/4 heuristic"
+                    );
+                    return None;
+                }
+            };
+            match Tokenizer::from_file(&path) {
+                Ok(tk) => {
+                    info!("Loaded BGE-M3 tokenizer from {}", path);
+                    Some(tk)
+                }
+                Err(e) => {
+                    warn!(
+                        path = %path,
+                        error = %e,
+                        "Failed to load BGE-M3 tokenizer — falling back to chars/4 heuristic"
+                    );
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+/// Count tokens for a text fragment.
+///
+/// Uses the BGE-M3 tokenizer when available (via `BGE_M3_TOKENIZER_PATH`),
+/// otherwise falls back to a `chars / 4` heuristic. The fallback is fine
+/// for English but undercounts Thai/CJK by ~3-4x — set the env var in
+/// production to get accurate counts that match the embedder's view.
 fn estimate_tokens(text: &str) -> usize {
+    match bge_m3_tokenizer() {
+        Some(tk) => match tk.encode(text, false) {
+            Ok(enc) => enc.len(),
+            Err(e) => {
+                warn!(error = %e, "tokenizer.encode failed — falling back to chars/4");
+                estimate_tokens_fallback(text)
+            }
+        },
+        None => estimate_tokens_fallback(text),
+    }
+}
+
+/// `chars / 4` heuristic — preserved as the explicit fallback. Public-ish
+/// (`pub(crate)`) so the integration tests can assert the fallback path.
+pub(crate) fn estimate_tokens_fallback(text: &str) -> usize {
     (text.len() as f64 / 4.0).ceil() as usize
 }
 
@@ -505,10 +572,28 @@ Another short paragraph.
     }
 
     #[test]
-    fn test_estimate_tokens() {
-        assert_eq!(estimate_tokens("abcd"), 1); // 4 chars = 1 token
-        assert_eq!(estimate_tokens("abcdefgh"), 2); // 8 chars = 2 tokens
-        assert_eq!(estimate_tokens(""), 0);
+    fn test_estimate_tokens_fallback_chars_per_4() {
+        // The fallback path: chars/4 heuristic. Used when
+        // BGE_M3_TOKENIZER_PATH is unset or the tokenizer fails to load.
+        assert_eq!(estimate_tokens_fallback("abcd"), 1); // 4 chars = 1 token
+        assert_eq!(estimate_tokens_fallback("abcdefgh"), 2); // 8 chars = 2 tokens
+        assert_eq!(estimate_tokens_fallback(""), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_falls_back_when_env_unset() {
+        // SAFETY: this test does not set BGE_M3_TOKENIZER_PATH, so the
+        // tokenizer init returns None and we should match the fallback
+        // exactly. Note: `BGE_M3_TOKENIZER` is a process-wide OnceLock,
+        // so this also implicitly verifies that test order doesn't matter
+        // (the lock either inits to None here, or was already None from
+        // a prior call — either way, fallback fires).
+        //
+        // Integration tests in `tests/chunking_tokenizer.rs` cover the
+        // real-tokenizer path with BGE_M3_TOKENIZER_PATH set.
+        if std::env::var("BGE_M3_TOKENIZER_PATH").is_err() {
+            assert_eq!(estimate_tokens("abcd"), estimate_tokens_fallback("abcd"));
+        }
     }
 
     // ─── Thai Sentence Splitter Tests (Sprint 48 chunking remediation C.1) ────
