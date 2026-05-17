@@ -1,0 +1,11 @@
+-- Placeholder migration for version compatibility
+-- This migration was previously recorded in the database (originally
+-- 20260516000001_ocr_annotation_tasks from the OCR annotation UI work
+-- on the feature/insurance-s1-ingestion branch). The original file
+-- was renamed; this placeholder satisfies sqlx::migrate!() so a fresh
+-- pod doesn't panic with "previously applied but is missing in the
+-- resolved migrations" when it boots against a database that has the
+-- row from an earlier image's run.
+--
+-- Context: INC-2026-05-17-001 follow-up. See
+-- Asgard/docs/incidents/2026-05-17-mimir-503/postmortem.md
