@@ -1,0 +1,29 @@
+[package]
+name = "refgraph-cli"
+version = "0.1.0"
+edition = "2021"
+description = "RefGraph CLI: scrape, extract, ingest, validate — 100% Rust pipeline"
+license = "AGPL-3.0"
+
+[[bin]]
+name = "refgraph"
+path = "src/main.rs"
+
+[dependencies]
+refgraph-core = { workspace = true }
+tokio          = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+anyhow         = { workspace = true }
+thiserror      = { workspace = true }
+tracing        = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap           = { workspace = true }
+reqwest        = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+scraper        = "0.20"
+url            = { workspace = true }
+futures        = "0.3"
+chrono         = { workspace = true }
+
+[dev-dependencies]
+tempfile       = "3.10"

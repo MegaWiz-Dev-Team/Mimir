@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/refgraph-neo4j",
+    "crates/refgraph-cli",
 ]
 resolver = "2"
 
