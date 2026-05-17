@@ -276,18 +276,64 @@ fn split_by_paragraphs(text: &str) -> Vec<String> {
     text.split("\n\n").map(|s| s.to_string()).collect()
 }
 
+/// Detect if a character belongs to the Thai Unicode block (U+0E00..U+0E7F).
+///
+/// Used to decide when whitespace-after-Thai is treated as a soft sentence
+/// boundary — Thai script has no explicit sentence terminator like the Latin
+/// full stop, so we have to infer boundaries from context.
+fn is_thai_char(c: char) -> bool {
+    matches!(c as u32, 0x0E00..=0x0E7F)
+}
+
 /// Split long text by sentences, accumulating until max_size.
+///
+/// Recognizes:
+/// - Latin punctuation: `.`, `!`, `?` (with trailing whitespace)
+/// - Newline (`\n`) — strongest boundary in practice for both Thai and English
+/// - Thai paiyannoi (`ฯ`) — abbreviation/end marker
+///
+/// Thai script has no explicit sentence-terminating punctuation, so we also
+/// treat whitespace immediately after a Thai character as a soft boundary
+/// (PyThaiNLP `sent_tokenize` does similar heuristics). This is a regex-based
+/// approximation; for higher-quality Thai segmentation, a future patch should
+/// wire an HTTP call to a PyThaiNLP sidecar via `THAI_NLP_ENDPOINT`. The
+/// public function signature stays sync so callers don't have to refactor.
+///
+/// Sprint 48 B-48f context: this function is on the hot path for Thai semantic
+/// search ingestion. The previous English-only splitter caused Thai paragraphs
+/// to fall through to `fixed_fallback` (mid-word cuts), which would have
+/// produced poor BGE-M3 embeddings for Qdrant Thai retrieval.
 fn split_by_sentences(text: &str, max_size: usize) -> Vec<String> {
-    // Simple sentence split: ". " or "! " or "? "
     let mut chunks = Vec::new();
     let mut current = String::new();
 
-    for part in text.split_inclusive(|c: char| c == '.' || c == '!' || c == '?') {
-        if current.len() + part.len() > max_size && !current.is_empty() {
-            chunks.push(current.trim().to_string());
-            current.clear();
+    // Walk the string character by character so we can detect Thai-context
+    // boundaries (whitespace after a Thai char) in addition to the hard
+    // delimiters. This is roughly O(n) like split_inclusive but with context.
+    let chars: Vec<char> = text.chars().collect();
+    let mut prev: Option<char> = None;
+    let mut i = 0;
+
+    while i < chars.len() {
+        let c = chars[i];
+        current.push(c);
+
+        let is_hard_delim = c == '.' || c == '!' || c == '?' || c == '\n' || c == 'ฯ';
+        let is_soft_thai_boundary = c.is_whitespace()
+            && c != '\n' // newline already handled as hard delim
+            && prev.map(is_thai_char).unwrap_or(false);
+
+        if is_hard_delim || is_soft_thai_boundary {
+            // Boundary reached. Flush current if accumulated >= max_size.
+            // Otherwise keep accumulating so chunks don't get too tiny.
+            if current.len() >= max_size && !current.trim().is_empty() {
+                chunks.push(current.trim().to_string());
+                current.clear();
+            }
         }
-        current.push_str(part);
+
+        prev = Some(c);
+        i += 1;
     }
 
     if !current.trim().is_empty() {
@@ -463,5 +509,141 @@ Another short paragraph.
         assert_eq!(estimate_tokens("abcd"), 1); // 4 chars = 1 token
         assert_eq!(estimate_tokens("abcdefgh"), 2); // 8 chars = 2 tokens
         assert_eq!(estimate_tokens(""), 0);
+    }
+
+    // ─── Thai Sentence Splitter Tests (Sprint 48 chunking remediation C.1) ────
+    //
+    // Audit found that the old splitter only recognized `.` / `!` / `?`,
+    // which never fire in pure Thai. Result: Thai paragraphs fell through
+    // to `fixed_fallback`, cutting mid-word and producing bad embeddings.
+    // These tests pin the new Thai-aware behavior.
+
+    #[test]
+    fn test_is_thai_char() {
+        // Common Thai consonants / vowels in the U+0E00..U+0E7F block.
+        assert!(is_thai_char('ก'));
+        assert!(is_thai_char('า'));
+        assert!(is_thai_char('ฯ'));
+        // Non-Thai must not match.
+        assert!(!is_thai_char('a'));
+        assert!(!is_thai_char('0'));
+        assert!(!is_thai_char(' '));
+        assert!(!is_thai_char('。')); // CJK full stop, not Thai
+    }
+
+    #[test]
+    fn test_split_by_sentences_thai_paragraph_chunks() {
+        // Long Thai paragraph (~360 chars). The old splitter never broke
+        // this up because Thai has no `.`/`!`/`?`. Now the soft
+        // whitespace-after-Thai boundary plus newlines should keep chunks
+        // bounded near `max_size`.
+        let thai = "ยาลดน้ำหนักเป็นยาที่ช่วยลดน้ำหนักได้อย่างมีประสิทธิภาพ \
+                    การออกกำลังกายอย่างสม่ำเสมอช่วยเสริมประสิทธิภาพของยา \
+                    ผู้ป่วยควรปรึกษาแพทย์ก่อนใช้ยาทุกครั้ง \
+                    ผลข้างเคียงที่พบบ่อยคือคลื่นไส้และปวดศีรษะ \
+                    หากมีอาการรุนแรงควรพบแพทย์ทันที";
+        let chunks = split_by_sentences(thai, 100);
+        // With max_size=100 the long string MUST produce >1 chunk —
+        // otherwise the splitter degraded back to single-chunk behavior.
+        assert!(
+            chunks.len() >= 2,
+            "Thai paragraph must split into multiple chunks (got {}: {:?})",
+            chunks.len(),
+            chunks
+        );
+        // No chunk may be empty after trim.
+        for c in &chunks {
+            assert!(!c.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_split_by_sentences_thai_paiyannoi_boundary() {
+        // Thai paiyannoi (ฯ) is the closest analogue to a sentence-end mark
+        // in Thai script. The splitter must treat it as a hard delimiter.
+        let text = "องค์การสหประชาชาติฯ ดำเนินงานหลายด้าน ตัวอย่างเช่นด้านสาธารณสุข \
+                    สถาบันวิจัยฯ ตีพิมพ์ผลงานทุกปี";
+        let chunks = split_by_sentences(text, 60);
+        assert!(
+            chunks.len() >= 2,
+            "ฯ should produce sentence breaks (got {}: {:?})",
+            chunks.len(),
+            chunks
+        );
+    }
+
+    #[test]
+    fn test_split_by_sentences_mixed_thai_english() {
+        // Mixed-script text used by Thai medical writers. Should split
+        // at BOTH Latin `.` AND Thai-space boundaries.
+        let text = "Metformin คือยาลดน้ำตาลในเลือด. \
+                    ใช้รักษาเบาหวานชนิดที่ 2. \
+                    ขนาดยาเริ่มต้น 500 mg วันละครั้ง. \
+                    Adjust dose based on eGFR.";
+        let chunks = split_by_sentences(text, 50);
+        assert!(
+            chunks.len() >= 3,
+            "Mixed Thai/English must split at periods + Thai boundaries (got {}: {:?})",
+            chunks.len(),
+            chunks
+        );
+    }
+
+    #[test]
+    fn test_split_by_sentences_english_still_works() {
+        // Regression guard: the original English behavior must not break.
+        let text =
+            "The quick brown fox jumps over the lazy dog. \
+             It was a dark and stormy night. \
+             To be or not to be that is the question. \
+             All animals are equal but some are more equal than others.";
+        let chunks = split_by_sentences(text, 60);
+        assert!(
+            chunks.len() >= 3,
+            "English sentence split must still work (got {}: {:?})",
+            chunks.len(),
+            chunks
+        );
+    }
+
+    #[test]
+    fn test_chunk_recursive_thai_long_paragraph_uses_sentence_split() {
+        // End-to-end: a Thai paragraph >max_size routed through
+        // chunk_recursive used to hit `fixed_fallback` (mid-character cuts);
+        // now it should reach `sentence` level instead.
+        let long_thai = "นโยบายการรักษาผู้ป่วยเบาหวานชนิดที่ 2 ในประเทศไทย \
+                         เน้นการควบคุมระดับน้ำตาลในเลือดร่วมกับการปรับเปลี่ยน \
+                         พฤติกรรมการกินอาหารและการออกกำลังกาย \
+                         ยาที่ใช้ในขั้นต้นมักเป็น Metformin \
+                         เนื่องจากมีหลักฐานทางคลินิกสนับสนุนมากที่สุด \
+                         หากควบคุมระดับน้ำตาลได้ไม่ดีแพทย์อาจพิจารณา \
+                         เพิ่มยากลุ่ม SGLT2 inhibitor หรือ GLP-1 agonist";
+        let text = format!("## นโยบาย\n{}", long_thai);
+        let result = chunk_recursive(&text, 120).unwrap();
+
+        assert!(
+            result.len() >= 2,
+            "Long Thai paragraph must split (got {}: lens {:?})",
+            result.len(),
+            result.iter().map(|c| c.content.len()).collect::<Vec<_>>()
+        );
+        // Ideally at least one chunk reaches the `sentence` level rather
+        // than degrading to `fixed_fallback`. (Some chunks may still be
+        // `fixed_fallback` if no boundary lands near the size budget, but
+        // sentence-level splits should appear for at least one chunk.)
+        let split_levels: Vec<String> = result
+            .iter()
+            .filter_map(|c| {
+                c.metadata
+                    .get("split_level")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+        assert!(
+            split_levels.iter().any(|l| l == "sentence"),
+            "At least one chunk should split at sentence level, got: {:?}",
+            split_levels
+        );
     }
 }
