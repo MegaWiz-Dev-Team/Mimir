@@ -1,3 +1,2 @@
 -- Placeholder migration for version compatibility
--- This migration was previously recorded in the database
--- but the actual migration file was missing
+-- See ro-ai-bridge/mimir-core-ai/migrations/20260516000001_placeholder.sql
