@@ -1,14 +1,18 @@
-//! OCR evaluation result storage — `asgard_platform` tenant.
+//! OCR LAYOUT evaluation result storage — `asgard_platform` tenant.
 //!
 //! Endpoints:
-//!   POST   /api/v1/eval/ocr/runs           — Ingest a Syn eval result.
-//!   GET    /api/v1/eval/ocr/runs           — List runs (paginated, filterable).
-//!   GET    /api/v1/eval/ocr/runs/:id       — Run detail + per-image items.
+//!   POST   /api/v1/eval/ocr/layout/runs           — Ingest a Syn layout eval result.
+//!   GET    /api/v1/eval/ocr/layout/runs           — List runs (paginated, filterable).
+//!   GET    /api/v1/eval/ocr/layout/runs/:id       — Run detail + per-image items.
 //!
-//! The OCR eval surface is intentionally separate from `rag_eval` /
-//! `eval_scores` because the OCR data shape is geometric (bboxes + IoU)
-//! and would not fit cleanly into the question-scored agent eval tables.
-//! Schema lives in `migrations/sprint53_ocr_eval_schema.sql`.
+//! Targets the `ocr_layout_eval_*` tables (Sprint 53). Named to avoid
+//! collision with the pre-existing Sprint 51 schema (`ocr_eval_*`) which
+//! handles text-level OCR evaluation (CER/WER per engine). The two
+//! schemas are complementary:
+//!   ocr_eval_*         (Sprint 51) — text recognition across engines
+//!   ocr_layout_eval_*  (Sprint 53, this module) — region detection geometry
+//!
+//! Schema lives in `migrations/sprint53_ocr_layout_eval_schema.sql`.
 //!
 //! Tenant: ALL writes/reads here are scoped to `asgard_platform`. The
 //! header X-Tenant-Id is intentionally ignored on these routes so an
@@ -119,8 +123,10 @@ async fn create_run(
     State(pool): State<DbPool>,
     Json(payload): Json<CreateRunRequest>,
 ) -> Result<(StatusCode, Json<CreateRunResponse>), (StatusCode, Json<Value>)> {
-    // Eval kind allow-list — defends against accidental free-text writes.
-    let allowed = ["mAP", "parity", "cer_wer", "grits"];
+    // Eval kind allow-list — layout/geometric eval kinds only. CER/WER
+    // (text-level) is intentionally NOT here; it belongs in the
+    // Sprint 51 ocr_eval_* schema with its multi-engine result rows.
+    let allowed = ["mAP", "parity", "grits"];
     if !allowed.contains(&payload.eval_kind.as_str()) {
         return err(StatusCode::BAD_REQUEST, &format!(
             "eval_kind must be one of {allowed:?}; got {:?}",
@@ -152,7 +158,7 @@ async fn create_run(
     };
 
     let insert_run = sqlx::query(
-        r#"INSERT INTO ocr_eval_runs
+        r#"INSERT INTO ocr_layout_eval_runs
             (id, tenant_id, eval_kind, syn_version, commit_sha, model_name, model_sha256,
              dataset_name, dataset_hash, is_synthetic, iou_threshold,
              n_images, n_gt_regions, n_predictions, summary, started_at, finished_at)
@@ -181,7 +187,7 @@ async fn create_run(
     .await;
 
     if let Err(e) = insert_run {
-        return err500("insert ocr_eval_runs", e);
+        return err500("insert ocr_layout_eval_runs", e);
     }
 
     let mut items_created: i64 = 0;
@@ -193,7 +199,7 @@ async fn create_run(
             .map(|m| serde_json::to_string(m).unwrap_or_else(|_| "{}".into()));
 
         let r = sqlx::query(
-            r#"INSERT INTO ocr_eval_items
+            r#"INSERT INTO ocr_layout_eval_items
                 (id, run_id, image_name, image_hash, image_width, image_height,
                  n_gt, n_pred, n_matched, metrics, latency_ms)
                VALUES (?, ?, ?, ?, ?, ?,
@@ -214,7 +220,7 @@ async fn create_run(
         .await;
 
         if let Err(e) = r {
-            return err500("insert ocr_eval_items", e);
+            return err500("insert ocr_layout_eval_items", e);
         }
         items_created += 1;
     }
@@ -250,7 +256,7 @@ async fn list_runs(
         "SELECT id, eval_kind, syn_version, model_name, dataset_name, is_synthetic,
                 n_images, n_gt_regions, n_predictions, summary,
                 started_at, finished_at, duration_ms, created_at
-         FROM ocr_eval_runs
+         FROM ocr_layout_eval_runs
          WHERE tenant_id = ?",
     );
     if q.eval_kind.is_some() {
@@ -278,7 +284,7 @@ async fn list_runs(
 
     let rows = match query.fetch_all(&pool).await {
         Ok(r) => r,
-        Err(e) => return err500("fetch ocr_eval_runs list", e),
+        Err(e) => return err500("fetch ocr_layout_eval_runs list", e),
     };
 
     let runs: Vec<Value> = rows
@@ -320,7 +326,7 @@ async fn get_run(
                   dataset_name, dataset_hash, is_synthetic, iou_threshold,
                   n_images, n_gt_regions, n_predictions, summary,
                   started_at, finished_at, duration_ms, created_at
-           FROM ocr_eval_runs
+           FROM ocr_layout_eval_runs
            WHERE id = ? AND tenant_id = ?"#,
     )
     .bind(&id)
@@ -336,7 +342,7 @@ async fn get_run(
     let items_rows = match sqlx::query(
         r#"SELECT id, image_name, image_hash, image_width, image_height,
                   n_gt, n_pred, n_matched, metrics, latency_ms, created_at
-           FROM ocr_eval_items
+           FROM ocr_layout_eval_items
            WHERE run_id = ?
            ORDER BY image_name, id"#,
     )
@@ -413,7 +419,7 @@ fn err500<T, E: std::fmt::Display>(
     label: &str,
     e: E,
 ) -> Result<T, (StatusCode, Json<Value>)> {
-    warn!("eval_ocr {label}: {e}");
+    warn!("eval_ocr_layout {label}: {e}");
     Err((
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "error": format!("{label}: {e}") })),
@@ -422,7 +428,7 @@ fn err500<T, E: std::fmt::Display>(
 
 // ─── Router ────────────────────────────────────────────────────────────────
 
-pub fn eval_ocr_routes() -> Router<DbPool> {
+pub fn eval_ocr_layout_routes() -> Router<DbPool> {
     Router::new()
         .route("/runs", post(create_run).get(list_runs))
         .route("/runs/{id}", get(get_run))
