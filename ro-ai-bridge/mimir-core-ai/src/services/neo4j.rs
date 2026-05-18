@@ -979,6 +979,19 @@ impl Neo4jService {
         }
     }
 
+    /// Count edges incident on PrimeKG nodes (informational only).
+    pub async fn count_primekg_edges(&self) -> Result<i64> {
+        let mut result = self
+            .graph
+            .execute(neo4rs::query("MATCH ()-[r]->(:PrimeKG) RETURN count(r) AS c"))
+            .await?;
+        if let Some(row) = result.next().await? {
+            Ok(row.get::<i64>("c").unwrap_or(0))
+        } else {
+            Ok(0)
+        }
+    }
+
     /// Fetch a batch of PrimeKG nodes for embedding, ordered by entity_index.
     pub async fn stream_primekg_nodes(
         &self,
