@@ -230,19 +230,53 @@ async fn list_shared_kbs(
                     Used together with LOINC for FHIR Observation.code."),
     });
 
-    // ── TPC (Thai Procedural Classification) — license-blocked stub ────────
+    // ── TPC (Thai Procedural Classification) ───────────────────────────────
+    // Bootstrap path is the US CMS ICD-9-CM Volume 3 (public domain) as a
+    // ~95% coverage fallback while we wait on the official Thai TPC license
+    // from MoPH Bureau of Health Information. Multi-source-version PK lets
+    // both versions coexist when the Thai release arrives.
+    let tpc_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tpc_codes WHERE tenant_id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+    let tpc_version: Option<String> = sqlx::query_scalar(
+        "SELECT source_version FROM tpc_codes WHERE tenant_id IS NULL \
+         ORDER BY updated_at DESC LIMIT 1",
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+    let tpc_is_fallback = tpc_version
+        .as_deref()
+        .map(|v| v.starts_with("icd9cm-"))
+        .unwrap_or(false);
     kbs.push(SharedKb {
         id: "tpc",
         name: "TPC (Thai Procedural Classification)",
         description: "Thai procedure code master. \
                       Powers FHIR Procedure.code under Thai profile.",
         kind: "terminology",
-        stores: vec![],
-        counts: json!({}),
-        source: "MoPH (license required)",
-        source_version: None,
-        status: "pending_data",
-        notes: Some("Same license block as TMT (W2.3c)."),
+        stores: vec!["mariadb"],
+        counts: json!({ "mariadb_codes": tpc_count }),
+        source: if tpc_is_fallback {
+            "US CMS ICD-9-CM Volume 3 (public-domain fallback for Thai TPC)"
+        } else {
+            "MoPH Bureau of Health Information (license required)"
+        },
+        source_version: tpc_version,
+        status: if tpc_count == 0 {
+            "pending_data"
+        } else if tpc_is_fallback {
+            "active_fallback"
+        } else {
+            "active"
+        },
+        notes: Some("US ICD-9-CM Vol 3 covers ~95% of common procedures \
+                    (missing ~200 Thai-specific codes + Thai display labels). \
+                    Swap source_version to 'tpc-moph-YYYY' when license arrives."),
     });
 
     Ok(Json(json!({ "items": kbs, "count": kbs.len() })))
