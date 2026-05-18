@@ -41,22 +41,32 @@ CORE_COLS = {
 EXTRA_COLS_KEPT = {"RELATEDNAMES2", "CONSUMER_NAME", "VERSION_LAST_CHANGED"}
 
 
+def _have_mysql_cli() -> bool:
+    try:
+        subprocess.run(["mysql", "--version"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+
 def mariadb_exec(sql: str) -> str:
-    """Run SQL via local MariaDB. Honors DATABASE_URL/MARIADB_URL when set;
-    falls back to `mysql -h 127.0.0.1 -P 33306 -u root -proot mimir` matching
-    the local-dev port-forward recipe in `s1_e2e_manual_2026_05_18` memory."""
-    host = os.environ.get("MARIADB_HOST", "127.0.0.1")
-    port = os.environ.get("MARIADB_PORT", "33306")
+    """Run SQL via local MariaDB. Falls back to `kubectl exec` into the
+    mariadb pod when the host doesn't have a mysql CLI installed (typical
+    on operator Mac minis where we only have OrbStack)."""
     user = os.environ.get("MARIADB_USER", "root")
     pw   = os.environ.get("MARIADB_PASS", "root")
     db   = os.environ.get("MARIADB_DB", "mimir")
-    r = subprocess.run(
-        ["mysql", "-h", host, "-P", port, "-u", user, f"-p{pw}", db, "-B", "-N"],
-        input=sql.encode("utf-8"),
-        capture_output=True,
-    )
+    if _have_mysql_cli():
+        host = os.environ.get("MARIADB_HOST", "127.0.0.1")
+        port = os.environ.get("MARIADB_PORT", "33306")
+        cmd = ["mysql", "-h", host, "-P", port, "-u", user, f"-p{pw}", db, "-B", "-N"]
+    else:
+        ns = os.environ.get("MARIADB_NAMESPACE", "asgard-infra")
+        cmd = ["kubectl", "-n", ns, "exec", "-i", "deploy/mariadb", "--",
+               "mariadb", "-u", user, f"-p{pw}", db, "-B", "-N"]
+    r = subprocess.run(cmd, input=sql.encode("utf-8"), capture_output=True)
     if r.returncode != 0:
-        raise RuntimeError(f"mysql error: {r.stderr.decode()}")
+        raise RuntimeError(f"mariadb exec error: {r.stderr.decode()}")
     return r.stdout.decode("utf-8")
 
 
@@ -222,7 +232,9 @@ def main() -> int:
                      f"LOINC bootstrap from {label}")
         print(f"  ✓ inserted/upserted: {inserted:,}, skipped: {skipped}")
     except Exception as e:
-        finalize_run(run_id, 0, 0, "FAILED", str(e))
+        # Truncate — error can dump an entire batch INSERT, way too long for TEXT.
+        msg = str(e)[:1000]
+        finalize_run(run_id, 0, 0, "FAILED", msg)
         raise
 
     n = mariadb_exec(

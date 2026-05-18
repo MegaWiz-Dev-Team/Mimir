@@ -25,9 +25,12 @@ CREATE TABLE loinc_codes (
     -- Six-axis (Property/Time/System/Scale/Method most clinically used).
     property          VARCHAR(64)  DEFAULT NULL,
     time_aspct        VARCHAR(32)  DEFAULT NULL,
-    system_axis       VARCHAR(128) DEFAULT NULL,  -- 'system' is reserved in some dialects
+    -- 'system' is reserved in some dialects; some LOINC SYSTEM values exceed 100 chars
+    -- (specimen + body site + qualifier compound) so use TEXT.
+    system_axis       TEXT         DEFAULT NULL,
     scale_typ         VARCHAR(16)  DEFAULT NULL,
-    method_typ        VARCHAR(64)  DEFAULT NULL,
+    -- METHOD_TYP can be long in LOINC v2.82 (max observed 134 chars).
+    method_typ        TEXT         DEFAULT NULL,
     -- LOINC class (e.g. CHEM, HEM/BC) — coarse grouping for UI/categorization.
     class             VARCHAR(64)  DEFAULT NULL,
     -- Status: ACTIVE / DEPRECATED / DISCOURAGED / TRIAL (LOINC STATUS column).
