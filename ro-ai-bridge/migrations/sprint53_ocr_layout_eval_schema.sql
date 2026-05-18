@@ -1,8 +1,22 @@
--- Sprint 53 — OCR Eval Schema (Syn v0.3.0+ region-aware OCR evaluation)
+-- Sprint 53 — OCR LAYOUT Eval Schema (Syn v0.3.0+ region-aware OCR layout eval)
 --
--- Stores OCR evaluation results (mAP, parity, CER/WER, GriTS) separately
--- from agent eval (eval_scores / rag_benchmark_items) because OCR data
--- shape is geometric (bboxes, IoU per region) not scalar-per-question.
+-- Stores layout-level OCR evaluation: region detection accuracy (mAP),
+-- Rust↔Python parity diffs, and table-structure similarity (GriTS).
+--
+-- NAMED `ocr_layout_eval_*` to avoid collision with the pre-existing
+-- Sprint 51 schema at
+-- `mimir-core-ai/migrations/20260513000000_ocr_eval.sql` which uses
+-- `ocr_eval_*` table names for text-level OCR eval (CER/WER per
+-- engine, ground-truth text per case, multi-engine bench runs).
+--
+-- The two schemas are complementary, not competing:
+--   ocr_eval_*         — text recognition quality across engines (Sprint 51)
+--   ocr_layout_eval_*  — region detection geometry + IoU (this file)
+--
+-- An engine bench (Session A's typhoon-q4 vs q8 CER/WER) belongs in
+-- ocr_eval_*; a DocLayout-YOLO mAP run belongs in ocr_layout_eval_*.
+-- CER/WER could in principle go either way; we keep it in ocr_eval_*
+-- where it already has columns + a Python ingest script (Sprint 51).
 --
 -- Lives in the asgard_platform tenant — a new cross-cutting tenant for
 -- engineering quality metrics. Parallel to asgard_medical /
@@ -25,18 +39,18 @@
 --   - syn_v030_phase1_finding.md    (first set of results to land here)
 
 -- ─────────────────────────────────────────────────────────────────────
--- 1. ocr_eval_runs — one row per benchmark execution
+-- 1. ocr_layout_eval_runs — one row per layout-eval execution
 -- ─────────────────────────────────────────────────────────────────────
-CREATE TABLE ocr_eval_runs (
+CREATE TABLE ocr_layout_eval_runs (
     id                  VARCHAR(36)  NOT NULL,
     tenant_id           VARCHAR(50)  NOT NULL DEFAULT 'asgard_platform'
         COMMENT 'Tenant scope. asgard_platform for cross-cutting eng metrics.',
 
-    -- Discriminator: what kind of OCR eval produced this row.
+    -- Discriminator: what kind of layout eval produced this row.
     -- mAP      → region detection (bboxes + IoU per match)
     -- parity   → Rust↔Python tensor diff (single max-abs-diff scalar / fixture)
-    -- cer_wer  → handwriting recognition error rates (per image)
     -- grits    → table structure similarity (Phase 3)
+    -- Note: CER/WER lives in ocr_eval_* (Sprint 51 schema), not here.
     eval_kind           VARCHAR(16)  NOT NULL,
 
     -- Provenance — every run must be reproducible from commit + model.
@@ -66,7 +80,6 @@ CREATE TABLE ocr_eval_runs (
     --   mAP:     { class_agnostic: {ap50, tp, fp, fn, precision, recall},
     --             per_class: [{class, ap50, tp, fp, fn, gt_count}, ...] }
     --   parity:  { max_abs_diff, mean_abs_diff, tolerance, all_within_tol }
-    --   cer_wer: { mean_cer, mean_wer, exact_match_pct }
     --   grits:   { grits_top, grits_con, grits_loc }
     summary             JSON         NOT NULL
         COMMENT 'Top-level metrics. Shape depends on eval_kind.',
@@ -79,25 +92,25 @@ CREATE TABLE ocr_eval_runs (
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_runs_tenant_kind         (tenant_id, eval_kind, finished_at DESC),
-    KEY idx_runs_started_at          (started_at DESC),
-    KEY idx_runs_syn_version         (syn_version),
-    KEY idx_runs_dataset             (dataset_name)
+    KEY idx_layout_runs_tenant_kind  (tenant_id, eval_kind, finished_at DESC),
+    KEY idx_layout_runs_started_at   (started_at DESC),
+    KEY idx_layout_runs_syn_version  (syn_version),
+    KEY idx_layout_runs_dataset      (dataset_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ─────────────────────────────────────────────────────────────────────
--- 2. ocr_eval_items — per-image rollup within a run
+-- 2. ocr_layout_eval_items — per-image rollup within a run
 -- ─────────────────────────────────────────────────────────────────────
 -- One row per (run, image). Holds counts + per-image metrics blob.
--- Region-level detail lives in ocr_region_eval (3rd table) which FKs here.
-CREATE TABLE ocr_eval_items (
+-- Region-level detail lives in ocr_layout_region_match (3rd table).
+CREATE TABLE ocr_layout_eval_items (
     id                  VARCHAR(36)  NOT NULL,
     run_id              VARCHAR(36)  NOT NULL,
 
     -- Synthetic data: image_name visible (e.g. "hw-rx-01.png").
     -- Real data:      image_name NULL, image_hash populated.
     -- The application layer decides which to write based on
-    -- `ocr_eval_runs.is_synthetic`.
+    -- `ocr_layout_eval_runs.is_synthetic`.
     image_name          VARCHAR(128) DEFAULT NULL,
     image_hash          VARCHAR(64)  DEFAULT NULL,
 
@@ -111,7 +124,6 @@ CREATE TABLE ocr_eval_items (
     -- Per-image metrics, shape depends on eval_kind. Examples:
     --   mAP:     { precision, recall, ap50_image_local }
     --   parity:  { max_abs_diff, n_exceeded_tol }
-    --   cer_wer: { cer, wer, exact_match }
     metrics             JSON         DEFAULT NULL,
 
     latency_ms          INT          DEFAULT NULL,
@@ -119,17 +131,17 @@ CREATE TABLE ocr_eval_items (
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_items_run                (run_id),
-    KEY idx_items_image_hash         (image_hash),
-    CONSTRAINT fk_items_run
-        FOREIGN KEY (run_id) REFERENCES ocr_eval_runs(id) ON DELETE CASCADE
+    KEY idx_layout_items_run         (run_id),
+    KEY idx_layout_items_image_hash  (image_hash),
+    CONSTRAINT fk_layout_items_run
+        FOREIGN KEY (run_id) REFERENCES ocr_layout_eval_runs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ─────────────────────────────────────────────────────────────────────
--- 3. ocr_region_eval — per-region GT↔prediction match record
+-- 3. ocr_layout_region_match — per-region GT↔prediction match record
 -- ─────────────────────────────────────────────────────────────────────
 -- Used by eval_kind = 'mAP' (and any future bbox-geometric metric).
--- For non-bbox evals (parity, cer_wer) this table stays empty.
+-- For non-bbox evals (parity, grits) this table stays empty.
 --
 -- Each row = one (gt_bbox, pred_bbox) pairing decision:
 --   * Both filled → matched at IoU threshold
@@ -139,7 +151,7 @@ CREATE TABLE ocr_eval_items (
 -- Confidence comes from the prediction; class_true comes from GT;
 -- is_match folds the IoU threshold check; is_class_match is separate so
 -- we can compute class-aware AND class-agnostic AP from the same rows.
-CREATE TABLE ocr_region_eval (
+CREATE TABLE ocr_layout_region_match (
     id                  BIGINT       NOT NULL AUTO_INCREMENT,
     run_id              VARCHAR(36)  NOT NULL,
     item_id             VARCHAR(36)  NOT NULL,
@@ -168,13 +180,13 @@ CREATE TABLE ocr_region_eval (
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_region_run               (run_id),
-    KEY idx_region_item              (item_id),
-    KEY idx_region_class_true        (class_true),
-    KEY idx_region_class_pred        (class_pred),
-    KEY idx_region_match             (is_match, is_class_match),
-    CONSTRAINT fk_region_run
-        FOREIGN KEY (run_id) REFERENCES ocr_eval_runs(id) ON DELETE CASCADE,
-    CONSTRAINT fk_region_item
-        FOREIGN KEY (item_id) REFERENCES ocr_eval_items(id) ON DELETE CASCADE
+    KEY idx_layout_region_run        (run_id),
+    KEY idx_layout_region_item       (item_id),
+    KEY idx_layout_region_class_true (class_true),
+    KEY idx_layout_region_class_pred (class_pred),
+    KEY idx_layout_region_match      (is_match, is_class_match),
+    CONSTRAINT fk_layout_region_run
+        FOREIGN KEY (run_id) REFERENCES ocr_layout_eval_runs(id) ON DELETE CASCADE,
+    CONSTRAINT fk_layout_region_item
+        FOREIGN KEY (item_id) REFERENCES ocr_layout_eval_items(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
