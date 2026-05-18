@@ -15,6 +15,7 @@ use mimir_core_ai::services::db;
 use ro_ai_bridge::config::Config;
 use ro_ai_bridge::routes::a2a::a2a_routes;
 use ro_ai_bridge::routes::admin_knowledge::admin_knowledge_routes;
+use ro_ai_bridge::routes::shared_knowledge::shared_knowledge_routes;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
@@ -231,6 +232,7 @@ async fn main() {
         // Sprint 17: Knowledge Graph routes
         .nest("/api/v1/graph", graph_routes())
         .nest("/api/v1/admin/knowledge", admin_knowledge_routes())
+        .nest("/api/v1/knowledge/shared", shared_knowledge_routes())
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
         .nest("/api/v1/prompts", prompts_routes())

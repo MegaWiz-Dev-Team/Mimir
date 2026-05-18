@@ -173,6 +173,7 @@ export function Navbar() {
             items: [
                 { name: "Sources", href: "/sources", icon: LinkIcon },
                 { name: "Knowledge", href: "/knowledge", icon: BookOpen },
+                { name: "Shared Knowledge", href: "/knowledge/shared", icon: Boxes },
                 { name: "Vector", href: "/vector", icon: Search },
                 { name: "Graph", href: "/graph", icon: Share2 },
                 { name: "Page Index", href: "/pageindex", icon: ListTree },

@@ -1,6 +1,7 @@
 pub mod a2a;
 pub mod admin_knowledge;
 pub mod admin_skuggi;
+pub mod shared_knowledge;
 pub mod agents;
 pub mod app_settings;
 pub mod ask;
