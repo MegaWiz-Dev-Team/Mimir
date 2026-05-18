@@ -190,6 +190,46 @@ async fn list_shared_kbs(
                     Ingest via scripts/tmt_ingest.py (W2.3b)."),
     });
 
+    // ── TMLT (Thai Medical Laboratory Terminology — companion to LOINC) ────
+    let tmlt_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tmlt_codes WHERE tenant_id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+    let tmlt_panel_links: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tmlt_relationships WHERE tenant_id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+    let tmlt_version: Option<String> = sqlx::query_scalar(
+        "SELECT source_version FROM tmlt_codes WHERE tenant_id IS NULL \
+         ORDER BY updated_at DESC LIMIT 1",
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+    kbs.push(SharedKb {
+        id: "tmlt",
+        name: "TMLT (Thai Medical Laboratory Terminology)",
+        description: "Thai lab/observation ontology from THIS-Center. \
+                      Companion to LOINC: Thai display names + Thai-specific \
+                      lab tests not in international LOINC. ITEM + PANEL layers.",
+        kind: "terminology",
+        stores: vec!["mariadb"],
+        counts: json!({
+            "mariadb_concepts":  tmlt_count,
+            "mariadb_panel_links": tmlt_panel_links,
+        }),
+        source: "https://this.or.th/",
+        source_version: tmlt_version,
+        status: if tmlt_count > 0 { "active" } else { "pending_data" },
+        notes: Some("Free download from THIS-Center. \
+                    Used together with LOINC for FHIR Observation.code."),
+    });
+
     // ── TPC (Thai Procedural Classification) — license-blocked stub ────────
     kbs.push(SharedKb {
         id: "tpc",
