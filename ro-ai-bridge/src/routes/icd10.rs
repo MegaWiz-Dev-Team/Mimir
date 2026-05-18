@@ -31,13 +31,13 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::FromRow;
 
 const DEFAULT_SOURCE_VERSION: &str = "anamai-moph-2010";
-const QDRANT_URL: &str = "http://qdrant.asgard-infra.svc:6333";
 const QDRANT_COLLECTION: &str = "icd10-th";
-const OLLAMA_URL: &str = "http://host.docker.internal:11434";
-// BGE-M3 multilingual (dim=1024) — handles Thai semantic well; replaces
-// nomic-embed-text (English-tuned, dim=768) per B-48f.2 upgrade. Qdrant
-// collection icd10-th was rebuilt with dim=1024 vectors at the same time.
-const EMBED_MODEL: &str = "bge-m3";
+// BGE-M3 multilingual (dim=1024) via Heimdall gateway — no third-party Ollama.
+// Per `feedback_no_ollama`: Asgard production stack uses Heimdall (Rust + MLX)
+// as the only LLM/embedding gateway. Qdrant collection icd10-th is BGE-M3 1024-d.
+const DEFAULT_EMBED_MODEL: &str = "BAAI/bge-m3";
+const DEFAULT_HEIMDALL_URL: &str = "http://localhost:8080/v1";
+const DEFAULT_QDRANT_URL: &str = "http://localhost:6333";
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct IcdMatch {
@@ -396,16 +396,25 @@ async fn run_semantic(
     // semantically meaningful for the embedder (BGE-M3 doesn't grok acronyms).
     let expanded = expand_acronyms(query);
 
-    // 1. Embed via Ollama.
+    let heimdall_url = std::env::var("HEIMDALL_API_URL")
+        .unwrap_or_else(|_| DEFAULT_HEIMDALL_URL.to_string());
+    let heimdall_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
+    let embed_model = std::env::var("EMBED_MODEL")
+        .unwrap_or_else(|_| DEFAULT_EMBED_MODEL.to_string());
+    let qdrant_url = std::env::var("QDRANT_URL")
+        .unwrap_or_else(|_| DEFAULT_QDRANT_URL.to_string());
+
+    // 1. Embed via Heimdall (OpenAI-compatible /v1/embeddings).
     let embed_resp: serde_json::Value = client
-        .post(format!("{}/api/embeddings", OLLAMA_URL))
-        .json(&json!({"model": EMBED_MODEL, "prompt": expanded}))
+        .post(format!("{}/embeddings", heimdall_url.trim_end_matches('/')))
+        .bearer_auth(&heimdall_key)
+        .json(&json!({"model": embed_model, "input": expanded}))
         .send().await?
         .error_for_status()?
         .json().await?;
-    let vec_arr = embed_resp.get("embedding")
+    let vec_arr = embed_resp.pointer("/data/0/embedding")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| anyhow::anyhow!("ollama: missing embedding field"))?;
+        .ok_or_else(|| anyhow::anyhow!("heimdall: missing data[0].embedding"))?;
     let vector: Vec<f32> = vec_arr.iter()
         .filter_map(|v| v.as_f64().map(|x| x as f32))
         .collect();
@@ -421,7 +430,7 @@ async fn run_semantic(
     });
     let qdrant_resp: serde_json::Value = client
         .post(format!("{}/collections/{}/points/search",
-            QDRANT_URL, QDRANT_COLLECTION))
+            qdrant_url.trim_end_matches('/'), QDRANT_COLLECTION))
         .json(&qdrant_body)
         .send().await?
         .error_for_status()?
