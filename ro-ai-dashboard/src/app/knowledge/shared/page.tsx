@@ -218,9 +218,9 @@ export default function SharedKnowledgePage() {
                             </div>
                         </div>
                         <div>
-                            <div className="text-xs text-muted-foreground">Fallback</div>
+                            <div className="text-xs text-muted-foreground">Degraded</div>
                             <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                                {summary.fallback}
+                                {summary.degraded}
                             </div>
                         </div>
                         <div>
@@ -432,12 +432,10 @@ export default function SharedKnowledgePage() {
                     <p>
                         Status legend: <strong className="text-green-600">active</strong> =
                         populated and queryable ·{" "}
-                        <strong className="text-amber-600">active_fallback</strong> = serving
-                        traffic but with known coverage gaps (typically waiting on official
-                        licensed data) ·{" "}
                         <strong className="text-amber-600">degraded</strong> = one or more stores
                         unreachable · <strong className="text-zinc-500">pending_data</strong> =
-                        schema ready, data not loaded.
+                        schema ready, data not loaded. KBs may have a baseline + extension
+                        roadmap noted under each card (see e.g. TPC).
                     </p>
                 </CardContent>
             </Card>
