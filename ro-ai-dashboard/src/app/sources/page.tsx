@@ -6,9 +6,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2, Search, CheckSquare, Square, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, Globe, FileSpreadsheet, FileText, Database, Settings, Trash2, RefreshCw, Terminal, Eye, ArrowLeft, ArrowRight, Upload, Image, X, Sparkles, Loader2, Search, CheckSquare, Square, ChevronRight, ChevronDown, Boxes } from "lucide-react";
+import Link from "next/link";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, extractSourceOcrWithAi, discoverHierarchy, importPages, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode } from "@/lib/api";
+import { fetchSources, fetchSource, createSource, deleteSource, syncSource, updateSource, uploadFile, getFeatureFlags, fetchModels, extractWithAi, extractSourceOcrWithAi, discoverHierarchy, importPages, generatePageIndexTree, triggerGraphExtraction, fetchPipelineStatus, DataSource, FeatureFlags, ModelConfig, HierarchyNode, API_BASE_URL, authFetch } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -138,6 +139,27 @@ export default function SourcesPage() {
             setLoading(false);
         }
     };
+
+    // ─── Shared Knowledge banner (universal reference data, tenant_id=NULL) ──
+    const [sharedKbCount, setSharedKbCount] = useState<number | null>(null);
+    const [sharedKbActive, setSharedKbActive] = useState<number>(0);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await authFetch(`${API_BASE_URL}/knowledge/shared`, { cache: "no-store" });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (cancelled) return;
+                const items = data.items || [];
+                setSharedKbCount(items.length);
+                setSharedKbActive(items.filter((k: any) => k.status === "active").length);
+            } catch {
+                // banner is informational only; never break the Sources page
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const loadFeatureFlags = async () => {
         try {
@@ -718,6 +740,30 @@ export default function SourcesPage() {
 
             <TabsContent value="sources" className="mt-0">
             <div className="grid gap-6">
+                {/* Shared Knowledge banner — universal reference data (ICD-10/PrimeKG/LOINC) available to every tenant */}
+                {sharedKbCount !== null && sharedKbCount > 0 && (
+                    <Card className="border-dashed bg-purple-50/40 dark:bg-purple-900/10">
+                        <CardContent className="py-3 flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <Boxes className="w-5 h-5 text-purple-600 shrink-0" />
+                                <div>
+                                    <p className="text-sm font-medium">
+                                        Plus <span className="text-purple-700 dark:text-purple-300">{sharedKbActive}</span> of {sharedKbCount} shared knowledge bases active
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Universal reference data (ICD-10-TM, PrimeKG, LOINC…) available to every tenant on this deployment
+                                    </p>
+                                </div>
+                            </div>
+                            <Link href="/knowledge/shared">
+                                <Button variant="outline" size="sm" className="shrink-0">
+                                    View catalog
+                                    <ChevronRight className="w-4 h-4 ml-1" />
+                                </Button>
+                            </Link>
+                        </CardContent>
+                    </Card>
+                )}
                 <Card>
                     <CardContent className="p-0">
                         <Table>
