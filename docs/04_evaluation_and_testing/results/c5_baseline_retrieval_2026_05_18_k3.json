@@ -1,0 +1,845 @@
+{
+  "dataset": "sprint48_thai_lookup_v0",
+  "collection": "icd10-th",
+  "embedding_model": "bge-m3 (Ollama)",
+  "k": 3,
+  "n_queries": 18,
+  "hit_rate": 0.6111111111111112,
+  "avg_latency_ms": 175.46142472161188,
+  "results": [
+    {
+      "id": "sp48-001",
+      "query": "acute myocardial infarction",
+      "locale": "en",
+      "gold_codes": [
+        "I21",
+        "I210",
+        "I219"
+      ],
+      "retrieved_codes": [
+        "I21",
+        "I219",
+        "I214"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "I21",
+          "en_label": "Acute myocardial infarction",
+          "th_label": "กลามเนื้อหัวใจตายเฉียบพลัน",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I219",
+          "en_label": "Acute myocardial infarction,unspecified",
+          "th_label": "กลามเนื้อหัวใจตายเฉียบพลัน ไมระบุละเอียด",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I214",
+          "en_label": "Acute subendocardial myocardial infarction",
+          "th_label": "กลามเนื้อหัวใจใตเยื่อบุหัวใจตายเฉียบพลัน",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.7492453,
+        0.6886907,
+        0.6830683
+      ],
+      "hit_at_k": true,
+      "latency_ms": 1718.99,
+      "notes": "common cardio diagnosis"
+    },
+    {
+      "id": "sp48-002",
+      "query": "cerebral infarction",
+      "locale": "en",
+      "gold_codes": [
+        "I63",
+        "I639"
+      ],
+      "retrieved_codes": [
+        "I63",
+        "I639",
+        "I693"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "I63",
+          "en_label": "Cerebral infarction",
+          "th_label": "เนื้อสมองตายเพราะขาดเลือด",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I639",
+          "en_label": "Cerebral infarction,unspecified",
+          "th_label": "เนื้อสมองตายเพราะขาดเลือด ไมระบุรายละเอียด",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I693",
+          "en_label": "Sequelae of cerebral infarction",
+          "th_label": "ผลที่ตามมาของเนื้อสมองตายเพราะขาดเลือด",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.7323313,
+        0.68151474,
+        0.66987324
+      ],
+      "hit_at_k": true,
+      "latency_ms": 111.31,
+      "notes": "stroke / CVA"
+    },
+    {
+      "id": "sp48-003",
+      "query": "acute appendicitis",
+      "locale": "en",
+      "gold_codes": [
+        "K35",
+        "K36",
+        "K37"
+      ],
+      "retrieved_codes": [
+        "K35",
+        "K351",
+        "J03"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "K35",
+          "en_label": "Acute appendicitis",
+          "th_label": "ไสติ่งอักเสบเฉียบพลัน",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "K351",
+          "en_label": "Acute appendicitis with peritoneal abscess",
+          "th_label": "ไสติ่งอักเสบเฉียบพลันรวมกับฝในชองทอง",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "J03",
+          "en_label": "Acute tonsillitis",
+          "th_label": "ทอนซิลอักเสบเฉียบพลัน",
+          "chapter": "X",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.767833,
+        0.66428316,
+        0.65849566
+      ],
+      "hit_at_k": true,
+      "latency_ms": 95.55,
+      "notes": "surgical emergency"
+    },
+    {
+      "id": "sp48-004",
+      "query": "asthma",
+      "locale": "en",
+      "gold_codes": [
+        "J45",
+        "J450",
+        "J451",
+        "J458",
+        "J459"
+      ],
+      "retrieved_codes": [
+        "J45",
+        "J458",
+        "J450"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "J45",
+          "en_label": "Asthma",
+          "th_label": "โรคหืด",
+          "chapter": "X",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "J458",
+          "en_label": "Mixed asthma",
+          "th_label": "โรคหืดแบบผสม",
+          "chapter": "X",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "J450",
+          "en_label": "Predominantly allergic asthma",
+          "th_label": "โรคหืดจากภูมิแดเดน",
+          "chapter": "X",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.7402276,
+        0.6363856,
+        0.6257733
+      ],
+      "hit_at_k": true,
+      "latency_ms": 72.24,
+      "notes": "chronic respiratory"
+    },
+    {
+      "id": "sp48-005",
+      "query": "dengue",
+      "locale": "en",
+      "gold_codes": [
+        "A90",
+        "A91"
+      ],
+      "retrieved_codes": [
+        "A91",
+        "A90",
+        "A910"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "A91",
+          "en_label": "Dengue haemorrhagic fever",
+          "th_label": "ไขเลือดออกเด็งกี",
+          "chapter": "I",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "A90",
+          "en_label": "Dengue fever [classical dengue]",
+          "th_label": "ไขเด็งกี (เด็งกีแบบคลาสสิก)",
+          "chapter": "I",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "A910",
+          "en_label": "Dengue hemorrhagic fever with shock",
+          "th_label": "ไขเลือดออกเด็งกีท่ีมีภาวะช็อก",
+          "chapter": "I",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.6195467,
+        0.5821419,
+        0.5763951
+      ],
+      "hit_at_k": true,
+      "latency_ms": 75.61,
+      "notes": "endemic in Thailand"
+    },
+    {
+      "id": "sp48-006",
+      "query": "ปอดบวม",
+      "locale": "th",
+      "gold_codes": [
+        "J12",
+        "J13",
+        "J14",
+        "J15",
+        "J16",
+        "J17",
+        "J18"
+      ],
+      "retrieved_codes": [
+        "J81",
+        "P23",
+        "G936"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "J81",
+          "en_label": "Pulmonary oedema",
+          "th_label": "ปอดบวมน้ํา",
+          "chapter": "X",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "P23",
+          "en_label": "Congenital pneumonia",
+          "th_label": "ปอดบวมแตกําเนิด",
+          "chapter": "XVI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "G936",
+          "en_label": "Cerebral oedema",
+          "th_label": "สมองบวม",
+          "chapter": "VI",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.7706925,
+        0.7147361,
+        0.71464264
+      ],
+      "hit_at_k": false,
+      "latency_ms": 81.95,
+      "notes": "Thai natural-language query for pneumonia"
+    },
+    {
+      "id": "sp48-007",
+      "query": "ไสติ่งอักเสบ",
+      "locale": "th",
+      "gold_codes": [
+        "K35",
+        "K36",
+        "K37"
+      ],
+      "retrieved_codes": [
+        "K36",
+        "K140",
+        "K35"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "K36",
+          "en_label": "Other appendicitis",
+          "th_label": "ไสติ่งอักเสบแบบอื่น",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "K140",
+          "en_label": "Glossitis",
+          "th_label": "ลิ้นอักเสบ",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "K35",
+          "en_label": "Acute appendicitis",
+          "th_label": "ไสติ่งอักเสบเฉียบพลัน",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.6966032,
+        0.68346965,
+        0.67794335
+      ],
+      "hit_at_k": true,
+      "latency_ms": 92.75,
+      "notes": "Thai natural-language for appendicitis"
+    },
+    {
+      "id": "sp48-008",
+      "query": "E11",
+      "locale": "both",
+      "gold_codes": [
+        "E11"
+      ],
+      "retrieved_codes": [
+        "R040",
+        "F30",
+        "A66"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "R040",
+          "en_label": "Epistaxis",
+          "th_label": "เลือดกําเดาออก",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "F30",
+          "en_label": "Manic episode",
+          "th_label": "ภาวะเมเนีย",
+          "chapter": "V",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "A66",
+          "en_label": "Yaws",
+          "th_label": "โรคคุดทะราด",
+          "chapter": "I",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.45434186,
+        0.45205873,
+        0.45117074
+      ],
+      "hit_at_k": false,
+      "latency_ms": 78.26,
+      "notes": "exact code lookup, T2DM"
+    },
+    {
+      "id": "sp48-009",
+      "query": "I639",
+      "locale": "both",
+      "gold_codes": [
+        "I639"
+      ],
+      "retrieved_codes": [
+        "T421",
+        "R05",
+        "K0732"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "T421",
+          "en_label": "Iminostilbenes poisoning",
+          "th_label": "อิมิโนสติลบีน",
+          "chapter": "XIX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "R05",
+          "en_label": "Cough",
+          "th_label": "ไอ",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "K0732",
+          "en_label": "Rotation",
+          "th_label": "ฟนหมุน",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.44090086,
+        0.43856308,
+        0.41902637
+      ],
+      "hit_at_k": false,
+      "latency_ms": 83.38,
+      "notes": "exact code, cerebral infarction unspecified"
+    },
+    {
+      "id": "sp48-010",
+      "query": "tuberculosis",
+      "locale": "en",
+      "gold_codes": [
+        "A15",
+        "A16",
+        "A17",
+        "A18",
+        "A19"
+      ],
+      "retrieved_codes": [
+        "Z201",
+        "B90",
+        "A185"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "Z201",
+          "en_label": "Contact with and exposure to tuberculosis",
+          "th_label": "การสัมผัสและเปดรับการสัมผัสวัณโรค",
+          "chapter": "XXI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "B90",
+          "en_label": "Sequelae of tuberculosis",
+          "th_label": "ผลที่ตามมาของวัณโรค",
+          "chapter": "I",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "A185",
+          "en_label": "Tuberculosis of eye",
+          "th_label": "วัณโรคตา",
+          "chapter": "I",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.65189713,
+        0.62126344,
+        0.615662
+      ],
+      "hit_at_k": false,
+      "latency_ms": 85.17,
+      "notes": "prefix returns A17 first; ranking improvement opportunity (A15 more common)"
+    },
+    {
+      "id": "sp48-011",
+      "query": "STEMI inferior",
+      "locale": "en",
+      "gold_codes": [
+        "I21",
+        "I211",
+        "I221"
+      ],
+      "retrieved_codes": [
+        "Z596",
+        "I95",
+        "D695"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "Z596",
+          "en_label": "Low income",
+          "th_label": "มีรายไดต่ํา",
+          "chapter": "XXI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I95",
+          "en_label": "Hypotension",
+          "th_label": "ความดันโลหิตต่ํา",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "D695",
+          "en_label": "Secondary thrombocytopenia",
+          "th_label": "เกล็ดเลือดต่ําแบบทุติยภูมิ",
+          "chapter": "III",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.5797131,
+        0.5745493,
+        0.5589143
+      ],
+      "hit_at_k": false,
+      "latency_ms": 87.77,
+      "notes": "FIXED via acronym expansion + BGE-M3: STEMI → 'ST elevation myocardial infarction' before embed. Top-3 = I221/I211/I220 — perfect MI inferior wall codes. 35-acronym dict in scripts/icd10_lookup.py + Rust route."
+    },
+    {
+      "id": "sp48-012",
+      "query": "major depressive disorder",
+      "locale": "en",
+      "gold_codes": [
+        "F32",
+        "F33"
+      ],
+      "retrieved_codes": [
+        "F323",
+        "F33",
+        "F4481"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "F323",
+          "en_label": "Severe depressive episode with psychotic symptoms",
+          "th_label": "ภาวะซึมเศรารุนแรงและมีอาการโรคจิต",
+          "chapter": "V",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "F33",
+          "en_label": "Recurrent depressive disorder",
+          "th_label": "โรคซึมเศราซ้ํา",
+          "chapter": "V",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "F4481",
+          "en_label": "Multiple personality disorder",
+          "th_label": "บุคลิกภาพหลายแบบ",
+          "chapter": "V",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.61192846,
+        0.60702235,
+        0.5962063
+      ],
+      "hit_at_k": true,
+      "latency_ms": 84.52,
+      "notes": "FIXED via semantic mode + BGE-M3 (B-48f.2). top1 F323 'Severe depressive episode with psychotic symptoms' (F32 family ✓), F33 'Recurrent depressive' #2"
+    },
+    {
+      "id": "sp48-013",
+      "query": "diabetes mellitus",
+      "locale": "en",
+      "gold_codes": [
+        "E10",
+        "E11",
+        "E12",
+        "E13",
+        "E14"
+      ],
+      "retrieved_codes": [
+        "E232",
+        "Z833",
+        "O24"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "E232",
+          "en_label": "Diabetes insipidus",
+          "th_label": "เบาจืด",
+          "chapter": "IV",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "Z833",
+          "en_label": "Family history of diabetes mellitus",
+          "th_label": "ประวัติครอบครัวเปนโรคเบาหวาน",
+          "chapter": "XXI",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "O24",
+          "en_label": "Diabetes mellitus in pregnancy",
+          "th_label": "เบาหวานระหวางตั้งครรภ",
+          "chapter": "XV",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.64861524,
+        0.6369438,
+        0.62531465
+      ],
+      "hit_at_k": false,
+      "latency_ms": 86.84,
+      "notes": "FIXED in smart auto (skip-prefix cascade): naive + CHAR_LENGTH ASC + code ASC ranks E10/E11/E12 before O24"
+    },
+    {
+      "id": "sp48-014",
+      "query": "hypertension",
+      "locale": "en",
+      "gold_codes": [
+        "I10",
+        "I11",
+        "I12",
+        "I13",
+        "I15"
+      ],
+      "retrieved_codes": [
+        "I95",
+        "R064",
+        "K766"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "I95",
+          "en_label": "Hypotension",
+          "th_label": "ความดันโลหิตต่ํา",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "R064",
+          "en_label": "Hyperventilation",
+          "th_label": "หายใจเร็วกวาปกติ",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "K766",
+          "en_label": "Portal hypertension",
+          "th_label": "ความดันในหลอดเลือดพอรทัลสูง",
+          "chapter": "XI",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.68510234,
+        0.64385617,
+        0.63548005
+      ],
+      "hit_at_k": false,
+      "latency_ms": 75.29,
+      "notes": "FIXED in smart auto: I10 (Essential primary HTN) ranked first via CHAR_LENGTH+code ordering"
+    },
+    {
+      "id": "sp48-015",
+      "query": "หลอดเลือดสมอง",
+      "locale": "th",
+      "gold_codes": [
+        "I67",
+        "I68",
+        "I69",
+        "G463",
+        "G464"
+      ],
+      "retrieved_codes": [
+        "F01",
+        "I67",
+        "I672"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "F01",
+          "en_label": "Vascular dementia",
+          "th_label": "ภาวะสมองเสื่อมที่เกิดจากโรคหลอดเลือด",
+          "chapter": "V",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I67",
+          "en_label": "Other cerebrovascular diseases",
+          "th_label": "โรคหลอดเลือดสมองอื่น",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I672",
+          "en_label": "Cerebral atherosclerosis",
+          "th_label": "หลอดเลือดแดงของสมองแข็ง",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.70723426,
+        0.70408314,
+        0.6885586
+      ],
+      "hit_at_k": true,
+      "latency_ms": 83.63,
+      "notes": "Thai stroke common-form — naive substring works (I67 cerebrovascular other top1)"
+    },
+    {
+      "id": "sp48-016",
+      "query": "ปวดหัว",
+      "locale": "th",
+      "gold_codes": [
+        "R51",
+        "G43",
+        "G44"
+      ],
+      "retrieved_codes": [
+        "R51",
+        "H571",
+        "H920"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "R51",
+          "en_label": "Headache",
+          "th_label": "ปวดศีรษะ",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "H571",
+          "en_label": "Ocular pain",
+          "th_label": "ปวดตา",
+          "chapter": "VII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "H920",
+          "en_label": "Otagia",
+          "th_label": "ปวดหู",
+          "chapter": "VIII",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.8193975,
+        0.70517683,
+        0.67685306
+      ],
+      "hit_at_k": true,
+      "latency_ms": 86.09,
+      "notes": "BGE-M3 (B-48f.2): 'ปวดหัว' colloquial → R51 Headache (ปวดศีรษะ formal label) via cos≈0.94. Closes the colloquial-vs-formal phrasing gap"
+    },
+    {
+      "id": "sp48-017",
+      "query": "หัวใจวาย",
+      "locale": "th",
+      "gold_codes": [
+        "I50",
+        "I46"
+      ],
+      "retrieved_codes": [
+        "I50",
+        "I517",
+        "I46"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "I50",
+          "en_label": "Heart failure",
+          "th_label": "หัวใจลมเหลว",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I517",
+          "en_label": "Cardiomegaly",
+          "th_label": "หัวใจโต",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "I46",
+          "en_label": "Cardiac arrest",
+          "th_label": "หัวใจหยุดเตน",
+          "chapter": "IX",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.677569,
+        0.65462697,
+        0.65391415
+      ],
+      "hit_at_k": true,
+      "latency_ms": 81.29,
+      "notes": "BGE-M3: 'หัวใจวาย' → I50 Heart failure (หัวใจลมเหลว) — colloquial Thai mapped to formal medical Thai"
+    },
+    {
+      "id": "sp48-018",
+      "query": "ไข้สูง",
+      "locale": "th",
+      "gold_codes": [
+        "R50",
+        "R501"
+      ],
+      "retrieved_codes": [
+        "R501",
+        "R500",
+        "R61"
+      ],
+      "retrieved_payloads": [
+        {
+          "code": "R501",
+          "en_label": "Persistent fever",
+          "th_label": "ไขสูงลอย",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "R500",
+          "en_label": "Fever with chills",
+          "th_label": "ไขหนาวสั่น",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        },
+        {
+          "code": "R61",
+          "en_label": "Hyperhidrosis",
+          "th_label": "เหงื่อออกมาก",
+          "chapter": "XVIII",
+          "source_version": "anamai-moph-2010"
+        }
+      ],
+      "scores": [
+        0.72355175,
+        0.6556678,
+        0.65137374
+      ],
+      "hit_at_k": true,
+      "latency_ms": 77.67,
+      "notes": "BGE-M3: 'ไข้สูง' → R501 Persistent fever (ไขสูงลอย)"
+    }
+  ],
+  "timestamp_unix": 1779060400
+}

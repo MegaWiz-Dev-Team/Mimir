@@ -1,0 +1,355 @@
+{
+  "dataset": "sprint48_thai_lookup_v0",
+  "approach": "cascade(exact→naive→semantic) + acronym expansion",
+  "corpus_source": "Qdrant icd10-th payloads (15376 rows, anamai-moph-2010)",
+  "k": 3,
+  "n_queries": 18,
+  "hit_rate": 1.0,
+  "baseline_semantic_only_hit_rate": 0.611,
+  "improvement": 0.389,
+  "avg_latency_ms": 65.51651159922282,
+  "mode_usage": {
+    "exact": 6,
+    "naive": 7,
+    "semantic": 5,
+    "miss": 0
+  },
+  "results": [
+    {
+      "id": "sp48-001",
+      "query": "acute myocardial infarction",
+      "locale": "en",
+      "gold_codes": [
+        "I21",
+        "I210",
+        "I219"
+      ],
+      "retrieved_codes": [
+        "I21"
+      ],
+      "mode_used": "exact",
+      "hit_at_k": true,
+      "latency_ms": 2.92,
+      "notes": "common cardio diagnosis"
+    },
+    {
+      "id": "sp48-002",
+      "query": "cerebral infarction",
+      "locale": "en",
+      "gold_codes": [
+        "I63",
+        "I639"
+      ],
+      "retrieved_codes": [
+        "I63"
+      ],
+      "mode_used": "exact",
+      "hit_at_k": true,
+      "latency_ms": 2.81,
+      "notes": "stroke / CVA"
+    },
+    {
+      "id": "sp48-003",
+      "query": "acute appendicitis",
+      "locale": "en",
+      "gold_codes": [
+        "K35",
+        "K36",
+        "K37"
+      ],
+      "retrieved_codes": [
+        "K35"
+      ],
+      "mode_used": "exact",
+      "hit_at_k": true,
+      "latency_ms": 2.75,
+      "notes": "surgical emergency"
+    },
+    {
+      "id": "sp48-004",
+      "query": "asthma",
+      "locale": "en",
+      "gold_codes": [
+        "J45",
+        "J450",
+        "J451",
+        "J458",
+        "J459"
+      ],
+      "retrieved_codes": [
+        "J45"
+      ],
+      "mode_used": "exact",
+      "hit_at_k": true,
+      "latency_ms": 2.79,
+      "notes": "chronic respiratory"
+    },
+    {
+      "id": "sp48-005",
+      "query": "dengue",
+      "locale": "en",
+      "gold_codes": [
+        "A90",
+        "A91"
+      ],
+      "retrieved_codes": [
+        "A90",
+        "A91",
+        "A910"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 5.93,
+      "notes": "endemic in Thailand"
+    },
+    {
+      "id": "sp48-006",
+      "query": "ปอดบวม",
+      "locale": "th",
+      "gold_codes": [
+        "J12",
+        "J13",
+        "J14",
+        "J15",
+        "J16",
+        "J17",
+        "J18"
+      ],
+      "retrieved_codes": [
+        "J12",
+        "J13",
+        "J14"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 5.01,
+      "notes": "Thai natural-language query for pneumonia"
+    },
+    {
+      "id": "sp48-007",
+      "query": "ไสติ่งอักเสบ",
+      "locale": "th",
+      "gold_codes": [
+        "K35",
+        "K36",
+        "K37"
+      ],
+      "retrieved_codes": [
+        "K35",
+        "K36",
+        "K37"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 4.9,
+      "notes": "Thai natural-language for appendicitis"
+    },
+    {
+      "id": "sp48-008",
+      "query": "E11",
+      "locale": "both",
+      "gold_codes": [
+        "E11"
+      ],
+      "retrieved_codes": [
+        "E11"
+      ],
+      "mode_used": "exact",
+      "hit_at_k": true,
+      "latency_ms": 2.69,
+      "notes": "exact code lookup, T2DM"
+    },
+    {
+      "id": "sp48-009",
+      "query": "I639",
+      "locale": "both",
+      "gold_codes": [
+        "I639"
+      ],
+      "retrieved_codes": [
+        "I639"
+      ],
+      "mode_used": "exact",
+      "hit_at_k": true,
+      "latency_ms": 2.71,
+      "notes": "exact code, cerebral infarction unspecified"
+    },
+    {
+      "id": "sp48-010",
+      "query": "tuberculosis",
+      "locale": "en",
+      "gold_codes": [
+        "A15",
+        "A16",
+        "A17",
+        "A18",
+        "A19"
+      ],
+      "retrieved_codes": [
+        "A15",
+        "A16",
+        "A17"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 5.86,
+      "notes": "prefix returns A17 first; ranking improvement opportunity (A15 more common)"
+    },
+    {
+      "id": "sp48-011",
+      "query": "STEMI inferior",
+      "locale": "en",
+      "gold_codes": [
+        "I21",
+        "I211",
+        "I221"
+      ],
+      "retrieved_codes": [
+        "I221",
+        "I211",
+        "I220"
+      ],
+      "mode_used": "semantic",
+      "hit_at_k": true,
+      "latency_ms": 704.74,
+      "notes": "FIXED via acronym expansion + BGE-M3: STEMI → 'ST elevation myocardial infarction' before embed. Top-3 = I221/I211/I220 — perfect MI inferior wall codes. 35-acronym dict in scripts/icd10_lookup.py + Rust route."
+    },
+    {
+      "id": "sp48-012",
+      "query": "major depressive disorder",
+      "locale": "en",
+      "gold_codes": [
+        "F32",
+        "F33"
+      ],
+      "retrieved_codes": [
+        "F323",
+        "F33",
+        "F4481"
+      ],
+      "mode_used": "semantic",
+      "hit_at_k": true,
+      "latency_ms": 109.87,
+      "notes": "FIXED via semantic mode + BGE-M3 (B-48f.2). top1 F323 'Severe depressive episode with psychotic symptoms' (F32 family ✓), F33 'Recurrent depressive' #2"
+    },
+    {
+      "id": "sp48-013",
+      "query": "diabetes mellitus",
+      "locale": "en",
+      "gold_codes": [
+        "E10",
+        "E11",
+        "E12",
+        "E13",
+        "E14"
+      ],
+      "retrieved_codes": [
+        "E10",
+        "E11",
+        "E12"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 13.49,
+      "notes": "FIXED in smart auto (skip-prefix cascade): naive + CHAR_LENGTH ASC + code ASC ranks E10/E11/E12 before O24"
+    },
+    {
+      "id": "sp48-014",
+      "query": "hypertension",
+      "locale": "en",
+      "gold_codes": [
+        "I10",
+        "I11",
+        "I12",
+        "I13",
+        "I15"
+      ],
+      "retrieved_codes": [
+        "I10",
+        "I15",
+        "O10"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 9.25,
+      "notes": "FIXED in smart auto: I10 (Essential primary HTN) ranked first via CHAR_LENGTH+code ordering"
+    },
+    {
+      "id": "sp48-015",
+      "query": "หลอดเลือดสมอง",
+      "locale": "th",
+      "gold_codes": [
+        "I67",
+        "I68",
+        "I69",
+        "G463",
+        "G464"
+      ],
+      "retrieved_codes": [
+        "I67",
+        "I68",
+        "I69"
+      ],
+      "mode_used": "naive",
+      "hit_at_k": true,
+      "latency_ms": 7.86,
+      "notes": "Thai stroke common-form — naive substring works (I67 cerebrovascular other top1)"
+    },
+    {
+      "id": "sp48-016",
+      "query": "ปวดหัว",
+      "locale": "th",
+      "gold_codes": [
+        "R51",
+        "G43",
+        "G44"
+      ],
+      "retrieved_codes": [
+        "R51",
+        "H571",
+        "H920"
+      ],
+      "mode_used": "semantic",
+      "hit_at_k": true,
+      "latency_ms": 95.01,
+      "notes": "BGE-M3 (B-48f.2): 'ปวดหัว' colloquial → R51 Headache (ปวดศีรษะ formal label) via cos≈0.94. Closes the colloquial-vs-formal phrasing gap"
+    },
+    {
+      "id": "sp48-017",
+      "query": "หัวใจวาย",
+      "locale": "th",
+      "gold_codes": [
+        "I50",
+        "I46"
+      ],
+      "retrieved_codes": [
+        "I50",
+        "I517",
+        "I46"
+      ],
+      "mode_used": "semantic",
+      "hit_at_k": true,
+      "latency_ms": 92.51,
+      "notes": "BGE-M3: 'หัวใจวาย' → I50 Heart failure (หัวใจลมเหลว) — colloquial Thai mapped to formal medical Thai"
+    },
+    {
+      "id": "sp48-018",
+      "query": "ไข้สูง",
+      "locale": "th",
+      "gold_codes": [
+        "R50",
+        "R501"
+      ],
+      "retrieved_codes": [
+        "R501",
+        "R500",
+        "R61"
+      ],
+      "mode_used": "semantic",
+      "hit_at_k": true,
+      "latency_ms": 108.21,
+      "notes": "BGE-M3: 'ไข้สูง' → R501 Persistent fever (ไขสูงลอย)"
+    }
+  ],
+  "timestamp_unix": 1779061049
+}
