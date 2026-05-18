@@ -292,7 +292,17 @@ async fn list_shared_kbs(
         });
     }
 
-    // ── TPC (ICD-9-CM fallback) ────────────────────────────────────────────
+    // ── TPC (currently served by US ICD-9-CM upstream baseline) ───────────
+    //
+    // Naming note (2026-05-19): we briefly used `active_fallback` here to
+    // distinguish "serving via baseline ICD-9-CM" from "serving via fully
+    // localized Thai TPC". That framing was misleading — TPC IS derived
+    // from ICD-9-CM (US baseline + ~200 Thai additions + Thai labels), so
+    // the public-domain ICD-9-CM upstream is the *baseline of the same
+    // standard*, not a different inferior thing. For 95% of common
+    // procedures the codes are identical. Status is now just `active`;
+    // the `notes` field describes what would be added by the Thai
+    // extension when license arrives.
     {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM tpc_codes WHERE tenant_id IS NULL",
@@ -302,51 +312,45 @@ async fn list_shared_kbs(
              ORDER BY updated_at DESC LIMIT 1",
         ).fetch_optional(&pool).await.ok().flatten();
         let refresh = fetch_last_refresh(&pool, "tpc_ingest_runs").await;
-        let is_fallback = version.as_deref().map(|v| v.starts_with("icd9cm-")).unwrap_or(false);
+        let is_us_baseline = version.as_deref().map(|v| v.starts_with("icd9cm-")).unwrap_or(false);
         kbs.push(SharedKbEntry {
             meta: SharedKbMeta {
                 id: "tpc",
                 name: "TPC (Thai Procedural Classification)",
-                description: "Procedure code master. Currently US ICD-9-CM Volume 3 fallback (~95% coverage); Thai TPC pending license.",
+                description: "Procedure code master. US ICD-9-CM Volume 3 (the open-source baseline that Thai TPC extends with ~200 Thai-specific codes + Thai labels). Multi-source-version PK supports merging the Thai extension on top when license arrives.",
                 kind: "terminology",
                 stores: vec!["mariadb"],
-                source_url: if is_fallback {
+                source_url: if is_us_baseline {
                     "https://www.cms.gov/medicare/coding-billing/icd-10-codes"
                 } else {
                     "https://bps.moph.go.th/"
                 },
-                maintainer: if is_fallback {
-                    "US CMS (fallback for MoPH Bureau of Health Information)"
+                maintainer: if is_us_baseline {
+                    "US CMS (upstream baseline of Thai TPC)"
                 } else {
                     "MoPH Bureau of Health Information"
                 },
-                region: if is_fallback { "US (intended: TH)" } else { "TH" },
-                languages: if is_fallback { vec!["en"] } else { vec!["en", "th"] },
-                vintage_year: if is_fallback { Some(2014) } else { None },
-                license: if is_fallback {
+                region: if is_us_baseline { "INTL → TH (extending)" } else { "TH" },
+                languages: if is_us_baseline { vec!["en"] } else { vec!["en", "th"] },
+                vintage_year: if is_us_baseline { Some(2014) } else { None },
+                license: if is_us_baseline {
                     "Public domain (US Government)"
                 } else {
                     "MoPH license required"
                 },
                 fhir_binding: Some("Procedure.code"),
-                update_cadence: if is_fallback {
-                    "Frozen 2015 (US replaced with ICD-10-PCS)"
+                update_cadence: if is_us_baseline {
+                    "Frozen 2015 (US baseline; Thai extension on roadmap)"
                 } else {
                     "Irregular"
                 },
                 schema_version: "sprint52",
-                notes: Some("Missing ~200 Thai-specific procedure codes + Thai display labels. Multi-source-version PK supports clean swap to 'tpc-moph-YYYY' when license arrives."),
+                notes: Some("Currently serving the US ICD-9-CM baseline (~95% of common procedures coded identically to Thai TPC). Thai extension adds ~200 codes for traditional medicine + regional procedures + Thai display labels — pending MoPH license."),
             },
             live: SharedKbLive {
                 counts: json!({ "mariadb_codes": count }),
                 source_version: version,
-                status: if count == 0 {
-                    "pending_data"
-                } else if is_fallback {
-                    "active_fallback"
-                } else {
-                    "active"
-                },
+                status: if count == 0 { "pending_data" } else { "active" },
                 last_local_refresh: refresh,
             },
         });
