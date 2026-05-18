@@ -186,6 +186,8 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
+        // Sprint 53: OCR eval storage (Syn v0.3.0+) — asgard_platform tenant
+        .nest("/api/v1/eval/ocr", ro_ai_bridge::routes::eval_ocr::eval_ocr_routes())
         // Sprint 39: Mimir Curator (annotation) + LoRA training tracking
         .merge(training_routes())
         // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
