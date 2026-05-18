@@ -2,19 +2,15 @@
 //!
 //! Per `feedback_no_new_norse_components`, this is **not a new component** —
 //! it's a Mimir surface that aggregates the existing shared master stores
-//! (ICD-10-TM in MariaDB+Qdrant, PrimeKG in Neo4j+Qdrant, LOINC in MariaDB)
-//! into one read-only catalog that the UI can render.
+//! (ICD-10-TM, PrimeKG, LOINC, TMT, TMLT, TPC) into one read-only catalog
+//! that the UI can render with rich metadata.
 //!
 //! Tenant model: every entry has `tenant_id=null` — these are global, not
 //! per-tenant. Per-tenant ingest sources still go through `/api/v1/tenants/...`
 //! and `/api/v1/sources/...`.
 //!
 //! Routes:
-//!   GET /api/v1/knowledge/shared        — list all shared KBs with stats
-//!
-//! Future:
-//!   GET /api/v1/knowledge/shared/:id    — details + sample entries
-//!   POST /api/v1/knowledge/shared/:id/refresh — trigger re-ingest/re-embed
+//!   GET /api/v1/knowledge/shared        — list all shared KBs with metadata
 
 use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
 use mimir_core_ai::services::db::DbPool;
@@ -26,8 +22,11 @@ pub fn shared_knowledge_routes() -> Router<DbPool> {
     Router::new().route("/", get(list_shared_kbs))
 }
 
+/// Static, hand-authored metadata for a shared KB. Lives next to the code
+/// because operators care about license terms / FHIR bindings / refresh
+/// cadence — these are stable facts that don't change every release.
 #[derive(Debug, Serialize)]
-struct SharedKb {
+struct SharedKbMeta {
     /// Stable identifier used in UI URLs.
     id: &'static str,
     /// Human-readable display name.
@@ -38,263 +37,353 @@ struct SharedKb {
     kind: &'static str,
     /// Where this KB lives: `mariadb`, `qdrant`, `neo4j`, or combinations.
     stores: Vec<&'static str>,
+    /// Source URL or attribution.
+    source_url: &'static str,
+    /// Organization that owns/maintains the master data.
+    maintainer: &'static str,
+    /// Region / scope: "TH", "INTL", "US", etc.
+    region: &'static str,
+    /// Languages present in the FSN/label fields.
+    languages: Vec<&'static str>,
+    /// Release year of the *current* loaded vintage (e.g. 2010 for anamai,
+    /// 2024 for LOINC 2.82, 2026 for TMT/TMLT releases).
+    vintage_year: Option<i32>,
+    /// License terms — short form for display.
+    license: &'static str,
+    /// FHIR resource.field this KB powers, if any.
+    fhir_binding: Option<&'static str>,
+    /// Release cadence the upstream publishes at.
+    update_cadence: &'static str,
+    /// Which Mimir sprint shipped the schema for this KB.
+    schema_version: &'static str,
+    /// Notes for operator (gaps, deprecations).
+    notes: Option<&'static str>,
+}
+
+/// Live state for a KB — counts, status, last refresh, source_version
+/// of the currently-loaded data. Derived from live queries, not hand-coded.
+#[derive(Debug, Serialize)]
+struct SharedKbLive {
     /// Live row/node/point counts. Missing values → store unreachable.
     counts: serde_json::Value,
-    /// Source URL or attribution.
-    source: &'static str,
-    /// Latest source_version label (e.g. "anamai-moph-2010"). Null if not ingested.
+    /// Latest source_version label (e.g. "anamai-moph-2010").
     source_version: Option<String>,
-    /// Lifecycle: `active`, `pending_data`, `degraded`.
+    /// Lifecycle: `active`, `active_fallback`, `degraded`, `pending_data`.
     status: &'static str,
-    /// Free-form notes for the operator (deprecations, refresh cadence).
-    notes: Option<&'static str>,
+    /// Timestamp of last successful ingest (UTC, ISO-8601).
+    last_local_refresh: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SharedKbEntry {
+    #[serde(flatten)]
+    meta: SharedKbMeta,
+    #[serde(flatten)]
+    live: SharedKbLive,
 }
 
 async fn list_shared_kbs(
     State(pool): State<DbPool>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let mut kbs: Vec<SharedKb> = Vec::new();
+    let mut kbs: Vec<SharedKbEntry> = Vec::new();
 
-    // ── ICD-10-TM (MariaDB master + Qdrant icd10-th) ──────────────────────
-    let icd10_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM icd10_codes WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let icd10_version: Option<String> = sqlx::query_scalar(
-        "SELECT source_version FROM icd10_codes WHERE tenant_id IS NULL \
-         ORDER BY updated_at DESC LIMIT 1",
-    )
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-    let icd10_qdrant_count = qdrant_collection_points("icd10-th").await;
-    kbs.push(SharedKb {
-        id: "icd10-tm",
-        name: "ICD-10-TM (Thai)",
-        description: "Thai-localized ICD-10 master from MoPH anamai 2010. \
-                      Powers FHIR Condition.code + diagnosis cascade lookup.",
-        kind: "ontology",
-        stores: vec!["mariadb", "qdrant"],
-        counts: json!({
-            "mariadb_codes":  icd10_count,
-            "qdrant_points":  icd10_qdrant_count,
-        }),
-        source: "https://backenddc.anamai.moph.go.th/coverpage/...",
-        source_version: icd10_version,
-        status: if icd10_count > 0 { "active" } else { "pending_data" },
-        notes: Some("Refresh path: MoPH ICD-10-TM 2017 license response \
-                    (B-48a, on hold per user direction 2026-05-18)."),
-    });
+    // ── ICD-10-TM ──────────────────────────────────────────────────────────
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM icd10_codes WHERE tenant_id IS NULL",
+        )
+        .fetch_one(&pool).await.unwrap_or(0);
+        let qdrant_count = qdrant_collection_points("icd10-th").await;
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM icd10_codes WHERE tenant_id IS NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "icd10_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "icd10-tm",
+                name: "ICD-10-TM (Thai)",
+                description: "Thai-localized ICD-10 diagnosis master. Cascade exact → naive → semantic lookup.",
+                kind: "ontology",
+                stores: vec!["mariadb", "qdrant"],
+                source_url: "https://backenddc.anamai.moph.go.th/coverpage/d1579eb1c80b878ab62513c060681290.pdf",
+                maintainer: "MoPH Bureau of Health Information (anamai)",
+                region: "TH",
+                languages: vec!["en", "th"],
+                vintage_year: Some(2010),
+                license: "Thai government document (public)",
+                fhir_binding: Some("Condition.code"),
+                update_cadence: "Irregular (2010 → 2017 pending B-48a license)",
+                schema_version: "sprint48",
+                notes: Some("Refresh target: ICD-10-TM 2017 from MoPH. Awaiting license letter."),
+            },
+            live: SharedKbLive {
+                counts: json!({ "mariadb_codes": count, "qdrant_points": qdrant_count }),
+                source_version: version,
+                status: if count > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
 
-    // ── PrimeKG (Neo4j source-of-truth + Qdrant primekg-entities) ──────────
-    let pkg_neo4j_count = primekg_neo4j_count().await;
-    let pkg_qdrant_count = qdrant_collection_points("primekg-entities").await;
-    let pkg_edges = primekg_edge_count().await;
-    let pkg_status = if pkg_neo4j_count > 0 && pkg_qdrant_count > 0 {
-        "active"
-    } else if pkg_neo4j_count > 0 && pkg_qdrant_count == 0 {
-        "degraded"
-    } else {
-        "pending_data"
-    };
-    kbs.push(SharedKb {
-        id: "primekg",
-        name: "PrimeKG (Biomedical Knowledge Graph)",
-        description: "Harvard PrimeKG v2 — 129K biomedical entities \
-                      (disease/drug/gene/anatomy) + 8.1M relations. \
-                      Powers Hermodr MCP graph tools + GraphRAG.",
-        kind: "graph_ontology",
-        stores: vec!["neo4j", "qdrant"],
-        counts: json!({
-            "neo4j_nodes": pkg_neo4j_count,
-            "neo4j_edges": pkg_edges,
-            "qdrant_points": pkg_qdrant_count,
-        }),
-        source: "https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/IXA7BM",
-        source_version: Some("primekg-v2".into()),
-        status: pkg_status,
-        notes: Some("Vector dim 1024 (BGE-M3 via Heimdall). \
-                    Re-import via Mimir/scripts/primekg_import.sh."),
-    });
-
-    // ── LOINC (MariaDB master, FHIR Observation.code binding) ──────────────
-    let loinc_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM loinc_codes WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let loinc_version: Option<String> = sqlx::query_scalar(
-        "SELECT source_version FROM loinc_codes WHERE tenant_id IS NULL \
-         ORDER BY updated_at DESC LIMIT 1",
-    )
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-    kbs.push(SharedKb {
-        id: "loinc",
-        name: "LOINC (Lab/Observation Codes)",
-        description: "Logical Observation Identifiers Names and Codes. \
-                      Powers FHIR Observation.code (labs, vitals, imaging).",
-        kind: "ontology",
-        stores: vec!["mariadb"],
-        counts: json!({ "mariadb_codes": loinc_count }),
-        source: "https://loinc.org/downloads/",
-        source_version: loinc_version,
-        status: if loinc_count > 0 { "active" } else { "pending_data" },
-        notes: Some("Free under LOINC license; manual account download. \
-                    Schema ready (sprint49); see W2.3a runbook for ingest."),
-    });
-
-    // ── TMT (Thai Medicines Terminology, dm+d-style 8-layer ontology) ──────
-    let tmt_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tmt_codes WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let tmt_rel_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tmt_relationships WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let tmt_version: Option<String> = sqlx::query_scalar(
-        "SELECT source_version FROM tmt_codes WHERE tenant_id IS NULL \
-         ORDER BY updated_at DESC LIMIT 1",
-    )
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-    kbs.push(SharedKb {
-        id: "tmt",
-        name: "TMT (Thai Medicines Terminology)",
-        description: "Thai dm+d-style drug ontology from THIS-Center / MoPH. \
-                      8 concept layers (SUBS→VTM→GP→GPP→GPU→TP→TPP→TPU). \
-                      Powers FHIR MedicationRequest.medicationCodeableConcept.",
-        kind: "terminology",
-        stores: vec!["mariadb"],
-        counts: json!({
-            "mariadb_concepts":      tmt_count,
-            "mariadb_relationships": tmt_rel_count,
-        }),
-        source: "https://this.or.th/",
-        source_version: tmt_version,
-        status: if tmt_count > 0 { "active" } else { "pending_data" },
-        notes: Some("Free download from THIS-Center (this.or.th). \
-                    Ingest via scripts/tmt_ingest.py (W2.3b)."),
-    });
-
-    // ── TMLT (Thai Medical Laboratory Terminology — companion to LOINC) ────
-    let tmlt_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tmlt_codes WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let tmlt_panel_links: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tmlt_relationships WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let tmlt_version: Option<String> = sqlx::query_scalar(
-        "SELECT source_version FROM tmlt_codes WHERE tenant_id IS NULL \
-         ORDER BY updated_at DESC LIMIT 1",
-    )
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-    kbs.push(SharedKb {
-        id: "tmlt",
-        name: "TMLT (Thai Medical Laboratory Terminology)",
-        description: "Thai lab/observation ontology from THIS-Center. \
-                      Companion to LOINC: Thai display names + Thai-specific \
-                      lab tests not in international LOINC. ITEM + PANEL layers.",
-        kind: "terminology",
-        stores: vec!["mariadb"],
-        counts: json!({
-            "mariadb_concepts":  tmlt_count,
-            "mariadb_panel_links": tmlt_panel_links,
-        }),
-        source: "https://this.or.th/",
-        source_version: tmlt_version,
-        status: if tmlt_count > 0 { "active" } else { "pending_data" },
-        notes: Some("Free download from THIS-Center. \
-                    Used together with LOINC for FHIR Observation.code."),
-    });
-
-    // ── TPC (Thai Procedural Classification) ───────────────────────────────
-    // Bootstrap path is the US CMS ICD-9-CM Volume 3 (public domain) as a
-    // ~95% coverage fallback while we wait on the official Thai TPC license
-    // from MoPH Bureau of Health Information. Multi-source-version PK lets
-    // both versions coexist when the Thai release arrives.
-    let tpc_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tpc_codes WHERE tenant_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or(0);
-    let tpc_version: Option<String> = sqlx::query_scalar(
-        "SELECT source_version FROM tpc_codes WHERE tenant_id IS NULL \
-         ORDER BY updated_at DESC LIMIT 1",
-    )
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
-    let tpc_is_fallback = tpc_version
-        .as_deref()
-        .map(|v| v.starts_with("icd9cm-"))
-        .unwrap_or(false);
-    kbs.push(SharedKb {
-        id: "tpc",
-        name: "TPC (Thai Procedural Classification)",
-        description: "Thai procedure code master. \
-                      Powers FHIR Procedure.code under Thai profile.",
-        kind: "terminology",
-        stores: vec!["mariadb"],
-        counts: json!({ "mariadb_codes": tpc_count }),
-        source: if tpc_is_fallback {
-            "US CMS ICD-9-CM Volume 3 (public-domain fallback for Thai TPC)"
-        } else {
-            "MoPH Bureau of Health Information (license required)"
-        },
-        source_version: tpc_version,
-        status: if tpc_count == 0 {
-            "pending_data"
-        } else if tpc_is_fallback {
-            "active_fallback"
-        } else {
+    // ── PrimeKG ────────────────────────────────────────────────────────────
+    {
+        let neo_count = primekg_neo4j_count().await;
+        let qdrant_count = qdrant_collection_points("primekg-entities").await;
+        let edges = primekg_edge_count().await;
+        let status = if neo_count > 0 && qdrant_count > 0 {
             "active"
-        },
-        notes: Some("US ICD-9-CM Vol 3 covers ~95% of common procedures \
-                    (missing ~200 Thai-specific codes + Thai display labels). \
-                    Swap source_version to 'tpc-moph-YYYY' when license arrives."),
-    });
+        } else if neo_count > 0 {
+            "degraded"
+        } else {
+            "pending_data"
+        };
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "primekg",
+                name: "PrimeKG (Biomedical Knowledge Graph)",
+                description: "Harvard PrimeKG — 129K biomedical entities (disease/drug/gene/anatomy) + 8.1M relations. Powers GraphRAG + Hermodr MCP tools.",
+                kind: "graph_ontology",
+                stores: vec!["neo4j", "qdrant"],
+                source_url: "https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/IXA7BM",
+                maintainer: "Harvard Dataverse (Marinka Zitnik lab)",
+                region: "INTL",
+                languages: vec!["en"],
+                vintage_year: Some(2022),
+                license: "MIT (research)",
+                fhir_binding: None,
+                update_cadence: "Ad-hoc (v1 2021, v2 2022, no v3 announced)",
+                schema_version: "sprint48",
+                notes: Some("Vector dim 1024 (BGE-M3 via Heimdall). Source: data/PrimeKG/kg.csv."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "neo4j_nodes":   neo_count,
+                    "neo4j_edges":   edges,
+                    "qdrant_points": qdrant_count,
+                }),
+                source_version: Some("primekg-v2".into()),
+                status,
+                last_local_refresh: None,
+            },
+        });
+    }
 
-    Ok(Json(json!({ "items": kbs, "count": kbs.len() })))
+    // ── LOINC ──────────────────────────────────────────────────────────────
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loinc_codes WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM loinc_codes WHERE tenant_id IS NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "loinc_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "loinc",
+                name: "LOINC (Lab/Observation Codes)",
+                description: "Logical Observation Identifiers Names and Codes. Universal coding for labs, vitals, imaging, surveys.",
+                kind: "ontology",
+                stores: vec!["mariadb"],
+                source_url: "https://loinc.org/downloads/",
+                maintainer: "Regenstrief Institute (US)",
+                region: "INTL",
+                languages: vec!["en"],
+                vintage_year: Some(2024),
+                license: "Free under LOINC license (account required)",
+                fhir_binding: Some("Observation.code"),
+                update_cadence: "Biannual (Feb / Aug)",
+                schema_version: "sprint49",
+                notes: Some("Pair with TMLT for Thai display. ~98K codes (incl. deprecated/trial)."),
+            },
+            live: SharedKbLive {
+                counts: json!({ "mariadb_codes": count }),
+                source_version: version,
+                status: if count > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
+    // ── TMT ────────────────────────────────────────────────────────────────
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tmt_codes WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let rel_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tmt_relationships WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM tmt_codes WHERE tenant_id IS NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "tmt_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "tmt",
+                name: "TMT (Thai Medicines Terminology)",
+                description: "Thai dm+d-style drug ontology. 8 layers SUBS→VTM→GP→GPP→GPU→TP→TPP→TPU with brand/generic linkage.",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: "https://this.or.th/",
+                maintainer: "THIS-Center / MoPH",
+                region: "TH",
+                languages: vec!["en", "th"],
+                vintage_year: Some(2026),
+                license: "Free (THIS-Center)",
+                fhir_binding: Some("MedicationRequest.medicationCodeableConcept"),
+                update_cadence: "Monthly releases (TMTRF<YYYYMMDD>)",
+                schema_version: "sprint50",
+                notes: Some("8 concept layers + 11 relationship types unified into 2 tables."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "mariadb_concepts":      count,
+                    "mariadb_relationships": rel_count,
+                }),
+                source_version: version,
+                status: if count > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
+    // ── TMLT ───────────────────────────────────────────────────────────────
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tmlt_codes WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let links: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tmlt_relationships WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM tmlt_codes WHERE tenant_id IS NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "tmlt_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "tmlt",
+                name: "TMLT (Thai Medical Laboratory Terminology)",
+                description: "Thai lab/observation companion to LOINC. ITEM + PANEL layers with Thai display names.",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: "https://this.or.th/",
+                maintainer: "THIS-Center / MoPH",
+                region: "TH",
+                languages: vec!["en", "th"],
+                vintage_year: Some(2026),
+                license: "Free (THIS-Center)",
+                fhir_binding: Some("Observation.code (Thai display layer)"),
+                update_cadence: "Ad-hoc releases (TMLTRF<YYYYMMDD>)",
+                schema_version: "sprint51",
+                notes: Some("Used with LOINC: LOINC for international wire, TMLT for Thai UI."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "mariadb_concepts":   count,
+                    "mariadb_panel_links": links,
+                }),
+                source_version: version,
+                status: if count > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
+    // ── TPC (ICD-9-CM fallback) ────────────────────────────────────────────
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tpc_codes WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM tpc_codes WHERE tenant_id IS NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "tpc_ingest_runs").await;
+        let is_fallback = version.as_deref().map(|v| v.starts_with("icd9cm-")).unwrap_or(false);
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "tpc",
+                name: "TPC (Thai Procedural Classification)",
+                description: "Procedure code master. Currently US ICD-9-CM Volume 3 fallback (~95% coverage); Thai TPC pending license.",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: if is_fallback {
+                    "https://www.cms.gov/medicare/coding-billing/icd-10-codes"
+                } else {
+                    "https://bps.moph.go.th/"
+                },
+                maintainer: if is_fallback {
+                    "US CMS (fallback for MoPH Bureau of Health Information)"
+                } else {
+                    "MoPH Bureau of Health Information"
+                },
+                region: if is_fallback { "US (intended: TH)" } else { "TH" },
+                languages: if is_fallback { vec!["en"] } else { vec!["en", "th"] },
+                vintage_year: if is_fallback { Some(2014) } else { None },
+                license: if is_fallback {
+                    "Public domain (US Government)"
+                } else {
+                    "MoPH license required"
+                },
+                fhir_binding: Some("Procedure.code"),
+                update_cadence: if is_fallback {
+                    "Frozen 2015 (US replaced with ICD-10-PCS)"
+                } else {
+                    "Irregular"
+                },
+                schema_version: "sprint52",
+                notes: Some("Missing ~200 Thai-specific procedure codes + Thai display labels. Multi-source-version PK supports clean swap to 'tpc-moph-YYYY' when license arrives."),
+            },
+            live: SharedKbLive {
+                counts: json!({ "mariadb_codes": count }),
+                source_version: version,
+                status: if count == 0 {
+                    "pending_data"
+                } else if is_fallback {
+                    "active_fallback"
+                } else {
+                    "active"
+                },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
+    let count = kbs.len();
+    Ok(Json(json!({ "items": kbs, "count": count })))
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/// Best-effort GET of a Qdrant collection's points_count. Returns 0 on any
-/// failure — this endpoint is informational, never blocking.
+/// Most recent successful ingest timestamp, as ISO-8601 UTC string.
+async fn fetch_last_refresh(pool: &DbPool, runs_table: &str) -> Option<String> {
+    // Note: query_scalar cannot interpolate table names; build SQL string.
+    let sql = format!(
+        "SELECT DATE_FORMAT(finished_at, '%Y-%m-%dT%H:%i:%sZ') \
+         FROM {runs_table} \
+         WHERE status='COMPLETED' AND tenant_id IS NULL \
+         ORDER BY finished_at DESC LIMIT 1"
+    );
+    sqlx::query_scalar::<_, String>(&sql)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
 async fn qdrant_collection_points(name: &str) -> i64 {
-    let base = std::env::var("QDRANT_URL").unwrap_or_else(|_| {
-        "http://localhost:6333".to_string()
-    });
+    let base = std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string());
     let url = format!("{}/collections/{}", base.trim_end_matches('/'), name);
-    let client = reqwest::Client::builder()
+    let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
-        .build();
-    let Ok(client) = client else { return 0 };
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
     let Ok(resp) = client.get(&url).send().await else { return 0 };
     if !resp.status().is_success() {
         return 0;
@@ -305,15 +394,12 @@ async fn qdrant_collection_points(name: &str) -> i64 {
         .unwrap_or(0)
 }
 
-/// Best-effort PrimeKG node count via Neo4j. Returns 0 if Neo4j unreachable.
 async fn primekg_neo4j_count() -> i64 {
     let cfg = Neo4jConfig::from_env();
     let Some(svc) = Neo4jService::try_new(&cfg).await else { return 0 };
     svc.count_primekg_nodes().await.unwrap_or(0)
 }
 
-/// Best-effort PrimeKG edge count. We expose this for the catalog row;
-/// the actual graph queries go through the dedicated graph routes.
 async fn primekg_edge_count() -> i64 {
     let cfg = Neo4jConfig::from_env();
     let Some(svc) = Neo4jService::try_new(&cfg).await else { return 0 };
