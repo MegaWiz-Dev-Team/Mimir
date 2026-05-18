@@ -150,21 +150,44 @@ async fn list_shared_kbs(
                     Schema ready (sprint49); see W2.3a runbook for ingest."),
     });
 
-    // ── TMT (Thai Medicines Terminology) — license-blocked stub ────────────
+    // ── TMT (Thai Medicines Terminology, dm+d-style 8-layer ontology) ──────
+    let tmt_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tmt_codes WHERE tenant_id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+    let tmt_rel_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tmt_relationships WHERE tenant_id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+    let tmt_version: Option<String> = sqlx::query_scalar(
+        "SELECT source_version FROM tmt_codes WHERE tenant_id IS NULL \
+         ORDER BY updated_at DESC LIMIT 1",
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
     kbs.push(SharedKb {
         id: "tmt",
         name: "TMT (Thai Medicines Terminology)",
-        description: "Thai pharmaceutical product master from MoPH. \
+        description: "Thai dm+d-style drug ontology from THIS-Center / MoPH. \
+                      8 concept layers (SUBS→VTM→GP→GPP→GPU→TP→TPP→TPU). \
                       Powers FHIR MedicationRequest.medicationCodeableConcept.",
         kind: "terminology",
-        stores: vec![],
-        counts: json!({}),
-        source: "MoPH (license required)",
-        source_version: None,
-        status: "pending_data",
-        notes: Some("Blocked on license (W2.3b). Fallback: \
-                    MedicationRequest accepts any CodeableConcept \
-                    until data exists."),
+        stores: vec!["mariadb"],
+        counts: json!({
+            "mariadb_concepts":      tmt_count,
+            "mariadb_relationships": tmt_rel_count,
+        }),
+        source: "https://this.or.th/",
+        source_version: tmt_version,
+        status: if tmt_count > 0 { "active" } else { "pending_data" },
+        notes: Some("Free download from THIS-Center (this.or.th). \
+                    Ingest via scripts/tmt_ingest.py (W2.3b)."),
     });
 
     // ── TPC (Thai Procedural Classification) — license-blocked stub ────────
