@@ -20,6 +20,7 @@ pub mod cron;
 pub mod db_connector;
 pub mod docs;
 pub mod eval;
+pub mod eval_ocr;
 pub mod evaluations_ext;
 pub mod features;
 pub mod feedback;
