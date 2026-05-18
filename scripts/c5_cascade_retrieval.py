@@ -18,22 +18,30 @@ Compare against:
 
 Requires:
   - Qdrant port-forwarded: kubectl port-forward svc/qdrant 6333:6333 -n asgard-infra
-  - Ollama with bge-m3 at localhost:11434
+  - Heimdall gateway running at http://localhost:8080 (per `asgard_heimdall_deployment`)
+    serving BGE-M3 via /v1/embeddings (OpenAI-compatible)
+  - HEIMDALL_API_KEY env var with a valid Bearer token from Heimdall's API_KEYS
+
+Refactored 2026-05-18 to remove Ollama dependency per `feedback_no_ollama`.
+Asgard production stack uses Heimdall as the LLM/embedding gateway.
 
 Usage:
-    /opt/homebrew/bin/python3 scripts/c5_cascade_retrieval.py \\
+    HEIMDALL_API_KEY=hml-... /opt/homebrew/bin/python3 scripts/c5_cascade_retrieval.py \\
         --k 3 --verbose \\
         --output docs/04_evaluation_and_testing/results/c5_cascade_k3.json
 """
 from __future__ import annotations
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-OLLAMA_URL = "http://localhost:11434/api/embed"
+HEIMDALL_URL = os.environ.get("HEIMDALL_URL", "http://localhost:8080/v1/embeddings")
+HEIMDALL_API_KEY = os.environ.get("HEIMDALL_API_KEY")
+EMBED_MODEL = os.environ.get("HEIMDALL_EMBED_MODEL", "BAAI/bge-m3")
 QDRANT_BASE = "http://localhost:6333/collections/icd10-th"
 QDRANT_SEARCH = f"{QDRANT_BASE}/points/search"
 QDRANT_SCROLL = f"{QDRANT_BASE}/points/scroll"
@@ -96,9 +104,13 @@ def expand_acronyms(query: str) -> str:
     return " ".join(out_parts) if changed else query
 
 
-def http_post_json(url: str, body: dict, timeout: float = 60.0) -> dict:
+def http_post_json(url: str, body: dict, headers: dict | None = None,
+                   timeout: float = 60.0) -> dict:
     data = json.dumps(body).encode("utf-8")
-    req = Request(url, data=data, headers={"Content-Type": "application/json"})
+    merged = {"Content-Type": "application/json"}
+    if headers:
+        merged.update(headers)
+    req = Request(url, data=data, headers=merged)
     with urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
@@ -170,8 +182,18 @@ def sql_like_naive(corpus: list[dict], q: str, locale: str, k: int) -> list[dict
 
 
 def embed(text: str) -> list[float]:
-    out = http_post_json(OLLAMA_URL, {"model": "bge-m3", "input": text})
-    return out["embeddings"][0]
+    """BGE-M3 embedding via Heimdall gateway. Returns 1024-d vector."""
+    if not HEIMDALL_API_KEY:
+        raise RuntimeError(
+            "HEIMDALL_API_KEY env var required. Set to a valid Bearer token from "
+            "Heimdall's API_KEYS (see ~/Library/LaunchAgents/com.asgard.heimdall-gateway.plist)."
+        )
+    out = http_post_json(
+        HEIMDALL_URL,
+        {"model": EMBED_MODEL, "input": text},
+        headers={"Authorization": f"Bearer {HEIMDALL_API_KEY}"},
+    )
+    return out["data"][0]["embedding"]
 
 
 def qdrant_search(vector: list[float], k: int, source_version: str) -> list[dict]:
