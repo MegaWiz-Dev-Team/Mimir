@@ -508,7 +508,109 @@ def main() -> int:
         "rows": rows,
     }, ensure_ascii=False, indent=2))
     print(f"\nReport: {out}")
+
+    if os.environ.get("M1_INGEST_DB", "1") == "1":
+        ingest_to_mimir_eval(rows, rate, elapsed)
+    else:
+        print("(skipped DB ingest — set M1_INGEST_DB=1 to enable)")
+
     return 0
+
+
+# ── Ingest into Mimir rag_eval_runs / rag_eval_queries ────────────────────
+
+M1_DATASET_ID   = "10659f35-fbde-5961-9b8f-75e9b5f93648"
+M1_DATASET_NAME = "Medical Retrieval Benchmark — M1 v1.0 (TH+EN)"
+
+
+def _sql_quote(s) -> str:
+    if s is None:
+        return "NULL"
+    if isinstance(s, bool):
+        return "1" if s else "0"
+    if isinstance(s, (int, float)):
+        return str(s)
+    return "'" + str(s).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _mariadb_exec(sql: str) -> str:
+    import subprocess
+    ns = os.environ.get("MARIADB_NAMESPACE", "asgard-infra")
+    r = subprocess.run(
+        ["kubectl", "-n", ns, "exec", "-i", "deploy/mariadb", "--",
+         "mariadb", "-uroot", "-proot", "mimir", "-B", "-N"],
+        input=sql.encode("utf-8"), capture_output=True, timeout=30,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"mariadb err: {r.stderr.decode()[:300]}")
+    return r.stdout.decode("utf-8")
+
+
+def ingest_to_mimir_eval(rows: list[dict], hit_rate: float, elapsed: int) -> None:
+    """Insert this bench run into rag_eval_runs + rag_eval_queries so the
+    Mimir /evaluations UI surfaces it alongside other RAG benchmarks."""
+    import uuid
+    run_id = str(uuid.uuid4())
+    tenant = "asgard_medical"
+    name = f"M1 retrieval bench {time.strftime('%Y-%m-%d %H:%M')}"
+    started = time.strftime('%Y-%m-%d %H:%M:%S',
+                            time.gmtime(time.time() - elapsed))
+    finished = time.strftime('%Y-%m-%d %H:%M:%S')
+
+    # Aggregate metrics
+    n = len(rows)
+    hits = sum(1 for r in rows if r.get("hit"))
+    avg_latency = sum(r.get("latency_ms", 0) for r in rows) / n if n else 0
+
+    # MRR — using matched_at_rank=1 if hit, else 0 (since we only check top-3
+    # but don't have per-rank info from our bench). Approximate.
+    mrr = hits / n if n else 0  # crude approximation
+
+    print(f"\n=== Ingesting to rag_eval_runs (id={run_id[:8]}…) ===")
+
+    runs_sql = f"""
+INSERT INTO rag_eval_runs
+  (id, tenant_id, name, status,
+   hit_rate, mrr, top_k, avg_latency_ms,
+   collections, embed_model, search_provider, search_model,
+   dataset_id, dataset_name, started_at, finished_at, is_baseline)
+VALUES
+  ({_sql_quote(run_id)}, {_sql_quote(tenant)}, {_sql_quote(name)}, 'completed',
+   {hit_rate}, {mrr}, 3, {avg_latency},
+   {_sql_quote('icd10-th, primekg-entities, clinical-wisdom, tmt_codes')},
+   {_sql_quote('BAAI/bge-m3')}, 'heimdall', {_sql_quote('BAAI/bge-m3')},
+   {_sql_quote(M1_DATASET_ID)}, {_sql_quote(M1_DATASET_NAME)},
+   {_sql_quote(started)}, {_sql_quote(finished)}, 0);
+"""
+    _mariadb_exec(runs_sql)
+
+    print(f"=== Inserting {n} per-query rows into rag_eval_queries ===")
+    batch = 50
+    for i in range(0, n, batch):
+        chunk = rows[i:i + batch]
+        values = []
+        for r in chunk:
+            expected_titles = json.dumps(r.get("expected", []), ensure_ascii=False)
+            retrieved_snippet = " | ".join(t[:80] for t in r.get("retrieved", [])[:3])
+            values.append(
+                f"({_sql_quote(run_id)}, {_sql_quote(tenant)}, "
+                f"{_sql_quote(r.get('query',''))}, "
+                f"{_sql_quote(expected_titles)}, {_sql_quote(retrieved_snippet)}, "
+                f"{1 if r.get('hit') else 0}, "
+                f"{(1.0 if r.get('hit') else 0.0)}, "  # reciprocal_rank approx
+                f"0, 0, 0, NULL, 0, 0)"
+            )
+        sql = (
+            "INSERT INTO rag_eval_queries "
+            "(run_id, tenant_id, query, expected_titles, expected_content, "
+            " hit, reciprocal_rank, ndcg_score, precision_score, recall_score, "
+            " matched_at_rank, vector_contributed, tree_contributed) VALUES "
+            + ",\n".join(values) + ";"
+        )
+        _mariadb_exec(sql)
+
+    print(f"  ✓ Ingested run_id={run_id}")
+    print(f"  ✓ Visible at: https://mimir.asgard.internal/evaluations")
 
 
 if __name__ == "__main__":
