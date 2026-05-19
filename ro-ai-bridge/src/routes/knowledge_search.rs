@@ -171,6 +171,13 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "dm"       => Some("diabetes mellitus"),
         "htn"      => Some("hypertension"),
         "osa"      => Some("sleep apnoea"),  // UK spelling matches ICD-10-TM
+        // US → UK spelling for sleep terms (ICD-10-TM en_label uses UK).
+        // Note: this is the *full multi-word* phrase path; multi-token
+        // queries flow through `find_expansion`'s full-trimmed-query try.
+        "obstructive sleep apnea"  => Some("sleep apnoea"),
+        "obstructive sleep apnoea" => Some("sleep apnoea"),
+        "sleep apnea"              => Some("sleep apnoea"),
+        "apnea"                    => Some("apnoea"),
         "copd"     => Some("chronic obstructive pulmonary"),
         "chf"      => Some("congestive heart failure"),
         "ckd"      => Some("chronic kidney disease"),
@@ -363,14 +370,42 @@ async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResul
         .iter()
         .map(|v| format!("code LIKE '{v}%'"))
         .collect();
-    code_likes.push(format!("en_label LIKE '%{q_en_safe}%'"));
+    // en_label match: try the literal whole-phrase substring first AND
+    // an AND-of-word-substring form. Whole-phrase wins when the label
+    // has the exact wording ("Sleep apnoea"); AND-of-words wins when the
+    // label has a parenthetical in the middle ("Essential (primary)
+    // hypertension" — exact "essential hypertension" substring fails but
+    // both words present succeeds). Tokens <3 chars (a/of/to) are dropped.
+    let words: Vec<&str> = q_en_safe
+        .split_whitespace()
+        .filter(|w| w.len() >= 3 && w.is_ascii())
+        .collect();
+    let en_clause = if words.len() >= 2 {
+        let and_words = words
+            .iter()
+            .map(|w| format!("en_label LIKE '%{w}%'"))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        format!("(en_label LIKE '%{q_en_safe}%' OR ({and_words}))")
+    } else {
+        format!("en_label LIKE '%{q_en_safe}%'")
+    };
+    code_likes.push(en_clause);
     code_likes.push(format!("th_label LIKE '%{q_raw_safe}%'"));
     let where_clause = code_likes.join(" OR ");
     let order_pivot = variants.last().cloned().unwrap_or_else(|| q_en_safe.clone());
+    // ORDER BY priority: exact-code match, then code-prefix, then
+    // *whole-phrase* en_label substring (so "diabetes mellitus type 2"
+    // ranks E11x above E10x even though both satisfy the AND-of-words
+    // fallback), then th_label substring (Thai phrase hit), then code.
     let sql = format!(
         "SELECT code, en_label, th_label, chapter FROM icd10_codes \
          WHERE tenant_id IS NULL AND ({where_clause}) \
-         ORDER BY (code = '{pivot}') DESC, (code LIKE '{pivot}%') DESC, code LIMIT {k}",
+         ORDER BY (code = '{pivot}') DESC, \
+                  (code LIKE '{pivot}%') DESC, \
+                  (en_label LIKE '%{q_en_safe}%') DESC, \
+                  (th_label LIKE '%{q_raw_safe}%') DESC, \
+                  code LIMIT {k}",
         pivot = order_pivot, k = k,
     );
     let items = match sqlx::query(&sql).fetch_all(pool).await {
