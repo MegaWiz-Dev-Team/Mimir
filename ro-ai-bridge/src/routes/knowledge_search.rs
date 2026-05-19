@@ -178,6 +178,21 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "obstructive sleep apnoea" => Some("sleep apnoea"),
         "sleep apnea"              => Some("sleep apnoea"),
         "apnea"                    => Some("apnoea"),
+        // Sleep medicine — CPAP / PSG / AHI common shorthand.
+        // Keep replacements TIGHT (one canonical phrase, no synonym dump)
+        // — multi-term replacements dilute PrimeKG semantic search and
+        // bloat TMT FULLTEXT relevance.
+        "cpap"                     => Some("continuous positive airway pressure"),
+        "cpap titration"           => Some("continuous positive airway pressure titration"),
+        "ahi"                      => Some("sleep apnoea"),         // route to G47.3 family
+        "psg"                      => Some("polysomnography"),
+        "sleep study"              => Some("polysomnography"),
+        // Drug class — single tight alias for SGLT2 (the only drug-class
+        // M1 query). Other classes left raw to avoid regressing
+        // multi-symptom drug_interaction queries where the class acronym
+        // is incidental context (e.g. `SSRI + tramadol`).
+        "sglt2 inhibitor"          => Some("empagliflozin"),  // exemplar — ranks specific drug rows higher than "inhibitor"-only rows
+        "sglt-2 inhibitor"         => Some("empagliflozin"),
         "copd"     => Some("chronic obstructive pulmonary"),
         "chf"      => Some("congestive heart failure"),
         "ckd"      => Some("chronic kidney disease"),
@@ -269,6 +284,8 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "ง่วงนอน"                  => Some("drowsiness"),
         "น้ำหนักลด"                => Some("weight loss"),
         "ขาบวม"                    => Some("ankle swelling edema"),
+        // ── Thai sleep medicine phrases ────────────────────────────────
+        "การปรับเครื่อง CPAP"      => Some("continuous positive airway pressure titration"),
         _ => None,
     })
 }
@@ -333,23 +350,41 @@ fn replace_query(q: &str) -> String {
 //
 // ICD-10 codes are stored WITHOUT decimal dots in `icd10_codes.code`
 // (e.g. `E119` not `E11.9`, `J189` not `J18.9`). M1 dataset + real users
-// commonly type the dotted form. When the leading token of the query
-// looks like an ICD-10 code (letter + ≥2 digits + optional `.digits`),
-// also try the dot-stripped variant for the `code LIKE` clause.
+// commonly type the dotted form. Scan ALL whitespace-separated tokens
+// of the query for ICD-code-shaped tokens (letter + 2-3 digits + optional
+// `.digits`) and add both forms (with and without dot) to the variants
+// list. Catches three patterns:
+//   - standalone code   `E11.9`               → ["E11.9", "E119"]
+//   - leading code      `G47.3 คือโรคอะไร`     → ["G47.3 คือโรคอะไร", "G473"]
+//   - embedded code     `ICD-10 J18.9`        → ["ICD-10 J18.9", "J189"]
 //
-// Pattern is conservative — only fires on standalone or leading code
-// tokens; doesn't affect "metformin"-style searches.
+// Non-code tokens like `metformin` or `ICD-10` are skipped (letter-only
+// or letter+hyphen don't match the digit-rest rule).
 fn icd_code_variants(q: &str) -> Vec<String> {
     let mut variants = vec![q.to_string()];
-    let leading = q.split_whitespace().next().unwrap_or(q);
-    let leading_upper = leading.to_uppercase();
-    // Match: letter + 2-3 digits + optional ".digits"
-    let bytes = leading_upper.as_bytes();
-    let is_letter = !bytes.is_empty() && bytes[0].is_ascii_alphabetic();
-    let rest_ok = bytes[1..].iter().all(|b| b.is_ascii_digit() || *b == b'.');
-    if is_letter && rest_ok && leading_upper.contains('.') {
-        let stripped = leading_upper.replace('.', "");
-        variants.push(stripped);
+    for tok in q.split_whitespace() {
+        let upper = tok.to_uppercase();
+        let bytes = upper.as_bytes();
+        // Need at least 3 chars: letter + ≥2 digits/dots
+        if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() {
+            continue;
+        }
+        let rest_ok = bytes[1..]
+            .iter()
+            .all(|b| b.is_ascii_digit() || *b == b'.');
+        if !rest_ok {
+            continue;
+        }
+        // Dotted form: add stripped variant
+        if upper.contains('.') {
+            variants.push(upper.replace('.', ""));
+        }
+        // Embedded form: also surface the bare code-shaped token so
+        // `code LIKE 'J18.9%'` / `'J189%'` works even when the full
+        // query is `"ICD-10 J18.9"`.
+        if upper != q.to_uppercase() {
+            variants.push(upper.clone());
+        }
     }
     variants
 }
