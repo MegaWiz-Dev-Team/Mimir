@@ -1,0 +1,96 @@
+# 📨 Hermodr (Mimir flavor) — MCP sidecar exposing mimir-api's PrimeKG
+# (and other Mimir) tools as a JSON-RPC catalog for agents/Bifrost.
+#
+# Why a dedicated flavor: Hermodr's Proxy is single-upstream — it
+# concatenates `UPSTREAM_URL + tool.path`. The eir flavor proxies to
+# eir-gateway, the syn flavor to syn-api; this one to mimir-api so the
+# 11 mimir tools (5 originals + 6 PrimeKG graph-native from PR #329)
+# resolve correctly.
+#
+# Sister: `Syn/deploy/k8s/hermodr-syn.yaml` (same image, SERVICE_NAME=syn).
+# Hermodr's main.rs picks the catalog via `name_lower.contains("mimir")`.
+#
+# Deploy:
+#   kubectl apply -f Mimir/k8s/hermodr-mimir.yaml
+#
+# Smoke (from inside the cluster or via NodePort if exposed):
+#   curl -s http://hermodr-mimir.asgard.svc:8090/health
+#   curl -s -X POST http://hermodr-mimir.asgard.svc:8090/ \
+#     -H 'Content-Type: application/json' \
+#     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq .result.tools[].name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermodr-mimir
+  namespace: asgard
+  labels:
+    app: hermodr-mimir
+    component: mcp-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermodr-mimir
+  template:
+    metadata:
+      labels:
+        app: hermodr-mimir
+        component: mcp-sidecar
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: hermodr
+          image: ghcr.io/megawiz-dev-team/asgard-hermodr:latest
+          imagePullPolicy: Always
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8090"
+            - name: UPSTREAM_URL
+              value: "http://mimir-api.asgard.svc:8080"
+            # Hermodr main.rs uses `name_lower.contains(...)` to pick the
+            # tool set — "mimir" triggers services::mimir::tools() which
+            # registers 11 tools (5 search/lookup + 6 PrimeKG graph-native).
+            - name: SERVICE_NAME
+              value: "mimir"
+          ports:
+            - name: http
+              containerPort: 8090
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermodr-mimir
+  namespace: asgard
+  labels:
+    app: hermodr-mimir
+spec:
+  type: ClusterIP
+  selector:
+    app: hermodr-mimir
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
