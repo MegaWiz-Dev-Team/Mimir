@@ -1217,6 +1217,314 @@ impl Neo4jService {
 
         Ok(neighbors)
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Hermodr MCP — PrimeKG graph-native tools (Sprint 1 follow-up)
+    // ═══════════════════════════════════════════════════════════════════════════
+    //
+    // PrimeKG schema confirmed 2026-05-19:
+    //   Node label  :PrimeKG + secondary type label (e.g. :Drug, :Disease)
+    //   Properties  entity_index (i64), entity_id (str), name (str),
+    //               type (lowercase: "drug" | "disease" | "gene/protein" |
+    //               "effect/phenotype" | "anatomy" | "pathway" | …), source
+    //   Edge props  source (provenance), display_relation (human label)
+    //   NO severity on DRUG_DRUG — PrimeKG doesn't track DDI severity natively
+    //
+    // Relevant edge types:
+    //   INDICATION (18.7K)         disease ← drug         "use this drug for"
+    //   CONTRAINDICATION (61.3K)   disease ← drug         "do not use this drug"
+    //   OFF_LABEL_USE (5.1K)       disease ← drug         "off-label use"
+    //   DRUG_DRUG (2.67M)          drug — drug            interaction (binary)
+    //   DISEASE_PHENOTYPE_POSITIVE (300K)  disease → phenotype  symptom-of
+
+    /// Look up a PrimeKG entity by name with optional type filter.
+    /// Case-insensitive CONTAINS match on name; type filter exact-match on `n.type`.
+    pub async fn primekg_lookup_entity(
+        &self,
+        name: &str,
+        type_filter: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<Value>> {
+        // Ranking: exact (lowercased) match first, then starts-with prefix,
+        // then substring; tie-break by shorter name. Avoids the
+        // "diabetes mellitus type 2" query returning the longer
+        // "diabetes mellitus type 2 associated cataract" before the canonical
+        // "type 2 diabetes mellitus" node.
+        let cypher = match type_filter {
+            Some(_) => "\
+                MATCH (n:PrimeKG) \
+                WHERE toLower(n.name) CONTAINS toLower($name) AND n.type = $type \
+                RETURN n.entity_index AS entity_index, n.entity_id AS entity_id, \
+                       n.name AS name, n.type AS type, n.source AS source, \
+                       CASE WHEN toLower(n.name) = toLower($name) THEN 0 \
+                            WHEN toLower(n.name) STARTS WITH toLower($name) THEN 1 \
+                            ELSE 2 END AS match_rank \
+                ORDER BY match_rank ASC, size(n.name) ASC \
+                LIMIT $limit",
+            None => "\
+                MATCH (n:PrimeKG) \
+                WHERE toLower(n.name) CONTAINS toLower($name) \
+                RETURN n.entity_index AS entity_index, n.entity_id AS entity_id, \
+                       n.name AS name, n.type AS type, n.source AS source, \
+                       CASE WHEN toLower(n.name) = toLower($name) THEN 0 \
+                            WHEN toLower(n.name) STARTS WITH toLower($name) THEN 1 \
+                            ELSE 2 END AS match_rank \
+                ORDER BY match_rank ASC, size(n.name) ASC \
+                LIMIT $limit",
+        };
+        let mut q = neo4rs::query(cypher)
+            .param("name", name)
+            .param("limit", limit);
+        if let Some(t) = type_filter {
+            q = q.param("type", t);
+        }
+        let mut result = self.graph.execute(q).await
+            .context("primekg_lookup_entity query failed")?;
+        let mut out = Vec::new();
+        while let Some(row) = result.next().await? {
+            out.push(serde_json::json!({
+                "entity_index": row.get::<i64>("entity_index").ok(),
+                "entity_id":    row.get::<String>("entity_id").ok(),
+                "name":         row.get::<String>("name").ok(),
+                "type":         row.get::<String>("type").ok(),
+                "source":       row.get::<String>("source").ok(),
+            }));
+        }
+        Ok(out)
+    }
+
+    /// Neighbors of an entity with optional relation-type filter + multi-hop expansion.
+    /// `hops` clamped 1..=3, `limit` clamped 1..=100.
+    pub async fn primekg_neighbors_filtered(
+        &self,
+        entity_index: i64,
+        relation_types: &[String],
+        hops: u32,
+        limit: i64,
+    ) -> Result<Vec<Value>> {
+        let hops = hops.clamp(1, 3);
+        // Pattern length 1..=hops via variable-length expansion.
+        let rel_filter = if relation_types.is_empty() {
+            String::new()
+        } else {
+            // neo4rs/Cypher: filter the LAST relationship's type via post-match WHERE
+            let joined: Vec<String> = relation_types
+                .iter()
+                .map(|t| format!("type(last(rels)) = '{}'", t.replace('\'', "")))
+                .collect();
+            format!("AND ({}) ", joined.join(" OR "))
+        };
+        let cypher = format!(
+            "MATCH path = (n:PrimeKG {{entity_index: $entity_index}})-[rels*1..{hops}]-(m:PrimeKG) \
+             WHERE n <> m {rel_filter}\
+             WITH m, rels, path, length(path) AS hops \
+             ORDER BY hops ASC \
+             WITH m, collect({{rels: rels, hops: hops}})[0] AS shortest \
+             RETURN m.entity_index AS entity_index, m.name AS name, m.type AS type, \
+                    [r IN shortest.rels | type(r)] AS path_relations, shortest.hops AS hops \
+             ORDER BY shortest.hops ASC, m.name ASC \
+             LIMIT $limit",
+        );
+        let q = neo4rs::query(&cypher)
+            .param("entity_index", entity_index)
+            .param("limit", limit);
+        let mut result = self.graph.execute(q).await
+            .context("primekg_neighbors_filtered query failed")?;
+        let mut out = Vec::new();
+        while let Some(row) = result.next().await? {
+            let rels: Vec<String> = row.get("path_relations").unwrap_or_default();
+            out.push(serde_json::json!({
+                "entity_index":   row.get::<i64>("entity_index").ok(),
+                "name":           row.get::<String>("name").ok(),
+                "type":           row.get::<String>("type").ok(),
+                "path_relations": rels,
+                "hops":           row.get::<i64>("hops").unwrap_or(1),
+            }));
+        }
+        Ok(out)
+    }
+
+    /// Drug-drug interactions for a single drug. PrimeKG doesn't store severity,
+    /// so the optional severity filter is documented as a no-op; we return
+    /// `display_relation` and `source` so callers can post-filter heuristically.
+    pub async fn primekg_drug_interactions(
+        &self,
+        drug_index: i64,
+        limit: i64,
+    ) -> Result<Vec<Value>> {
+        // PrimeKG stores DDI as two directed edges per pair (A→B and B→A).
+        // Filter to outgoing-from-anchor to dedupe; flipping direction
+        // would give the same canonical pair set with reversed `start`.
+        let cypher = "\
+            MATCH (d:PrimeKG {entity_index: $drug_index})-[r:DRUG_DRUG]->(other:PrimeKG) \
+            RETURN DISTINCT other.entity_index AS entity_index, other.name AS name, \
+                   other.entity_id AS entity_id, \
+                   r.display_relation AS display_relation, r.source AS source \
+            ORDER BY other.name ASC \
+            LIMIT $limit";
+        let q = neo4rs::query(cypher)
+            .param("drug_index", drug_index)
+            .param("limit", limit);
+        let mut result = self.graph.execute(q).await
+            .context("primekg_drug_interactions query failed")?;
+        let mut out = Vec::new();
+        while let Some(row) = result.next().await? {
+            out.push(serde_json::json!({
+                "entity_index":     row.get::<i64>("entity_index").ok(),
+                "entity_id":        row.get::<String>("entity_id").ok(),
+                "name":             row.get::<String>("name").ok(),
+                "display_relation": row.get::<String>("display_relation").ok(),
+                "source":           row.get::<String>("source").ok(),
+            }));
+        }
+        Ok(out)
+    }
+
+    /// Drugs associated with a disease, grouped by relation. Returns three
+    /// vectors: indication, contraindication, off_label_use. Uses UNION ALL
+    /// so each relation gets its own LIMIT — without this, the caller-side
+    /// fan-out couldn't guarantee balanced groups (a disease may have 1000s
+    /// of CONTRAINDICATION edges that would crowd out INDICATIONs).
+    pub async fn primekg_disease_drugs(
+        &self,
+        disease_index: i64,
+        limit_per_rel: i64,
+    ) -> Result<Value> {
+        let cypher = "\
+            CALL { WITH $disease_index AS idx \
+                MATCH (d:PrimeKG {entity_index: idx})-[r:INDICATION]-(drug:PrimeKG) \
+                RETURN drug.entity_index AS entity_index, drug.entity_id AS entity_id, \
+                       drug.name AS name, 'INDICATION' AS relation, r.source AS source \
+                LIMIT $limit_per_rel \
+            UNION ALL \
+                WITH $disease_index AS idx \
+                MATCH (d:PrimeKG {entity_index: idx})-[r:CONTRAINDICATION]-(drug:PrimeKG) \
+                RETURN drug.entity_index AS entity_index, drug.entity_id AS entity_id, \
+                       drug.name AS name, 'CONTRAINDICATION' AS relation, r.source AS source \
+                LIMIT $limit_per_rel \
+            UNION ALL \
+                WITH $disease_index AS idx \
+                MATCH (d:PrimeKG {entity_index: idx})-[r:OFF_LABEL_USE]-(drug:PrimeKG) \
+                RETURN drug.entity_index AS entity_index, drug.entity_id AS entity_id, \
+                       drug.name AS name, 'OFF_LABEL_USE' AS relation, r.source AS source \
+                LIMIT $limit_per_rel \
+            } RETURN entity_index, entity_id, name, relation, source";
+        let q = neo4rs::query(cypher)
+            .param("disease_index", disease_index)
+            .param("limit_per_rel", limit_per_rel);
+        let mut result = self.graph.execute(q).await
+            .context("primekg_disease_drugs query failed")?;
+        let mut indication = Vec::new();
+        let mut contraindication = Vec::new();
+        let mut off_label = Vec::new();
+        while let Some(row) = result.next().await? {
+            let drug = serde_json::json!({
+                "entity_index": row.get::<i64>("entity_index").ok(),
+                "entity_id":    row.get::<String>("entity_id").ok(),
+                "name":         row.get::<String>("name").ok(),
+                "source":       row.get::<String>("source").ok(),
+            });
+            match row.get::<String>("relation").as_deref() {
+                Ok("INDICATION")       => indication.push(drug),
+                Ok("CONTRAINDICATION") => contraindication.push(drug),
+                Ok("OFF_LABEL_USE")    => off_label.push(drug),
+                _ => {}
+            }
+        }
+        Ok(serde_json::json!({
+            "indication":       indication,
+            "contraindication": contraindication,
+            "off_label_use":    off_label,
+        }))
+    }
+
+    /// Reverse-lookup symptoms/phenotypes → candidate diseases via
+    /// DISEASE_PHENOTYPE_POSITIVE edges. Ranked by match count (most overlap first).
+    pub async fn primekg_symptom_to_disease(
+        &self,
+        phenotype_names: &[String],
+        min_match: u32,
+        limit: i64,
+    ) -> Result<Vec<Value>> {
+        let cypher = "\
+            UNWIND $names AS sym_name \
+            MATCH (p:PrimeKG {type: 'effect/phenotype'}) \
+                WHERE toLower(p.name) = toLower(sym_name) \
+            MATCH (d:PrimeKG {type: 'disease'})-[:DISEASE_PHENOTYPE_POSITIVE]->(p) \
+            WITH d, count(DISTINCT p) AS match_count, collect(DISTINCT p.name) AS matched \
+            WHERE match_count >= $min_match \
+            RETURN d.entity_index AS entity_index, d.entity_id AS entity_id, \
+                   d.name AS name, match_count, matched \
+            ORDER BY match_count DESC, d.name ASC \
+            LIMIT $limit";
+        let q = neo4rs::query(cypher)
+            .param("names", phenotype_names.to_vec())
+            .param("min_match", min_match as i64)
+            .param("limit", limit);
+        let mut result = self.graph.execute(q).await
+            .context("primekg_symptom_to_disease query failed")?;
+        let mut out = Vec::new();
+        while let Some(row) = result.next().await? {
+            let matched: Vec<String> = row.get("matched").unwrap_or_default();
+            out.push(serde_json::json!({
+                "entity_index": row.get::<i64>("entity_index").ok(),
+                "entity_id":    row.get::<String>("entity_id").ok(),
+                "name":         row.get::<String>("name").ok(),
+                "match_count":  row.get::<i64>("match_count").unwrap_or(0),
+                "matched":      matched,
+            }));
+        }
+        Ok(out)
+    }
+
+    /// Shortest path(s) between two PrimeKG entities. Up to `limit_paths`
+    /// distinct paths, each with relation breadcrumb. `max_hops` clamped 1..=4.
+    pub async fn primekg_path(
+        &self,
+        from_index: i64,
+        to_index: i64,
+        max_hops: u32,
+        limit_paths: i64,
+    ) -> Result<Vec<Value>> {
+        let max_hops = max_hops.clamp(1, 4);
+        // Dedupe via signature: identical [entity_index sequence] → same path.
+        // allShortestPaths can return logically-equivalent paths twice when
+        // intermediate edges are bidirectional / duplicated.
+        let cypher = format!(
+            "MATCH path = allShortestPaths( \
+                (a:PrimeKG {{entity_index: $from}})-[*..{max_hops}]-(b:PrimeKG {{entity_index: $to}}) \
+             ) \
+             WITH path, \
+                  [n IN nodes(path) | n.entity_index] AS sig, \
+                  [n IN nodes(path) | {{entity_index: n.entity_index, name: n.name, type: n.type}}] AS nodes_list, \
+                  [r IN relationships(path) | type(r)] AS rel_types, \
+                  length(path) AS hops \
+             WITH sig, head(collect({{nodes_list: nodes_list, rel_types: rel_types, hops: hops}})) AS first \
+             RETURN first.nodes_list AS nodes_list, first.rel_types AS rel_types, first.hops AS hops \
+             ORDER BY hops ASC \
+             LIMIT $limit_paths",
+        );
+        let q = neo4rs::query(&cypher)
+            .param("from", from_index)
+            .param("to", to_index)
+            .param("limit_paths", limit_paths);
+        let mut result = self.graph.execute(q).await
+            .context("primekg_path query failed")?;
+        let mut out = Vec::new();
+        while let Some(row) = result.next().await? {
+            let rels: Vec<String> = row.get("rel_types").unwrap_or_default();
+            // nodes_list comes back as Vec<BoltType>; pass through serde
+            let nodes_json: serde_json::Value = row
+                .get::<serde_json::Value>("nodes_list")
+                .unwrap_or_else(|_| serde_json::json!([]));
+            out.push(serde_json::json!({
+                "nodes":     nodes_json,
+                "relations": rels,
+                "hops":      row.get::<i64>("hops").unwrap_or(0),
+            }));
+        }
+        Ok(out)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
