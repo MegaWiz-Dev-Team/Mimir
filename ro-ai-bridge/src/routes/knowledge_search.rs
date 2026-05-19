@@ -75,11 +75,11 @@ async fn unified_search(
     let k = sq.k.clamp(1, 10) as i64;
     let start = Instant::now();
 
-    // Acronym expansion: some FULLTEXT indexes use the full term (e.g. TMLT FSN
-    // uses "glycated hemoglobin" not "HbA1c"). For the common cases below we
-    // expand the query before TMT/TMLT FULLTEXT lookup. Other workers see the
+    // Query expansion: rewrite single-token inputs before TMT/TMLT FULLTEXT
+    // lookup — both lab acronyms (HbA1c → "glycated hemoglobin") and Thai
+    // drug transliterations (วาร์ฟาริน → "warfarin"). Other workers see the
     // raw query (LIKE handles substrings, BGE-M3 handles semantics).
-    let q_expanded = expand_acronym(q);
+    let q_expanded = expand_query(q);
 
     // Fan out — each KB query is independent. Use tokio::join for parallelism.
     let p1 = icd10_search(&pool, q, k);
@@ -101,24 +101,35 @@ async fn unified_search(
     }))
 }
 
-// ── acronym expansion ─────────────────────────────────────────────────────
+// ── query expansion ───────────────────────────────────────────────────────
 //
-// TMT/TMLT FSN store the full term ("glycated hemoglobin"), not the acronym
-// ("HbA1c"). FULLTEXT NATURAL LANGUAGE treats whitespace as token boundaries,
-// so appending the expansion gives a query that matches either form — the
-// MATCH() relevance score then picks the most-relevant FSN row.
+// Two single-token rewrites that help FULLTEXT NATURAL LANGUAGE find the
+// right row in TMT/TMLT (whose FSN store one canonical English form):
 //
-// Lab acronyms first; only add high-confidence single-meaning mappings.
-// Case-insensitive: lookup uses lowercased token.
-fn expand_acronym(q: &str) -> String {
-    // Single-token, all-letters/digits query → try expansion.
-    // Multi-word queries pass through unchanged (the user has typed enough).
+//   1. Lab acronyms (HbA1c → "glycated hemoglobin") — TMLT FSN uses the long
+//      form, never the acronym. Append the expansion so MATCH() relevance
+//      picks the most-relevant row regardless of which form the index has.
+//
+//   2. Thai drug transliterations (วาร์ฟาริน → "warfarin") — TMT FSN contains
+//      Thai script only for *brand+manufacturer names* in parentheses; the
+//      generic drug name is always Latin. Investigation 2026-05-19 showed
+//      TMT has 0 rows matching `วาร์ฟาริน` despite carrying 380+ warfarin
+//      products. Same single-token append pattern lets the Latin token in
+//      the rewritten query hit the right FSN.
+//
+// Only add high-confidence single-meaning mappings. Multi-word queries pass
+// through unchanged (the user has typed enough).
+fn expand_query(q: &str) -> String {
     let token = q.trim();
     if token.is_empty() || token.contains(char::is_whitespace) {
         return q.to_string();
     }
-    let key = token.to_ascii_lowercase();
-    let expansion: Option<&'static str> = match key.as_str() {
+    // Lookup is case-insensitive for ASCII; Thai script has no case so the
+    // lowercased key equals the original. Try ASCII-lowercased first for
+    // acronyms, then fall back to raw token for Thai/non-ASCII.
+    let key_lc = token.to_ascii_lowercase();
+    let expansion: Option<&'static str> = match key_lc.as_str() {
+        // ── lab acronyms → canonical long form ─────────────────────────
         "hba1c"    => Some("glycated hemoglobin"),
         "bun"      => Some("urea nitrogen"),
         "alt"      => Some("alanine aminotransferase"),
@@ -141,6 +152,45 @@ fn expand_acronym(q: &str) -> String {
         "ldh"      => Some("lactate dehydrogenase"),
         _ => None,
     };
+    // Thai script → Latin generic name. Top-25 commonly prescribed drugs
+    // (Thai FDA generic spellings). Extend as production query logs reveal
+    // new entries; a DB-backed alias table is the long-term shape if this
+    // grows past ~50-100 entries.
+    let expansion = expansion.or_else(|| match token {
+        // Cardiovascular
+        "วาร์ฟาริน"          => Some("warfarin"),
+        "โลซาร์แทน"          => Some("losartan"),
+        "อะมโลดิปีน"         => Some("amlodipine"),
+        "เอนาลาพริล"         => Some("enalapril"),
+        "อะทีโนลอล"          => Some("atenolol"),
+        "ซิมวาสแตติน"        => Some("simvastatin"),
+        "อะทอร์วาสแตติน"     => Some("atorvastatin"),
+        "ไฮโดรคลอโรไทอะไซด์" => Some("hydrochlorothiazide"),
+        "ดิจอกซิน"           => Some("digoxin"),
+        // Diabetes
+        "เมทฟอร์มิน"         => Some("metformin"),
+        "ไกลเบนคลาไมด์"      => Some("glibenclamide"),
+        "อินซูลิน"           => Some("insulin"),
+        // Pain / inflammation
+        "พาราเซตามอล"        => Some("acetaminophen paracetamol"),
+        "ไอบูโพรเฟน"         => Some("ibuprofen"),
+        "แอสไพริน"           => Some("aspirin"),
+        "ไดโคลฟีแนค"         => Some("diclofenac"),
+        "ทรามาดอล"           => Some("tramadol"),
+        "เพรดนิโซโลน"        => Some("prednisolone"),
+        // GI
+        "โอเมพราโซล"         => Some("omeprazole"),
+        // Antibiotics
+        "อะม็อกซิลลิน"       => Some("amoxicillin"),
+        "เซฟาเล็กซิน"        => Some("cephalexin"),
+        "เซฟไตรอะโซน"        => Some("ceftriaxone"),
+        "ไซโปรฟลอกซาซิน"     => Some("ciprofloxacin"),
+        "อะซิโทรมัยซิน"      => Some("azithromycin"),
+        // Allergy
+        "เซทิริซีน"          => Some("cetirizine"),
+        "ลอราตาดีน"          => Some("loratadine"),
+        _ => None,
+    });
     match expansion {
         Some(expanded) => format!("{token} {expanded}"),
         None => q.to_string(),
