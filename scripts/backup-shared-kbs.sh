@@ -50,11 +50,18 @@ log ""
 log "=== MariaDB: dumping shared KB tables ==="
 
 TABLES=(
+  # Shared knowledge masters (the original scope)
   icd10_codes icd10_ingest_runs
   loinc_codes loinc_ingest_runs
   tmt_codes tmt_relationships tmt_ingest_runs
   tmlt_codes tmlt_relationships tmlt_ingest_runs
   tpc_codes tpc_ingest_runs
+  # Tenant pipeline config (chunk_size etc. — Sprint 48 C.3)
+  tenant_configs
+  # Retrieval eval (M1 + future PrimeKG bench runs)
+  rag_eval_runs rag_eval_queries
+  # OCR layout eval (Syn Phase 1.6 result ingested 2026-05-18)
+  ocr_layout_eval_runs ocr_layout_eval_items ocr_layout_region_match
 )
 
 # Single-transaction so the dump is point-in-time consistent without

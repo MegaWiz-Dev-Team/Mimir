@@ -54,3 +54,7 @@ benchmarks/medical/
 
 # Large checkpoint files
 primekg_import_checkpoint.json
+primekg_import_checkpoint.json.*
+
+# Bench/eval report artifacts (regenerable via scripts/m1_bench_retrieval.py etc.)
+scripts/reports/
