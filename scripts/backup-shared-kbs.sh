@@ -111,8 +111,10 @@ log ""
 log "=== Neo4j: capturing PrimeKG manifest ==="
 NEO4J_PASS="${NEO4J_PASS:-}"
 if [[ -z "$NEO4J_PASS" ]]; then
-  NEO4J_PASS=$(kubectl -n "$MARIADB_NS" get secret neo4j-secret \
-    -o jsonpath='{.data.NEO4J_PASSWORD}' 2>/dev/null | base64 -d || true)
+  # neo4j-secret in asgard-infra stores creds as `NEO4J_AUTH=neo4j/<password>`.
+  NEO4J_AUTH=$(kubectl -n "$MARIADB_NS" get secret neo4j-secret \
+    -o jsonpath='{.data.NEO4J_AUTH}' 2>/dev/null | base64 -d || true)
+  NEO4J_PASS="${NEO4J_AUTH#neo4j/}"
 fi
 if [[ -n "$NEO4J_PASS" ]]; then
   kubectl -n "$MARIADB_NS" exec deploy/neo4j -- cypher-shell \
