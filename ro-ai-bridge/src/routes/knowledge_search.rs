@@ -64,15 +64,29 @@ async fn unified_search(
         return Err((StatusCode::BAD_REQUEST,
                     Json(json!({"error": "q must not be empty"}))));
     }
+    // Min-length guard: 1-char prefix queries return ~broad noise (e.g. q='a'
+    // matches every code/label starting with 'a'). Require ≥ 2 chars (Thai
+    // single-character queries are also degenerate — Thai medical terms are
+    // multi-character).
+    if q.chars().count() < 2 {
+        return Err((StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "q must be at least 2 characters"}))));
+    }
     let k = sq.k.clamp(1, 10) as i64;
     let start = Instant::now();
+
+    // Acronym expansion: some FULLTEXT indexes use the full term (e.g. TMLT FSN
+    // uses "glycated hemoglobin" not "HbA1c"). For the common cases below we
+    // expand the query before TMT/TMLT FULLTEXT lookup. Other workers see the
+    // raw query (LIKE handles substrings, BGE-M3 handles semantics).
+    let q_expanded = expand_acronym(q);
 
     // Fan out — each KB query is independent. Use tokio::join for parallelism.
     let p1 = icd10_search(&pool, q, k);
     let p2 = tpc_search(&pool, q, k);
     let p3 = loinc_search(&pool, q, k);
-    let p4 = tmt_search(&pool, q, k);
-    let p5 = tmlt_search(&pool, q, k);
+    let p4 = tmt_search(&pool, &q_expanded, k);
+    let p5 = tmlt_search(&pool, &q_expanded, k);
     let p6 = primekg_search(q, k);
 
     let (r1, r2, r3, r4, r5, r6) = tokio::join!(p1, p2, p3, p4, p5, p6);
@@ -85,6 +99,52 @@ async fn unified_search(
         results,
         total_ms: start.elapsed().as_millis(),
     }))
+}
+
+// ── acronym expansion ─────────────────────────────────────────────────────
+//
+// TMT/TMLT FSN store the full term ("glycated hemoglobin"), not the acronym
+// ("HbA1c"). FULLTEXT NATURAL LANGUAGE treats whitespace as token boundaries,
+// so appending the expansion gives a query that matches either form — the
+// MATCH() relevance score then picks the most-relevant FSN row.
+//
+// Lab acronyms first; only add high-confidence single-meaning mappings.
+// Case-insensitive: lookup uses lowercased token.
+fn expand_acronym(q: &str) -> String {
+    // Single-token, all-letters/digits query → try expansion.
+    // Multi-word queries pass through unchanged (the user has typed enough).
+    let token = q.trim();
+    if token.is_empty() || token.contains(char::is_whitespace) {
+        return q.to_string();
+    }
+    let key = token.to_ascii_lowercase();
+    let expansion: Option<&'static str> = match key.as_str() {
+        "hba1c"    => Some("glycated hemoglobin"),
+        "bun"      => Some("urea nitrogen"),
+        "alt"      => Some("alanine aminotransferase"),
+        "sgpt"     => Some("alanine aminotransferase"),
+        "ast"      => Some("aspartate aminotransferase"),
+        "sgot"     => Some("aspartate aminotransferase"),
+        "ldl"      => Some("low density lipoprotein"),
+        "hdl"      => Some("high density lipoprotein"),
+        "tsh"      => Some("thyroid stimulating hormone"),
+        "psa"      => Some("prostate specific antigen"),
+        "cbc"      => Some("complete blood count"),
+        "wbc"      => Some("white blood cell"),
+        "rbc"      => Some("red blood cell"),
+        "inr"      => Some("international normalized ratio"),
+        "crp"      => Some("c-reactive protein"),
+        "esr"      => Some("erythrocyte sedimentation rate"),
+        "ggt"      => Some("gamma glutamyl transferase"),
+        "alp"      => Some("alkaline phosphatase"),
+        "ck"       => Some("creatine kinase"),
+        "ldh"      => Some("lactate dehydrogenase"),
+        _ => None,
+    };
+    match expansion {
+        Some(expanded) => format!("{token} {expanded}"),
+        None => q.to_string(),
+    }
 }
 
 // ── per-KB workers ────────────────────────────────────────────────────────
@@ -264,6 +324,18 @@ async fn embed_and_qdrant(text: &str, k: usize) -> Result<Vec<JsonValue>, String
         .filter_map(|v| v.as_f64().map(|x| x as f32))
         .collect::<Vec<_>>();
 
+    // Score floor: PrimeKG cosine has no natural zero — BGE-M3 character-level
+    // similarity gives even nonsense queries ~0.47-0.55 against gene/protein
+    // entries (which have similar char distributions). Real drug/disease
+    // matches sit ≥ 0.60. Default 0.55 rejects junk like `asdfqwerty` (~0.48)
+    // and `zzzzzz` (~0.55 borderline) without sacrificing legitimate hits.
+    // Override per-deploy via `PRIMEKG_SCORE_THRESHOLD` if your corpus tuning
+    // differs (e.g. lower for short-form acronyms, higher for picky terms).
+    let score_threshold: f64 = std::env::var("PRIMEKG_SCORE_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.55);
+
     let qd: JsonValue = client
         .post(format!(
             "{}/collections/primekg-entities/points/search",
@@ -273,6 +345,7 @@ async fn embed_and_qdrant(text: &str, k: usize) -> Result<Vec<JsonValue>, String
             "vector": {"name": "dense", "vector": vector},
             "limit": k,
             "with_payload": true,
+            "score_threshold": score_threshold,
         }))
         .send().await.map_err(|e| e.to_string())?
         .error_for_status().map_err(|e| e.to_string())?
