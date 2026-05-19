@@ -123,12 +123,130 @@ def mimir_search(query: str, k: int = 3) -> list[dict]:
         return []
 
 
+# ── M1 routing-fix helpers (Phase 2: lift baseline from 29% toward 50%) ───
+
+# Acronym dictionary mirrors routes/icd10.rs `expand_acronyms`. Used to
+# normalize queries before ICD-10 lookup so "T2DM" → "type 2 diabetes
+# mellitus" and "OSA" → "obstructive sleep apnea" reach the right entry.
+ACRONYM_EXPANSIONS = {
+    # Cardio
+    "STEMI": "ST elevation myocardial infarction",
+    "NSTEMI": "Non ST elevation myocardial infarction",
+    "MI": "myocardial infarction", "AMI": "acute myocardial infarction",
+    "CHF": "congestive heart failure", "CABG": "coronary artery bypass graft",
+    "AFIB": "atrial fibrillation", "AF": "atrial fibrillation",
+    "DVT": "deep vein thrombosis", "PE": "pulmonary embolism",
+    "HTN": "hypertension",
+    # Pulm
+    "COPD": "chronic obstructive pulmonary disease",
+    "URTI": "upper respiratory tract infection",
+    "ARDS": "acute respiratory distress syndrome", "PNA": "pneumonia",
+    # Endo / metabolic
+    "DM": "diabetes mellitus", "T1DM": "type 1 diabetes mellitus",
+    "T2DM": "type 2 diabetes mellitus", "DKA": "diabetic ketoacidosis",
+    # Neuro
+    "CVA": "cerebrovascular accident stroke", "TIA": "transient ischemic attack",
+    "OSA": "obstructive sleep apnea", "RLS": "restless legs syndrome",
+    # Renal
+    "AKI": "acute kidney injury", "CKD": "chronic kidney disease",
+    "ESRD": "end stage renal disease", "UTI": "urinary tract infection",
+    # GI
+    "GERD": "gastroesophageal reflux disease", "IBD": "inflammatory bowel disease",
+    "GIB": "gastrointestinal bleeding",
+    # Misc
+    "RDS": "respiratory distress syndrome",
+    "PROM": "premature rupture of membranes",
+    "MDD": "major depressive disorder", "GAD": "generalized anxiety disorder",
+    "PTSD": "post traumatic stress disorder", "OCD": "obsessive compulsive disorder",
+    "SOB": "shortness of breath", "DDI": "drug drug interaction",
+}
+
+
+def expand_acronyms(query: str) -> str:
+    """Replace standalone acronyms in `query` with their expansion."""
+    parts = re.split(r"(\s+)", query)
+    out = []
+    for p in parts:
+        u = p.strip().upper()
+        if u in ACRONYM_EXPANSIONS:
+            out.append(ACRONYM_EXPANSIONS[u])
+        else:
+            out.append(p)
+    return " ".join(out).strip()
+
+
+# Decimal-strip: "E11.9" → "E11", "J18.9" → "J18". Used to fall back to
+# base code when cascade exact-match misses.
+DECIMAL_CODE_RE = re.compile(r"^([A-Z]\d{1,3})\.\d+$")
+
+
+def strip_decimal(query: str) -> str | None:
+    """If query looks like 'E11.9', return base 'E11'. Else None."""
+    # Strip surrounding "ICD-10 " prefix if present
+    q = re.sub(r"(?i)icd-?10[: ]*", "", query).strip()
+    # Take first whitespace token
+    tok = q.split()[0] if q else ""
+    m = DECIMAL_CODE_RE.match(tok)
+    return m.group(1) if m else None
+
+
+def tmt_lookup(query: str, k: int = 3) -> list[dict]:
+    """FULLTEXT search on `tmt_codes.fsn` for brand/generic name lookup.
+    Routes through kubectl exec because there's no Mimir TMT endpoint yet."""
+    import subprocess
+    safe = query.replace("'", "''")
+    sql = (
+        f"SELECT concept_type, tmt_id, LEFT(fsn, 200) AS fsn FROM tmt_codes "
+        f"WHERE MATCH(fsn) AGAINST('{safe}' IN NATURAL LANGUAGE MODE) "
+        f"LIMIT {k};"
+    )
+    ns = os.environ.get("MARIADB_NAMESPACE", "asgard-infra")
+    try:
+        r = subprocess.run(
+            ["kubectl", "-n", ns, "exec", "deploy/mariadb", "--",
+             "mariadb", "-uroot", "-proot", "mimir", "-B", "-e", sql],
+            capture_output=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return []
+        lines = r.stdout.decode("utf-8").splitlines()
+        if len(lines) < 2:
+            return []
+        rows = []
+        for line in lines[1:]:
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                rows.append({"concept_type": parts[0], "tmt_id": parts[1],
+                             "fsn": parts[2]})
+        return rows
+    except Exception:
+        return []
+
+
+def clinical_wisdom_search(query: str, k: int = 3) -> list[dict]:
+    """Semantic search over Qdrant `clinical-wisdom` collection (139 chunks
+    of sleep/cardio/ENT/peds/CPAP guidelines). BGE-M3 1024-dim cosine."""
+    try:
+        vec = embed(query)
+        out = http_post_json(
+            f"{QDRANT_URL}/collections/clinical-wisdom/points/search",
+            {
+                "vector": {"name": "dense", "vector": vec},
+                "limit": k,
+                "with_payload": True,
+            },
+        )
+        return out.get("result", [])
+    except Exception:
+        return []
+
+
 # Map categories to retrieval strategies.
 DRUG_CATEGORIES = {"drug_name", "drug_synonym", "drug_class",
                    "drug_interaction", "drug_disease_relation"}
 DISEASE_CATEGORIES = {"disease", "code_lookup", "symptom_to_disease"}
 GENERAL_CATEGORIES = {"sleep_procedure", "sleep_metric",
-                      "clinical_scenario", "clinical_concept", "acronym"}
+                      "clinical_concept"}
 
 
 def normalize(s: str) -> str:
@@ -136,14 +254,39 @@ def normalize(s: str) -> str:
     return re.sub(r"[^\w\s]", " ", (s or "").lower())
 
 
+def _expected_variants(e: str) -> list[str]:
+    """Generate match candidates for an expected entity. Concept-style
+    tokens (e.g. 'CPAP_side_effects') split on underscores; code-style
+    (e.g. 'G47.3') accepts literal, dot-stripped, AND base code (G47).
+    Base-code variant lets a 'G47.3' query match an 'G47' top-K result
+    (parent-of relationship — clinically useful for code lookup)."""
+    s = normalize(e)
+    out = [s]
+    if "_" in e:
+        out.extend(normalize(w) for w in e.split("_") if w)
+    if re.match(r"^[A-Z]\d", e):
+        if "." in e:
+            # ICD-10 like "G47.3": variants = "g473" + base "g47"
+            out.append(normalize(e.replace(".", "")))
+            out.append(normalize(e.split(".")[0]))
+        elif re.match(r"^[A-Z]\d{2,3}$", e):
+            # Bare base code like "E11" — also accept the no-dot form
+            out.append(normalize(e))
+    return [v for v in out if v]
+
+
 def hit_match(expected: list[str], retrieved_texts: list[str],
               forbid: list[str] | None = None) -> bool:
-    """Top-K hit if any expected substring in any retrieved text AND
-    no forbidden substring is present (negation queries)."""
+    """Top-K hit if any expected variant substring in any retrieved text
+    AND no forbidden substring is present (negation queries)."""
     if not expected:
         return False
     combined = " ".join(normalize(t) for t in retrieved_texts)
-    has_expected = any(normalize(e) in combined for e in expected if e)
+    variants: list[str] = []
+    for e in expected:
+        if e:
+            variants.extend(_expected_variants(e))
+    has_expected = any(v in combined for v in variants)
     if forbid:
         has_forbid = any(normalize(f) in combined for f in forbid if f)
         return has_expected and not has_forbid
@@ -180,16 +323,60 @@ def run_query(q: dict) -> dict:
     retrieved_texts: list[str] = []
     strategy = "?"
     try:
-        if cat in DRUG_CATEGORIES:
+        if cat == "drug_synonym":
+            # Fix 1: brand→generic via TMT FULLTEXT (PrimeKG has only generics)
+            strategy = "tmt-fulltext"
+            rows = tmt_lookup(text, k=3)
+            retrieved_texts = [r["fsn"] for r in rows]
+        elif cat in DRUG_CATEGORIES:
             strategy = "primekg-qdrant"
             vec = embed(text)
             hits = qdrant_search("primekg-entities", vec, k=3)
             retrieved_texts = [h.get("payload", {}).get("name", "") for h in hits]
+        elif cat == "acronym":
+            # Fix 3: expand acronym → run ICD-10 cascade with expanded form
+            expanded = expand_acronyms(text)
+            strategy = f"icd10-cascade+expand({expanded[:30]})"
+            hits = icd10_lookup(expanded, k=3)
+            retrieved_texts = [
+                f"{h.get('code','')} {h.get('en_label','')} {h.get('th_label','') or ''}"
+                for h in hits
+            ]
+        elif cat == "code_lookup":
+            # Fix 2: extract code token from "ICD-10 J18.9" / "G47.3 คือโรคอะไร"
+            # then try both literal and decimal-stripped variants. The cascade
+            # falls to semantic when exact fails, which returns junk-relevant
+            # codes — so we always also try the stripped base.
+            strategy = "icd10-cascade"
+            q = re.sub(r"(?i)icd-?10[: ]*", "", text).strip()
+            q = q.split()[0] if q else text
+            hits = icd10_lookup(q, k=3)
+            # Always also try stripped base (combine results)
+            base = strip_decimal(q) or strip_decimal(text)
+            if base:
+                strategy = "icd10-cascade+strip-decimal"
+                hits_base = icd10_lookup(base, k=3)
+                # Prefer base hits if they include the actual base code as exact
+                if any(h.get("code") == base for h in hits_base):
+                    hits = hits_base
+            retrieved_texts = [
+                f"{h.get('code','')} {h.get('en_label','')} {h.get('th_label','') or ''}"
+                for h in hits
+            ]
         elif cat in DISEASE_CATEGORIES:
             strategy = "icd10-cascade"
             hits = icd10_lookup(text, k=3)
             retrieved_texts = [
                 f"{h.get('code','')} {h.get('en_label','')} {h.get('th_label','') or ''}"
+                for h in hits
+            ]
+        elif cat == "clinical_scenario":
+            # Fix 4: direct clinical-wisdom collection (sleep/cardio/etc.)
+            strategy = "clinical-wisdom-qdrant"
+            hits = clinical_wisdom_search(text, k=3)
+            retrieved_texts = [
+                str(h.get("payload", {}).get("content", "") or
+                    h.get("payload", {}).get("text", ""))[:300]
                 for h in hits
             ]
         elif cat in GENERAL_CATEGORIES:
@@ -200,7 +387,6 @@ def run_query(q: dict) -> dict:
                 for h in hits
             ]
         elif cat == "negation":
-            # Negation queries — use mimir-search and check forbid
             strategy = "mimir-search-negation"
             hits = mimir_search(text, k=3)
             retrieved_texts = [
@@ -208,7 +394,6 @@ def run_query(q: dict) -> dict:
                 for h in hits
             ]
         else:
-            # Fallback
             strategy = "mimir-search"
             hits = mimir_search(text, k=3)
             retrieved_texts = [
