@@ -196,6 +196,29 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         // is incidental context (e.g. `SSRI + tramadol`).
         "sglt2 inhibitor"          => Some("empagliflozin"),  // exemplar — ranks specific drug rows higher than "inhibitor"-only rows
         "sglt-2 inhibitor"         => Some("empagliflozin"),
+        // ── Symptom syndrome → canonical disease ─────────────────────
+        // Maps classic symptom complexes to the disease whose ICD label
+        // the ICD route can substring-match. Longest-prefix wins, so
+        // 4-word phrase patterns rank above shorter variants.
+        // Diabetes presentation
+        "polyuria polydipsia weight loss" => Some("diabetes mellitus"),
+        "polyuria polydipsia nocturia"    => Some("diabetes mellitus"),
+        "polyuria polydipsia"             => Some("diabetes mellitus"),
+        // Acute coronary syndrome
+        "crushing chest pain radiating to left arm" => Some("myocardial infarction"),
+        "crushing chest pain"             => Some("myocardial infarction"),
+        "chest pain radiating to left arm" => Some("myocardial infarction"),
+        // Heart failure decompensation
+        "shortness of breath ankle swelling" => Some("heart failure"),
+        "ankle swelling shortness of breath" => Some("heart failure"),
+        // Pneumonia
+        "fever cough productive sputum"   => Some("pneumonia"),
+        "fever cough sputum"              => Some("pneumonia"),
+        "productive sputum"               => Some("pneumonia"),
+        // Meningitis
+        "acute headache photophobia neck stiffness" => Some("meningitis"),
+        "headache photophobia neck stiffness" => Some("meningitis"),
+        "neck stiffness photophobia"      => Some("meningitis"),
         "copd"     => Some("chronic obstructive pulmonary"),
         "chf"      => Some("congestive heart failure"),
         "ckd"      => Some("chronic kidney disease"),
@@ -272,18 +295,25 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         // Used by `symptom_search` worker — tokenizes the expanded form
         // and looks up against PrimeKG `effect/phenotype` nodes.
         "ปวดหัว"                   => Some("headache"),
-        "ปวดหัวรุนแรงเฉียบพลัน"    => Some("acute severe headache"),
+        // Thai whole-phrase symptom syndromes — route to disease for
+        // ICD label substring hit. Single-token Thai symptoms below
+        // still map to phenotype tokens for the symptom_search worker.
+        "ปวดหัวรุนแรงเฉียบพลัน"    => Some("headache"),  // routes to R51 family
         "เจ็บหน้าอก"               => Some("chest pain"),
-        "เจ็บแน่นหน้าอกร้าวไปแขนซ้าย" => Some("chest pain radiating left arm"),
+        "เจ็บแน่นหน้าอกร้าวไปแขนซ้าย" => Some("myocardial infarction"),  // I21 family
+        "เจ็บแน่นหน้าอก"           => Some("myocardial infarction"),
         "หายใจไม่ออก"              => Some("dyspnea shortness of breath"),
         "หายใจลำบาก"               => Some("dyspnea"),
         "ไข้"                      => Some("fever"),
-        "ไข้ไอเสมหะเขียว"           => Some("fever cough sputum"),
+        "ไข้ไอเสมหะเขียว"           => Some("pneumonia"),  // J18 family
+        "ไข้ไอเสมหะ"               => Some("pneumonia"),
         "ไอ"                       => Some("cough"),
         "เสมหะ"                    => Some("sputum"),
         "ปัสสาวะบ่อย"              => Some("polyuria"),
         "กระหายน้ำ"                => Some("polydipsia"),
+        "ปัสสาวะบ่อยกระหายน้ำ"     => Some("diabetes mellitus"),
         "นอนกรน"                   => Some("snoring"),
+        "ยานอนกรน"                 => Some("sleep apnoea"),  // sleep med context → G47.3
         "ง่วงนอน"                  => Some("drowsiness"),
         "น้ำหนักลด"                => Some("weight loss"),
         "ขาบวม"                    => Some("ankle swelling edema"),
@@ -524,10 +554,18 @@ async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResul
     code_likes.push(format!("th_label LIKE '%{q_raw_safe}%'"));
     let where_clause = code_likes.join(" OR ");
     let order_pivot = variants.last().cloned().unwrap_or_else(|| q_en_safe.clone());
-    // ORDER BY priority: exact-code match, then code-prefix, then
-    // *whole-phrase* en_label substring (so "diabetes mellitus type 2"
-    // ranks E11x above E10x even though both satisfy the AND-of-words
-    // fallback), then th_label substring (Thai phrase hit), then code.
+    // ORDER BY priority:
+    //   1. exact-code match
+    //   2. code-prefix match
+    //   3. whole-phrase en_label substring (specific disease beats AND-fallback)
+    //   4. th_label substring (Thai phrase hit)
+    //   5. *shorter code first* — favor parent/category codes (I10, J18,
+    //      G03, R51) over leaf codes (P29.2, B01.2, A17.0). The parent
+    //      code's en_label is the canonical name of the disease; leaves
+    //      describe specific sub-types or compound conditions that match
+    //      the symptom phrase incidentally. ICD-10's 3-char codes are
+    //      the chapter heads; 4-5 char codes are sub-classifications.
+    //   6. code (alphabetical tiebreaker among same-length codes)
     let sql = format!(
         "SELECT code, en_label, th_label, chapter FROM icd10_codes \
          WHERE tenant_id IS NULL AND ({where_clause}) \
@@ -535,6 +573,7 @@ async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResul
                   (code LIKE '{pivot}%') DESC, \
                   (en_label LIKE '%{q_en_safe}%') DESC, \
                   (th_label LIKE '%{q_raw_safe}%') DESC, \
+                  CHAR_LENGTH(code) ASC, \
                   code LIMIT {k}",
         pivot = order_pivot, k = k,
     );
