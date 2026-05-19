@@ -90,7 +90,10 @@ async fn unified_search(
     // (Thai user phrases like `เบาหวาน` should still substring-match the
     // Thai label) AND an en_label column (where the replaced English form
     // does better for aliases like `T2DM`).
-    let p1 = icd10_search(&pool, &q_replace, q, k);
+    // ICD route handles multi-segment splitting internally (clinical_scenario
+    // queries like `sleep apnea AHI 35 with HTN` resolve to G47.3 + I10
+    // via per-segment lookup + dedupe).
+    let p1 = icd10_search_multi(&pool, q, k);
     let p2 = tpc_search(&pool, &q_replace, k);
     let p3 = loinc_search(&pool, &q_replace, k);
     let p4 = tmt_search(&pool, &q_append, k);
@@ -291,28 +294,67 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
 }
 
 /// Find the longest matching alias prefix and return `(matched_prefix,
-/// canonical_form)`. Tries the full trimmed query first (catches multi-word
-/// Thai disease phrases like `"ภาวะหยุดหายใจขณะหลับ"` where Thai has no
-/// inter-word whitespace), then falls back to the first whitespace-
-/// separated token (catches `"พาราเซตามอล 500 mg"`-style drug + modifier).
+/// canonical_form)`. Walks from full-query down to 1-word prefixes,
+/// returning the first match. Catches:
+///   - full multi-word Thai phrases like `"ภาวะหยุดหายใจขณะหลับ"`
+///   - leading 2+ word acronym phrases like `"sleep apnea"` in
+///     `"sleep apnea AHI 35 with HTN"` (clinical_scenario queries)
+///   - single first-token like `"พาราเซตามอล"` in `"พาราเซตามอล 500 mg"`
 fn find_expansion(q: &str) -> Option<(&str, &'static str)> {
     let token = q.trim();
     if token.is_empty() {
         return None;
     }
-    // 1. Full trimmed query — for multi-word Thai disease phrases.
-    if let Some(exp) = lookup_expansion(token) {
-        return Some((token, exp));
+    // Pre-compute byte-end offsets of each whitespace-separated word so we
+    // can build prefix slices without allocating.
+    let mut word_ends: Vec<usize> = Vec::with_capacity(8);
+    let mut in_word = false;
+    let mut end = 0;
+    for (i, c) in token.char_indices() {
+        if c.is_whitespace() {
+            if in_word {
+                word_ends.push(end);
+                in_word = false;
+            }
+        } else {
+            in_word = true;
+            end = i + c.len_utf8();
+        }
     }
-    // 2. First whitespace-separated token — for ASCII acronyms + Thai
-    //    drug names followed by dose/route modifiers.
-    let first_token = token.split_whitespace().next().unwrap_or(token);
-    if first_token.len() < token.len() {
-        if let Some(exp) = lookup_expansion(first_token) {
-            return Some((first_token, exp));
+    if in_word {
+        word_ends.push(end);
+    }
+    // Longest-prefix-first: walk from full-word count down to 1.
+    for end_idx in word_ends.iter().rev() {
+        let prefix = &token[..*end_idx];
+        if let Some(exp) = lookup_expansion(prefix) {
+            return Some((prefix, exp));
         }
     }
     None
+}
+
+/// Split a multi-condition query into segments by clinical connectors:
+/// `" with " / " and " / "+" / "," / ";"`. Returns a single-element vec
+/// when no connector is present.
+fn split_segments(q: &str) -> Vec<String> {
+    let mut segments: Vec<String> = vec![q.trim().to_string()];
+    for sep in [" with ", " and ", " + ", "+", ",", ";"].iter() {
+        segments = segments
+            .into_iter()
+            .flat_map(|s| {
+                s.split(sep)
+                    .map(|p| p.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+    }
+    if segments.is_empty() {
+        vec![q.trim().to_string()]
+    } else {
+        segments
+    }
 }
 
 /// Append the canonical form to the original query: `"HbA1c"` →
@@ -390,6 +432,59 @@ fn icd_code_variants(q: &str) -> Vec<String> {
 }
 
 // ── per-KB workers ────────────────────────────────────────────────────────
+
+/// Multi-segment ICD wrapper: split the user query into clinical segments
+/// (`" with "`, `" and "`, `"+"`, `","`, `";"`) and run `icd10_search` per
+/// segment, deduping the merged items by code. Single-segment queries take
+/// the direct path. Enables clinical_scenario queries like
+/// `"sleep apnea AHI 35 with HTN"` to surface BOTH G47.3 and I10 in one
+/// KbResult (each segment alone would only yield its own code).
+async fn icd10_search_multi(pool: &DbPool, q_raw: &str, k: i64) -> KbResult {
+    let t0 = Instant::now();
+    let segments = split_segments(q_raw);
+    if segments.len() <= 1 {
+        // Direct path — no overhead for normal queries.
+        let q_replace = replace_query(q_raw);
+        return icd10_search(pool, &q_replace, q_raw, k).await;
+    }
+    let mut items_acc: Vec<JsonValue> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for seg in &segments {
+        // For each segment: if an alias matches, use ONLY the canonical
+        // expansion (drop trailing modifiers like "AHI 35") to keep the
+        // ICD AND-of-words tokenization clean — `sleep apnea AHI 35` →
+        // `sleep apnoea` (not `sleep apnoea AHI 35`, which would require
+        // "AHI" to also appear in the ICD en_label).
+        let seg_canonical = match find_expansion(seg) {
+            Some((_, exp)) => exp.to_string(),
+            None => seg.to_string(),
+        };
+        let seg_kb = icd10_search(pool, &seg_canonical, seg, k).await;
+        for it in seg_kb.items {
+            let code = it
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !code.is_empty() && seen.insert(code) {
+                items_acc.push(it);
+                if items_acc.len() >= k as usize {
+                    break;
+                }
+            }
+        }
+        if items_acc.len() >= k as usize {
+            break;
+        }
+    }
+    KbResult {
+        kb_id: "icd10-tm",
+        kb_name: "ICD-10-TM (Thai)",
+        count: items_acc.len(),
+        items: items_acc,
+        latency_ms: t0.elapsed().as_millis(),
+    }
+}
 
 async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResult {
     let t0 = Instant::now();
