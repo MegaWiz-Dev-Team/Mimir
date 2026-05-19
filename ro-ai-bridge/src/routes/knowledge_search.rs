@@ -117,17 +117,26 @@ async fn unified_search(
 //      products. Same single-token append pattern lets the Latin token in
 //      the rewritten query hit the right FSN.
 //
-// Only add high-confidence single-meaning mappings. Multi-word queries pass
-// through unchanged (the user has typed enough).
+// Only add high-confidence single-meaning mappings.
+//
+// Multi-word queries: we look at the FIRST whitespace-separated token only.
+// This handles `พาราเซตามอล 500 mg` (drug name + strength) and `วาร์ฟาริน
+// INR target` (drug + lab context) without dropping the trailing modifiers.
+// False positives are bounded — adding a known drug name as a Latin token
+// to a query that already mentions that drug is harmless to FULLTEXT scoring.
 fn expand_query(q: &str) -> String {
     let token = q.trim();
-    if token.is_empty() || token.contains(char::is_whitespace) {
+    if token.is_empty() {
         return q.to_string();
     }
+    // First-token-only lookup so multi-word queries still benefit. Preserve
+    // the full original `token` in the output so trailing context (dose,
+    // route, modifier) stays in the FULLTEXT query.
+    let first_token = token.split_whitespace().next().unwrap_or(token);
     // Lookup is case-insensitive for ASCII; Thai script has no case so the
     // lowercased key equals the original. Try ASCII-lowercased first for
     // acronyms, then fall back to raw token for Thai/non-ASCII.
-    let key_lc = token.to_ascii_lowercase();
+    let key_lc = first_token.to_ascii_lowercase();
     let expansion: Option<&'static str> = match key_lc.as_str() {
         // ── lab acronyms → canonical long form ─────────────────────────
         "hba1c"    => Some("glycated hemoglobin"),
@@ -156,11 +165,13 @@ fn expand_query(q: &str) -> String {
     // (Thai FDA generic spellings). Extend as production query logs reveal
     // new entries; a DB-backed alias table is the long-term shape if this
     // grows past ~50-100 entries.
-    let expansion = expansion.or_else(|| match token {
+    let expansion = expansion.or_else(|| match first_token {
         // Cardiovascular
         "วาร์ฟาริน"          => Some("warfarin"),
         "โลซาร์แทน"          => Some("losartan"),
+        "โลซาร์ทาน"          => Some("losartan"),       // spelling variant (ทาน/แทน)
         "อะมโลดิปีน"         => Some("amlodipine"),
+        "แอมโลดิปีน"         => Some("amlodipine"),      // spelling variant (แอม/อะม)
         "เอนาลาพริล"         => Some("enalapril"),
         "อะทีโนลอล"          => Some("atenolol"),
         "ซิมวาสแตติน"        => Some("simvastatin"),
@@ -189,6 +200,13 @@ fn expand_query(q: &str) -> String {
         // Allergy
         "เซทิริซีน"          => Some("cetirizine"),
         "ลอราตาดีน"          => Some("loratadine"),
+        // Respiratory (asthma / COPD)
+        "ซาลบูทามอล"         => Some("salbutamol albuterol"),  // UK + US name
+        "อัลบูเทอรอล"        => Some("albuterol salbutamol"),
+        "ไอพราโทรเปียม"      => Some("ipratropium"),
+        // Diuretic / cardiac add-ons (caught from M1 audit gaps)
+        "ฟูโรซีไมด์"         => Some("furosemide"),
+        "ฟูโรเซไมด์"         => Some("furosemide"),       // spelling variant
         _ => None,
     });
     match expansion {
