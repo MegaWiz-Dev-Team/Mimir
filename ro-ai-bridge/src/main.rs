@@ -17,6 +17,7 @@ use ro_ai_bridge::routes::a2a::a2a_routes;
 use ro_ai_bridge::routes::admin_knowledge::admin_knowledge_routes;
 use ro_ai_bridge::routes::shared_knowledge::shared_knowledge_routes;
 use ro_ai_bridge::routes::shared_kb_items::shared_kb_items_routes;
+use ro_ai_bridge::routes::knowledge_search::knowledge_search_routes;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
@@ -239,6 +240,7 @@ async fn main() {
         .nest("/api/v1/admin/knowledge", admin_knowledge_routes())
         .nest("/api/v1/knowledge/shared", shared_knowledge_routes())
         .nest("/api/v1/knowledge/shared", shared_kb_items_routes())
+        .nest("/api/v1/knowledge/search", knowledge_search_routes())
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
         .nest("/api/v1/prompts", prompts_routes())
