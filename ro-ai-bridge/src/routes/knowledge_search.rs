@@ -86,7 +86,11 @@ async fn unified_search(
     let q_replace = replace_query(q);
 
     // Fan out — each KB query is independent. Use tokio::join for parallelism.
-    let p1 = icd10_search(&pool, &q_replace, k);
+    // ICD-10-TM gets BOTH forms because it has a dedicated th_label column
+    // (Thai user phrases like `เบาหวาน` should still substring-match the
+    // Thai label) AND an en_label column (where the replaced English form
+    // does better for aliases like `T2DM`).
+    let p1 = icd10_search(&pool, &q_replace, q, k);
     let p2 = tpc_search(&pool, &q_replace, k);
     let p3 = loinc_search(&pool, &q_replace, k);
     let p4 = tmt_search(&pool, &q_append, k);
@@ -215,8 +219,53 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         // Diuretic / cardiac add-ons (caught from M1 audit gaps)
         "ฟูโรซีไมด์"         => Some("furosemide"),
         "ฟูโรเซไมด์"         => Some("furosemide"),       // spelling variant
+        // ── Thai disease names ─────────────────────────────────────────
+        // ICD-10-TM th_label has tone-mark stripping issues in the loaded
+        // dataset ("นอนไมหลับ" instead of "นอนไม่หลับ") so direct user-
+        // typed Thai often misses substring match. Map common Thai disease
+        // phrases to their canonical English form for ICD/PrimeKG lookup.
+        "เบาหวาน"                  => Some("diabetes mellitus"),
+        "เบาหวานชนิดที่ 2"         => Some("diabetes mellitus type 2"),
+        "เบาหวานชนิดที่ 1"         => Some("diabetes mellitus type 1"),
+        "ความดันโลหิตสูง"          => Some("essential hypertension"),
+        "ความดันสูง"               => Some("hypertension"),
+        "โรคหืด"                   => Some("asthma"),
+        "โรคหอบหืด"                => Some("asthma"),
+        "หอบหืด"                   => Some("asthma"),
+        "ภาวะหยุดหายใจขณะหลับ"     => Some("sleep apnoea"),
+        "นอนไม่หลับ"               => Some("insomnia"),
+        "ปอดอุดกั้นเรื้อรัง"       => Some("chronic obstructive pulmonary"),
+        "หัวใจล้มเหลว"             => Some("heart failure"),
+        "ไตวาย"                    => Some("kidney failure"),
+        "ไตวายเรื้อรัง"            => Some("chronic kidney disease"),
+        "หลอดเลือดสมอง"            => Some("cerebrovascular"),
         _ => None,
     })
+}
+
+/// Find the longest matching alias prefix and return `(matched_prefix,
+/// canonical_form)`. Tries the full trimmed query first (catches multi-word
+/// Thai disease phrases like `"ภาวะหยุดหายใจขณะหลับ"` where Thai has no
+/// inter-word whitespace), then falls back to the first whitespace-
+/// separated token (catches `"พาราเซตามอล 500 mg"`-style drug + modifier).
+fn find_expansion(q: &str) -> Option<(&str, &'static str)> {
+    let token = q.trim();
+    if token.is_empty() {
+        return None;
+    }
+    // 1. Full trimmed query — for multi-word Thai disease phrases.
+    if let Some(exp) = lookup_expansion(token) {
+        return Some((token, exp));
+    }
+    // 2. First whitespace-separated token — for ASCII acronyms + Thai
+    //    drug names followed by dose/route modifiers.
+    let first_token = token.split_whitespace().next().unwrap_or(token);
+    if first_token.len() < token.len() {
+        if let Some(exp) = lookup_expansion(first_token) {
+            return Some((first_token, exp));
+        }
+    }
+    None
 }
 
 /// Append the canonical form to the original query: `"HbA1c"` →
@@ -224,35 +273,27 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
 /// where relevance score picks the most-specific matching FSN regardless
 /// of which form (acronym vs long) is stored in the index.
 fn expand_query(q: &str) -> String {
-    let token = q.trim();
-    if token.is_empty() {
-        return q.to_string();
-    }
-    let first_token = token.split_whitespace().next().unwrap_or(token);
-    match lookup_expansion(first_token) {
-        Some(expanded) => format!("{token} {expanded}"),
+    match find_expansion(q) {
+        Some((_, exp)) => format!("{token} {exp}", token = q.trim()),
         None => q.to_string(),
     }
 }
 
-/// Replace the first token with its canonical form: `"T2DM diet"` →
-/// `"diabetes mellitus type 2 diet"`. For LIKE-based KBs (ICD/TPC/LOINC)
-/// where appending the long form to a 4-char acronym never produces a
-/// matching substring, and for semantic search where the natural-language
-/// form gives a cleaner embedding signal than the acronym alone.
+/// Replace the matched prefix with its canonical form: `"T2DM diet"` →
+/// `"diabetes mellitus type 2 diet"`, `"ภาวะหยุดหายใจขณะหลับ"` →
+/// `"sleep apnoea"`. For LIKE-based KBs (ICD/TPC/LOINC) where appending
+/// the long form to a 4-char acronym never produces a matching substring,
+/// and for semantic search where the natural-language form gives a cleaner
+/// embedding signal than the acronym alone.
 fn replace_query(q: &str) -> String {
     let token = q.trim();
-    if token.is_empty() {
-        return q.to_string();
-    }
-    let first_token = token.split_whitespace().next().unwrap_or(token);
-    match lookup_expansion(first_token) {
-        Some(expanded) => {
+    match find_expansion(q) {
+        Some((matched, exp)) => {
             // Slice the rest (including leading whitespace) and append.
-            // Byte index = byte length of first_token (UTF-8 safe because
-            // we sliced at a whitespace boundary or at end-of-string).
-            let rest = token.get(first_token.len()..).unwrap_or("");
-            format!("{expanded}{rest}")
+            // UTF-8 safe — `matched` is either the full token or a slice
+            // taken at a whitespace boundary, both valid byte boundaries.
+            let rest = token.get(matched.len()..).unwrap_or("");
+            format!("{exp}{rest}")
         }
         None => q.to_string(),
     }
@@ -285,22 +326,24 @@ fn icd_code_variants(q: &str) -> Vec<String> {
 
 // ── per-KB workers ────────────────────────────────────────────────────────
 
-async fn icd10_search(pool: &DbPool, q: &str, k: i64) -> KbResult {
+async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResult {
     let t0 = Instant::now();
-    let q_safe = q.replace('\'', "''");
-    let variants = icd_code_variants(&q_safe);
-    // Build the WHERE: code LIKE for every variant + en/th_label LIKE
-    // for the raw query (label search doesn't benefit from dot-stripping).
+    let q_en_safe  = q_en.replace('\'', "''");
+    let q_raw_safe = q_raw.replace('\'', "''");
+    let variants = icd_code_variants(&q_en_safe);
+    // Build the WHERE clauses:
+    //   - `code` and `en_label` use the English/canonical form (q_en).
+    //   - `th_label` uses the raw user query (q_raw) so Thai disease
+    //     names still substring-match the Thai column (avoids a regression
+    //     where Thai aliases that rewrite to English bypass th_label hits).
     let mut code_likes: Vec<String> = variants
         .iter()
         .map(|v| format!("code LIKE '{v}%'"))
         .collect();
-    code_likes.push(format!("en_label LIKE '%{q_safe}%'"));
-    code_likes.push(format!("th_label LIKE '%{q_safe}%'"));
+    code_likes.push(format!("en_label LIKE '%{q_en_safe}%'"));
+    code_likes.push(format!("th_label LIKE '%{q_raw_safe}%'"));
     let where_clause = code_likes.join(" OR ");
-    // Use the *first* variant for the exact-match / prefix ordering
-    // (raw query if no dot; stripped form if user typed dotted code).
-    let order_pivot = variants.last().cloned().unwrap_or_else(|| q_safe.clone());
+    let order_pivot = variants.last().cloned().unwrap_or_else(|| q_en_safe.clone());
     let sql = format!(
         "SELECT code, en_label, th_label, chapter FROM icd10_codes \
          WHERE tenant_id IS NULL AND ({where_clause}) \
