@@ -194,14 +194,22 @@ export default function SharedKnowledgePage() {
                         Updated by Asgard operators, never by tenant users.
                     </p>
                 </div>
-                <button
-                    onClick={loadKbs}
-                    disabled={reloading}
-                    className="px-3 py-1.5 text-sm rounded-md border bg-card hover:bg-accent transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                >
-                    <RefreshCw className={`w-3.5 h-3.5 ${reloading ? "animate-spin" : ""}`} />
-                    Refresh
-                </button>
+                <div className="flex items-center gap-2">
+                    <Link
+                        href="/knowledge/search"
+                        className="px-3 py-1.5 text-sm rounded-md border bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50 transition-colors flex items-center gap-1.5 font-medium"
+                    >
+                        🔎 Search all KBs
+                    </Link>
+                    <button
+                        onClick={loadKbs}
+                        disabled={reloading}
+                        className="px-3 py-1.5 text-sm rounded-md border bg-card hover:bg-accent transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${reloading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </button>
+                </div>
             </div>
 
             {/* ── Summary strip ─────────────────────────────────────── */}
