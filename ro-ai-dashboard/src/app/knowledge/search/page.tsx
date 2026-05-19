@@ -107,6 +107,39 @@ function ItemRow({ kbId, item }: { kbId: string; item: any }) {
             </div>
         );
     }
+    if (kbId === "symptoms") {
+        const icd: string[] = Array.isArray(item.icd_codes) ? item.icd_codes : [];
+        const matched: string[] = Array.isArray(item.matched_symptoms) ? item.matched_symptoms : [];
+        return (
+            <div className="space-y-1">
+                <div className="flex items-baseline gap-2">
+                    <div className="text-sm font-medium truncate flex-1">{item.name}</div>
+                    {typeof item.match_count === "number" && (
+                        <span className="text-[11px] font-mono text-orange-600 dark:text-orange-300">
+                            {item.match_count} matches
+                        </span>
+                    )}
+                </div>
+                {matched.length > 0 && (
+                    <div className="text-[10px] text-muted-foreground truncate">
+                        from: {matched.join(", ")}
+                    </div>
+                )}
+                {icd.length > 0 && (
+                    <div className="flex gap-1 flex-wrap">
+                        {icd.map((c, i) => (
+                            <code
+                                key={i}
+                                className="text-[10px] font-mono font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                            >
+                                {c}
+                            </code>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
     return (
         <div className="text-xs font-mono text-muted-foreground truncate">
             {JSON.stringify(item)}
@@ -122,6 +155,7 @@ function KbBadge({ kb_id }: { kb_id: string }) {
         tmt: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300",
         tmlt: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
         primekg: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+        symptoms: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
     };
     const cls = palette[kb_id] || "bg-zinc-100 text-zinc-700";
     return (

@@ -96,10 +96,14 @@ async fn unified_search(
     let p4 = tmt_search(&pool, &q_append, k);
     let p5 = tmlt_search(&pool, &q_append, k);
     let p6 = primekg_search(&q_replace, k);
+    // 7th KB: PrimeKG graph traversal (symptoms → disease) + ICD chain.
+    // Uses q_replace so Thai symptom aliases (ปวดหัว → headache) get
+    // rewritten before tokenisation against PrimeKG phenotype nodes.
+    let p7 = symptom_search(&pool, &q_replace, k);
 
-    let (r1, r2, r3, r4, r5, r6) = tokio::join!(p1, p2, p3, p4, p5, p6);
+    let (r1, r2, r3, r4, r5, r6, r7) = tokio::join!(p1, p2, p3, p4, p5, p6, p7);
 
-    let results = vec![r1, r2, r3, r4, r5, r6];
+    let results = vec![r1, r2, r3, r4, r5, r6, r7];
 
     Ok(Json(SearchResponse {
         q: q.to_string(),
@@ -239,6 +243,25 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "ไตวาย"                    => Some("kidney failure"),
         "ไตวายเรื้อรัง"            => Some("chronic kidney disease"),
         "หลอดเลือดสมอง"            => Some("cerebrovascular"),
+        // ── Thai symptom phrases → English phenotype tokens ───────────
+        // Used by `symptom_search` worker — tokenizes the expanded form
+        // and looks up against PrimeKG `effect/phenotype` nodes.
+        "ปวดหัว"                   => Some("headache"),
+        "ปวดหัวรุนแรงเฉียบพลัน"    => Some("acute severe headache"),
+        "เจ็บหน้าอก"               => Some("chest pain"),
+        "เจ็บแน่นหน้าอกร้าวไปแขนซ้าย" => Some("chest pain radiating left arm"),
+        "หายใจไม่ออก"              => Some("dyspnea shortness of breath"),
+        "หายใจลำบาก"               => Some("dyspnea"),
+        "ไข้"                      => Some("fever"),
+        "ไข้ไอเสมหะเขียว"           => Some("fever cough sputum"),
+        "ไอ"                       => Some("cough"),
+        "เสมหะ"                    => Some("sputum"),
+        "ปัสสาวะบ่อย"              => Some("polyuria"),
+        "กระหายน้ำ"                => Some("polydipsia"),
+        "นอนกรน"                   => Some("snoring"),
+        "ง่วงนอน"                  => Some("drowsiness"),
+        "น้ำหนักลด"                => Some("weight loss"),
+        "ขาบวม"                    => Some("ankle swelling edema"),
         _ => None,
     })
 }
@@ -483,6 +506,110 @@ async fn primekg_search(q: &str, k: i64) -> KbResult {
         count: items.len(), items,
         latency_ms: t0.elapsed().as_millis(),
     }
+}
+
+/// Symptom → Disease worker: 7th KB in the L3 fan-out.
+///
+/// Pipeline:
+///   1. Tokenize the canonical (alias-rewritten) query into phenotype
+///      candidates by splitting on whitespace + `+,;` separators.
+///   2. Call PrimeKG `DISEASE_PHENOTYPE_POSITIVE` traversal via Neo4j
+///      (the same Cypher used by `/api/v1/knowledge/primekg/symptom_to_disease`).
+///   3. For each candidate disease, look up matching ICD-10-TM codes by
+///      en_label substring so the response carries codes (not just names)
+///      and the cross-KB result blob picks up ICD hits for downstream
+///      bench evaluation.
+///
+/// Quiet when Neo4j is unavailable / USE_NEO4J_GRAPH is unset — returns
+/// an empty KbResult rather than failing the whole fan-out.
+async fn symptom_search(pool: &DbPool, q_canonical: &str, k: i64) -> KbResult {
+    let t0 = Instant::now();
+    let items = symptom_search_impl(pool, q_canonical, k).await
+        .unwrap_or_else(|e| {
+            warn!("symptom_search: {e}");
+            vec![]
+        });
+    KbResult {
+        kb_id: "symptoms",
+        kb_name: "Symptom → Disease (PrimeKG + ICD)",
+        count: items.len(),
+        items,
+        latency_ms: t0.elapsed().as_millis(),
+    }
+}
+
+async fn symptom_search_impl(pool: &DbPool, q_canonical: &str, k: i64) -> Result<Vec<JsonValue>, String> {
+    use mimir_core_ai::services::neo4j::{Neo4jConfig, Neo4jService};
+
+    // Tokenize. Split on whitespace + common separators; drop tokens
+    // shorter than 4 chars (gets rid of articles like "to", "of", "and"
+    // and bare modifiers like "+"). ASCII only — Thai whole-phrase
+    // symptoms should have been rewritten to English by `replace_query()`
+    // (which runs `lookup_expansion` against Thai symptom aliases).
+    let phenotypes: Vec<String> = q_canonical
+        .split(|c: char| c.is_whitespace() || matches!(c, '+' | ',' | ';' | '/'))
+        .map(|s| s.trim())
+        .filter(|s| s.len() >= 4 && s.is_ascii())
+        .map(|s| s.to_string())
+        .collect();
+
+    if phenotypes.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Lazy Neo4j connect (env-gated). Cached at process scope would be
+    // better but the L3 fan-out runs <300ms and Neo4j connect is ~10ms
+    // amortized across keepalives, so OK for now.
+    if std::env::var("USE_NEO4J_GRAPH").as_deref() != Ok("true") {
+        return Ok(vec![]);
+    }
+    let svc = Neo4jService::try_new(&Neo4jConfig::from_env()).await
+        .ok_or_else(|| "Neo4j unavailable".to_string())?;
+
+    // min_match=1 because real user queries often have noise tokens
+    // (articles, modifiers) that aren't phenotypes — requiring 2+ exact
+    // matches eliminates legitimate hits with one strong + one noise term.
+    let candidates = svc
+        .primekg_symptom_to_disease(&phenotypes, 1, k * 3)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if candidates.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Chain to ICD: for each top disease, find matching ICD codes by
+    // en_label substring. Limits hard-capped per candidate to keep latency
+    // bounded (~3-5 candidates × 3 codes each = up to 15 ICD rows fetched).
+    let mut out = Vec::new();
+    for d in candidates.into_iter().take(k as usize) {
+        let name = d.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let name_safe = name.replace('\'', "''");
+        let icd_sql = format!(
+            "SELECT code FROM icd10_codes WHERE tenant_id IS NULL \
+             AND en_label LIKE '%{name_safe}%' ORDER BY code LIMIT 3"
+        );
+        let icd_codes: Vec<String> = sqlx::query(&icd_sql)
+            .fetch_all(pool)
+            .await
+            .map(|rs| {
+                rs.iter()
+                    .filter_map(|r| r.try_get::<String, _>("code").ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(serde_json::json!({
+            "entity_index":     d.get("entity_index"),
+            "name":             name,
+            "match_count":      d.get("match_count"),
+            "matched_symptoms": d.get("matched"),
+            "icd_codes":        icd_codes,
+        }));
+    }
+    Ok(out)
 }
 
 /// Heimdall BGE-M3 embed + Qdrant primekg-entities search.
