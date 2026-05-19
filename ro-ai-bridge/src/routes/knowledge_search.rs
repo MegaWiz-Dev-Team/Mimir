@@ -215,17 +215,54 @@ fn expand_query(q: &str) -> String {
     }
 }
 
+// ── code-pattern preprocessing ────────────────────────────────────────────
+//
+// ICD-10 codes are stored WITHOUT decimal dots in `icd10_codes.code`
+// (e.g. `E119` not `E11.9`, `J189` not `J18.9`). M1 dataset + real users
+// commonly type the dotted form. When the leading token of the query
+// looks like an ICD-10 code (letter + ≥2 digits + optional `.digits`),
+// also try the dot-stripped variant for the `code LIKE` clause.
+//
+// Pattern is conservative — only fires on standalone or leading code
+// tokens; doesn't affect "metformin"-style searches.
+fn icd_code_variants(q: &str) -> Vec<String> {
+    let mut variants = vec![q.to_string()];
+    let leading = q.split_whitespace().next().unwrap_or(q);
+    let leading_upper = leading.to_uppercase();
+    // Match: letter + 2-3 digits + optional ".digits"
+    let bytes = leading_upper.as_bytes();
+    let is_letter = !bytes.is_empty() && bytes[0].is_ascii_alphabetic();
+    let rest_ok = bytes[1..].iter().all(|b| b.is_ascii_digit() || *b == b'.');
+    if is_letter && rest_ok && leading_upper.contains('.') {
+        let stripped = leading_upper.replace('.', "");
+        variants.push(stripped);
+    }
+    variants
+}
+
 // ── per-KB workers ────────────────────────────────────────────────────────
 
 async fn icd10_search(pool: &DbPool, q: &str, k: i64) -> KbResult {
     let t0 = Instant::now();
     let q_safe = q.replace('\'', "''");
+    let variants = icd_code_variants(&q_safe);
+    // Build the WHERE: code LIKE for every variant + en/th_label LIKE
+    // for the raw query (label search doesn't benefit from dot-stripping).
+    let mut code_likes: Vec<String> = variants
+        .iter()
+        .map(|v| format!("code LIKE '{v}%'"))
+        .collect();
+    code_likes.push(format!("en_label LIKE '%{q_safe}%'"));
+    code_likes.push(format!("th_label LIKE '%{q_safe}%'"));
+    let where_clause = code_likes.join(" OR ");
+    // Use the *first* variant for the exact-match / prefix ordering
+    // (raw query if no dot; stripped form if user typed dotted code).
+    let order_pivot = variants.last().cloned().unwrap_or_else(|| q_safe.clone());
     let sql = format!(
         "SELECT code, en_label, th_label, chapter FROM icd10_codes \
-         WHERE tenant_id IS NULL AND \
-               (code LIKE '{q}%' OR en_label LIKE '%{q}%' OR th_label LIKE '%{q}%') \
-         ORDER BY (code = '{q}') DESC, (code LIKE '{q}%') DESC, code LIMIT {k}",
-        q = q_safe, k = k,
+         WHERE tenant_id IS NULL AND ({where_clause}) \
+         ORDER BY (code = '{pivot}') DESC, (code LIKE '{pivot}%') DESC, code LIMIT {k}",
+        pivot = order_pivot, k = k,
     );
     let items = match sqlx::query(&sql).fetch_all(pool).await {
         Ok(rs) => rs.iter().map(|r| json!({
