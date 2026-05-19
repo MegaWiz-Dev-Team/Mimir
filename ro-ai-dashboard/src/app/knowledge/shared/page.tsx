@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
     Card,
     CardContent,
@@ -256,7 +257,12 @@ export default function SharedKnowledgePage() {
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {kbs.map((kb) => (
-                        <Card key={kb.id} className="overflow-hidden">
+                        <Link
+                            key={kb.id}
+                            href={`/knowledge/shared/${kb.id}`}
+                            className="block transition-shadow hover:shadow-lg"
+                        >
+                        <Card className="overflow-hidden h-full">
                             <CardHeader className="pb-3 space-y-2">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="flex items-start gap-2 min-w-0">
@@ -392,12 +398,13 @@ export default function SharedKnowledgePage() {
                                     </div>
                                 )}
 
-                                {/* Source link */}
+                                {/* Source link — stopPropagation so parent <Link> drill-in doesn't fire */}
                                 {kb.source_url && (
                                     <a
                                         href={kb.source_url}
                                         target="_blank"
                                         rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
                                         className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
                                     >
                                         <Globe className="w-3 h-3" />
@@ -407,6 +414,7 @@ export default function SharedKnowledgePage() {
                                 )}
                             </CardContent>
                         </Card>
+                        </Link>
                     ))}
                 </div>
             )}
