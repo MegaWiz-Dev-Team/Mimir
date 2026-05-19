@@ -233,6 +233,12 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "first-line ssri"                 => Some("sertraline fluoxetine"),
         "safe asthma controller in pregnancy" => Some("budesonide salbutamol"),
         "asthma controller in pregnancy"  => Some("budesonide salbutamol"),
+        // "Not X alternative" patterns — surface the OTHER drugs in the
+        // class. find_expansion's longest-prefix-match catches the full
+        // phrase before "not metformin" alone would.
+        "not metformin alternative for t2dm" => Some("sitagliptin empagliflozin liraglutide pioglitazone"),
+        "metformin alternative for t2dm"  => Some("sitagliptin empagliflozin liraglutide pioglitazone"),
+        "metformin alternative"           => Some("sitagliptin empagliflozin liraglutide"),
         "copd"     => Some("chronic obstructive pulmonary"),
         "chf"      => Some("congestive heart failure"),
         "ckd"      => Some("chronic kidney disease"),
