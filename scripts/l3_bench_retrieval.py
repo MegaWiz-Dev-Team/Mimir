@@ -88,7 +88,7 @@ def retrieved_text_blob(l3_result: dict) -> list[str]:
     for kb in l3_result.get("results", []):
         for item in kb.get("items", []):
             # Pull every text-y field from every KB shape
-            for key in ("name", "code", "en_label", "th_label", "fsn",
+            for key in ("name", "code", "code_formatted", "en_label", "th_label", "fsn",
                         "long_common_name", "short_name", "tmt_id", "tmlt_id",
                         "loinc_num", "entity_id", "concept_type", "chapter"):
                 v = item.get(key)

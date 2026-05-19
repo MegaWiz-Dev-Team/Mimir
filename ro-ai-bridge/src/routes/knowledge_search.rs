@@ -444,12 +444,20 @@ async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResul
         pivot = order_pivot, k = k,
     );
     let items = match sqlx::query(&sql).fetch_all(pool).await {
-        Ok(rs) => rs.iter().map(|r| json!({
-            "code": r.get::<String,_>("code"),
-            "en_label": r.try_get::<String,_>("en_label").unwrap_or_default(),
-            "th_label": r.try_get::<String,_>("th_label").unwrap_or_default(),
-            "chapter": r.try_get::<String,_>("chapter").unwrap_or_default(),
-        })).collect::<Vec<_>>(),
+        Ok(rs) => rs.iter().map(|r| {
+            let code: String = r.get("code");
+            // ICD-10 canonical published form has a `.` between the
+            // 3-char category prefix and any sub-classification digits.
+            // Storage uses the stripped form; re-format for UI / agents.
+            let code_formatted = icd_format_code(&code);
+            json!({
+                "code": code,
+                "code_formatted": code_formatted,
+                "en_label": r.try_get::<String,_>("en_label").unwrap_or_default(),
+                "th_label": r.try_get::<String,_>("th_label").unwrap_or_default(),
+                "chapter": r.try_get::<String,_>("chapter").unwrap_or_default(),
+            })
+        }).collect::<Vec<_>>(),
         Err(e) => {
             warn!("icd10_search: {e}");
             vec![]
@@ -459,6 +467,26 @@ async fn icd10_search(pool: &DbPool, q_en: &str, q_raw: &str, k: i64) -> KbResul
         kb_id: "icd10-tm", kb_name: "ICD-10-TM (Thai)",
         count: items.len(), items,
         latency_ms: t0.elapsed().as_millis(),
+    }
+}
+
+/// Re-insert the canonical dot between the 3-char category and any
+/// sub-classification digits: `E119` → `E11.9`, `G473` → `G47.3`,
+/// `I10` → `I10` (no change, no sub-classification). Codes that don't
+/// match the standard pattern pass through unchanged.
+fn icd_format_code(code: &str) -> String {
+    let bytes = code.as_bytes();
+    // Pattern: letter + 2 digits + optional more digits → insert dot
+    // after position 3 if there are characters beyond.
+    if bytes.len() > 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1].is_ascii_digit()
+        && bytes[2].is_ascii_digit()
+        && bytes[3..].iter().all(|b| b.is_ascii_digit())
+    {
+        format!("{}.{}", &code[..3], &code[3..])
+    } else {
+        code.to_string()
     }
 }
 
