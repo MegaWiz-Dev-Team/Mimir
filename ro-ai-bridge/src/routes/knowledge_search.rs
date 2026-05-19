@@ -75,19 +75,23 @@ async fn unified_search(
     let k = sq.k.clamp(1, 10) as i64;
     let start = Instant::now();
 
-    // Query expansion: rewrite single-token inputs before TMT/TMLT FULLTEXT
-    // lookup — both lab acronyms (HbA1c → "glycated hemoglobin") and Thai
-    // drug transliterations (วาร์ฟาริน → "warfarin"). Other workers see the
-    // raw query (LIKE handles substrings, BGE-M3 handles semantics).
-    let q_expanded = expand_query(q);
+    // Query rewriting: two transforms of the same lookup table, one per
+    // KB type. See `lookup_expansion()` for the entries.
+    //   - FULLTEXT KBs (TMT/TMLT): append form — relevance score picks
+    //     between the original token + the canonical long form.
+    //   - LIKE-based KBs (ICD/TPC/LOINC) + semantic (PrimeKG): replace
+    //     form — substring search can't match a 2-word acronym+expansion
+    //     concatenation; semantic embedding does better with natural form.
+    let q_append  = expand_query(q);
+    let q_replace = replace_query(q);
 
     // Fan out — each KB query is independent. Use tokio::join for parallelism.
-    let p1 = icd10_search(&pool, q, k);
-    let p2 = tpc_search(&pool, q, k);
-    let p3 = loinc_search(&pool, q, k);
-    let p4 = tmt_search(&pool, &q_expanded, k);
-    let p5 = tmlt_search(&pool, &q_expanded, k);
-    let p6 = primekg_search(q, k);
+    let p1 = icd10_search(&pool, &q_replace, k);
+    let p2 = tpc_search(&pool, &q_replace, k);
+    let p3 = loinc_search(&pool, &q_replace, k);
+    let p4 = tmt_search(&pool, &q_append, k);
+    let p5 = tmlt_search(&pool, &q_append, k);
+    let p6 = primekg_search(&q_replace, k);
 
     let (r1, r2, r3, r4, r5, r6) = tokio::join!(p1, p2, p3, p4, p5, p6);
 
@@ -101,43 +105,34 @@ async fn unified_search(
     }))
 }
 
-// ── query expansion ───────────────────────────────────────────────────────
+// ── query rewriting ───────────────────────────────────────────────────────
 //
-// Two single-token rewrites that help FULLTEXT NATURAL LANGUAGE find the
-// right row in TMT/TMLT (whose FSN store one canonical English form):
+// Single source-of-truth lookup table for first-token query rewriting.
+// Two transforms consume the same table:
 //
-//   1. Lab acronyms (HbA1c → "glycated hemoglobin") — TMLT FSN uses the long
-//      form, never the acronym. Append the expansion so MATCH() relevance
-//      picks the most-relevant row regardless of which form the index has.
+//   - `expand_query()`  — appends the canonical form to the original query.
+//                         Used by FULLTEXT KBs (TMT/TMLT) where MATCH()
+//                         NATURAL LANGUAGE relevance picks whichever form
+//                         the FSN happens to store.
 //
-//   2. Thai drug transliterations (วาร์ฟาริน → "warfarin") — TMT FSN contains
-//      Thai script only for *brand+manufacturer names* in parentheses; the
-//      generic drug name is always Latin. Investigation 2026-05-19 showed
-//      TMT has 0 rows matching `วาร์ฟาริน` despite carrying 380+ warfarin
-//      products. Same single-token append pattern lets the Latin token in
-//      the rewritten query hit the right FSN.
+//   - `replace_query()` — replaces the first token with the canonical form,
+//                         keeps trailing modifiers. Used by LIKE-based KBs
+//                         (ICD/TPC/LOINC) where substring match needs to
+//                         find the long form directly, plus semantic search
+//                         (PrimeKG) where the natural-language form gives
+//                         a cleaner embedding.
 //
-// Only add high-confidence single-meaning mappings.
+// Three classes of entries:
+//   1. Lab acronyms (HbA1c → "glycated hemoglobin") — ASCII, case-insensitive
+//   2. Disease acronyms (T2DM → "diabetes mellitus type 2") — ASCII, case-insensitive
+//   3. Thai drug transliterations (วาร์ฟาริน → "warfarin") — Thai script, raw match
 //
-// Multi-word queries: we look at the FIRST whitespace-separated token only.
-// This handles `พาราเซตามอล 500 mg` (drug name + strength) and `วาร์ฟาริน
-// INR target` (drug + lab context) without dropping the trailing modifiers.
-// False positives are bounded — adding a known drug name as a Latin token
-// to a query that already mentions that drug is harmless to FULLTEXT scoring.
-fn expand_query(q: &str) -> String {
-    let token = q.trim();
-    if token.is_empty() {
-        return q.to_string();
-    }
-    // First-token-only lookup so multi-word queries still benefit. Preserve
-    // the full original `token` in the output so trailing context (dose,
-    // route, modifier) stays in the FULLTEXT query.
-    let first_token = token.split_whitespace().next().unwrap_or(token);
-    // Lookup is case-insensitive for ASCII; Thai script has no case so the
-    // lowercased key equals the original. Try ASCII-lowercased first for
-    // acronyms, then fall back to raw token for Thai/non-ASCII.
+// Only high-confidence single-meaning mappings. Multi-word queries:
+// first whitespace-separated token only. Trailing context (dose, route,
+// modifier) preserved by both transforms.
+fn lookup_expansion(first_token: &str) -> Option<&'static str> {
     let key_lc = first_token.to_ascii_lowercase();
-    let expansion: Option<&'static str> = match key_lc.as_str() {
+    let by_lc: Option<&'static str> = match key_lc.as_str() {
         // ── lab acronyms → canonical long form ─────────────────────────
         "hba1c"    => Some("glycated hemoglobin"),
         "bun"      => Some("urea nitrogen"),
@@ -159,13 +154,26 @@ fn expand_query(q: &str) -> String {
         "alp"      => Some("alkaline phosphatase"),
         "ck"       => Some("creatine kinase"),
         "ldh"      => Some("lactate dehydrogenase"),
+        // ── disease acronyms → canonical long form ─────────────────────
+        // Word order chosen to match the ICD-10-TM en_label format
+        // ("Non-insulin-dependent diabetes mellitus type 2 at without
+        // complications" — so "diabetes mellitus type 2" substring hits).
+        "t2dm"     => Some("diabetes mellitus type 2"),
+        "t1dm"     => Some("diabetes mellitus type 1"),
+        "dm"       => Some("diabetes mellitus"),
+        "htn"      => Some("hypertension"),
+        "osa"      => Some("sleep apnoea"),  // UK spelling matches ICD-10-TM
+        "copd"     => Some("chronic obstructive pulmonary"),
+        "chf"      => Some("congestive heart failure"),
+        "ckd"      => Some("chronic kidney disease"),
+        "uti"      => Some("urinary tract infection"),
         _ => None,
     };
-    // Thai script → Latin generic name. Top-25 commonly prescribed drugs
+    // Thai script → Latin generic name. Top commonly prescribed drugs
     // (Thai FDA generic spellings). Extend as production query logs reveal
     // new entries; a DB-backed alias table is the long-term shape if this
     // grows past ~50-100 entries.
-    let expansion = expansion.or_else(|| match first_token {
+    by_lc.or_else(|| match first_token {
         // Cardiovascular
         "วาร์ฟาริน"          => Some("warfarin"),
         "โลซาร์แทน"          => Some("losartan"),
@@ -208,9 +216,44 @@ fn expand_query(q: &str) -> String {
         "ฟูโรซีไมด์"         => Some("furosemide"),
         "ฟูโรเซไมด์"         => Some("furosemide"),       // spelling variant
         _ => None,
-    });
-    match expansion {
+    })
+}
+
+/// Append the canonical form to the original query: `"HbA1c"` →
+/// `"HbA1c glycated hemoglobin"`. For FULLTEXT MATCH() NATURAL LANGUAGE
+/// where relevance score picks the most-specific matching FSN regardless
+/// of which form (acronym vs long) is stored in the index.
+fn expand_query(q: &str) -> String {
+    let token = q.trim();
+    if token.is_empty() {
+        return q.to_string();
+    }
+    let first_token = token.split_whitespace().next().unwrap_or(token);
+    match lookup_expansion(first_token) {
         Some(expanded) => format!("{token} {expanded}"),
+        None => q.to_string(),
+    }
+}
+
+/// Replace the first token with its canonical form: `"T2DM diet"` →
+/// `"diabetes mellitus type 2 diet"`. For LIKE-based KBs (ICD/TPC/LOINC)
+/// where appending the long form to a 4-char acronym never produces a
+/// matching substring, and for semantic search where the natural-language
+/// form gives a cleaner embedding signal than the acronym alone.
+fn replace_query(q: &str) -> String {
+    let token = q.trim();
+    if token.is_empty() {
+        return q.to_string();
+    }
+    let first_token = token.split_whitespace().next().unwrap_or(token);
+    match lookup_expansion(first_token) {
+        Some(expanded) => {
+            // Slice the rest (including leading whitespace) and append.
+            // Byte index = byte length of first_token (UTF-8 safe because
+            // we sliced at a whitespace boundary or at end-of-string).
+            let rest = token.get(first_token.len()..).unwrap_or("");
+            format!("{expanded}{rest}")
+        }
         None => q.to_string(),
     }
 }
