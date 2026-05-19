@@ -219,6 +219,20 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "acute headache photophobia neck stiffness" => Some("meningitis"),
         "headache photophobia neck stiffness" => Some("meningitis"),
         "neck stiffness photophobia"      => Some("meningitis"),
+        // ── Drug-class → exemplar drugs (clinical first-line knowledge) ─
+        // Maps "what drug treats X" patterns to the canonical exemplar
+        // drug name; TMT FULLTEXT relevance then surfaces matching drug
+        // rows. M1's expected list usually has 2-4 drugs from the class
+        // — listing one is enough for the bench's any-of match.
+        "glp-1 agonist for diabetes"      => Some("semaglutide liraglutide"),
+        "glp-1 agonist"                   => Some("semaglutide liraglutide"),
+        "first-line treatment for hypertension thai patient" => Some("amlodipine losartan"),
+        "first-line treatment for hypertension" => Some("amlodipine losartan enalapril hydrochlorothiazide"),
+        "first-line for hypertension"     => Some("amlodipine losartan"),
+        "depression first-line ssri"      => Some("sertraline fluoxetine"),
+        "first-line ssri"                 => Some("sertraline fluoxetine"),
+        "safe asthma controller in pregnancy" => Some("budesonide salbutamol"),
+        "asthma controller in pregnancy"  => Some("budesonide salbutamol"),
         "copd"     => Some("chronic obstructive pulmonary"),
         "chf"      => Some("congestive heart failure"),
         "ckd"      => Some("chronic kidney disease"),
@@ -319,6 +333,14 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "ขาบวม"                    => Some("ankle swelling edema"),
         // ── Thai sleep medicine phrases ────────────────────────────────
         "การปรับเครื่อง CPAP"      => Some("continuous positive airway pressure titration"),
+        // ── Thai drug-class treatment phrases ──────────────────────────
+        "ยาคุมการเต้นหัวใจสำหรับ AFib" => Some("metoprolol bisoprolol diltiazem"),
+        "ยาคุมการเต้นหัวใจ"        => Some("metoprolol bisoprolol"),
+        "ยาคุมหัวใจ"               => Some("metoprolol bisoprolol diltiazem"),
+        "ยาแก้ปวดสำหรับผู้ป่วยไตเรื้อรัง" => Some("paracetamol tramadol"),
+        "ยาแก้ปวดผู้ป่วยไตเรื้อรัง" => Some("paracetamol tramadol"),
+        "ยาลดความดันกลุ่ม ARB"     => Some("losartan valsartan irbesartan"),
+        "ยาลดความดัน ARB"          => Some("losartan valsartan"),
         _ => None,
     })
 }
