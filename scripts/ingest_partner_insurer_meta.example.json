@@ -1,0 +1,33 @@
+{
+  "_README": "Per-file metadata for ingest_partner_insurer_pdfs.py. Copy this file to ingest_partner_insurer_meta.json (gitignored — customer-specific filenames live here) and edit. Each top-level key is a PDF filename (exact match). Keep this example file generic.",
+  "<product-brochure>.pdf": {
+    "product_name": "Insurer A — Product X",
+    "product_type": "life",
+    "language": "en",
+    "document_kind": "product_brochure"
+  },
+  "<exclusions>.pdf": {
+    "product_name": "General Policy Exclusions",
+    "product_type": "policy_terms",
+    "language": "th",
+    "document_kind": "policy_exclusions"
+  },
+  "<contract-details>.pdf": {
+    "product_name": "Policy Contract Details",
+    "product_type": "policy_terms",
+    "language": "th",
+    "document_kind": "policy_contract"
+  },
+  "<underwriting-conditions>.pdf": {
+    "product_name": "Underwriting Conditions",
+    "product_type": "underwriting",
+    "language": "th",
+    "document_kind": "underwriting_terms"
+  },
+  "<life-policy-conditions>.pdf": {
+    "product_name": "General Life Insurance Policy Conditions",
+    "product_type": "life",
+    "language": "th",
+    "document_kind": "policy_conditions"
+  }
+}

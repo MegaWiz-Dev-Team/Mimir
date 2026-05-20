@@ -58,3 +58,4 @@ primekg_import_checkpoint.json.*
 
 # Bench/eval report artifacts (regenerable via scripts/m1_bench_retrieval.py etc.)
 scripts/reports/
+scripts/ingest_partner_insurer_meta.json
