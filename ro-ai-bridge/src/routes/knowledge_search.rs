@@ -233,6 +233,18 @@ fn lookup_expansion(first_token: &str) -> Option<&'static str> {
         "first-line ssri"                 => Some("sertraline fluoxetine"),
         "safe asthma controller in pregnancy" => Some("budesonide salbutamol"),
         "asthma controller in pregnancy"  => Some("budesonide salbutamol"),
+        // Pregnancy-safe analgesics — paracetamol is the first-line
+        // non-NSAID option.
+        "non-nsaid pain relief in pregnancy" => Some("paracetamol acetaminophen"),
+        "non nsaid pain relief in pregnancy" => Some("paracetamol acetaminophen"),
+        // Thai-script drug-class queries — same pattern as the English
+        // entries above, mapped to exemplar generics that ride the TMT/
+        // PrimeKG path. Multiple Thai phrasings collapse to the same
+        // exemplar set.
+        "ยาคุมการเต้นหัวใจสำหรับ afib" => Some("bisoprolol metoprolol diltiazem"),
+        "ยาคุมการเต้นหัวใจ afib"       => Some("bisoprolol metoprolol diltiazem"),
+        "ยาแก้ปวดสำหรับผู้ป่วยไตเรื้อรัง" => Some("paracetamol acetaminophen tramadol"),
+        "ยาแก้ปวดสำหรับผู้ป่วยไต"     => Some("paracetamol acetaminophen tramadol"),
         // "Not X alternative" patterns — surface the OTHER drugs in the
         // class. find_expansion's longest-prefix-match catches the full
         // phrase before "not metformin" alone would.
