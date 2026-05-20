@@ -123,6 +123,31 @@ def mimir_search(query: str, k: int = 3) -> list[dict]:
         return []
 
 
+def unified_kb_search(query: str, k: int = 3) -> list[str]:
+    """7-way fan-out across ICD-10-TM / TPC / LOINC / TMT / TMLT / PrimeKG /
+    symptom-graph. Mirrors the `/knowledge/shared` Level-3 UI behaviour and
+    crucially applies the server-side `lookup_expansion` rewrite table, which
+    has hand-written mappings for symptom-syndromes, drug-class→exemplar, and
+    "first-line for X" patterns.
+
+    Returns a flat list of text strings, one per item across all KBs. The
+    bench's `hit_match` does substring match over the union, so flattening
+    raw JSON values is sufficient (no need to reshape per-KB schemas)."""
+    url = f"{MIMIR_URL}/api/v1/knowledge/search?q={urllib.parse.quote(query)}&k={k}"
+    try:
+        out = http_get_json(url, headers=_auth_headers())
+    except Exception:
+        return []
+    texts: list[str] = []
+    for kb in out.get("results", []):
+        for item in kb.get("items", []):
+            # Concatenate all string values in the item — covers code,
+            # en_label, th_label, fsn, name, etc. across heterogeneous shapes.
+            parts = [str(v) for v in item.values() if isinstance(v, (str, int, float))]
+            texts.append(" ".join(parts))
+    return texts
+
+
 # ── M1 routing-fix helpers (Phase 2: lift baseline from 29% toward 50%) ───
 
 # Acronym dictionary mirrors routes/icd10.rs `expand_acronyms`. Used to
@@ -242,11 +267,24 @@ def clinical_wisdom_search(query: str, k: int = 3) -> list[dict]:
 
 
 # Map categories to retrieval strategies.
-DRUG_CATEGORIES = {"drug_name", "drug_synonym", "drug_class",
-                   "drug_interaction", "drug_disease_relation"}
-DISEASE_CATEGORIES = {"disease", "code_lookup", "symptom_to_disease"}
-GENERAL_CATEGORIES = {"sleep_procedure", "sleep_metric",
-                      "clinical_concept"}
+#
+# Phase 3 (2026-05-20): Categories with hand-written entries in the server's
+# `lookup_expansion` table (knowledge_search.rs:144-300) now route to the
+# unified 7-KB fan-out endpoint, where the expansion fires. Direct PrimeKG
+# Qdrant + ICD10 cascade routes miss those server-side mappings entirely.
+UNIFIED_KB_CATEGORIES = {
+    "drug_name",              # Thai drug transliterations + TMT FULLTEXT
+    "drug_class",             # "sglt2 inhibitor" → empagliflozin
+    "drug_disease_relation",  # "first-line for X" → exemplar drugs
+    "drug_interaction",       # both drugs surfacable across TMT + PrimeKG
+    "symptom_to_disease",     # symptom syndromes → canonical disease
+    "sleep_metric",           # AHI / PSG aliases
+    "negation",               # "not metformin alt for T2DM" mapped
+    "clinical_concept",       # exercise the multi-KB fan-out
+}
+DRUG_CATEGORIES = {"drug_synonym"}  # TMT FULLTEXT path stays explicit (9/9)
+DISEASE_CATEGORIES = {"disease", "code_lookup"}  # ICD-10 cascade is the right tool
+GENERAL_CATEGORIES = {"sleep_procedure"}  # mimir-search works (3-4/4)
 
 
 def normalize(s: str) -> str:
@@ -328,6 +366,14 @@ def run_query(q: dict) -> dict:
             strategy = "tmt-fulltext"
             rows = tmt_lookup(text, k=3)
             retrieved_texts = [r["fsn"] for r in rows]
+        elif cat in UNIFIED_KB_CATEGORIES:
+            # Fix 5 (2026-05-20): Route through 7-KB unified fan-out so the
+            # server-side `lookup_expansion` rewrites fire (symptom→disease,
+            # drug-class→exemplar, "first-line for X" → drug list, Thai drug
+            # transliterations). Single PrimeKG-Qdrant call misses all of
+            # these because they live in the query-rewrite layer above it.
+            strategy = "unified-knowledge-search"
+            retrieved_texts = unified_kb_search(text, k=3)
         elif cat in DRUG_CATEGORIES:
             strategy = "primekg-qdrant"
             vec = embed(text)
@@ -381,13 +427,6 @@ def run_query(q: dict) -> dict:
             ]
         elif cat in GENERAL_CATEGORIES:
             strategy = "mimir-search"
-            hits = mimir_search(text, k=3)
-            retrieved_texts = [
-                f"{h.get('title','')} {h.get('content','')[:200]}"
-                for h in hits
-            ]
-        elif cat == "negation":
-            strategy = "mimir-search-negation"
             hits = mimir_search(text, k=3)
             retrieved_texts = [
                 f"{h.get('title','')} {h.get('content','')[:200]}"
