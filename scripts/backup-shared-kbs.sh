@@ -3,6 +3,16 @@
 # + Neo4j PrimeKG snapshot state). Lets us roll back to a known-good state
 # before any destructive change (schema migration, re-ingest, etc.).
 #
+# RELATIONSHIP TO tyr-archive DAEMON:
+#   tyr-archive (Tyr/tyr-archive/) is the long-term off-site path to GCS.
+#   This script remains the local-only fast-path for ad-hoc pre-destructive
+#   snapshots. They cover DIFFERENT scopes today (V1 daemon = Tyr/Bifrost/
+#   Fafnir/Yggdrasil only). When the daemon ships V2 mimir-mariadb,
+#   mimir-qdrant, mimir-neo4j datasets (see Asgard/docs/technical/
+#   cloud-archive/data-catalog.md §Tier-2), this script can be deprecated.
+#   Until then BOTH run independently — daemon nightly to GCS, this script
+#   on demand to local T7.
+#
 # What gets captured:
 #   - MariaDB: mysqldump of icd10/loinc/tmt/tmlt + their *_ingest_runs tables.
 #   - Qdrant:  snapshot API call for icd10-th and primekg-entities collections.
