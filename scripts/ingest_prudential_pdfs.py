@@ -94,13 +94,45 @@ def http_put_json(url: str, body: dict, timeout: float = 60.0) -> dict:
 
 
 def extract_pdf_text(pdf: Path) -> str:
-    """Use `pdftotext -layout` for table-aware extraction. -enc UTF-8
-    ensures Thai chars survive cleanly."""
+    """Use `pdftotext -raw` for Thai-script fidelity. Verified 2026-05-20
+    that `-layout` splits Thai words with stray spaces (e.g. `ค่ า` instead
+    of `ค่า`, `รักษำ` instead of `รักษา`) — sampling 10 chunks showed 1145
+    mangle indicators. `-raw` keeps glyphs in font draw order so words
+    stay intact; BGE-M3's tokenizer does Thai word-segmentation internally
+    so the lost paragraph structure doesn't hurt retrieval."""
     r = subprocess.run(
-        ["pdftotext", "-layout", "-enc", "UTF-8", str(pdf), "-"],
+        ["pdftotext", "-raw", "-enc", "UTF-8", str(pdf), "-"],
         capture_output=True, timeout=60, check=True,
     )
     return r.stdout.decode("utf-8")
+
+
+def delete_existing_pdf_chunks() -> bool:
+    """Remove old PDF-derived chunks (source_id prefix `pdf_insurer_001_`)
+    before re-ingest. Idempotent on a fresh run.
+
+    Web-scraped entries (`url_insurer_001_*`) are preserved; only the PDF
+    chunks are churned. Without this, re-runs add duplicate chunks under
+    fresh UUIDs and pollute the collection."""
+    body = json.dumps({
+        "filter": {
+            "must": [
+                {"key": "source_id", "match": {"text": "pdf_insurer_001_"}}
+            ]
+        }
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/delete?wait=true",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            json.loads(resp.read().decode("utf-8"))
+        return True
+    except Exception:
+        return False
 
 
 def normalize(text: str) -> str:
@@ -206,6 +238,11 @@ def main() -> int:
     print(f"  Heimdall: {HEIMDALL_URL}")
     print(f"  Qdrant:   {QDRANT_URL}")
     print(f"  Tenant:   {TENANT_ID}  insurer: {INSURER_ID}")
+    print()
+
+    # Drop any prior PDF chunks first (idempotent re-ingest).
+    if delete_existing_pdf_chunks():
+        print("  (cleared prior pdf_insurer_001_* chunks before re-ingest)")
     print()
 
     points_payload: list[dict] = []
