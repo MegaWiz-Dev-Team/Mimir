@@ -71,6 +71,7 @@ async fn list_items(
         "loinc"    => loinc_items(&pool, &qp, limit, offset, page, per_page).await,
         "tmt"      => tmt_items(&pool, &qp, limit, offset, page, per_page).await,
         "tmlt"     => tmlt_items(&pool, &qp, limit, offset, page, per_page).await,
+        "snomed"   => snomed_items(&pool, &qp, limit, offset, page, per_page).await,
         "primekg"  => Err((
             StatusCode::NOT_IMPLEMENTED,
             Json(json!({
@@ -326,6 +327,61 @@ async fn tmlt_items(
         ],
         items, total, page, per_page,
         filters: json!({ "concept_type": ["ITEM", "PANEL"] }),
+    }))
+}
+
+// ── SNOMED CT (concept descriptions) ─────────────────────────────────────────
+//
+// Browses `snomed_descriptions` — the text→concept search surface. Each row is
+// one description (a concept has many: 1 FSN + synonyms), so the browser lists
+// descriptions, not concepts. The map → ICD-10-TM lives behind the POST resolver
+// at /api/v1/knowledge/snomed/{search,resolve-icd10}, not here.
+
+async fn snomed_items(
+    pool: &DbPool, qp: &ItemsQuery, limit: i64, offset: i64,
+    page: u32, per_page: u32,
+) -> Result<Json<ItemsResponse>, (StatusCode, Json<JsonValue>)> {
+    let mut sql_where = String::from("tenant_id IS NULL AND active = 1");
+    if let Some(st) = qp.filters.get("filter_semantic_tag") {
+        sql_where.push_str(&format!(" AND semantic_tag = '{}'", sql_safe(st)));
+    }
+    if let Some(q) = qp.search() {
+        sql_where.push_str(&format!(
+            " AND (concept_id LIKE '%{q}%' OR term LIKE '%{q}%')",
+            q = sql_safe(&q)
+        ));
+    }
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM snomed_descriptions WHERE {sql_where}"
+    )).fetch_one(pool).await.map_err(db_err)?;
+    let rows = sqlx::query(&format!(
+        "SELECT concept_id, term, term_type, semantic_tag \
+         FROM snomed_descriptions WHERE {sql_where} \
+         ORDER BY concept_id, (term_type = 'fsn') DESC, term LIMIT {limit} OFFSET {offset}"
+    )).fetch_all(pool).await.map_err(db_err)?;
+
+    let items = rows.iter().map(|r| json!({
+        "concept_id": r.get::<String, _>("concept_id"),
+        "term": r.get::<String, _>("term"),
+        "term_type": r.get::<String, _>("term_type"),
+        "semantic_tag": r.try_get::<String, _>("semantic_tag").unwrap_or_default(),
+    })).collect();
+
+    let semantic_tags: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT semantic_tag FROM snomed_descriptions \
+         WHERE tenant_id IS NULL AND semantic_tag IS NOT NULL ORDER BY semantic_tag"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    Ok(Json(ItemsResponse {
+        kb_id: "snomed".into(),
+        columns: vec![
+            Column { name: "concept_id",   label: "Concept ID", kind: "code" },
+            Column { name: "term",         label: "Term",       kind: "string" },
+            Column { name: "term_type",    label: "Type",       kind: "enum" },
+            Column { name: "semantic_tag", label: "Semantic Tag", kind: "enum" },
+        ],
+        items, total, page, per_page,
+        filters: json!({ "semantic_tag": semantic_tags }),
     }))
 }
 
