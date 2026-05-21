@@ -261,6 +261,8 @@ async fn main() {
         .nest("/api/v1/tenants/{tenant_id}", swarm_routes())
         // Sprint 52: Insurance Underwriting Sidecar Backend Mocks
         .nest("/api/v1/insurance", insurance_routes())
+        // G5: Underwriter pipeline-run registry (Iris telemetry sink)
+        .nest("/api/v1/underwriter", ro_ai_bridge::routes::underwriter::underwriter_routes())
         // Phase 2: Agent-to-Agent Cross-Tenant Routing
         .nest("/api/v1/a2a", a2a_routes())
         .layer(middleware::from_fn(request_id_middleware))
