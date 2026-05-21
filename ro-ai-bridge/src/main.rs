@@ -19,6 +19,8 @@ use ro_ai_bridge::routes::shared_knowledge::shared_knowledge_routes;
 use ro_ai_bridge::routes::shared_kb_items::shared_kb_items_routes;
 use ro_ai_bridge::routes::knowledge_search::knowledge_search_routes;
 use ro_ai_bridge::routes::knowledge_primekg::knowledge_primekg_routes;
+use ro_ai_bridge::routes::knowledge_tmt::{knowledge_tmt_routes, knowledge_tmlt_routes};
+use ro_ai_bridge::routes::knowledge_snomed::knowledge_snomed_routes;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
@@ -243,6 +245,9 @@ async fn main() {
         .nest("/api/v1/knowledge/shared", shared_kb_items_routes())
         .nest("/api/v1/knowledge/search", knowledge_search_routes())
         .nest("/api/v1/knowledge/primekg", knowledge_primekg_routes())
+        .nest("/api/v1/knowledge/tmt", knowledge_tmt_routes())
+        .nest("/api/v1/knowledge/tmlt", knowledge_tmlt_routes())
+        .nest("/api/v1/knowledge/snomed", knowledge_snomed_routes())
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
         .nest("/api/v1/prompts", prompts_routes())

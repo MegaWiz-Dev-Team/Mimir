@@ -3,3 +3,5 @@ ro-ai-dashboard/
 .git/
 *.log
 *.sql
+data/
+node_modules/

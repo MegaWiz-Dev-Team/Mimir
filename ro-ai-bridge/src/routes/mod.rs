@@ -5,6 +5,8 @@ pub mod shared_knowledge;
 pub mod shared_kb_items;
 pub mod knowledge_search;
 pub mod knowledge_primekg;
+pub mod knowledge_tmt;
+pub mod knowledge_snomed;
 pub mod agents;
 pub mod app_settings;
 pub mod ask;

@@ -66,6 +66,9 @@ TABLES=(
   tmt_codes tmt_relationships tmt_ingest_runs
   tmlt_codes tmlt_relationships tmlt_ingest_runs
   tpc_codes tpc_ingest_runs
+  # SNOMED CT → ICD-10-TM (Sprint 54). Search surface + crosswalk + audit.
+  # snomed_descriptions is large (~532K rows) — dump is point-in-time consistent.
+  snomed_descriptions snomed_icd10_map snomed_map_ingest_runs
   # Tenant pipeline config (chunk_size etc. — Sprint 48 C.3)
   tenant_configs
   # Retrieval eval (M1 + future PrimeKG bench runs)

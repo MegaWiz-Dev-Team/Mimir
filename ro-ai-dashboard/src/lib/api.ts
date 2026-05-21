@@ -2159,6 +2159,44 @@ export async function fetchEntityNeighbors(entityId: string, depth?: number): Pr
     return res.json();
 }
 
+// ── PrimeKG (Neo4j) graph browser ───────────────────────────────────────────
+export interface PrimekgEntity {
+    entity_index: number;
+    entity_id?: string;
+    name: string;
+    type: string;
+    source?: string;
+}
+
+export async function searchPrimekgEntity(name: string, limit = 10): Promise<PrimekgEntity[]> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/entity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, limit }),
+    });
+    if (!res.ok) throw new Error("PrimeKG entity search failed");
+    const j = await res.json();
+    return (j.items || []) as PrimekgEntity[];
+}
+
+export interface PrimekgNeighbor {
+    neighbor_index: number;
+    neighbor_name: string;
+    neighbor_type: string;
+    relation_type: string;
+    direction: string;
+}
+
+export async function fetchPrimekgNeighbors(
+    entityIndex: number,
+): Promise<{ entity_index: number; neighbor_count: number; neighbors: PrimekgNeighbor[] }> {
+    const res = await authFetch(`${API_BASE_URL}/graph/primekg/entity/${entityIndex}/neighbors`, {
+        cache: "no-store",
+    });
+    if (!res.ok) throw new Error("PrimeKG neighbors fetch failed");
+    return res.json();
+}
+
 export async function fetchGraphVisualization(params?: {
     limit?: number;
     type?: string;

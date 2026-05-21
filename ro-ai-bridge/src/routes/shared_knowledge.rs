@@ -292,6 +292,53 @@ async fn list_shared_kbs(
         });
     }
 
+    // ── SNOMED CT (concepts + ICD-10-TM map) ─────────────────────────────────
+    {
+        let descriptions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_descriptions WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let map_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_icd10_map WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let mapped_concepts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT concept_id) FROM snomed_icd10_map \
+             WHERE tenant_id IS NULL AND icd10_tm IS NOT NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM snomed_icd10_map WHERE tenant_id IS NULL LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "snomed_map_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "snomed",
+                name: "SNOMED CT → ICD-10-TM",
+                description: "SNOMED CT concept descriptions + ICD-10-TM crosswalk. Resolves clinical text → SNOMED concept → ICD-10-TM (WHO→TM bridge self-derived from icd10_codes).",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: "https://mlds.ihtsdotools.org/",
+                maintainer: "SNOMED International (Affiliate) / MoPH ExtendedMap transform",
+                region: "INT",
+                languages: vec!["en"],
+                vintage_year: Some(2026),
+                license: "SNOMED Affiliate License — restricted (commercial_use requires affiliate; see license docs)",
+                fhir_binding: Some("Condition.code / ConceptMap (SNOMED→ICD-10)"),
+                update_cadence: "Biannual International Edition (must upgrade ≤180d per Affiliate License clause 6.2)",
+                schema_version: "sprint54",
+                notes: Some("POC: resolver at /api/v1/knowledge/snomed/{search,resolve-icd10}. needs_review rows = cannot-classify / context-dependent / external-cause (post-coordination) / TM-absent."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "mariadb_descriptions":   descriptions,
+                    "mariadb_map_rows":       map_rows,
+                    "concepts_mapped_to_tm":  mapped_concepts,
+                }),
+                source_version: version,
+                status: if map_rows > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
     // ── TPC (currently served by US ICD-9-CM upstream baseline) ───────────
     //
     // Naming note (2026-05-19): we briefly used `active_fallback` here to

@@ -15,6 +15,7 @@ import {
     ArrowLeft, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { API_BASE_URL, authFetch } from "@/lib/api";
+import PrimeKgGraph3D from "./PrimeKgGraph3D";
 
 type Column = {
     name: string;
@@ -35,6 +36,9 @@ type ItemsResponse = {
 export default function KbBrowserPage() {
     const params = useParams();
     const kbId = String(params?.kbId || "");
+    // PrimeKG lives in Neo4j (no relational items table) — render the 3D graph
+    // browser instead of the generic table.
+    const isPrimekg = kbId === "primekg";
 
     const [data, setData] = useState<ItemsResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -59,6 +63,11 @@ export default function KbBrowserPage() {
 
     useEffect(() => {
         if (!kbId) return;
+        if (isPrimekg) {
+            // No relational items endpoint — graph component fetches its own data.
+            setLoading(false);
+            return;
+        }
         let cancelled = false;
         (async () => {
             try {
@@ -141,6 +150,10 @@ export default function KbBrowserPage() {
                 )}
             </div>
 
+            {isPrimekg ? (
+                <PrimeKgGraph3D />
+            ) : (
+            <>
             {/* Search + filters */}
             <Card>
                 <CardContent className="py-4 flex items-center gap-3 flex-wrap">
@@ -258,6 +271,8 @@ export default function KbBrowserPage() {
                     </div>
                 )}
             </Card>
+            </>
+            )}
         </div>
     );
 }
