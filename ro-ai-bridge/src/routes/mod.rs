@@ -60,3 +60,4 @@ pub mod search_benchmark;
 pub mod search_optimize;
 pub mod swarm;
 pub mod insurance;
+pub mod underwriter;
