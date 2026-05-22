@@ -59,3 +59,25 @@ primekg_import_checkpoint.json.*
 # Bench/eval report artifacts (regenerable via scripts/m1_bench_retrieval.py etc.)
 scripts/reports/
 scripts/ingest_partner_insurer_meta.json
+
+# === Restrictively-licensed medical terminology release data ===
+# Code that *references* these terminologies is fine to be public; the raw
+# release/content files are NOT redistributable. See DATA_LICENSE.md.
+# (SNOMED CT Affiliate License, ICD-10-TM, TMT/TMLT, LOINC, DrugBank/PrimeKG, UMLS)
+*.rf2
+**/snomed_*release*/
+snomed*Snapshot*/
+icd10tm*
+icd-10-tm*
+tmt_release*
+tmlt_release*
+*loinc*release*
+LoincTableCore*
+drugbank*.xml
+drugbank*.csv
+primekg_*.csv
+kg_raw*.csv
+
+# Patient-like / medical eval datasets — must be synthetic-only; relocate to a
+# private repo if they ever contain real-derived content (PHI risk).
+tests/eval_datasets/
