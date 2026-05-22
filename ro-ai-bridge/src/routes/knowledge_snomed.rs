@@ -102,6 +102,10 @@ async fn search(
     // beats a partial FSN like "Attack (finding)"). FSN preference is only a
     // tiebreaker, below exactness, so the canonical generic still wins among
     // partial matches ("asthma" → "Asthma (disorder)", not a specific variant).
+    // MATCH relevance MUST outrank CHAR_LENGTH — otherwise queries whose
+    // apostrophe/hyphen/punctuation makes the LIKE-prefix tier miss fall through
+    // to "shortest term wins" and pick a junk same-token match (e.g.
+    // "Coats disease" → "Lyme disease" instead of "Coats' disease").
     let sql = format!(
         "SELECT concept_id, term, term_type, semantic_tag \
          FROM snomed_descriptions \
@@ -112,8 +116,8 @@ async fn search(
            (LOWER(term) IN (LOWER('{q} (disorder)'), LOWER('{q} (finding)'))) DESC, \
            (LOWER(term) LIKE LOWER('{q}%')) DESC, \
            (term_type = 'fsn') DESC, \
-           CHAR_LENGTH(term) ASC, \
-           MATCH(term) AGAINST('{q}' IN NATURAL LANGUAGE MODE) DESC \
+           MATCH(term) AGAINST('{q}' IN NATURAL LANGUAGE MODE) DESC, \
+           CHAR_LENGTH(term) ASC \
          LIMIT {limit}"
     );
     let rows = sqlx::query(&sql).fetch_all(&pool).await.map_err(db_error)?;
