@@ -105,6 +105,17 @@ cd ../ro-ai-dashboard && npm run dev
 | `POST` | `/api/v1/rag-eval/auto-tune` | Start autonomous weight optimization |
 | `GET` | `/api/v1/rag-eval/auto-tune/:id` | Poll auto-tuning job progress |
 
+### OCR Layout Evaluation
+Region-detection eval (mAP / parity / GriTS) ingested from Syn. Scoped by the
+`X-Tenant-Id` header (default `asgard_platform`); non-synthetic runs are
+hash-only (PII guard). See [docs/04_evaluation_and_testing/ocr_layout_eval_runbook.md](../docs/04_evaluation_and_testing/ocr_layout_eval_runbook.md).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/eval/ocr/layout/runs` | Ingest a layout-eval run + per-image items |
+| `GET` | `/api/v1/eval/ocr/layout/runs` | List runs (filter `eval_kind`, `syn_version`, `dataset_name`) |
+| `GET` | `/api/v1/eval/ocr/layout/runs/:id` | Run detail + per-image items |
+
 ## 📁 Project Structure
 
 ```
