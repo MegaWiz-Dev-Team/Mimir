@@ -8,8 +8,7 @@ members = [
     "mimir-core-ai",
     "ro-ai-domain-game",
     "ro-ai-domain-medical",
-    "skuggi-core",
-    "mimir-text-metrics"
+    "skuggi-core"
 ]
 resolver = "2"
 

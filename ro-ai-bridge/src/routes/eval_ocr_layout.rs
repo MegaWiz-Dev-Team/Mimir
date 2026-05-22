@@ -14,11 +14,14 @@
 //!
 //! Schema lives in `migrations/sprint53_ocr_layout_eval_schema.sql`.
 //!
-//! Tenant: ALL writes/reads here are scoped to `asgard_platform`. The
-//! header X-Tenant-Id is intentionally ignored on these routes so an
-//! agent ingest from any tenant context still lands in the right bucket
-//! (engineering metrics are cross-cutting). The schema default also
-//! enforces this.
+//! Tenant: each request is scoped to the `X-Tenant-Id` header, falling
+//! back to `asgard_platform` when the header is absent. This lets each
+//! domain (asgard_medical / asgard_insurance / asgard_wellness) record and
+//! read its own layout-eval runs, while cross-cutting engineering benchmarks
+//! still land in `asgard_platform` by default. Writes bind the resolved
+//! tenant; list/detail reads filter by it, so a run created under one tenant
+//! is invisible (404) to another. The schema carries `tenant_id` per row
+//! with an index on `(tenant_id, eval_kind, finished_at)`.
 //!
 //! PII safety: when `is_synthetic = false`, the handler refuses any item
 //! with a non-null `image_name`. Real-data runs must use `image_hash`
@@ -26,8 +29,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -39,7 +41,23 @@ use sqlx::Row;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-const ASGARD_PLATFORM: &str = "asgard_platform";
+/// Default tenant for layout-eval rows when no `X-Tenant-Id` header is sent.
+/// Cross-cutting engineering benchmarks live here.
+const DEFAULT_TENANT: &str = "asgard_platform";
+
+/// Resolve the tenant for this request: the `X-Tenant-Id` header value, or
+/// `asgard_platform` when absent/empty. Unlike the shared
+/// `routes::tenant::extract_tenant_id` (which defaults to `default_tenant`),
+/// eng-metrics default to the platform bucket.
+fn resolve_tenant(headers: &HeaderMap) -> String {
+    headers
+        .get("x-tenant-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_TENANT)
+        .to_string()
+}
 
 // ─── Request types ─────────────────────────────────────────────────────────
 
@@ -116,37 +134,52 @@ fn default_limit() -> i64 {
     20
 }
 
+// ─── Validation ──────────────────────────────────────────────────────────────
+
+/// Layout/geometric eval kinds accepted by this schema. CER/WER (text-level)
+/// is intentionally excluded — it belongs in the Sprint 51 ocr_eval_* schema.
+const ALLOWED_EVAL_KINDS: [&str; 3] = ["mAP", "parity", "grits"];
+
+/// Pure request validation, shared by the handler and unit tests:
+///   1. `eval_kind` must be one of the layout kinds.
+///   2. PII guard — a non-synthetic run must not carry any `image_name`
+///      (real data is hash-only; names would leak PHI).
+/// Returns `Err(message)` on the first violation.
+fn validate_create_request(payload: &CreateRunRequest) -> Result<(), String> {
+    if !ALLOWED_EVAL_KINDS.contains(&payload.eval_kind.as_str()) {
+        return Err(format!(
+            "eval_kind must be one of {ALLOWED_EVAL_KINDS:?}; got {:?}",
+            payload.eval_kind
+        ));
+    }
+
+    if !payload.is_synthetic {
+        if let Some(bad) = payload.items.iter().find(|i| i.image_name.is_some()) {
+            return Err(format!(
+                "non-synthetic runs must not include image_name; use image_hash only \
+                 (refer to asgard_medical.ocr_documents for cross-link); offending: {:?}",
+                bad.image_name
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /// POST /api/v1/eval/ocr/runs
 async fn create_run(
     State(pool): State<DbPool>,
+    headers: HeaderMap,
     Json(payload): Json<CreateRunRequest>,
 ) -> Result<(StatusCode, Json<CreateRunResponse>), (StatusCode, Json<Value>)> {
-    // Eval kind allow-list — layout/geometric eval kinds only. CER/WER
-    // (text-level) is intentionally NOT here; it belongs in the
-    // Sprint 51 ocr_eval_* schema with its multi-engine result rows.
-    let allowed = ["mAP", "parity", "grits"];
-    if !allowed.contains(&payload.eval_kind.as_str()) {
-        return err(StatusCode::BAD_REQUEST, &format!(
-            "eval_kind must be one of {allowed:?}; got {:?}",
-            payload.eval_kind
-        ));
-    }
+    let tenant = resolve_tenant(&headers);
 
-    // PII guard: non-synthetic runs MUST NOT include image_name.
-    if !payload.is_synthetic {
-        if let Some(bad) = payload.items.iter().find(|i| i.image_name.is_some()) {
-            warn!(
-                "eval ocr create_run rejected: non-synthetic item has image_name {:?}",
-                bad.image_name
-            );
-            return err(
-                StatusCode::BAD_REQUEST,
-                "non-synthetic runs must not include image_name; use image_hash only \
-                 (refer to asgard_medical.ocr_documents for cross-link)",
-            );
-        }
+    // Reject bad eval_kind / PII-leaking payloads before touching the DB.
+    if let Err(msg) = validate_create_request(&payload) {
+        warn!("eval ocr create_run rejected: {msg}");
+        return err(StatusCode::BAD_REQUEST, &msg);
     }
 
     let run_id = Uuid::new_v4().to_string();
@@ -167,7 +200,7 @@ async fn create_run(
                    ?, ?, ?, ?, ?, ?)"#,
     )
     .bind(&run_id)
-    .bind(ASGARD_PLATFORM)
+    .bind(&tenant)
     .bind(&payload.eval_kind)
     .bind(&payload.syn_version)
     .bind(&payload.commit_sha)
@@ -231,6 +264,7 @@ async fn create_run(
 
     info!(
         run_id = %run_id,
+        tenant = %tenant,
         eval_kind = %payload.eval_kind,
         items_created,
         "created OCR eval run"
@@ -247,8 +281,10 @@ async fn create_run(
 /// GET /api/v1/eval/ocr/runs?eval_kind=&limit=&offset=
 async fn list_runs(
     State(pool): State<DbPool>,
+    headers: HeaderMap,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant = resolve_tenant(&headers);
     // Cap limit at 200 to keep response small.
     let limit = q.limit.clamp(1, 200);
 
@@ -270,7 +306,7 @@ async fn list_runs(
     }
     sql.push_str(" ORDER BY finished_at DESC LIMIT ? OFFSET ?");
 
-    let mut query = sqlx::query(&sql).bind(ASGARD_PLATFORM);
+    let mut query = sqlx::query(&sql).bind(&tenant);
     if let Some(ref v) = q.eval_kind {
         query = query.bind(v);
     }
@@ -313,14 +349,21 @@ async fn list_runs(
         })
         .collect();
 
-    Ok(Json(json!({ "runs": runs, "limit": limit, "offset": q.offset })))
+    Ok(Json(json!({
+        "runs": runs,
+        "tenant": tenant,
+        "limit": limit,
+        "offset": q.offset
+    })))
 }
 
 /// GET /api/v1/eval/ocr/runs/{id}
 async fn get_run(
     State(pool): State<DbPool>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant = resolve_tenant(&headers);
     let row = match sqlx::query(
         r#"SELECT id, eval_kind, syn_version, commit_sha, model_name, model_sha256,
                   dataset_name, dataset_hash, is_synthetic, iou_threshold,
@@ -330,7 +373,7 @@ async fn get_run(
            WHERE id = ? AND tenant_id = ?"#,
     )
     .bind(&id)
-    .bind(ASGARD_PLATFORM)
+    .bind(&tenant)
     .fetch_optional(&pool)
     .await
     {
@@ -384,6 +427,7 @@ async fn get_run(
 
     Ok(Json(json!({
         "id": row.get::<String, _>("id"),
+        "tenant": tenant,
         "eval_kind": row.get::<String, _>("eval_kind"),
         "syn_version": row.get::<String, _>("syn_version"),
         "commit_sha": row.try_get::<Option<String>, _>("commit_sha").ok().flatten(),
@@ -432,4 +476,115 @@ pub fn eval_ocr_layout_routes() -> Router<DbPool> {
     Router::new()
         .route("/runs", post(create_run).get(list_runs))
         .route("/runs/{id}", get(get_run))
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────────────
+// Pure-logic coverage (no DB): tenant resolution + request validation. The
+// DB roundtrip is exercised by the runbook's end-to-end check (syn-eval-ingest
+// → POST → GET) since route handlers here need a live MariaDB.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+    use serde_json::json;
+
+    fn item(image_name: Option<&str>, image_hash: Option<&str>) -> CreateRunItem {
+        CreateRunItem {
+            image_name: image_name.map(String::from),
+            image_hash: image_hash.map(String::from),
+            image_width: None,
+            image_height: None,
+            n_gt: 0,
+            n_pred: 0,
+            n_matched: 0,
+            metrics: None,
+            latency_ms: None,
+        }
+    }
+
+    fn req(eval_kind: &str, is_synthetic: bool, items: Vec<CreateRunItem>) -> CreateRunRequest {
+        CreateRunRequest {
+            eval_kind: eval_kind.to_string(),
+            syn_version: "v0.3.0".into(),
+            commit_sha: None,
+            model_name: "doclayout-yolo".into(),
+            model_sha256: None,
+            dataset_name: "synthetic-handwriting-5".into(),
+            dataset_hash: None,
+            is_synthetic,
+            iou_threshold: Some(0.5),
+            n_images: items.len() as i64,
+            n_gt_regions: None,
+            n_predictions: None,
+            summary: json!({}),
+            started_at: Utc::now(),
+            finished_at: Utc::now(),
+            items,
+        }
+    }
+
+    fn headers_with(tenant: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(t) = tenant {
+            h.insert("x-tenant-id", t.parse().unwrap());
+        }
+        h
+    }
+
+    // ── resolve_tenant ──────────────────────────────────────────────────────
+
+    #[test]
+    fn tenant_defaults_to_platform_when_header_absent() {
+        assert_eq!(resolve_tenant(&headers_with(None)), "asgard_platform");
+    }
+
+    #[test]
+    fn tenant_honors_header() {
+        assert_eq!(
+            resolve_tenant(&headers_with(Some("asgard_medical"))),
+            "asgard_medical"
+        );
+    }
+
+    #[test]
+    fn tenant_blank_or_whitespace_falls_back_to_platform() {
+        assert_eq!(resolve_tenant(&headers_with(Some(""))), "asgard_platform");
+        assert_eq!(resolve_tenant(&headers_with(Some("   "))), "asgard_platform");
+    }
+
+    // ── validate_create_request ───────────────────────────────────────────────
+
+    #[test]
+    fn accepts_allowed_eval_kinds() {
+        for kind in ["mAP", "parity", "grits"] {
+            assert!(validate_create_request(&req(kind, true, vec![])).is_ok(), "{kind}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_eval_kind() {
+        // CER/WER belongs in the Sprint 51 ocr_eval_* schema, not here.
+        let e = validate_create_request(&req("CER", true, vec![])).unwrap_err();
+        assert!(e.contains("eval_kind must be one of"), "{e}");
+    }
+
+    #[test]
+    fn rejects_image_name_on_non_synthetic_run() {
+        let r = req("mAP", false, vec![item(Some("patient-cert.png"), Some("abc123"))]);
+        let e = validate_create_request(&r).unwrap_err();
+        assert!(e.contains("must not include image_name"), "{e}");
+    }
+
+    #[test]
+    fn allows_image_hash_only_on_non_synthetic_run() {
+        let r = req("mAP", false, vec![item(None, Some("abc123"))]);
+        assert!(validate_create_request(&r).is_ok());
+    }
+
+    #[test]
+    fn allows_image_name_on_synthetic_run() {
+        let r = req("mAP", true, vec![item(Some("hw-rx-01.png"), None)]);
+        assert!(validate_create_request(&r).is_ok());
+    }
 }
