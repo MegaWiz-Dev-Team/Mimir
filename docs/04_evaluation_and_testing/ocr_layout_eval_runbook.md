@@ -2,12 +2,21 @@
 
 Region-detection OCR evaluation (mAP / parity / GriTS) produced by **Syn** and
 stored in **Mimir** for tracking over time. This is the *layout* eval
-(`ocr_layout_eval_*` tables, Sprint 53) — distinct from text-level CER/WER,
-which is tracked in Syn's own benchmark reports.
+(`ocr_layout_eval_*` tables, Sprint 53).
 
-> The Sprint 51 `ocr_eval_*` (text CER/WER) schema and the `mimir-text-metrics`
-> crate were removed (2026-05-22) — they were never wired to a consumer. See
-> migration `20260522000000_drop_ocr_eval.sql`.
+OCR eval has **two complementary axes**, surfaced as two tabs in the dashboard
+(**Analytics → OCR Eval**):
+
+| Axis | Tables | Measures | Route |
+|---|---|---|---|
+| **Text** | `ocr_eval_*` (Sprint 51) | CER / WER per engine | `/api/v1/eval/ocr/text/*` |
+| **Layout** | `ocr_layout_eval_*` (Sprint 53) | region detection mAP / IoU | `/api/v1/eval/ocr/layout/*` |
+
+They are kept as separate schemas on purpose — an OCR engine can read text well
+but detect regions poorly (or vice-versa), so both matter for a full quality
+picture. This runbook covers the **layout** axis; the text axis shares the same
+tenant + PII conventions (text route returns metrics only — no raw OCR text /
+ground truth — since real datasets carry PHI).
 
 ## Pieces
 

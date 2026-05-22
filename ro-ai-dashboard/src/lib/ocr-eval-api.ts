@@ -110,6 +110,94 @@ export async function getOcrLayoutRun(id: string, tenant: string): Promise<OcrLa
     return res.json();
 }
 
+// ─── Text eval (ocr_eval_* — CER/WER per engine) ─────────────────────────────
+// Read-only: runs are ingested out-of-band by the engine bench. The API returns
+// metrics only — never raw OCR text / ground truth (real datasets carry PHI).
+
+const TEXT_BASE = `${API_BASE_URL}/eval/ocr/text`;
+
+export interface OcrTextRunSummary {
+    id: string;
+    name: string | null;
+    prompt_label: string | null;
+    engines: string[] | null;
+    dataset_name: string;
+    dataset_source: string;
+    n_results: number | null;
+    started_at: string | null;
+    finished_at: string | null;
+}
+
+export interface OcrTextEngineSummary {
+    engine: string;
+    n: number | null;
+    n_ok: number | null;
+    mean_cer: number | null;
+    mean_wer: number | null;
+    min_cer: number | null;
+    max_cer: number | null;
+    mean_wall_ms: number | null;
+}
+
+export interface OcrTextResult {
+    case_id: string;
+    doc_type: string | null;
+    gt_chars: number | null;
+    engine: string;
+    status: string;
+    cer: number | null;
+    wer: number | null;
+    wall_ms: number | null;
+    extracted_chars: number | null;
+}
+
+export interface OcrTextRunDetail {
+    id: string;
+    tenant: string;
+    name: string | null;
+    prompt_label: string | null;
+    engines: string[] | null;
+    dataset_name: string;
+    dataset_source: string;
+    dataset_desc: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+    notes: string | null;
+    engine_summary: OcrTextEngineSummary[];
+    results: OcrTextResult[];
+}
+
+export interface ListTextRunsResponse {
+    runs: OcrTextRunSummary[];
+    tenant: string;
+    limit: number;
+    offset: number;
+}
+
+export async function listOcrTextRuns(params: {
+    tenant: string;
+    dataset_name?: string;
+    limit?: number;
+    offset?: number;
+}): Promise<ListTextRunsResponse> {
+    const qs = new URLSearchParams();
+    if (params.dataset_name) qs.set("dataset_name", params.dataset_name);
+    if (params.limit != null) qs.set("limit", String(params.limit));
+    if (params.offset != null) qs.set("offset", String(params.offset));
+    const query = qs.toString() ? `?${qs}` : "";
+
+    const res = await authFetch(`${TEXT_BASE}/runs${query}`, tenantHeader(params.tenant));
+    if (!res.ok) throw new Error(`Failed to list OCR text runs (${res.status})`);
+    return res.json();
+}
+
+export async function getOcrTextRun(id: string, tenant: string): Promise<OcrTextRunDetail> {
+    const res = await authFetch(`${TEXT_BASE}/runs/${id}`, tenantHeader(tenant));
+    if (res.status === 404) throw new Error(`Run ${id} not found for tenant ${tenant}`);
+    if (!res.ok) throw new Error(`Failed to load OCR text run (${res.status})`);
+    return res.json();
+}
+
 /**
  * Pull a single headline score out of a run summary for the list view.
  * Shape depends on eval_kind (see schema comments). Returns null if unknown.

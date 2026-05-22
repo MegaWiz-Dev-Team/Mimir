@@ -2355,6 +2355,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mimir-text-metrics"
+version = "0.1.0"
+
+[[package]]
 name = "minidom"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
