@@ -191,10 +191,11 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
-        // Sprint 53: OCR LAYOUT eval storage (Syn v0.3.0+ region detection)
-        // — asgard_platform tenant. Sibling to existing Sprint 51 ocr_eval_*
-        // (text recognition; not nested here).
+        // OCR eval, two complementary axes (both tenant-scoped, default
+        // asgard_platform): LAYOUT = region detection mAP/IoU (Sprint 53);
+        // TEXT = CER/WER per engine (Sprint 51 ocr_eval_*, read-only here).
         .nest("/api/v1/eval/ocr/layout", ro_ai_bridge::routes::eval_ocr_layout::eval_ocr_layout_routes())
+        .nest("/api/v1/eval/ocr/text", ro_ai_bridge::routes::eval_ocr_text::eval_ocr_text_routes())
         // Sprint 39: Mimir Curator (annotation) + LoRA training tracking
         .merge(training_routes())
         // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
