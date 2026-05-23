@@ -284,7 +284,19 @@ async fn main() {
     info!(event = "server_starting", address = %addr, "🚀 listening on {}", addr);
 
     let listener = TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // tower-governor's SmartIpKeyExtractor (used on /api/v1/agents public-read)
+    // falls back to the peer IP from ConnectInfo when X-Forwarded-For /
+    // X-Real-IP / Forwarded headers are absent. Without
+    // `into_make_service_with_connect_info`, axum doesn't populate
+    // ConnectInfo and the extractor errors with "Unable To Extract Key!".
+    // Direct-NodePort callers (no ingress) need this — same fix as Bifrost
+    // (commit 03a44ce in Bifrost).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn health_check() -> Json<Value> {
