@@ -523,3 +523,95 @@ async fn t14b_header_fallback_works_when_no_jwt_validator() {
 // router builder with a parameter. The Bifrost suite covers the rate-limit
 // behavior of the shared tower-governor config; the Mimir wiring matches
 // it. Worth a separate follow-up if we want full coverage here.
+
+// ─────────────────────────────────────────────────────────────────────────
+// T15: real-TCP listener tests.
+//
+// The other tests use `Router::oneshot()`, which short-circuits axum's
+// make-service layer — `ConnectInfo<SocketAddr>` is never populated. That
+// hid a production-only bug where tower-governor's `SmartIpKeyExtractor`
+// returned "Unable To Extract Key!" (500) on requests with no
+// `X-Forwarded-For` header (same class as the Bifrost bug fixed in
+// commit 03a44ce there, and fixed here in main.rs alongside this test).
+// Bind a real ephemeral TCP listener with
+// `into_make_service_with_connect_info` so peer-IP fallback is exercised.
+// ─────────────────────────────────────────────────────────────────────────
+
+mod tcp_listener_tests {
+    use super::*;
+    use std::net::SocketAddr;
+
+    async fn spawn_server(t: &TestTenant) -> SocketAddr {
+        let router = t.router();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral");
+        let addr = listener.local_addr().expect("local_addr");
+        let svc = router.into_make_service_with_connect_info::<SocketAddr>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, svc).await;
+        });
+        tokio::task::yield_now().await;
+        addr
+    }
+
+    fn http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn t15a_real_listener_no_xff_no_creds_returns_401_not_500() {
+        // Regression guard: without ConnectInfo populated SmartIp would
+        // 500 with "Unable To Extract Key!". With it, the request reaches
+        // the auth middleware and 401s because no creds are present.
+        let t = TestTenant::new(pool().await).await;
+        let addr = spawn_server(&t).await;
+
+        let resp = http_client()
+            .get(format!("http://{addr}/api/v1/agents"))
+            .send()
+            .await
+            .expect("send");
+
+        assert_eq!(
+            resp.status(),
+            reqwest::StatusCode::UNAUTHORIZED,
+            "expected 401 with ConnectInfo populated; got {}",
+            resp.status()
+        );
+
+        t.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn t15b_real_listener_no_xff_with_tenant_returns_200() {
+        // Header fallback over real TCP — no `X-Forwarded-For`, so SmartIp
+        // must reach the peer IP via ConnectInfo for the request to even
+        // get past the rate-limit layer.
+        let t = TestTenant::new(pool().await).await;
+        t.seed_agent(SeedAgent {
+            ..SeedAgent::vanilla("real-tcp-target")
+        })
+        .await;
+        let addr = spawn_server(&t).await;
+
+        let resp = http_client()
+            .get(format!("http://{addr}/api/v1/agents"))
+            .header("X-Tenant-Id", &t.tenant_id)
+            .send()
+            .await
+            .expect("send");
+
+        assert_eq!(
+            resp.status(),
+            reqwest::StatusCode::OK,
+            "expected 200, got {}",
+            resp.status()
+        );
+
+        t.cleanup().await;
+    }
+}
