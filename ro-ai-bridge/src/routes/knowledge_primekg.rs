@@ -107,7 +107,25 @@ async fn lookup_entity(
         .primekg_lookup_entity(name, req.entity_type.as_deref(), limit)
         .await
         .map_err(neo4j_error)?;
-    Ok(Json(json!({"items": items, "count": items.len()})))
+    // Fuzzy fallback: substring search has no spell-correction, so a
+    // single-char typo ("Amarosis Fugax") misses entirely. When we get 0
+    // exact hits, ask the same backend for the closest Jaro-Winkler
+    // matches (~0.85+) so callers can render a "Did you mean...?" prompt
+    // instead of a dead end. Always returned as a separate field so
+    // medical UI surfaces never silently substitute one disease for
+    // another — the caller decides whether to act on the suggestion.
+    let did_you_mean = if items.is_empty() {
+        svc.primekg_fuzzy_suggest(name, req.entity_type.as_deref(), 5)
+            .await
+            .map_err(neo4j_error)?
+    } else {
+        Vec::new()
+    };
+    Ok(Json(json!({
+        "items": items,
+        "count": items.len(),
+        "did_you_mean": did_you_mean,
+    })))
 }
 
 // ─── 2. neighbors ─────────────────────────────────────────────────────────
