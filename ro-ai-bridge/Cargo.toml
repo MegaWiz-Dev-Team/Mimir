@@ -1,6 +1,6 @@
 [package]
 name = "ro-ai-bridge"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 
 [workspace]
@@ -40,7 +40,7 @@ tower-http = { workspace = true }
 tower = { workspace = true }
 tower_governor = { workspace = true }
 async-trait = "0.1.89"
-mimir-core-ai = { version = "0.2.2", path = "mimir-core-ai" }
+mimir-core-ai = { version = "0.2.3", path = "mimir-core-ai" }
 skuggi-core = { version = "0.1.0", path = "skuggi-core" }
 ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
 ro-ai-domain-medical = { version = "0.1.0", path = "ro-ai-domain-medical" }

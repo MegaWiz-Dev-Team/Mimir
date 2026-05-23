@@ -1293,6 +1293,64 @@ impl Neo4jService {
         Ok(out)
     }
 
+    /// Suggest PrimeKG nodes whose name is close to `name` by edit distance.
+    /// Only fires as a fallback when `primekg_lookup_entity` returns 0 — the
+    /// Cypher substring search has no spell-correction, so a single-char typo
+    /// like "Amarosis Fugax" (missing 'u') misses "Amaurosis fugax" entirely.
+    ///
+    /// Pulls every name of the matching type (~17k for diseases) and ranks by
+    /// Jaro-Winkler — chosen over plain Levenshtein because it weights shared
+    /// prefixes (medical terms cluster by stem) and is symmetric on word
+    /// length. Returns rows scoring ≥0.85, top `limit`, with `similarity`
+    /// stamped into each.
+    ///
+    /// Cost: one full-table Neo4j read per call (~50-100ms on local bolt for
+    /// 17k disease rows) + O(N) string distance in Rust (<10ms). Acceptable
+    /// because it ONLY runs on a miss. No cache — keeps the path stateless
+    /// and avoids invalidation on PrimeKG re-ingest.
+    pub async fn primekg_fuzzy_suggest(
+        &self,
+        name: &str,
+        type_filter: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<Value>> {
+        let cypher = match type_filter {
+            Some(_) => "\
+                MATCH (n:PrimeKG) WHERE n.type = $type \
+                RETURN n.entity_index AS entity_index, n.entity_id AS entity_id, \
+                       n.name AS name, n.type AS type, n.source AS source",
+            None => "\
+                MATCH (n:PrimeKG) \
+                RETURN n.entity_index AS entity_index, n.entity_id AS entity_id, \
+                       n.name AS name, n.type AS type, n.source AS source",
+        };
+        let mut q = neo4rs::query(cypher);
+        if let Some(t) = type_filter {
+            q = q.param("type", t);
+        }
+        let mut result = self.graph.execute(q).await
+            .context("primekg_fuzzy_suggest query failed")?;
+        let needle = name.to_lowercase();
+        let mut scored: Vec<(f64, Value)> = Vec::new();
+        while let Some(row) = result.next().await? {
+            let nm: String = row.get::<String>("name").unwrap_or_default();
+            if nm.is_empty() { continue; }
+            let sim = strsim::jaro_winkler(&needle, &nm.to_lowercase());
+            if sim >= 0.85 {
+                scored.push((sim, serde_json::json!({
+                    "entity_index": row.get::<i64>("entity_index").ok(),
+                    "entity_id":    row.get::<String>("entity_id").ok(),
+                    "name":         nm,
+                    "type":         row.get::<String>("type").ok(),
+                    "source":       row.get::<String>("source").ok(),
+                    "similarity":   sim,
+                })));
+            }
+        }
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(scored.into_iter().take(limit.max(1) as usize).map(|(_, v)| v).collect())
+    }
+
     /// Neighbors of an entity with optional relation-type filter + multi-hop expansion.
     /// `hops` clamped 1..=3, `limit` clamped 1..=100.
     pub async fn primekg_neighbors_filtered(
@@ -1803,5 +1861,43 @@ mod tests {
         assert_eq!(json["from_entity"], "Aspirin");
         assert_eq!(json["to_entity"], "Headache");
         assert_eq!(json["relation_type"], "treats");
+    }
+
+    // ========================================
+    // UT-018: primekg_fuzzy_suggest threshold sanity
+    //
+    // The fuzzy resolver only fires on a Cypher-CONTAINS miss, so its
+    // threshold and ranking matter more than its absolute precision.
+    // These tests pin behavior that real medical typos must clear (≥0.85)
+    // and that unrelated terms must NOT (<0.85), so an accidental
+    // threshold drift fails CI rather than silently breaking the
+    // "Amarosis Fugax → Amaurosis fugax" suggestion path in production.
+    // ========================================
+
+    #[test]
+    fn jaro_winkler_catches_single_char_typo() {
+        // The case from the user-reported "Medical Knowledge Assistant"
+        // miss: missing 'u' between 'a' and 'r' in "Amaurosis".
+        let sim = strsim::jaro_winkler("amarosis fugax", "amaurosis fugax");
+        assert!(sim >= 0.85, "expected sim >= 0.85, got {sim}");
+    }
+
+    #[test]
+    fn jaro_winkler_catches_apostrophe_typo() {
+        let sim = strsim::jaro_winkler("alzhiemer disease", "alzheimer disease");
+        assert!(sim >= 0.85, "expected sim >= 0.85, got {sim}");
+    }
+
+    #[test]
+    fn jaro_winkler_rejects_unrelated_terms() {
+        let sim = strsim::jaro_winkler("amaurosis fugax", "diabetes mellitus");
+        assert!(sim < 0.85, "expected sim < 0.85, got {sim}");
+    }
+
+    #[test]
+    fn jaro_winkler_ranks_closer_first() {
+        let close = strsim::jaro_winkler("amarosis fugax", "amaurosis fugax");
+        let far = strsim::jaro_winkler("amarosis fugax", "amaurosis-hypertrichosis syndrome");
+        assert!(close > far, "closer name must score higher: close={close} far={far}");
     }
 }
