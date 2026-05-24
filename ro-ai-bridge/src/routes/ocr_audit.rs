@@ -143,6 +143,14 @@ pub struct OcrAuditRow<'a> {
     pub status_message: Option<&'a str>,
     pub image_path: Option<&'a str>,
     pub requested_by: Option<&'a str>,
+    /// ADR-002 Stage 2 — serialized `Vec<OcrRegion>` (region_id, bbox, text,
+    /// confidence) JSON. Persisted into `ocr_documents.regions_json` so a
+    /// dispute / replay / prompt-regression session can reconstruct exactly
+    /// what the OCR engine saw — bbox by bbox — without re-running the engine
+    /// against the original image. None for engines without geometry
+    /// (Apple Vision today, cloud Gemini text-only) and for any path that
+    /// runs before Syn surfaces regions.
+    pub regions_json: Option<&'a str>,
 }
 
 /// Insert an audit row. Returns the generated UUID (also persists in the row).
@@ -161,8 +169,9 @@ pub async fn insert_ocr_audit(pool: &DbPool, row: OcrAuditRow<'_>) -> String {
             engine_used, engine_version, router_reason,
             extracted_text, confidence, bbox_count,
             cost_usd, latency_ms, pii_redacted,
-            status, status_message, requested_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            status, status_message, requested_by,
+            regions_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&id)
@@ -181,6 +190,7 @@ pub async fn insert_ocr_audit(pool: &DbPool, row: OcrAuditRow<'_>) -> String {
     .bind(row.status.as_str())
     .bind(row.status_message)
     .bind(row.requested_by)
+    .bind(row.regions_json)
     .execute(pool)
     .await;
 

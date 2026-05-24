@@ -433,6 +433,7 @@ async fn ocr_extract(
                 status_message: Some(&audit_msg),
                 image_path: None,
                 requested_by: None,
+                    regions_json: None,
             },
         )
         .await;
@@ -482,6 +483,16 @@ async fn ocr_extract(
             // B-50e: write OCR audit row in Mimir's audit layer. Cross-link
             // Syn's audit_id via status_message so operators can join the two
             // tables when investigating a request.
+            // ADR-002 Stage 2 — serialize Syn's regions[] (if any) into the
+            // audit row's regions_json column so a future replay session can
+            // reconstruct exactly what the OCR engine saw. None when the
+            // engine didn't surface region geometry (Apple Vision / cloud
+            // Gemini text-only) — preserves the LONGTEXT NULL default.
+            let regions_json_str: Option<String> = if !syn.regions.is_empty() {
+                serde_json::to_string(&syn.regions).ok()
+            } else {
+                None
+            };
             let mimir_audit_id = insert_ocr_audit(
                 &pool,
                 OcrAuditRow {
@@ -500,6 +511,7 @@ async fn ocr_extract(
                     status_message: Some(&cross_ref),
                     image_path: None,
                     requested_by: None,
+                    regions_json: regions_json_str.as_deref(),
                 },
             )
             .await;
@@ -545,6 +557,7 @@ async fn ocr_extract(
                     status_message: Some(&msg),
                     image_path: None,
                     requested_by: None,
+                    regions_json: None,
                 },
             )
             .await;
@@ -742,6 +755,7 @@ async fn ocr_extract_source(
                     status_message: None,
                     image_path: Some(s3_key),
                     requested_by: None,
+                    regions_json: None,
                 },
             )
             .await;
@@ -801,6 +815,7 @@ async fn ocr_extract_source(
                     status_message: Some(&msg),
                     image_path: Some(s3_key),
                     requested_by: None,
+                    regions_json: None,
                 },
             )
             .await;
