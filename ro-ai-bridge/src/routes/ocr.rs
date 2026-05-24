@@ -62,6 +62,25 @@ pub struct SynOcrRegion {
     pub semantic_tag: Option<String>,
 }
 
+/// OWASP LLM06 hardening — return a clone of `regions` with every
+/// `text` field passed through `skuggi_core::redact_text` (Tier 1
+/// regex set: patient_name, doctor_name, HN, Thai national ID,
+/// license_no, Thai phone, email). Geometry + ids + confidences +
+/// semantic tags are NOT touched — they're necessary for replay and
+/// carry no PII risk.
+///
+/// Pure function, easy to unit-test independent of HTTP + DB.
+pub fn redact_regions_for_audit(regions: &[SynOcrRegion]) -> Vec<SynOcrRegion> {
+    regions
+        .iter()
+        .map(|r| {
+            let mut redacted = r.clone();
+            redacted.text = skuggi_core::redact_text(&r.text).redacted_text;
+            redacted
+        })
+        .collect()
+}
+
 /// B-50b Path A — delegate an OCR call to Syn's smart-router instead of
 /// hitting Gemini directly. Syn picks the engine (paddleocr / typhoon / Gemini
 /// Flash / Gemini Pro) per its 6-rule router + writes its own audit row.
@@ -488,8 +507,20 @@ async fn ocr_extract(
             // reconstruct exactly what the OCR engine saw. None when the
             // engine didn't surface region geometry (Apple Vision / cloud
             // Gemini text-only) — preserves the LONGTEXT NULL default.
+            //
+            // OWASP LLM06 (Sensitive Info Disclosure) hardening — Stage 2's
+            // raw `regions[].text` carries whatever the OCR engine read off
+            // the page, which for medical scans includes patient names, HN,
+            // Thai national ID, phone, email. Persisting that verbatim in
+            // MariaDB long-term turns the audit table into a PHI lake. Mask
+            // every region's `text` through skuggi-core Tier 1 BEFORE
+            // serialise; bboxes + region_ids + confidences + semantic_tag
+            // stay untouched (no PII risk + needed for replay). The mask is
+            // lossy by design — replay sees `[REDACTED_PATIENT_NAME]` etc;
+            // unredacted region text is available live in Syn's response,
+            // not in long-term storage.
             let regions_json_str: Option<String> = if !syn.regions.is_empty() {
-                serde_json::to_string(&syn.regions).ok()
+                serde_json::to_string(&redact_regions_for_audit(&syn.regions)).ok()
             } else {
                 None
             };
@@ -825,5 +856,79 @@ async fn ocr_extract_source(
                 Json(json!({"error": msg})),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn region(id: &str, text: &str) -> SynOcrRegion {
+        SynOcrRegion {
+            region_id: id.to_string(),
+            page: 1,
+            bbox: [0.0, 0.0, 100.0, 50.0],
+            text: text.to_string(),
+            confidence: Some(0.9),
+            semantic_tag: Some("printed".to_string()),
+        }
+    }
+
+    #[test]
+    fn redact_regions_masks_thai_national_id_text() {
+        // Standalone Thai national ID — picked up by the free-text finder.
+        let input = vec![region("r-1-1", "ID 1234567890121 issued 2020")];
+        let out = redact_regions_for_audit(&input);
+        assert_eq!(out.len(), 1);
+        assert!(
+            !out[0].text.contains("1234567890121"),
+            "raw Thai ID leaked into audit: {:?}",
+            out[0].text
+        );
+        assert!(out[0].text.contains("[REDACTED_THAI_ID]"));
+    }
+
+    #[test]
+    fn redact_regions_preserves_geometry_and_ids() {
+        // Bbox, region_id, page, confidence, semantic_tag must round-trip
+        // untouched — they're the replay scaffolding and carry no PHI risk.
+        let input = vec![region("r-3-7", "Patient phone: 089-123-4567")];
+        let out = redact_regions_for_audit(&input);
+        assert_eq!(out[0].region_id, "r-3-7");
+        assert_eq!(out[0].page, 1);
+        assert_eq!(out[0].bbox, [0.0, 0.0, 100.0, 50.0]);
+        assert_eq!(out[0].confidence, Some(0.9));
+        assert_eq!(out[0].semantic_tag.as_deref(), Some("printed"));
+        // And the phone is masked.
+        assert!(!out[0].text.contains("089-123-4567"));
+    }
+
+    #[test]
+    fn redact_regions_passes_through_clean_text() {
+        // No PII → no change beyond the round-trip. Useful guard against
+        // a regex-set regression that suddenly false-positives on
+        // ordinary medical text (e.g. dosages, lab values).
+        let input = vec![region("r-1-1", "LDL 145 mg/dL")];
+        let out = redact_regions_for_audit(&input);
+        assert_eq!(out[0].text, "LDL 145 mg/dL");
+    }
+
+    #[test]
+    fn redact_regions_handles_empty_input() {
+        assert!(redact_regions_for_audit(&[]).is_empty());
+    }
+
+    #[test]
+    fn redact_regions_masks_per_region_independently() {
+        // Multi-region scan: a sensitive region next to a clean one — the
+        // sensitive one gets masked, the clean one stays as-is.
+        let input = vec![
+            region("r-1-1", "contact: somchai@example.com"),
+            region("r-1-2", "HbA1c 7.2%"),
+        ];
+        let out = redact_regions_for_audit(&input);
+        assert!(!out[0].text.contains("somchai@example.com"));
+        assert!(out[0].text.contains("[REDACTED_EMAIL]"));
+        assert_eq!(out[1].text, "HbA1c 7.2%");
     }
 }
