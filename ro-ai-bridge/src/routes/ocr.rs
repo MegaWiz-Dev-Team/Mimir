@@ -40,6 +40,26 @@ struct SynExtractResponse {
     cost_usd: f64,
     #[serde(default)]
     latency_ms: u64,
+    /// ADR-002 Stage 1 — per-region OCR detail surfaced by Syn (PaddleOCR
+    /// populates today; cloud Gemini / Apple Vision return empty). Passed
+    /// straight through to the Mimir caller (Iris) so the bidirectional
+    /// bbox ↔ field provenance UI has the data it needs. `#[serde(default)]`
+    /// keeps this field non-breaking for any caller built against the
+    /// pre-Stage-1 contract.
+    #[serde(default)]
+    regions: Vec<SynOcrRegion>,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+pub struct SynOcrRegion {
+    pub region_id: String,
+    pub page: u32,
+    pub bbox: [f32; 4],
+    pub text: String,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    #[serde(default)]
+    pub semantic_tag: Option<String>,
 }
 
 /// B-50b Path A — delegate an OCR call to Syn's smart-router instead of
@@ -497,6 +517,10 @@ async fn ocr_extract(
                 "filename": filename,
                 "mimir_latency_ms": latency_ms,
                 "syn_latency_ms": syn.latency_ms,
+                // ADR-002 Stage 1 — per-region OCR detail straight through
+                // from Syn so Iris can build the bidirectional bbox ↔ field
+                // index. Empty when the engine doesn't expose region data.
+                "regions": syn.regions,
             })))
         }
         Err(e) => {
