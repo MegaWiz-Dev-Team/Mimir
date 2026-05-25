@@ -6,6 +6,7 @@
 //! Used heavily by `Observation` (vital signs, lab values), `Coverage` /
 //! `Claim` (monetary amounts), `Observation.referenceRange` (ranges).
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{Code, Decimal, Uri};
@@ -19,7 +20,7 @@ use crate::datatypes::{Code, Decimal, Uri};
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/valueset-quantity-comparator.html>):
 /// indicates that the value is bounded, not exact — useful for sensitivity-limit
 /// lab results ("less than 0.1") and asymptotic distributions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum QuantityComparator {
     /// `<` — the actual value is less than the given value.
     #[serde(rename = "<")]
@@ -61,7 +62,7 @@ pub enum QuantityComparator {
 ///     ..Default::default()
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Quantity {
     /// Numerical value (with implicit precision).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,7 +127,7 @@ impl Quantity {
 ///
 /// `currency` is an ISO 4217 currency code (`"THB"`, `"USD"`, etc.) —
 /// stored as `Code` (already-validated grammar).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Money {
     /// Numerical amount.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,7 +172,7 @@ impl Money {
 /// A set of ordered Quantity values bounded by `low` and `high`. Either
 /// bound may be absent (open-ended range). Used for `Observation.referenceRange`
 /// (normal lab value ranges), `DosageInstruction.doseAndRate` (drug dose ranges).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Range {
     /// Lower bound, inclusive.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -225,7 +226,7 @@ impl Range {
 /// FHIR rule: a `Ratio` with one Quantity present and the other absent
 /// is invalid. Both must be present together, or both absent (which makes
 /// the Ratio meaningless — typically don't emit it).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Ratio {
     /// Numerator quantity (e.g., `5 mg` for a dose rate).
     #[serde(skip_serializing_if = "Option::is_none")]

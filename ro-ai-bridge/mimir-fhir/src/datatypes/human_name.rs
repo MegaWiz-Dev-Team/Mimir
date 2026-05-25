@@ -8,6 +8,7 @@
 //! Construction helpers `HumanName::thai()` and `HumanName::english()`
 //! make the bilingual pattern ergonomic at the call site.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{Code, Period};
@@ -17,7 +18,7 @@ use crate::datatypes::{Code, Period};
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/valueset-name-use.html>):
 /// Distinguishes the purpose of a name (e.g., the official legal name vs
 /// a nickname vs the maiden name).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum NameUse {
     /// Known as / conventional / the one usually used.
@@ -49,7 +50,7 @@ pub enum NameUse {
 /// `Option<Code>` for ergonomics. On-wire it serializes as a plain JSON
 /// field; full FHIR `_language` extension wrapping is deferred until a real
 /// `HumanName` field needs it inside a real Resource (Sprint 2+).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct HumanName {
     /// The purpose / context for this name.
     #[serde(rename = "use", skip_serializing_if = "Option::is_none")]

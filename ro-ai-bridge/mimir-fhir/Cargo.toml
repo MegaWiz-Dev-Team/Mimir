@@ -18,7 +18,7 @@ categories = ["data-structures"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-schemars = "0.8"
+schemars = { version = "0.8", features = ["chrono", "preserve_order"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 rust_decimal = { version = "1", features = ["serde-with-str"] }

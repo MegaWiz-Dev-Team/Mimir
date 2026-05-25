@@ -18,8 +18,86 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
-/// FHIR R5 `decimal` primitive — re-export of [`rust_decimal::Decimal`].
-pub use rust_decimal::Decimal;
+// =============================================================================
+// Decimal — FHIR R5 decimal (thin wrapper over rust_decimal::Decimal)
+// =============================================================================
+
+/// FHIR R5 `decimal` primitive — thin wrapper over [`rust_decimal::Decimal`].
+///
+/// The inner [`rust_decimal::Decimal`] gives us 28-29 significant digits,
+/// base-10 arithmetic (no IEEE-754 float drift), and preservation of
+/// trailing zeros. Comfortably above the precision used by any clinical
+/// instrument.
+///
+/// The wrapper exists to (1) provide a manual [`schemars::JsonSchema`]
+/// impl since `rust_decimal::Decimal` has no built-in one, and (2) keep
+/// the type identity local to `mimir-fhir`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Decimal(rust_decimal::Decimal);
+
+impl Decimal {
+    /// Construct from inner `rust_decimal::Decimal`.
+    #[must_use]
+    pub const fn from_rust_decimal(d: rust_decimal::Decimal) -> Self {
+        Self(d)
+    }
+
+    /// Borrow inner `rust_decimal::Decimal`.
+    #[must_use]
+    pub const fn as_rust_decimal(&self) -> &rust_decimal::Decimal {
+        &self.0
+    }
+
+    /// Returns true if the decimal value is negative.
+    #[must_use]
+    pub fn is_sign_negative(&self) -> bool {
+        self.0.is_sign_negative()
+    }
+}
+
+impl std::str::FromStr for Decimal {
+    type Err = rust_decimal::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        rust_decimal::Decimal::from_str(s).map(Self)
+    }
+}
+
+impl std::fmt::Display for Decimal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::ops::Deref for Decimal {
+    type Target = rust_decimal::Decimal;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl schemars::JsonSchema for Decimal {
+    fn schema_name() -> String {
+        "Decimal".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        use schemars::schema::{InstanceType, SchemaObject, SingleOrVec, StringValidation};
+        // FHIR R5 decimal regex: -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
+        // Serialised as a string (rust_decimal feature `serde-with-str`).
+        // Pattern is informative — validators may apply it.
+        SchemaObject {
+            instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::String))),
+            format: Some("decimal".to_string()),
+            string: Some(Box::new(StringValidation {
+                pattern: Some(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+        .into()
+    }
+}
 
 // =============================================================================
 // Id — FHIR R5 logical resource id
@@ -33,7 +111,7 @@ pub use rust_decimal::Decimal;
 /// Validation happens at construction and at deserialize time — an invalid
 /// id cannot exist as an `Id` value, which prevents downstream
 /// FHIR-non-conformance bugs at compile time.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Id(String);
 
@@ -119,7 +197,7 @@ const fn is_valid_id_char(c: char) -> bool {
 /// Used wherever values come from a controlled vocabulary — e.g.
 /// `Observation.status = "final"`, `Patient.gender = "male"`,
 /// `MedicationRequest.intent = "order"`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Code(String);
 
@@ -224,7 +302,7 @@ impl<'de> Deserialize<'de> for Code {
 /// Full RFC 3986 validation is out of scope for Phase 1 (FHIR servers
 /// generally trust caller-provided URIs; structural validation is
 /// expensive and rarely productive).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Uri(String);
 
@@ -301,7 +379,7 @@ impl<'de> Deserialize<'de> for Uri {
 /// Reference (RFC 3986 §4.1). In practice indistinguishable from `Uri` at
 /// the validation layer — kept as a separate type for FHIR semantic
 /// clarity (e.g. `Endpoint.address` is `url`, `Identifier.system` is `uri`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Url(String);
 
@@ -370,7 +448,7 @@ impl<'de> Deserialize<'de> for Url {
 ///
 /// Empty markdown is disallowed by the FHIR spec — must contain at least
 /// one non-whitespace character.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Markdown(String);
 
@@ -449,7 +527,7 @@ impl<'de> Deserialize<'de> for Markdown {
 /// precision the source provided — we do not auto-promote `"2026-05"` to
 /// `"2026-05-01T00:00:00Z"`). Validation uses `chrono` for full datetimes
 /// and structural check for partial dates.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct DateTime(String);
 
@@ -557,7 +635,7 @@ fn is_valid_full_date(s: &str) -> bool {
 /// is always a full datetime.
 ///
 /// Used by `Meta.lastUpdated` and other system timestamps.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Instant(String);
 

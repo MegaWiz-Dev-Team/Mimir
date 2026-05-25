@@ -5,6 +5,7 @@
 //! `ContactPointUse`, `Extension` (minimal — `valueString` variant only;
 //! full `value[x]` polymorphism deferred to Sprint 1 Day 7).
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{Code, DateTime, Uri};
@@ -30,7 +31,7 @@ use crate::datatypes::{Code, DateTime, Uri};
 ///     ..Default::default()
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Coding {
     /// Identity of the terminology system — typically a canonical URL.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,7 +94,7 @@ impl Coding {
 ///     text: Some("Systolic BP".into()),
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct CodeableConcept {
     /// Code(s) defined by terminology systems. Multiple codings here
     /// represent translations of the SAME concept across systems
@@ -143,7 +144,7 @@ impl CodeableConcept {
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/valueset-identifier-use.html>):
 /// Distinguishes the purpose of an identifier (e.g., whether it's the
 /// primary "official" id, a temporary one, or an old retained value).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum IdentifierUse {
     /// Recommended for display to user (e.g., the id the patient gives
@@ -189,7 +190,7 @@ pub enum IdentifierUse {
 /// Fields `period` and `assigner` are deferred to Day 4/5 of Sprint 1
 /// (they depend on `Period` and `Reference` types). Both are `0..1`
 /// optional in the spec, so absence is FHIR-conformant.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Identifier {
     /// The purpose of this identifier.
     #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
@@ -282,7 +283,7 @@ impl Identifier {
 /// `start`. We do not enforce this at construction (the spec also allows
 /// equality for "instant in time" periods); validation is best done at
 /// the profile/resource layer.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Period {
     /// Starting time with inclusive boundary.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -321,7 +322,7 @@ impl Period {
 ///
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/valueset-contact-point-system.html>):
 /// What kind of contact channel this is (phone, email, etc.).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ContactPointSystem {
     Phone,
@@ -337,7 +338,7 @@ pub enum ContactPointSystem {
 ///
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/valueset-contact-point-use.html>):
 /// The purpose of a contact point (home, work, etc.).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ContactPointUse {
     Home,
@@ -363,7 +364,7 @@ pub enum ContactPointUse {
 ///     ..Default::default()
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct ContactPoint {
     /// Telecommunications form: phone | fax | email | ...
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -441,7 +442,7 @@ impl ContactPoint {
 /// FHIR rule: an Extension MUST have EXACTLY ONE `value[x]` set OR nested
 /// `extension[]` (mutually exclusive). The struct does not enforce this
 /// at compile time; helper constructors and validators check it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Extension {
     /// Canonical URL identifying the extension definition.
     pub url: Uri,
@@ -565,7 +566,7 @@ impl Extension {
 /// and `Identifier` contains `Reference` (assigner). The cycle is broken
 /// by `Box`ing `Identifier.assigner` (not `Reference.identifier`) — the
 /// boxing happens on the rarer field to minimize heap allocation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Reference {
     /// Literal reference, relative or absolute URL.
     /// Examples: `"Patient/A12345"`, `"https://other.example.com/Patient/X"`,

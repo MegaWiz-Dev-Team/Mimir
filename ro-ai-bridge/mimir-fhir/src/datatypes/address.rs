@@ -16,6 +16,7 @@
 //! extension. The constant [`TH_SUB_DISTRICT_EXTENSION_URL`] defines
 //! the canonical URL; helper [`Address::thai`] populates it correctly.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{Code, Extension, Period, Uri};
@@ -30,7 +31,7 @@ pub const TH_SUB_DISTRICT_EXTENSION_URL: &str =
     "https://fhir.moph.go.th/StructureDefinition/sub-district";
 
 /// FHIR R5 `Address.use` enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AddressUse {
     Home,
@@ -41,7 +42,7 @@ pub enum AddressUse {
 }
 
 /// FHIR R5 `Address.type` enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AddressType {
     Postal,
@@ -55,7 +56,7 @@ pub enum AddressType {
 /// An address expressed using postal conventions, with structured fields
 /// for international interop. Thai addresses use the convention
 /// documented at the module level above.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Address {
     /// home | work | temp | old | billing.
     #[serde(rename = "use", skip_serializing_if = "Option::is_none")]

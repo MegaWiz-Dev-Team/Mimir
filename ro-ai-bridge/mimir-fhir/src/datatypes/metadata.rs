@@ -13,6 +13,7 @@
 //! populated from the latest Tyr audit event for the resource. On write
 //! (from external clients), they are IGNORED.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{Coding, DateTime, Instant, Markdown, Reference, Uri};
@@ -31,7 +32,7 @@ use crate::datatypes::{Coding, DateTime, Instant, Markdown, Reference, Uri};
 /// Patient / `RelatedPerson` (authorReference) or a free-text string when
 /// the author is not a registered entity (authorString). At most one of
 /// the two should be set.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Annotation {
     /// Polymorphic `author[x]`: structured Reference variant.
     #[serde(rename = "authorReference", skip_serializing_if = "Option::is_none")]
@@ -108,7 +109,7 @@ impl Annotation {
 ///   not stored in the FHIR resource row directly.
 /// - On write, these fields from external clients are IGNORED.
 /// - Single source of truth = Tyr audit hash chain.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Meta {
     /// Version identifier — derived from Tyr audit on emit; ignored on input.
     #[serde(rename = "versionId", skip_serializing_if = "Option::is_none")]
@@ -166,7 +167,7 @@ impl Meta {
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/valueset-narrative-status.html>):
 /// Indicates how the narrative was produced and whether it represents
 /// the full content of the resource.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum NarrativeStatus {
     /// Narrative generated from structured data; represents the full content.
@@ -190,7 +191,7 @@ pub enum NarrativeStatus {
 /// with namespace `xmlns="http://www.w3.org/1999/xhtml"`). For Phase 1
 /// we store it as `String` and do not parse / validate the XHTML at
 /// construction — that's a downstream concern.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Narrative {
     /// How the narrative was produced.
     pub status: NarrativeStatus,
