@@ -11,6 +11,7 @@
 mod address;
 mod complex;
 mod human_name;
+mod numeric;
 mod primitive;
 
 pub use address::{Address, AddressType, AddressUse, TH_SUB_DISTRICT_EXTENSION_URL};
@@ -19,7 +20,8 @@ pub use complex::{
     Identifier, IdentifierUse, Period, Reference,
 };
 pub use human_name::{HumanName, NameUse};
+pub use numeric::{Money, Quantity, QuantityComparator, Range, Ratio};
 pub use primitive::{
-    Code, CodeError, DateTime, DateTimeError, Id, IdError, Markdown, MarkdownError, Uri, UriError,
-    Url,
+    Code, CodeError, DateTime, DateTimeError, Decimal, Id, IdError, Markdown, MarkdownError, Uri,
+    UriError, Url,
 };

@@ -4,10 +4,22 @@
 //! `Markdown`, `DateTime`, `Date`, `Time`, `Instant`, `Base64Binary`, `Decimal`,
 //! `PositiveInt`, `UnsignedInt`.
 //!
-//! Currently implemented: `Id`, `Code`, `Uri`, `Url`, `Markdown`, `DateTime`.
+//! Currently implemented: `Id`, `Code`, `Uri`, `Url`, `Markdown`, `DateTime`,
+//! `Decimal` (re-export of [`rust_decimal::Decimal`]).
+//!
+//! ## Note on `Decimal`
+//!
+//! FHIR R5 `decimal` allows arbitrary precision. We re-export
+//! [`rust_decimal::Decimal`] (28-29 significant digits, base-10 — preserves
+//! trailing zeros and avoids IEEE-754 float drift). For healthcare numeric
+//! ranges (vital signs, lab values, drug doses) this is comfortably above
+//! the precision actually used by any clinical instrument.
 
 use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
+
+/// FHIR R5 `decimal` primitive — re-export of [`rust_decimal::Decimal`].
+pub use rust_decimal::Decimal;
 
 // =============================================================================
 // Id — FHIR R5 logical resource id
