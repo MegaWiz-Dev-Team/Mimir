@@ -11,6 +11,7 @@
 mod address;
 mod complex;
 mod human_name;
+mod metadata;
 mod numeric;
 mod primitive;
 
@@ -20,8 +21,9 @@ pub use complex::{
     Identifier, IdentifierUse, Period, Reference,
 };
 pub use human_name::{HumanName, NameUse};
+pub use metadata::{Annotation, Meta, Narrative, NarrativeStatus};
 pub use numeric::{Money, Quantity, QuantityComparator, Range, Ratio};
 pub use primitive::{
-    Code, CodeError, DateTime, DateTimeError, Decimal, Id, IdError, Markdown, MarkdownError, Uri,
-    UriError, Url,
+    Code, CodeError, DateTime, DateTimeError, Decimal, Id, IdError, Instant, InstantError,
+    Markdown, MarkdownError, Uri, UriError, Url,
 };

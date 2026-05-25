@@ -5,7 +5,7 @@
 //! `PositiveInt`, `UnsignedInt`.
 //!
 //! Currently implemented: `Id`, `Code`, `Uri`, `Url`, `Markdown`, `DateTime`,
-//! `Decimal` (re-export of [`rust_decimal::Decimal`]).
+//! `Instant`, `Decimal` (re-export of [`rust_decimal::Decimal`]).
 //!
 //! ## Note on `Decimal`
 //!
@@ -542,4 +542,73 @@ fn is_valid_year_month(s: &str) -> bool {
 
 fn is_valid_full_date(s: &str) -> bool {
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
+}
+
+// =============================================================================
+// Instant — FHIR R5 instant (full datetime with required TZ)
+// =============================================================================
+
+/// FHIR R5 `instant` primitive type.
+///
+/// Per FHIR R5 spec (<http://hl7.org/fhir/R5/datatypes.html#instant>):
+/// A point in time with at least seconds precision and a required time
+/// zone offset. Format `YYYY-MM-DDThh:mm:ss[.sss](Z|±hh:mm)`. Unlike
+/// `DateTime` (which permits partial precision down to year), `Instant`
+/// is always a full datetime.
+///
+/// Used by `Meta.lastUpdated` and other system timestamps.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct Instant(String);
+
+/// Errors raised when constructing an invalid [`Instant`].
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum InstantError {
+    #[error("FHIR instant must be a full RFC3339 datetime with timezone: {0:?}")]
+    InvalidFormat(String),
+}
+
+impl Instant {
+    /// Construct an `Instant`, validating against the FHIR R5 grammar.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstantError::InvalidFormat`] if the input is not a valid
+    /// full RFC3339 datetime with a timezone offset.
+    pub fn new(s: impl Into<String>) -> Result<Self, InstantError> {
+        let s = s.into();
+        if chrono::DateTime::parse_from_rfc3339(&s).is_ok() {
+            Ok(Self(s))
+        } else {
+            Err(InstantError::InvalidFormat(s))
+        }
+    }
+
+    /// Borrow the inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for Instant {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Instant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Instant {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::new(s).map_err(serde::de::Error::custom)
+    }
 }

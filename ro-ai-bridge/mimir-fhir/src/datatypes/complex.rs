@@ -426,34 +426,122 @@ impl ContactPoint {
 // Extension — FHIR R5 Extension (minimal — Day 5 scope)
 // =============================================================================
 
-/// FHIR R5 `Extension` datatype — Day 5 minimal subset.
+/// FHIR R5 `Extension` datatype — Day 7 expanded polymorphism.
 ///
 /// Per FHIR R5 spec (<http://hl7.org/fhir/R5/extensibility.html#Extension>):
 /// Extension carries a `url` (canonical extension definition) plus exactly
-/// one `value[x]` (50+ polymorphic variants) OR nested sub-extensions.
+/// one `value[x]` (50+ polymorphic variants in the full spec) OR nested
+/// sub-extensions.
 ///
-/// **Day 5 scope:** support `valueString` only — sufficient for the Thai
-/// address sub-district extension. Full `value[x]` polymorphism is
-/// deferred to Sprint 1 Day 7 when more datatypes (Quantity, Date, ...)
-/// are available.
+/// **Phase 1 scope:** 9 most common variants implemented as flat optional
+/// fields with `serde(rename)` to the FHIR camelCase wire format. Remaining
+/// ~40 variants (valueAge, valueAttachment, valueBase64Binary, ...) added
+/// on demand when a resource needs them.
+///
+/// FHIR rule: an Extension MUST have EXACTLY ONE `value[x]` set OR nested
+/// `extension[]` (mutually exclusive). The struct does not enforce this
+/// at compile time; helper constructors and validators check it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Extension {
     /// Canonical URL identifying the extension definition.
     pub url: Uri,
 
-    /// The string value of the extension (Day 5 subset of `value[x]`).
     #[serde(rename = "valueString", skip_serializing_if = "Option::is_none")]
     pub value_string: Option<String>,
+
+    #[serde(rename = "valueCode", skip_serializing_if = "Option::is_none")]
+    pub value_code: Option<Code>,
+
+    #[serde(rename = "valueBoolean", skip_serializing_if = "Option::is_none")]
+    pub value_boolean: Option<bool>,
+
+    #[serde(rename = "valueDateTime", skip_serializing_if = "Option::is_none")]
+    pub value_datetime: Option<DateTime>,
+
+    #[serde(rename = "valueDecimal", skip_serializing_if = "Option::is_none")]
+    pub value_decimal: Option<crate::datatypes::Decimal>,
+
+    #[serde(rename = "valueInteger", skip_serializing_if = "Option::is_none")]
+    pub value_integer: Option<i64>,
+
+    #[serde(rename = "valueQuantity", skip_serializing_if = "Option::is_none")]
+    pub value_quantity: Option<crate::datatypes::Quantity>,
+
+    #[serde(
+        rename = "valueCodeableConcept",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub value_codeable_concept: Option<CodeableConcept>,
+
+    #[serde(rename = "valueReference", skip_serializing_if = "Option::is_none")]
+    pub value_reference: Option<Reference>,
+
+    /// Nested sub-extensions. Used when an extension needs structured value
+    /// beyond a single `value[x]` (e.g. Thai address mapping that splits
+    /// sub-district + sub-district code into two sub-extensions).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extension: Vec<Extension>,
 }
 
 impl Extension {
+    /// Private helper — construct a "zero-value" extension with all value[x]
+    /// variants set to None. Used by the public factory constructors below.
+    /// Not exposed publicly: a zero-value extension is invalid per FHIR
+    /// (must have either a value or nested extensions).
+    fn empty(url: Uri) -> Self {
+        Self {
+            url,
+            value_string: None,
+            value_code: None,
+            value_boolean: None,
+            value_datetime: None,
+            value_decimal: None,
+            value_integer: None,
+            value_quantity: None,
+            value_codeable_concept: None,
+            value_reference: None,
+            extension: Vec::new(),
+        }
+    }
+
     /// Construct an extension with a string value.
     #[must_use]
     pub fn string(url: Uri, value: impl Into<String>) -> Self {
-        Self {
-            url,
-            value_string: Some(value.into()),
-        }
+        let mut e = Self::empty(url);
+        e.value_string = Some(value.into());
+        e
+    }
+
+    /// Construct an extension with a code value.
+    #[must_use]
+    pub fn code(url: Uri, value: Code) -> Self {
+        let mut e = Self::empty(url);
+        e.value_code = Some(value);
+        e
+    }
+
+    /// Construct an extension with a boolean value.
+    #[must_use]
+    pub fn boolean(url: Uri, value: bool) -> Self {
+        let mut e = Self::empty(url);
+        e.value_boolean = Some(value);
+        e
+    }
+
+    /// Construct an extension with a dateTime value.
+    #[must_use]
+    pub fn datetime(url: Uri, value: DateTime) -> Self {
+        let mut e = Self::empty(url);
+        e.value_datetime = Some(value);
+        e
+    }
+
+    /// Construct an extension with nested sub-extensions (no scalar `value[x]`).
+    #[must_use]
+    pub fn nested(url: Uri, children: Vec<Extension>) -> Self {
+        let mut e = Self::empty(url);
+        e.extension = children;
+        e
     }
 }
 
