@@ -100,8 +100,11 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
     try {
         const parts = token.split(".");
         if (parts.length !== 3) return null;
-        const payload = JSON.parse(atob(parts[1]));
-        return payload;
+        // JWT uses base64url (RFC 4648 §5): `-` for `+`, `_` for `/`, padding stripped.
+        // atob() only accepts standard base64, so translate before decoding.
+        const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+        return JSON.parse(atob(b64 + pad));
     } catch {
         return null;
     }
@@ -137,6 +140,30 @@ export function Navbar() {
                 .catch(() => setTenants([]));
         }
     }, [pathname]);
+
+    // Initialize the tenant_id cookie on first load when it's missing or
+    // points at a tenant that no longer exists. Prefer the JWT's tenant
+    // claim (matches what the backend filters by); otherwise pick
+    // asgard_medical, then any non-default tenant, then the first one.
+    // Once the cookie names a real tenant — including Default Tenant —
+    // respect the user's dropdown selection. Admin tenant switching is
+    // honored by the backend's flexible_tenant middleware via X-Tenant-Id.
+    useEffect(() => {
+        if (tenants.length === 0 || pathname === "/login") return;
+        const current = Cookies.get("tenant_id");
+        if (current && tenants.some(t => t.id === current)) return;
+        const token = Cookies.get("access_token");
+        const jwtTenant = token ? (decodeJwtPayload(token)?.tenant_id as string | undefined) : undefined;
+        const target =
+            (jwtTenant && tenants.some(t => t.id === jwtTenant) && jwtTenant) ||
+            tenants.find(t => t.id === "asgard_medical")?.id ||
+            tenants.find(t => t.id !== "default_tenant")?.id ||
+            tenants[0]?.id;
+        if (target && target !== current) {
+            Cookies.set("tenant_id", target, { path: "/", expires: 365 });
+            window.location.reload();
+        }
+    }, [tenants, pathname]);
 
     if (!mounted || pathname === "/login") return null;
 
