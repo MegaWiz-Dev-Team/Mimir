@@ -315,7 +315,7 @@ fn has_thai(s: &str) -> bool {
 /// (e.g. STEMI, MI, T2DM aren't tokens BGE-M3 understands as medical
 /// terms). Run before embedding so the semantic search sees the
 /// expanded form. Case-insensitive token match preserves rest of query.
-fn expand_acronyms(query: &str) -> String {
+pub fn expand_acronyms(query: &str) -> String {
     const PAIRS: &[(&str, &str)] = &[
         // Cardio
         ("STEMI", "ST elevation myocardial infarction"),
@@ -359,6 +359,14 @@ fn expand_acronyms(query: &str) -> String {
         ("GAD", "generalized anxiety disorder"),
         ("PTSD", "post traumatic stress disorder"),
         ("OCD", "obsessive compulsive disorder"),
+        // Sleep medicine
+        ("OSA", "obstructive sleep apnea"),
+        ("OSAS", "obstructive sleep apnea syndrome"),
+        ("CSA", "central sleep apnea"),
+        ("RLS", "restless legs syndrome"),
+        ("PLMD", "periodic limb movement disorder"),
+        ("CPAP", "continuous positive airway pressure"),
+        ("BIPAP", "bilevel positive airway pressure"),
     ];
     let mut out = String::with_capacity(query.len() + 32);
     let mut changed = false;
