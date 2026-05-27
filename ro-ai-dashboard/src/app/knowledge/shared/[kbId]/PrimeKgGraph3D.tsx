@@ -5,11 +5,18 @@ import dynamic from "next/dynamic";
 import {
     searchPrimekgEntity,
     fetchPrimekgNeighbors,
+    askPrimekgAssistantStream,
     type PrimekgEntity,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search, X } from "lucide-react";
+import { Loader2, Search, X, Sparkles, Send, PanelRightClose, PanelRightOpen } from "lucide-react";
+
+type ChatTurn = {
+    role: "user" | "assistant" | "system";
+    content: string;
+    turn: number;
+};
 
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
     ssr: false,
@@ -59,6 +66,77 @@ export default function PrimeKgGraph3D() {
     const [searching, setSearching] = useState(false);
 
     const [dim, setDim] = useState({ w: 800, h: 600 });
+
+    // ── Medical Knowledge Assistant chat panel (restored 2026-05-27) ──────
+    // Right-side aside. Streams replies from Bifrost's PrimeKG Graph Agent
+    // (id=7) via `/api/v1/knowledge/primekg/assistant/stream`. Lost between
+    // dashboard v2.3.36 (May 22, deployed) and v2.3.42 (current, rebuilt
+    // without the WIP that never got committed) — see memory
+    // `iris_swarm_chat_bifrost_gaps`.
+    const [chatOpen, setChatOpen] = useState(true);
+    const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
+    const [chatInput, setChatInput] = useState("");
+    const [chatStreaming, setChatStreaming] = useState(false);
+    const [chatStatus, setChatStatus] = useState<string | null>(null);
+    const chatSessionId = useRef<string>(
+        `primekg-${Math.random().toString(36).slice(2)}`,
+    );
+    const chatTurnRef = useRef(0);
+    // The user's currently-selected entity becomes the "topic" prefix for
+    // the next question — disambiguates "what causes this?" when the
+    // graph has many nodes.
+    const topicLabel = selected?.label;
+
+    const sendQuestion = useCallback(
+        async (rawText?: string) => {
+            const text = (rawText ?? chatInput).trim();
+            if (!text || chatStreaming) return;
+            const turn = ++chatTurnRef.current;
+            setChatInput("");
+            setChatTurns((prev) => [...prev, { role: "user", content: text, turn }]);
+            setChatStreaming(true);
+            setChatStatus("consulting");
+            // Anchor the query on the currently-selected entity so the
+            // agent grounds its answer there (matches v2.3.36 behaviour).
+            const query = topicLabel
+                ? `Topic: ${topicLabel}\n\nQuestion: ${text}`
+                : text;
+            let accum = "";
+            try {
+                await askPrimekgAssistantStream(query, chatSessionId.current, {
+                    onStatus: () => setChatStatus("consulting"),
+                    onAnswer: (answer) => {
+                        accum = answer;
+                    },
+                    onError: (msg) => {
+                        setChatTurns((prev) => [
+                            ...prev,
+                            { role: "system", content: `Error: ${msg}`, turn },
+                        ]);
+                    },
+                });
+                if (accum) {
+                    setChatTurns((prev) => [
+                        ...prev,
+                        { role: "assistant", content: accum, turn },
+                    ]);
+                }
+            } catch (e: any) {
+                setChatTurns((prev) => [
+                    ...prev,
+                    {
+                        role: "system",
+                        content: `Failed: ${e?.message || "unknown"}`,
+                        turn,
+                    },
+                ]);
+            } finally {
+                setChatStreaming(false);
+                setChatStatus(null);
+            }
+        },
+        [chatInput, chatStreaming, topicLabel],
+    );
 
     // Pull a node's neighbours into the graph.
     const expand = useCallback(
@@ -221,7 +299,8 @@ export default function PrimeKgGraph3D() {
     return (
         <Card className="overflow-hidden">
             <CardContent className="p-0">
-                <div className="relative" ref={containerRef} style={{ height: "70vh", background: "#ffffff" }}>
+                <div className="flex" style={{ height: "70vh", background: "#ffffff" }}>
+                <div className="relative flex-1 min-w-0" ref={containerRef} style={{ background: "#ffffff" }}>
                     {/* Search / entity picker */}
                     <div className="absolute top-3 left-3 z-10 w-[300px]">
                         <div className="relative">
@@ -315,6 +394,113 @@ export default function PrimeKgGraph3D() {
                             cooldownTicks={120}
                         />
                     )}
+                    {/* Collapsed-chat re-open button (only when chat aside is hidden) */}
+                    {!chatOpen && (
+                        <button
+                            onClick={() => setChatOpen(true)}
+                            className="absolute top-3 right-3 z-20 flex items-center gap-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium px-3 py-2 shadow hover:bg-indigo-700"
+                        >
+                            <PanelRightOpen className="w-4 h-4" /> Assistant
+                        </button>
+                    )}
+                </div>
+
+                {/* ── Medical Knowledge Assistant aside ──────────────────── */}
+                {chatOpen && (
+                    <aside className="w-[380px] shrink-0 border-l border-slate-200 bg-white flex flex-col">
+                        <div className="px-3 py-2 border-b border-slate-100">
+                            <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-indigo-600" />
+                                <span className="text-sm font-semibold text-slate-800">
+                                    Medical Knowledge Assistant
+                                </span>
+                                <button
+                                    onClick={() => setChatOpen(false)}
+                                    className="ml-auto text-slate-400 hover:text-slate-700"
+                                    title="ย่อ"
+                                >
+                                    <PanelRightClose className="w-4 h-4" />
+                                </button>
+                            </div>
+                            {topicLabel && (
+                                <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-700">
+                                    <span className="text-slate-500">หัวข้อ:</span>
+                                    <span className="font-medium">{topicLabel}</span>
+                                    <button
+                                        onClick={() => setSelected(null)}
+                                        className="text-indigo-400 hover:text-indigo-600"
+                                        title="ลบ topic"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Messages */}
+                        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                            {chatTurns.length === 0 && !chatStreaming && (
+                                <div className="text-[12px] text-slate-400 text-center mt-6">
+                                    ถามเรื่องความสัมพันธ์ของโรค, ยา, อาการ ได้เลย
+                                    <br />
+                                    คลิก entity ในกราฟเพื่อตั้งหัวข้อ
+                                </div>
+                            )}
+                            {chatTurns.map((turn, idx) => (
+                                <div
+                                    key={`${turn.turn}-${idx}`}
+                                    className={
+                                        turn.role === "user"
+                                            ? "ml-6 rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2 text-sm text-slate-800"
+                                            : turn.role === "assistant"
+                                              ? "rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap"
+                                              : "rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700"
+                                    }
+                                >
+                                    {turn.content}
+                                </div>
+                            ))}
+                            {chatStreaming && (
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-500 flex items-center gap-2">
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    {chatStatus === "consulting"
+                                        ? "กำลังถาม PrimeKG agent…"
+                                        : "รอ Bifrost…"}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Input */}
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                sendQuestion();
+                            }}
+                            className="border-t border-slate-100 p-2 flex items-center gap-2"
+                        >
+                            <Input
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                placeholder="ถามเรื่องความสัมพันธ์ของโรค..."
+                                className="flex-1 text-sm"
+                                disabled={chatStreaming}
+                            />
+                            <button
+                                type="submit"
+                                disabled={!chatInput.trim() || chatStreaming}
+                                className="rounded-md bg-indigo-600 text-white px-3 py-2 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                                aria-label="Send"
+                            >
+                                <Send className="w-4 h-4" />
+                            </button>
+                        </form>
+
+                        {/* Audit footer — explains the agent's data source */}
+                        <div className="border-t border-slate-100 px-3 py-1.5 text-[10px] text-slate-400 flex items-center gap-1.5">
+                            📊 หลักฐานจากกราฟ (PrimeKG) · agent id=7 · ตรวจสอบได้
+                        </div>
+                    </aside>
+                )}
                 </div>
             </CardContent>
         </Card>

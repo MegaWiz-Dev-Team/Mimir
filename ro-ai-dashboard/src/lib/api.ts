@@ -2197,6 +2197,89 @@ export async function fetchPrimekgNeighbors(
     return res.json();
 }
 
+// ── PrimeKG Medical Knowledge Assistant ────────────────────────────────────
+// Restored 2026-05-27 from de-minified dashboard v2.3.36 bundle. The widget
+// lives on /knowledge/shared/primekg (PrimeKgGraph3D.tsx aside panel). Both
+// helpers proxy to mimir-api → Bifrost PrimeKG Graph Agent (id=7, tenant
+// asgard_medical). Lost between v2.3.36 (May 22) and v2.3.42 (current) — see
+// memory `iris_swarm_chat_bifrost_gaps` for the silent-regression context.
+
+/// Non-streaming variant. Used as a fallback if the SSE stream isn't
+/// supported by the network path (some VPN setups buffer SSE poorly).
+export async function askPrimekgAssistant(
+    query: string,
+    sessionId?: string,
+): Promise<{ answer: string; reasoning?: string }> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/assistant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, session_id: sessionId }),
+    });
+    if (!res.ok) throw new Error("PrimeKG assistant failed");
+    return res.json();
+}
+
+/// SSE streaming variant. Callbacks fire as events arrive:
+///   - `onStatus()` — heartbeat (clears any "loading…" placeholder)
+///   - `onAnswer(text)` — the final answer text
+///   - `onError(msg)` — fatal mid-stream error
+export async function askPrimekgAssistantStream(
+    query: string,
+    sessionId: string,
+    callbacks: {
+        onStatus?: () => void;
+        onAnswer: (text: string) => void;
+        onError?: (msg: string) => void;
+    },
+): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/assistant/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, session_id: sessionId }),
+    });
+    if (!res.ok || !res.body) throw new Error("PrimeKG assistant stream failed");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    const handleEvent = (raw: string) => {
+        let evtType = "message";
+        let data = "";
+        for (const line of raw.split("\n")) {
+            if (line.startsWith("event:")) evtType = line.slice(6).trim();
+            else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (evtType === "status") {
+            callbacks.onStatus?.();
+        } else if (evtType === "answer") {
+            try {
+                callbacks.onAnswer(JSON.parse(data).answer || "");
+            } catch {
+                callbacks.onAnswer(data);
+            }
+        } else if (evtType === "error") {
+            try {
+                callbacks.onError?.(JSON.parse(data).error || "error");
+            } catch {
+                callbacks.onError?.(data);
+            }
+        }
+    };
+
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() || "";
+        for (const evt of events) {
+            if (evt.trim()) handleEvent(evt);
+        }
+    }
+    if (buf.trim()) handleEvent(buf);
+}
+
 export async function fetchGraphVisualization(params?: {
     limit?: number;
     type?: string;

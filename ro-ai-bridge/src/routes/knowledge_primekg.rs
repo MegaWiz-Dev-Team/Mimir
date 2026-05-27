@@ -19,17 +19,21 @@
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
+    response::sse::{Event, KeepAlive, Sse},
     routing::post,
     Json, Router,
 };
+use futures::stream::Stream;
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::neo4j::{Neo4jConfig, Neo4jService};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use std::convert::Infallible;
 use std::sync::Arc;
-use tokio::sync::OnceCell;
-use tracing::warn;
+use tokio::sync::{mpsc, OnceCell};
+use tokio_stream::wrappers::ReceiverStream;
+use tracing::{info, warn};
 
 pub fn knowledge_primekg_routes() -> Router<DbPool> {
     Router::new()
@@ -39,7 +43,196 @@ pub fn knowledge_primekg_routes() -> Router<DbPool> {
         .route("/disease_drugs", post(disease_drugs))
         .route("/symptom_to_disease", post(symptom_to_disease))
         .route("/path", post(path))
+        // Restored 2026-05-27 — Medical Knowledge Assistant chat panel.
+        // Backend was deployed in dashboard v2.3.36 (May 22) but the
+        // Rust route never got committed to git, then was lost when
+        // v2.3.42 rebuilt without the WIP. Both routes proxy to
+        // Bifrost PrimeKG Graph Agent (id=7, tenant=asgard_medical).
+        .route("/assistant", post(assistant))
+        .route("/assistant/stream", post(assistant_stream))
 }
+
+// ── PrimeKG assistant (Bifrost proxy) ─────────────────────────────────────────
+
+/// Bifrost agent id for the PrimeKG Graph Agent. Per the
+/// `primekg_graph_agent` memory: "agent id=7 grounds disease-
+/// relationship Qs in PrimeKG via Bifrost; needs X-Tenant-Id header".
+const PRIMEKG_AGENT_ID: u32 = 7;
+
+/// Cross-tenant target: PrimeKG agent lives on `asgard_medical`.
+/// Mimir dashboard (caller) may be on `asgard_platform` or any other
+/// tenant — Bifrost ACL gates the consult.
+const PRIMEKG_AGENT_TENANT: &str = "asgard_medical";
+
+fn bifrost_base_url() -> String {
+    std::env::var("BIFROST_URL")
+        .unwrap_or_else(|_| "http://bifrost.asgard.svc:8100".to_string())
+}
+
+#[derive(Deserialize)]
+struct AssistantRequest {
+    query: String,
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AssistantResponse {
+    answer: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<String>,
+}
+
+/// Bifrost agent_run response shape (mirrors swarm.rs).
+#[derive(Deserialize)]
+struct BifrostAgentResponse {
+    #[serde(default)]
+    reasoning: Option<String>,
+    #[serde(default)]
+    final_answer: Option<serde_json::Value>,
+}
+
+/// Pulls the human-readable text out of Bifrost's `final_answer` —
+/// which may arrive as a plain string OR as a stringified JSON like
+/// `{"reasoning":...,"final_answer":...}` depending on the agent's
+/// MCP layer. Mirrors the Iris v2.24.1 `extract_human_text` helper.
+fn extract_answer_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::String(s) => {
+            // Try parsing the string as JSON (handles the
+            // `{"reasoning":"...","final_answer":"..."}` shape).
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s.trim()) {
+                if let Some(inner) = parsed.get("final_answer").or_else(|| parsed.get("answer")) {
+                    return extract_answer_text(inner);
+                }
+            }
+            s.clone()
+        }
+        serde_json::Value::Object(map) => {
+            for key in ["final_answer", "answer", "reply", "content"] {
+                if let Some(inner) = map.get(key) {
+                    return extract_answer_text(inner);
+                }
+            }
+            serde_json::to_string(v).unwrap_or_default()
+        }
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+/// POST /api/v1/knowledge/primekg/assistant
+/// Non-streaming variant. Frontend uses this when SSE isn't needed.
+async fn assistant(
+    State(_pool): State<DbPool>,
+    Json(req): Json<AssistantRequest>,
+) -> Result<Json<AssistantResponse>, (StatusCode, Json<JsonValue>)> {
+    let bifrost_resp = call_bifrost_primekg_agent(&req).await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("PrimeKG assistant failed: {e}")})),
+        )
+    })?;
+    let answer = bifrost_resp
+        .final_answer
+        .as_ref()
+        .map(extract_answer_text)
+        .unwrap_or_default();
+    Ok(Json(AssistantResponse {
+        answer,
+        reasoning: bifrost_resp.reasoning,
+    }))
+}
+
+/// POST /api/v1/knowledge/primekg/assistant/stream
+/// SSE stream: emits 3 event types:
+///   * `status` — heartbeat while waiting on Bifrost
+///   * `answer` — one JSON `{"answer":"…"}` body with the final text
+///   * `error`  — one JSON `{"error":"…"}` body if anything fails
+///
+/// The current Bifrost agent_run API is request/response (not
+/// streaming-native). Until Bifrost grows a true SSE endpoint, we
+/// simulate the stream: emit `status` on entry, then await Bifrost,
+/// then emit one `answer` event with the full text. This still gives
+/// the dashboard a progress signal during the 5–10s call.
+async fn assistant_stream(
+    State(_pool): State<DbPool>,
+    Json(req): Json<AssistantRequest>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(8);
+
+    tokio::spawn(async move {
+        // Heartbeat so the dashboard's onStatus callback fires
+        // (clears any "loading…" placeholder).
+        let _ = tx
+            .send(Ok(Event::default().event("status").data("consulting")))
+            .await;
+
+        match call_bifrost_primekg_agent(&req).await {
+            Ok(resp) => {
+                let answer = resp
+                    .final_answer
+                    .as_ref()
+                    .map(extract_answer_text)
+                    .unwrap_or_default();
+                let payload = json!({"answer": answer});
+                if let Ok(event) = Event::default().event("answer").json_data(&payload) {
+                    let _ = tx.send(Ok(event)).await;
+                }
+            }
+            Err(e) => {
+                let payload = json!({"error": format!("PrimeKG assistant failed: {e}")});
+                if let Ok(event) = Event::default().event("error").json_data(&payload) {
+                    let _ = tx.send(Ok(event)).await;
+                }
+            }
+        }
+    });
+
+    Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default())
+}
+
+/// Shared Bifrost call. Both `assistant` + `assistant_stream` route
+/// through here so the agent-id / tenant / timeout constants live in
+/// one place.
+async fn call_bifrost_primekg_agent(req: &AssistantRequest) -> Result<BifrostAgentResponse, String> {
+    let url = format!(
+        "{}/v1/agents/{}/run",
+        bifrost_base_url(),
+        PRIMEKG_AGENT_ID,
+    );
+    info!(
+        url = %url,
+        tenant = %PRIMEKG_AGENT_TENANT,
+        "PrimeKG assistant → Bifrost",
+    );
+    let body = json!({
+        "query": req.query,
+        "session_id": req.session_id,
+    });
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .header("X-Tenant-Id", PRIMEKG_AGENT_TENANT)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await
+        .map_err(|e| format!("network: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Bifrost HTTP {status}: {body}"));
+    }
+    resp.json::<BifrostAgentResponse>()
+        .await
+        .map_err(|e| format!("Bifrost JSON decode: {e}"))
+}
+
+// We use HeaderMap (potentially) for future Skuggi/JWT propagation —
+// declared at top-level so the unused-import warning doesn't trip.
+#[allow(dead_code)]
+fn _hm_marker(_h: HeaderMap) {}
 
 // ── shared Neo4j handle (local to this module to avoid coupling with graph.rs) ─
 
