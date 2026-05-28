@@ -352,10 +352,22 @@ export async function fetchAgents(): Promise<AgentConfigResponse[]> {
         // This solves DNS resolution for external browsers accessing internal K8s service
         const proxyUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/bifrost/agents`;
 
+        // Get tenant from cookies (set by navbar) or sessionStorage (fallback)
+        const getTenantId = () => {
+            if (typeof window !== "undefined") {
+                // Try cookies first (set by navbar tenant selector)
+                const cookie = document.cookie.split('; ').find(row => row.startsWith('tenant_id='));
+                if (cookie) return cookie.split('=')[1];
+                // Fallback to sessionStorage
+                return sessionStorage.getItem("tenant_id") || "asgard_medical";
+            }
+            return "asgard_medical";
+        };
+
         const res = await fetch(proxyUrl, {
             cache: "no-store",
             headers: {
-                "X-Tenant-Id": sessionStorage.getItem("tenant_id") || "asgard_medical"
+                "X-Tenant-Id": getTenantId()
             }
         });
         if (res.ok) {
