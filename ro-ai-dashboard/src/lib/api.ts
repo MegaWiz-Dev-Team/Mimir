@@ -352,8 +352,9 @@ export async function fetchAgents(): Promise<AgentConfigResponse[]> {
         const bifrostUrl = (() => {
             if (typeof window !== "undefined") {
                 if (window.location.hostname.includes("asgard.internal")) {
-                    // Internal network: use bifrost.asgard.internal on HTTP
-                    return `http://bifrost.asgard.internal/v1/agents`;
+                    // Inside K8s cluster: use service DNS name
+                    // Outside K8s: browser running on asgard.internal accesses via DNS
+                    return `http://bifrost.asgard.svc/v1/agents`;
                 }
                 if ((process.env.NEXT_PUBLIC_API_URL?.includes("localhost") ||
                      process.env.NEXT_PUBLIC_API_URL?.includes("127.0.0.1")) &&
