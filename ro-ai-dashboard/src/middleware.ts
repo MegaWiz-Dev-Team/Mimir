@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 const PUBLIC_PATHS = [
     "/login",
     "/api/auth",
+    "/api/bifrost",
     "/_next",
     "/favicon.ico",
 ];

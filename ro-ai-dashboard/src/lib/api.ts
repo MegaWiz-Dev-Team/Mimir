@@ -347,27 +347,12 @@ export interface AgentConfigResponse {
 /// Fetch all agents from Agent Studio API
 export async function fetchAgents(): Promise<AgentConfigResponse[]> {
     try {
-        // Try Bifrost first (port 8100) for grouped agents
-        // Always use HTTP for internal services (Bifrost doesn't have HTTPS)
-        const bifrostUrl = (() => {
-            if (typeof window !== "undefined") {
-                if (window.location.hostname.includes("asgard.internal")) {
-                    // Inside K8s cluster: use service DNS name
-                    // Outside K8s: browser running on asgard.internal accesses via DNS
-                    return `http://bifrost.asgard.svc/v1/agents`;
-                }
-                if ((process.env.NEXT_PUBLIC_API_URL?.includes("localhost") ||
-                     process.env.NEXT_PUBLIC_API_URL?.includes("127.0.0.1")) &&
-                    window.location.hostname !== "localhost" &&
-                    window.location.hostname !== "127.0.0.1") {
-                    // External IP accessing local Mimir: route to same host on port 8100
-                    return `http://${window.location.hostname}:8100/v1/agents`;
-                }
-            }
-            return `http://localhost:8100/v1/agents`;
-        })();
+        // Try Bifrost proxy first (via Dashboard API endpoint)
+        // Browser accesses /api/bifrost/agents → Dashboard proxies to K8s bifrost.asgard.svc
+        // This solves DNS resolution for external browsers accessing internal K8s service
+        const proxyUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/bifrost/agents`;
 
-        const res = await fetch(bifrostUrl, {
+        const res = await fetch(proxyUrl, {
             cache: "no-store",
             headers: {
                 "X-Tenant-Id": sessionStorage.getItem("tenant_id") || "asgard_medical"
@@ -377,8 +362,9 @@ export async function fetchAgents(): Promise<AgentConfigResponse[]> {
             const data = await res.json();
             return data.agents || [];
         }
+        console.warn("Bifrost proxy returned:", res.status, res.statusText);
     } catch (e) {
-        console.warn("Bifrost fetch failed, falling back to Mimir API", e);
+        console.warn("Bifrost proxy fetch failed", e);
     }
 
     // Fallback to Mimir API
