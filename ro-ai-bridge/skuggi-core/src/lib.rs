@@ -181,8 +181,8 @@ pub fn scan_categories(text: &str) -> Vec<&'static str> {
 /// Handles two `messages[*].content` shapes:
 ///   - `"content": "string"` — redacted directly
 ///   - `"content": [{"type":"text","text":"…"}, {"type":"image_url",…}]`
-///     — redacts only the `text` fields; `image_url` is left untouched
-///       (image PII redaction is Sprint 50b Phase 2 — OpenCV YuNet).
+///     — redacts only the `text` fields; `image_url` is left untouched.
+///     (image PII redaction is Sprint 50b Phase 2 — OpenCV YuNet).
 pub fn redact_chat_body(body: &mut serde_json::Value) -> Vec<Detection> {
     let mut totals: std::collections::HashMap<&'static str, usize> =
         std::collections::HashMap::new();

@@ -347,6 +347,38 @@ export interface AgentConfigResponse {
 /// Fetch all agents from Agent Studio API
 export async function fetchAgents(): Promise<AgentConfigResponse[]> {
     try {
+        // Try Bifrost first (port 8100) for grouped agents
+        const bifrostUrl = (() => {
+            if (typeof window !== "undefined") {
+                if (window.location.hostname.includes("asgard.internal")) {
+                    return `${window.location.protocol}//bifrost.asgard.internal/v1/agents`;
+                }
+                if ((process.env.NEXT_PUBLIC_API_URL?.includes("localhost") ||
+                     process.env.NEXT_PUBLIC_API_URL?.includes("127.0.0.1")) &&
+                    window.location.hostname !== "localhost" &&
+                    window.location.hostname !== "127.0.0.1") {
+                    return `${window.location.protocol}//${window.location.hostname}:8100/v1/agents`;
+                }
+            }
+            return `http://localhost:8100/v1/agents`;
+        })();
+
+        const res = await fetch(bifrostUrl, {
+            cache: "no-store",
+            headers: {
+                "X-Tenant-Id": sessionStorage.getItem("tenant_id") || "asgard_medical"
+            }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            return data.agents || [];
+        }
+    } catch (e) {
+        console.warn("Bifrost fetch failed, falling back to Mimir API", e);
+    }
+
+    // Fallback to Mimir API
+    try {
         const res = await authFetch(`${API_BASE_URL}/agents`, { cache: "no-store" });
         if (!res.ok) return [];
         const data = await res.json();
