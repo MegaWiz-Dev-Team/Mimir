@@ -348,16 +348,19 @@ export interface AgentConfigResponse {
 export async function fetchAgents(): Promise<AgentConfigResponse[]> {
     try {
         // Try Bifrost first (port 8100) for grouped agents
+        // Always use HTTP for internal services (Bifrost doesn't have HTTPS)
         const bifrostUrl = (() => {
             if (typeof window !== "undefined") {
                 if (window.location.hostname.includes("asgard.internal")) {
-                    return `${window.location.protocol}//bifrost.asgard.internal/v1/agents`;
+                    // Internal network: use bifrost.asgard.internal on HTTP
+                    return `http://bifrost.asgard.internal/v1/agents`;
                 }
                 if ((process.env.NEXT_PUBLIC_API_URL?.includes("localhost") ||
                      process.env.NEXT_PUBLIC_API_URL?.includes("127.0.0.1")) &&
                     window.location.hostname !== "localhost" &&
                     window.location.hostname !== "127.0.0.1") {
-                    return `${window.location.protocol}//${window.location.hostname}:8100/v1/agents`;
+                    // External IP accessing local Mimir: route to same host on port 8100
+                    return `http://${window.location.hostname}:8100/v1/agents`;
                 }
             }
             return `http://localhost:8100/v1/agents`;
