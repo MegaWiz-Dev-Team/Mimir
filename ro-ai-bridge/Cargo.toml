@@ -40,7 +40,7 @@ tower-http = { workspace = true }
 tower = { workspace = true }
 async-trait = "0.1.89"
 mimir-core-ai = { version = "0.2.2", path = "mimir-core-ai" }
-skuggi-core = { version = "0.1.0", path = "skuggi-core" }
+skuggi-core = { version = "0.2", path = "skuggi-core" }
 ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
 ro-ai-domain-medical = { version = "0.1.0", path = "ro-ai-domain-medical" }
 async-stream = "0.3.6"
