@@ -4,19 +4,123 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
     searchPrimekgEntity,
+    resolvePrimekgQuery,
     fetchPrimekgNeighbors,
     askPrimekgAssistantStream,
     type PrimekgEntity,
+    type PrimekgRelation,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Loader2, Search, X, Sparkles, Send, PanelRightClose, PanelRightOpen } from "lucide-react";
 
+// Deterministic "Graph Evidence" shown alongside the LLM prose: the
+// resolved topic + its first-hop relations, straight from PrimeKG.
+type Evidence = {
+    topic: string;
+    topicType: string;
+    topicIndex: number;
+    relations: PrimekgRelation[];
+};
+
 type ChatTurn = {
     role: "user" | "assistant" | "system";
     content: string;
     turn: number;
+    evidence?: Evidence;
 };
+
+// How each PrimeKG relation type is presented in the evidence card.
+// Order = clinical priority (treatment & contraindications first, then
+// presentation, then related diseases, then the rest). Safety-distinct
+// styling: ⚠️ CONTRAINDICATION (rose) must never read like 💊 INDICATION.
+type RelGroup = { label: string; icon: string; chip: string; order: number };
+const REL_GROUPS: Record<string, RelGroup> = {
+    INDICATION: { label: "ยาที่ใช้รักษา", icon: "💊", chip: "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100", order: 0 },
+    "OFF-LABEL USE": { label: "ยา (off-label)", icon: "💊", chip: "bg-teal-50 border-teal-200 text-teal-800 hover:bg-teal-100", order: 1 },
+    CONTRAINDICATION: { label: "ยาที่ห้าม/ระวัง", icon: "⚠️", chip: "bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100", order: 2 },
+    DISEASE_PHENOTYPE_POSITIVE: { label: "อาการ/ลักษณะที่พบ", icon: "🩺", chip: "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100", order: 3 },
+    DISEASE_PHENOTYPE_NEGATIVE: { label: "อาการที่มักไม่พบ", icon: "🚫", chip: "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100", order: 4 },
+    DISEASE_DISEASE: { label: "โรคที่เกี่ยวข้อง", icon: "🔗", chip: "bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100", order: 5 },
+};
+const REL_FALLBACK: RelGroup = { label: "ความสัมพันธ์อื่นๆ", icon: "🔬", chip: "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100", order: 9 };
+const relGroup = (rel: string) => REL_GROUPS[rel] || REL_FALLBACK;
+
+/**
+ * Deterministic "Graph Evidence" card — the verifiable half of an answer.
+ * Built straight from PrimeKG relations (NOT LLM text), so safety-critical
+ * grouping (⚠️ contraindication vs 💊 indication) can't be garbled by
+ * phrasing. Every related entity is a chip that jumps the 3D graph to it.
+ */
+function EvidenceCard({
+    ev,
+    onGo,
+}: {
+    ev: Evidence;
+    onGo: (idx: number, name: string, type: string) => void;
+}) {
+    const groups = new Map<string, PrimekgRelation[]>();
+    for (const r of ev.relations) {
+        const arr = groups.get(r.relation) || [];
+        arr.push(r);
+        groups.set(r.relation, arr);
+    }
+    const ordered = Array.from(groups.entries()).sort(
+        (a, b) => relGroup(a[0]).order - relGroup(b[0]).order,
+    );
+    const hasTreatment = groups.has("INDICATION") || groups.has("OFF-LABEL USE");
+
+    return (
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm">
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-100">
+                <span
+                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ background: colorFor(ev.topicType) }}
+                />
+                <span className="text-sm font-semibold text-slate-800 truncate">{ev.topic}</span>
+                <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400 shrink-0">
+                    หลักฐานจากกราฟ
+                </span>
+            </div>
+            <div className="p-2.5 space-y-2.5">
+                {ordered.map(([rel, items]) => {
+                    const g = relGroup(rel);
+                    return (
+                        <div key={rel}>
+                            <div className="flex items-center gap-1.5 mb-1 text-[11px] font-medium text-slate-500">
+                                <span>{g.icon}</span>
+                                <span>{g.label}</span>
+                                <span className="text-slate-300">·</span>
+                                <span className="text-slate-400">{items.length}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {items.map((r) => (
+                                    <button
+                                        key={r.entity_index}
+                                        onClick={() => onGo(r.entity_index, r.name, r.type)}
+                                        title={`ดู “${r.name}” ในกราฟ 3D`}
+                                        className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${g.chip}`}
+                                    >
+                                        {r.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })}
+                {!hasTreatment && (
+                    <div className="rounded-md bg-amber-50 border border-amber-100 px-2 py-1.5 text-[10px] text-amber-700 leading-relaxed">
+                        ℹ️ ไม่มี “ยาที่ใช้รักษา” ในกราฟ — ไม่ได้แปลว่ารักษาไม่ได้
+                        (เช่น OSA รักษาด้วย CPAP/ปรับพฤติกรรมเป็นหลัก)
+                    </div>
+                )}
+            </div>
+            <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-400 leading-relaxed">
+                👆 คลิกชิปเพื่อดูใน 3D · ข้อมูลจากกราฟวิจัย PrimeKG ไม่ใช่แนวทางเวชปฏิบัติ
+            </div>
+        </div>
+    );
+}
 
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
     ssr: false,
@@ -87,58 +191,8 @@ export default function PrimeKgGraph3D() {
     // graph has many nodes.
     const topicLabel = selected?.label;
 
-    const sendQuestion = useCallback(
-        async (rawText?: string) => {
-            const text = (rawText ?? chatInput).trim();
-            if (!text || chatStreaming) return;
-            const turn = ++chatTurnRef.current;
-            setChatInput("");
-            setChatTurns((prev) => [...prev, { role: "user", content: text, turn }]);
-            setChatStreaming(true);
-            setChatStatus("consulting");
-            // Anchor the query on the currently-selected entity so the
-            // agent grounds its answer there (matches v2.3.36 behaviour).
-            const query = topicLabel
-                ? `Topic: ${topicLabel}\n\nQuestion: ${text}`
-                : text;
-            let accum = "";
-            try {
-                await askPrimekgAssistantStream(query, chatSessionId.current, {
-                    onStatus: () => setChatStatus("consulting"),
-                    onAnswer: (answer) => {
-                        accum = answer;
-                    },
-                    onError: (msg) => {
-                        setChatTurns((prev) => [
-                            ...prev,
-                            { role: "system", content: `Error: ${msg}`, turn },
-                        ]);
-                    },
-                });
-                if (accum) {
-                    setChatTurns((prev) => [
-                        ...prev,
-                        { role: "assistant", content: accum, turn },
-                    ]);
-                }
-            } catch (e: any) {
-                setChatTurns((prev) => [
-                    ...prev,
-                    {
-                        role: "system",
-                        content: `Failed: ${e?.message || "unknown"}`,
-                        turn,
-                    },
-                ]);
-            } finally {
-                setChatStreaming(false);
-                setChatStatus(null);
-            }
-        },
-        [chatInput, chatStreaming, topicLabel],
-    );
-
-    // Pull a node's neighbours into the graph.
+    // Pull a node's neighbours into the graph. Declared before
+    // `sendQuestion` because that callback lists `expand` in its deps.
     const expand = useCallback(
         async (idx: number, name: string, type: string) => {
             const centerId = String(idx);
@@ -184,6 +238,97 @@ export default function PrimeKgGraph3D() {
             }
         },
         [expanded],
+    );
+
+    const sendQuestion = useCallback(
+        async (rawText?: string) => {
+            const text = (rawText ?? chatInput).trim();
+            if (!text || chatStreaming) return;
+            const turn = ++chatTurnRef.current;
+            setChatInput("");
+            setChatTurns((prev) => [...prev, { role: "user", content: text, turn }]);
+            setChatStreaming(true);
+            setChatStatus("consulting");
+            // Re-center the graph on whatever disease THIS question names
+            // (e.g. OSA) and use it as the topic. A question that names its
+            // own entity wins; a bare follow-up ("รักษายังไง") resolves
+            // nothing → we keep the currently-selected node as the topic.
+            let topic = topicLabel;
+            try {
+                const hit = await resolvePrimekgQuery(text);
+                if (hit) {
+                    topic = hit.name;
+                    setSelected({
+                        id: String(hit.entity_index),
+                        label: hit.name,
+                        type: hit.type,
+                        color: colorFor(hit.type),
+                        val: 8,
+                    });
+                    void expand(hit.entity_index, hit.name, hit.type);
+                    // Show the deterministic graph evidence immediately —
+                    // before (and independent of) the LLM prose. This is the
+                    // safety-critical, verifiable part of the answer.
+                    if (hit.relations.length > 0) {
+                        setChatTurns((prev) => [
+                            ...prev,
+                            {
+                                role: "assistant",
+                                content: "",
+                                turn,
+                                evidence: {
+                                    topic: hit.name,
+                                    topicType: hit.type,
+                                    topicIndex: hit.entity_index,
+                                    relations: hit.relations,
+                                },
+                            },
+                        ]);
+                    }
+                }
+            } catch {
+                /* best-effort graph navigation — keep the current topic */
+            }
+            // Anchor the LLM answer on the resolved (or current) topic so it
+            // grounds there (matches v2.3.36 behaviour).
+            const query = topic
+                ? `Topic: ${topic}\n\nQuestion: ${text}`
+                : text;
+            let accum = "";
+            try {
+                await askPrimekgAssistantStream(query, chatSessionId.current, {
+                    onStatus: () => setChatStatus("consulting"),
+                    onAnswer: (answer) => {
+                        accum = answer;
+                    },
+                    onError: (msg) => {
+                        setChatTurns((prev) => [
+                            ...prev,
+                            { role: "system", content: `Error: ${msg}`, turn },
+                        ]);
+                    },
+                });
+                if (accum) {
+                    setChatTurns((prev) => [
+                        ...prev,
+                        { role: "assistant", content: accum, turn },
+                    ]);
+                }
+            } catch (e: any) {
+                setChatTurns((prev) => [
+                    ...prev,
+                    {
+                        role: "system",
+                        content: `Failed: ${e?.message || "unknown"}`,
+                        turn,
+                    },
+                ]);
+            } finally {
+                setChatStreaming(false);
+                setChatStatus(null);
+            }
+        },
+        [chatInput, chatStreaming, topicLabel, expand],
     );
 
     // Seed with a recognisable hub on first mount.
@@ -294,6 +439,23 @@ export default function PrimeKgGraph3D() {
             expand(e.entity_index, e.name, e.type);
         },
         [expand],
+    );
+
+    // Jump the graph to an entity referenced from the chat (evidence-card
+    // chip). Select it, pull its neighbours, then fly the camera there once
+    // the layout has placed the node.
+    const goToEntity = useCallback(
+        async (idx: number, name: string, type: string) => {
+            setSelected({ id: String(idx), label: name, type, color: colorFor(type), val: 8 });
+            await expand(idx, name, type);
+            setTimeout(() => {
+                const node: any = fgRef.current
+                    ?.graphData?.()
+                    ?.nodes?.find((n: any) => n.id === String(idx));
+                if (node && typeof node.x === "number") focusNode(node);
+            }, 450);
+        },
+        [expand, focusNode],
     );
 
     return (
@@ -446,20 +608,31 @@ export default function PrimeKgGraph3D() {
                                     คลิก entity ในกราฟเพื่อตั้งหัวข้อ
                                 </div>
                             )}
-                            {chatTurns.map((turn, idx) => (
-                                <div
-                                    key={`${turn.turn}-${idx}`}
-                                    className={
-                                        turn.role === "user"
-                                            ? "ml-6 rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2 text-sm text-slate-800"
-                                            : turn.role === "assistant"
-                                              ? "rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap"
-                                              : "rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700"
-                                    }
-                                >
-                                    {turn.content}
-                                </div>
-                            ))}
+                            {chatTurns.map((turn, idx) => {
+                                if (turn.evidence) {
+                                    return (
+                                        <EvidenceCard
+                                            key={`${turn.turn}-${idx}`}
+                                            ev={turn.evidence}
+                                            onGo={goToEntity}
+                                        />
+                                    );
+                                }
+                                return (
+                                    <div
+                                        key={`${turn.turn}-${idx}`}
+                                        className={
+                                            turn.role === "user"
+                                                ? "ml-6 rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2 text-sm text-slate-800"
+                                                : turn.role === "assistant"
+                                                  ? "rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap"
+                                                  : "rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700"
+                                        }
+                                    >
+                                        {turn.content}
+                                    </div>
+                                );
+                            })}
                             {chatStreaming && (
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-500 flex items-center gap-2">
                                     <Loader2 className="w-3 h-3 animate-spin" />

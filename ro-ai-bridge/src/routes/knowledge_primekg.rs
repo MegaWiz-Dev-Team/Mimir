@@ -52,6 +52,9 @@ pub fn knowledge_primekg_routes() -> Router<DbPool> {
         // Bifrost PrimeKG Graph Agent (id=7, tenant=asgard_medical).
         .route("/assistant", post(assistant))
         .route("/assistant/stream", post(assistant_stream))
+        // Lets the chat panel re-center the 3D graph on whatever disease
+        // the user's question names (e.g. OSA), not just the seeded node.
+        .route("/resolve_query", post(resolve_query))
 }
 
 // ── PrimeKG assistant (Bifrost proxy) ─────────────────────────────────────────
@@ -406,9 +409,12 @@ const RELATION_TIERS: &[&[&str]] = &[
     &[],
 ];
 
-/// Direct Neo4j fallback: lookup_entity → neighbors → text answer.
-/// Returns `None` if Neo4j is disabled, no entity matched, or no neighbors found.
-async fn primekg_fallback(query: &str) -> Option<String> {
+/// Resolve the most likely PrimeKG entity named in a free-text question.
+/// Reuses `entity_candidates` (acronym expansion + longest-first n-gram
+/// trials, e.g. OSA → obstructive sleep apnea), preferring `disease` type
+/// for medical relationship questions. Returns `(entity_index, name, type)`
+/// or `None` if Neo4j is disabled / nothing matched.
+async fn resolve_query_entity(query: &str) -> Option<(i64, String, String)> {
     let svc = neo4j().await?;
     let candidates = entity_candidates(query);
     if candidates.is_empty() {
@@ -445,6 +451,92 @@ async fn primekg_fallback(query: &str) -> Option<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("entity")
         .to_string();
+    Some((entity_index, entity_name, entity_type))
+}
+
+#[derive(Deserialize)]
+struct ResolveQueryReq {
+    query: String,
+}
+
+/// Cap on CONTRAINDICATION edges returned for the evidence card. PrimeKG's
+/// edge distribution is heavily skewed (a disease can have hundreds of
+/// CONTRAINDICATION edges); a flat limit would alphabetically truncate the
+/// rare-but-salient INDICATION / phenotype / disease-disease edges — the
+/// v2.3.45 Solriamfetol/OSA bug. Keep ALL non-CONTRAINDICATION edges and
+/// cap CONTRAINDICATION so it can't crowd out clinically-important relations.
+const CONTRA_CAP: usize = 12;
+
+/// Balanced first-hop relations for the chat's Graph Evidence card.
+/// Flattens each neighbor to `{entity_index, name, type, relation}` where
+/// `relation` is the first-hop edge type. Returns `[]` on any failure
+/// (the card is best-effort; the LLM prose still renders).
+async fn balanced_relations(entity_index: i64) -> Vec<JsonValue> {
+    let Some(svc) = neo4j().await else {
+        return Vec::new();
+    };
+    // Fetch wide across ALL relation types (1 hop), then balance here.
+    let raw = svc
+        .primekg_neighbors_filtered(entity_index, &[], 1, 250)
+        .await
+        .unwrap_or_default();
+    let mut contra = 0usize;
+    let mut out = Vec::new();
+    for item in raw {
+        let relation = item
+            .get("path_relations")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if relation == "CONTRAINDICATION" {
+            contra += 1;
+            if contra > CONTRA_CAP {
+                continue;
+            }
+        }
+        out.push(json!({
+            "entity_index": item.get("entity_index").cloned().unwrap_or(JsonValue::Null),
+            "name": item.get("name").cloned().unwrap_or(JsonValue::Null),
+            "type": item.get("type").cloned().unwrap_or(JsonValue::Null),
+            "relation": relation,
+        }));
+    }
+    out
+}
+
+/// POST /api/v1/knowledge/primekg/resolve_query
+/// Extracts the disease/entity a free-text question is about, resolves it
+/// to a PrimeKG node, and returns its balanced first-hop relations — so the
+/// chat panel can both drive the 3D graph onto it AND render a deterministic
+/// "Graph Evidence" card (clickable related entities grouped by relation,
+/// straight from the graph — not LLM text). Returns `{}` when nothing
+/// resolved (e.g. a Thai-only follow-up like "รักษายังไง" with no entity
+/// named — the caller then keeps the current topic).
+async fn resolve_query(
+    State(_pool): State<DbPool>,
+    Json(req): Json<ResolveQueryReq>,
+) -> Json<JsonValue> {
+    match resolve_query_entity(&req.query).await {
+        Some((entity_index, name, entity_type)) => {
+            let relations = balanced_relations(entity_index).await;
+            Json(json!({
+                "entity_index": entity_index,
+                "name": name,
+                "type": entity_type,
+                "relations": relations,
+            }))
+        }
+        None => Json(json!({})),
+    }
+}
+
+/// Direct Neo4j fallback: lookup_entity → neighbors → text answer.
+/// Returns `None` if Neo4j is disabled, no entity matched, or no neighbors found.
+async fn primekg_fallback(query: &str) -> Option<String> {
+    let svc = neo4j().await?;
+    let (entity_index, entity_name, entity_type) = resolve_query_entity(query).await?;
 
     // Cascade through relation tiers until one returns results.
     let mut neighbors: Vec<serde_json::Value> = Vec::new();

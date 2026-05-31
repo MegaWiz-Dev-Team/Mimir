@@ -2213,6 +2213,47 @@ export async function searchPrimekgEntity(name: string, limit = 10): Promise<Pri
     return (j.items || []) as PrimekgEntity[];
 }
 
+/// One first-hop relation from a resolved disease to a neighbour entity,
+/// straight from the PrimeKG graph. `relation` is the edge type
+/// (INDICATION / CONTRAINDICATION / DISEASE_PHENOTYPE_POSITIVE / …).
+export interface PrimekgRelation {
+    entity_index: number;
+    name: string;
+    type: string;
+    relation: string;
+}
+
+export interface PrimekgResolved {
+    entity_index: number;
+    name: string;
+    type: string;
+    /** Balanced first-hop neighbours for the chat's Graph Evidence card. */
+    relations: PrimekgRelation[];
+}
+
+/// Resolve the disease/entity a free-text question is about (handles
+/// acronyms like OSA → obstructive sleep apnea + Thai/punctuation
+/// prefixes server-side) plus its balanced first-hop relations — so the
+/// chat panel can re-center the 3D graph AND render a Graph Evidence card.
+/// Returns null when the question names no resolvable entity (e.g. a bare
+/// follow-up "รักษายังไง") — caller keeps the current topic.
+export async function resolvePrimekgQuery(query: string): Promise<PrimekgResolved | null> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/resolve_query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (typeof j.entity_index !== "number") return null;
+    return {
+        entity_index: j.entity_index,
+        name: j.name,
+        type: j.type,
+        relations: Array.isArray(j.relations) ? (j.relations as PrimekgRelation[]) : [],
+    };
+}
+
 export interface PrimekgNeighbor {
     neighbor_index: number;
     neighbor_name: string;
