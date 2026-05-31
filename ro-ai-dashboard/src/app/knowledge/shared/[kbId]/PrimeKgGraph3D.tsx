@@ -212,6 +212,9 @@ export default function PrimeKgGraph3D() {
     const [links, setLinks] = useState<Map<string, GLink>>(new Map());
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [selected, setSelected] = useState<GNode | null>(null);
+    // Relations of the currently-selected node, for the detail panel.
+    const [selRelations, setSelRelations] = useState<PrimekgRelation[]>([]);
+    const [selRelLoading, setSelRelLoading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -401,6 +404,34 @@ export default function PrimeKgGraph3D() {
         [chatInput, chatStreaming, topicLabel, selected, expand],
     );
 
+    // Load the selected node's relations for the detail panel (any node:
+    // disease, drug, gene…). PrimeKG nodes carry no description, so their
+    // relationships ARE the detail worth showing.
+    const selectedId = selected?.id;
+    useEffect(() => {
+        const idx = Number(selectedId);
+        if (!selectedId || !Number.isFinite(idx)) {
+            setSelRelations([]);
+            return;
+        }
+        let cancelled = false;
+        setSelRelLoading(true);
+        setSelRelations([]);
+        (async () => {
+            try {
+                const rels = await fetchPrimekgRelations(idx);
+                if (!cancelled) setSelRelations(rels);
+            } catch {
+                if (!cancelled) setSelRelations([]);
+            } finally {
+                if (!cancelled) setSelRelLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedId]);
+
     // Seed with a recognisable hub on first mount.
     useEffect(() => {
         (async () => {
@@ -528,6 +559,24 @@ export default function PrimeKgGraph3D() {
         [expand, focusNode],
     );
 
+    // Grouped relation counts for the selected-node detail panel.
+    const selRelSummary = useMemo(() => {
+        const m = new Map<string, number>();
+        for (const r of selRelations) m.set(r.relation, (m.get(r.relation) || 0) + 1);
+        return Array.from(m.entries()).sort(
+            (a, b) => relGroup(a[0]).order - relGroup(b[0]).order,
+        );
+    }, [selRelations]);
+
+    // "Ask about this node" — sends a grounded question to the chat about the
+    // selected node, which re-centers the graph, shows its evidence card, and
+    // grounds the LLM answer on the node's real relations.
+    const askAboutSelected = useCallback(() => {
+        if (!selected) return;
+        setChatOpen(true);
+        void sendQuestion(`${selected.label} เกี่ยวข้องกับอะไรบ้าง`);
+    }, [selected, sendQuestion]);
+
     return (
         <Card className="overflow-hidden">
             <CardContent className="p-0">
@@ -583,7 +632,48 @@ export default function PrimeKgGraph3D() {
                             </div>
                             <p className="mt-2 text-sm font-semibold text-slate-800 break-words">{selected.label}</p>
                             <p className="mt-1 text-[11px] text-slate-400 font-mono">idx {selected.id}</p>
-                            <p className="mt-2 text-[11px] text-slate-500">คลิกโหนดในกราฟเพื่อดึงเพื่อนบ้านเพิ่ม</p>
+
+                            {/* Relation summary — PrimeKG nodes have no
+                                description, so their connections are the detail. */}
+                            <div className="mt-2 border-t border-slate-100 pt-2">
+                                {selRelLoading ? (
+                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                        <Loader2 className="w-3 h-3 animate-spin" /> กำลังโหลดความสัมพันธ์…
+                                    </div>
+                                ) : selRelSummary.length > 0 ? (
+                                    <>
+                                        <div className="text-[10px] text-slate-400 mb-1">
+                                            ความสัมพันธ์ในกราฟ ({selRelations.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                            {selRelSummary.map(([rel, count]) => {
+                                                const g = relGroup(rel);
+                                                return (
+                                                    <span
+                                                        key={rel}
+                                                        title={g.label}
+                                                        className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${g.chip}`}
+                                                    >
+                                                        <span>{g.icon}</span>
+                                                        <span>{g.label}</span>
+                                                        <span className="font-semibold">{count}</span>
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                        <button
+                                            onClick={askAboutSelected}
+                                            className="mt-2 w-full rounded-md bg-indigo-600 text-white text-[11px] font-medium px-2 py-1.5 hover:bg-indigo-700 flex items-center justify-center gap-1.5"
+                                        >
+                                            <Sparkles className="w-3 h-3" /> ดูรายละเอียด / ถามในแชต
+                                        </button>
+                                    </>
+                                ) : (
+                                    <p className="text-[11px] text-slate-500">
+                                        คลิกโหนดในกราฟเพื่อดึงเพื่อนบ้านเพิ่ม
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     )}
 
