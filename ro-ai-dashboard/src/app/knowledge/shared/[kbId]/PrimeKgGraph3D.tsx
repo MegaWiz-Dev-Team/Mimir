@@ -6,10 +6,12 @@ import {
     searchPrimekgEntity,
     resolvePrimekgQuery,
     fetchPrimekgRelations,
+    enrichPrimekgNode,
     fetchPrimekgNeighbors,
     askPrimekgAssistantStream,
     type PrimekgEntity,
     type PrimekgRelation,
+    type PrimekgEnrichment,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -215,6 +217,8 @@ export default function PrimeKgGraph3D() {
     // Relations of the currently-selected node, for the detail panel.
     const [selRelations, setSelRelations] = useState<PrimekgRelation[]>([]);
     const [selRelLoading, setSelRelLoading] = useState(false);
+    // Cross-KB enrichment (SNOMED + TMT) for the selected node.
+    const [selEnrich, setSelEnrich] = useState<PrimekgEnrichment | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -408,15 +412,19 @@ export default function PrimeKgGraph3D() {
     // disease, drug, gene…). PrimeKG nodes carry no description, so their
     // relationships ARE the detail worth showing.
     const selectedId = selected?.id;
+    const selectedLabel = selected?.label;
+    const selectedType = selected?.type;
     useEffect(() => {
         const idx = Number(selectedId);
         if (!selectedId || !Number.isFinite(idx)) {
             setSelRelations([]);
+            setSelEnrich(null);
             return;
         }
         let cancelled = false;
         setSelRelLoading(true);
         setSelRelations([]);
+        setSelEnrich(null);
         (async () => {
             try {
                 const rels = await fetchPrimekgRelations(idx);
@@ -427,10 +435,21 @@ export default function PrimeKgGraph3D() {
                 if (!cancelled) setSelRelLoading(false);
             }
         })();
+        // Cross-KB enrichment (SNOMED/TMT) — independent, best-effort.
+        if (selectedLabel) {
+            (async () => {
+                try {
+                    const e = await enrichPrimekgNode(selectedLabel, selectedType);
+                    if (!cancelled) setSelEnrich(e);
+                } catch {
+                    if (!cancelled) setSelEnrich(null);
+                }
+            })();
+        }
         return () => {
             cancelled = true;
         };
-    }, [selectedId]);
+    }, [selectedId, selectedLabel, selectedType]);
 
     // Seed with a recognisable hub on first mount.
     useEffect(() => {
@@ -618,7 +637,7 @@ export default function PrimeKgGraph3D() {
 
                     {/* Selected entity panel */}
                     {selected && (
-                        <div className="absolute top-3 right-3 z-10 w-[260px] rounded-md border border-slate-200 bg-white/95 shadow-lg p-3">
+                        <div className="absolute top-3 right-3 z-10 w-[260px] max-h-[calc(70vh-1.5rem)] overflow-y-auto rounded-md border border-slate-200 bg-white/95 shadow-lg p-3">
                             <div className="flex items-start justify-between">
                                 <div className="flex items-center gap-2">
                                     <span className="inline-block w-3 h-3 rounded-full" style={{ background: selected.color }} />
@@ -674,6 +693,59 @@ export default function PrimeKgGraph3D() {
                                     </p>
                                 )}
                             </div>
+
+                            {/* Cross-KB references (SNOMED clinical name + ICD-10, TMT Thai drug). */}
+                            {(selEnrich?.snomed || selEnrich?.tmt) && (
+                                <div className="mt-2 border-t border-slate-100 pt-2 space-y-2">
+                                    <div className="text-[10px] text-slate-400">อ้างอิงจาก KB อื่น</div>
+                                    {selEnrich?.snomed && (
+                                        <div className="rounded-md bg-sky-50 border border-sky-100 px-2 py-1.5">
+                                            <div className="text-[10px] font-semibold text-sky-700 mb-0.5">
+                                                🩺 SNOMED CT
+                                            </div>
+                                            {selEnrich.snomed.fsn && (
+                                                <p className="text-[11px] text-slate-700 break-words">
+                                                    {selEnrich.snomed.fsn}
+                                                </p>
+                                            )}
+                                            {selEnrich.snomed.synonyms.length > 0 && (
+                                                <p className="text-[10px] text-slate-500 mt-0.5 break-words">
+                                                    คำพ้อง: {selEnrich.snomed.synonyms.slice(0, 4).join(", ")}
+                                                </p>
+                                            )}
+                                            {selEnrich.snomed.icd10.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                    {selEnrich.snomed.icd10
+                                                        .filter((c) => c.tm || c.who)
+                                                        .slice(0, 4)
+                                                        .map((c, i) => (
+                                                            <span
+                                                                key={i}
+                                                                title="ICD-10-TM / WHO"
+                                                                className="rounded border border-sky-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-sky-800"
+                                                            >
+                                                                {c.tm || c.who}
+                                                            </span>
+                                                        ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {selEnrich?.tmt && (
+                                        <div className="rounded-md bg-blue-50 border border-blue-100 px-2 py-1.5">
+                                            <div className="text-[10px] font-semibold text-blue-700 mb-0.5">
+                                                💊 TMT (ยาไทย)
+                                            </div>
+                                            <p className="text-[11px] text-slate-700 break-words">
+                                                {selEnrich.tmt.fsn}
+                                            </p>
+                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                                {selEnrich.tmt.concept_type} · {selEnrich.tmt.tmt_id}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 

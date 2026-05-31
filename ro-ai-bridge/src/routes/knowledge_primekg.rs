@@ -29,6 +29,7 @@ use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::neo4j::{Neo4jConfig, Neo4jService};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sqlx::Row;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::{mpsc, OnceCell};
@@ -57,6 +58,9 @@ pub fn knowledge_primekg_routes() -> Router<DbPool> {
         .route("/resolve_query", post(resolve_query))
         // Relations for a known entity_index — current-topic follow-ups.
         .route("/relations", post(relations))
+        // Cross-KB enrichment (SNOMED clinical name + ICD-10, TMT Thai drug
+        // name) for the selected-node detail panel.
+        .route("/enrich", post(enrich))
 }
 
 // ── PrimeKG assistant (Bifrost proxy) ─────────────────────────────────────────
@@ -523,6 +527,129 @@ async fn relations(
     Json(req): Json<RelationsReq>,
 ) -> Json<JsonValue> {
     Json(json!({ "relations": balanced_relations(req.entity_index).await }))
+}
+
+#[derive(Deserialize)]
+struct EnrichReq {
+    name: String,
+    #[serde(default)]
+    entity_type: Option<String>,
+}
+
+/// POST /api/v1/knowledge/primekg/enrich {name, entity_type}
+/// Cross-references a PrimeKG node against Mimir's other shared KBs by NAME
+/// (PrimeKG uses MONDO/DrugBank/HPO ids, not SNOMED — there's no id mapping,
+/// so matching is name-based and best-effort). Returns:
+///   * `snomed`: best clinical concept — FSN, synonyms, ICD-10-TM codes
+///   * `tmt`   : Thai Medicines Terminology match (drug-type nodes only)
+/// PrimeKG/SNOMED/TMT store no prose definition, so none is returned.
+async fn enrich(State(pool): State<DbPool>, Json(req): Json<EnrichReq>) -> Json<JsonValue> {
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return Json(json!({}));
+    }
+    let is_drug = req
+        .entity_type
+        .as_deref()
+        .map(|t| t.eq_ignore_ascii_case("drug"))
+        .unwrap_or(false);
+    // Run the independent KB lookups concurrently.
+    let (snomed, tmt) = tokio::join!(enrich_snomed(&pool, &name), async {
+        if is_drug {
+            enrich_tmt(&pool, &name).await
+        } else {
+            None
+        }
+    });
+    Json(json!({ "snomed": snomed, "tmt": tmt }))
+}
+
+/// Best SNOMED concept for a name → FSN + a few synonyms + ICD-10-TM codes.
+async fn enrich_snomed(pool: &DbPool, name: &str) -> Option<JsonValue> {
+    // Best matching concept (FULLTEXT + exactness/FSN ranking, parameterized).
+    let row = sqlx::query(
+        "SELECT concept_id, term FROM snomed_descriptions \
+         WHERE tenant_id IS NULL AND active = 1 \
+           AND MATCH(term) AGAINST(? IN NATURAL LANGUAGE MODE) \
+         ORDER BY (LOWER(term) = LOWER(?)) DESC, (term_type = 'fsn') DESC, \
+           MATCH(term) AGAINST(? IN NATURAL LANGUAGE MODE) DESC, CHAR_LENGTH(term) ASC \
+         LIMIT 1",
+    )
+    .bind(name)
+    .bind(name)
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    let concept_id: String = row.get("concept_id");
+
+    let fsn: Option<String> = sqlx::query_scalar(
+        "SELECT term FROM snomed_descriptions \
+         WHERE tenant_id IS NULL AND concept_id = ? AND term_type = 'fsn' LIMIT 1",
+    )
+    .bind(&concept_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let synonyms: Vec<String> = sqlx::query(
+        "SELECT DISTINCT term FROM snomed_descriptions \
+         WHERE tenant_id IS NULL AND concept_id = ? AND active = 1 AND term_type <> 'fsn' \
+         LIMIT 6",
+    )
+    .bind(&concept_id)
+    .fetch_all(pool)
+    .await
+    .map(|rows| rows.iter().map(|r| r.get::<String, _>("term")).collect())
+    .unwrap_or_default();
+
+    let icd10: Vec<JsonValue> = sqlx::query(
+        "SELECT DISTINCT icd10_who, icd10_tm FROM snomed_icd10_map \
+         WHERE tenant_id IS NULL AND concept_id = ? LIMIT 6",
+    )
+    .bind(&concept_id)
+    .fetch_all(pool)
+    .await
+    .map(|rows| {
+        rows.iter()
+            .map(|r| {
+                json!({
+                    "who": r.try_get::<String, _>("icd10_who").ok(),
+                    "tm": r.try_get::<String, _>("icd10_tm").ok(),
+                })
+            })
+            .collect()
+    })
+    .unwrap_or_default();
+
+    Some(json!({
+        "concept_id": concept_id,
+        "fsn": fsn,
+        "synonyms": synonyms,
+        "icd10": icd10,
+    }))
+}
+
+/// Best Thai Medicines Terminology match for a drug name (FULLTEXT on fsn).
+async fn enrich_tmt(pool: &DbPool, name: &str) -> Option<JsonValue> {
+    let row = sqlx::query(
+        "SELECT tmt_id, fsn, concept_type, manufacturer FROM tmt_codes \
+         WHERE tenant_id IS NULL AND MATCH(fsn) AGAINST(? IN NATURAL LANGUAGE MODE) \
+         ORDER BY MATCH(fsn) AGAINST(? IN NATURAL LANGUAGE MODE) DESC, CHAR_LENGTH(fsn) ASC \
+         LIMIT 1",
+    )
+    .bind(name)
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    Some(json!({
+        "tmt_id": row.get::<String, _>("tmt_id"),
+        "fsn": row.get::<String, _>("fsn"),
+        "concept_type": row.try_get::<String, _>("concept_type").ok(),
+        "manufacturer": row.try_get::<String, _>("manufacturer").ok(),
+    }))
 }
 
 /// POST /api/v1/knowledge/primekg/resolve_query

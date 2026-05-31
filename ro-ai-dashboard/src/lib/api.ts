@@ -2254,6 +2254,37 @@ export async function resolvePrimekgQuery(query: string): Promise<PrimekgResolve
     };
 }
 
+/// Cross-KB enrichment for a PrimeKG node, matched by name (best-effort —
+/// PrimeKG uses MONDO/DrugBank/HPO ids, not SNOMED). `snomed` = clinical
+/// FSN + synonyms + ICD-10-TM codes; `tmt` = Thai drug terminology (drugs).
+export interface PrimekgEnrichment {
+    snomed?: {
+        concept_id: string;
+        fsn?: string | null;
+        synonyms: string[];
+        icd10: { who?: string | null; tm?: string | null }[];
+    } | null;
+    tmt?: {
+        tmt_id: string;
+        fsn: string;
+        concept_type?: string | null;
+        manufacturer?: string | null;
+    } | null;
+}
+
+export async function enrichPrimekgNode(
+    name: string,
+    entityType?: string,
+): Promise<PrimekgEnrichment | null> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/enrich`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, entity_type: entityType }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PrimekgEnrichment;
+}
+
 /// Balanced first-hop relations for a KNOWN entity_index. Used for
 /// follow-up questions that name no disease (the topic comes from the
 /// selected graph node) — keeps the evidence card + grounding working.
