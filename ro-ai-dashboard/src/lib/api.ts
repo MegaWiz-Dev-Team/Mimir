@@ -2254,6 +2254,20 @@ export async function resolvePrimekgQuery(query: string): Promise<PrimekgResolve
     };
 }
 
+/// Balanced first-hop relations for a KNOWN entity_index. Used for
+/// follow-up questions that name no disease (the topic comes from the
+/// selected graph node) — keeps the evidence card + grounding working.
+export async function fetchPrimekgRelations(entityIndex: number): Promise<PrimekgRelation[]> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/relations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity_index: entityIndex }),
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.relations) ? (j.relations as PrimekgRelation[]) : [];
+}
+
 export interface PrimekgNeighbor {
     neighbor_index: number;
     neighbor_name: string;

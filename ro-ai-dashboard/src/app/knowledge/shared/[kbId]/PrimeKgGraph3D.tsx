@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import {
     searchPrimekgEntity,
     resolvePrimekgQuery,
+    fetchPrimekgRelations,
     fetchPrimekgNeighbors,
     askPrimekgAssistantStream,
     type PrimekgEntity,
@@ -45,6 +46,29 @@ const REL_GROUPS: Record<string, RelGroup> = {
 };
 const REL_FALLBACK: RelGroup = { label: "ความสัมพันธ์อื่นๆ", icon: "🔬", chip: "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100", order: 9 };
 const relGroup = (rel: string) => REL_GROUPS[rel] || REL_FALLBACK;
+
+// Compact, grouped summary of the REAL PrimeKG relations, injected into the
+// assistant prompt so the local LLM grounds its prose on the graph instead
+// of punting to general knowledge ("ไม่พบข้อมูล… จากความรู้ทั่วไป…"). The
+// Bifrost agent (id=7) doesn't reliably fire the PrimeKG MCP tools for local
+// models, so we hand it the evidence directly. Capped per group to keep the
+// prompt small.
+function relationsContext(topic: string, rels: PrimekgRelation[]): string {
+    const byRel = new Map<string, string[]>();
+    for (const r of rels) {
+        const arr = byRel.get(r.relation) || [];
+        if (arr.length < 30) arr.push(r.name);
+        byRel.set(r.relation, arr);
+    }
+    const lines = Array.from(byRel.entries())
+        .sort((a, b) => relGroup(a[0]).order - relGroup(b[0]).order)
+        .map(([rel, names]) => `- ${relGroup(rel).label} (${rel}): ${names.join(", ")}`);
+    return (
+        `ข้อมูลความสัมพันธ์จริงจากกราฟ PrimeKG สำหรับ "${topic}" ` +
+        `(ตอบโดยอ้างอิงข้อมูลนี้เท่านั้น ห้ามตอบว่า "ไม่พบข้อมูล"):\n` +
+        lines.join("\n")
+    );
+}
 
 /**
  * Deterministic "Graph Evidence" card — the verifiable half of an answer.
@@ -254,10 +278,21 @@ export default function PrimeKgGraph3D() {
             // own entity wins; a bare follow-up ("รักษายังไง") resolves
             // nothing → we keep the currently-selected node as the topic.
             let topic = topicLabel;
+            let groundingCtx = "";
             try {
                 const hit = await resolvePrimekgQuery(text);
+                let evTopic = "";
+                let evType = "";
+                let evIndex = 0;
+                let relations: PrimekgRelation[] = [];
                 if (hit) {
+                    // The question named its own disease (e.g. OSA) → re-center
+                    // the graph and make it the topic.
                     topic = hit.name;
+                    evTopic = hit.name;
+                    evType = hit.type;
+                    evIndex = hit.entity_index;
+                    relations = hit.relations;
                     setSelected({
                         id: String(hit.entity_index),
                         label: hit.name,
@@ -266,34 +301,43 @@ export default function PrimeKgGraph3D() {
                         val: 8,
                     });
                     void expand(hit.entity_index, hit.name, hit.type);
-                    // Show the deterministic graph evidence immediately —
-                    // before (and independent of) the LLM prose. This is the
-                    // safety-critical, verifiable part of the answer.
-                    if (hit.relations.length > 0) {
-                        setChatTurns((prev) => [
-                            ...prev,
-                            {
-                                role: "assistant",
-                                content: "",
-                                turn,
-                                evidence: {
-                                    topic: hit.name,
-                                    topicType: hit.type,
-                                    topicIndex: hit.entity_index,
-                                    relations: hit.relations,
-                                },
+                } else if (selected && Number.isFinite(Number(selected.id))) {
+                    // Follow-up that names no disease ("ความสัมพันธ์กับยาอะไรบ้าง")
+                    // → pull relations for the current topic (selected node).
+                    evTopic = selected.label;
+                    evType = selected.type;
+                    evIndex = Number(selected.id);
+                    relations = await fetchPrimekgRelations(evIndex);
+                }
+                if (relations.length > 0) {
+                    // (a) Feed the real graph relations to the LLM so its prose
+                    // is grounded, not generic.
+                    groundingCtx = relationsContext(evTopic, relations);
+                    // (b) Show the deterministic evidence card immediately —
+                    // before (and independent of) the LLM prose.
+                    setChatTurns((prev) => [
+                        ...prev,
+                        {
+                            role: "assistant",
+                            content: "",
+                            turn,
+                            evidence: {
+                                topic: evTopic,
+                                topicType: evType,
+                                topicIndex: evIndex,
+                                relations,
                             },
-                        ]);
-                    }
+                        },
+                    ]);
                 }
             } catch {
                 /* best-effort graph navigation — keep the current topic */
             }
-            // Anchor the LLM answer on the resolved (or current) topic so it
-            // grounds there (matches v2.3.36 behaviour).
-            const query = topic
-                ? `Topic: ${topic}\n\nQuestion: ${text}`
-                : text;
+            // Anchor the LLM answer on the resolved (or current) topic, and
+            // hand it the real graph relations when we have them.
+            const query = [topic ? `Topic: ${topic}` : "", groundingCtx, `Question: ${text}`]
+                .filter(Boolean)
+                .join("\n\n");
             let accum = "";
             try {
                 await askPrimekgAssistantStream(query, chatSessionId.current, {
@@ -328,7 +372,7 @@ export default function PrimeKgGraph3D() {
                 setChatStatus(null);
             }
         },
-        [chatInput, chatStreaming, topicLabel, expand],
+        [chatInput, chatStreaming, topicLabel, selected, expand],
     );
 
     // Seed with a recognisable hub on first mount.

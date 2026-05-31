@@ -55,6 +55,8 @@ pub fn knowledge_primekg_routes() -> Router<DbPool> {
         // Lets the chat panel re-center the 3D graph on whatever disease
         // the user's question names (e.g. OSA), not just the seeded node.
         .route("/resolve_query", post(resolve_query))
+        // Relations for a known entity_index — current-topic follow-ups.
+        .route("/relations", post(relations))
 }
 
 // ── PrimeKG assistant (Bifrost proxy) ─────────────────────────────────────────
@@ -504,6 +506,23 @@ async fn balanced_relations(entity_index: i64) -> Vec<JsonValue> {
         }));
     }
     out
+}
+
+#[derive(Deserialize)]
+struct RelationsReq {
+    entity_index: i64,
+}
+
+/// POST /api/v1/knowledge/primekg/relations
+/// Balanced first-hop relations for a KNOWN entity_index. Used when the
+/// chat's topic comes from the selected graph node (a follow-up question
+/// that names no disease, e.g. "ความสัมพันธ์กับยาอะไรบ้าง") — so the
+/// evidence card AND the prompt-grounding still work for the current topic.
+async fn relations(
+    State(_pool): State<DbPool>,
+    Json(req): Json<RelationsReq>,
+) -> Json<JsonValue> {
+    Json(json!({ "relations": balanced_relations(req.entity_index).await }))
 }
 
 /// POST /api/v1/knowledge/primekg/resolve_query
