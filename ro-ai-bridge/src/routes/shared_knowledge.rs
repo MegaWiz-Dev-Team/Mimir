@@ -403,6 +403,46 @@ async fn list_shared_kbs(
         });
     }
 
+    // ── Medical Abbreviation Glossary (PNC1110) ─────────────────────────────
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM medical_abbrev WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let mapped: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM medical_abbrev WHERE tenant_id IS NULL AND icd10tm IS NOT NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM medical_abbrev WHERE tenant_id IS NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "medical_abbrev_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "medical-abbrev",
+                name: "Medical Abbreviation Glossary (Thai)",
+                description: "Clinical abbreviation lexicon (EN/TH expansion) with ICD-10-TM/ICD-9 mapping where the abbreviation denotes a diagnosis. Powers OCR post-correction (expand UTI/AKI/HT…) + extraction grounding. Source: PNC1110.",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: "https://www.this.or.th/",
+                maintainer: "Asgard (curated from PNC1110 Thai Medical Terminology)",
+                region: "TH",
+                languages: vec!["en", "th"],
+                vintage_year: Some(2026),
+                license: "Curated glossary (PNC1110 source — Thai medical education material)",
+                fhir_binding: Some("(expansion lexicon — feeds Condition.code via icd10tm map)"),
+                update_cadence: "Ad-hoc (curated)",
+                schema_version: "sprint57",
+                notes: Some("37 abbreviations; ~10 carry an ICD-10-TM/ICD-9 map (UTI, AKI, HT, DLP, DM, Septic shock, CVA, COPD, Bedsore, Pleural effusion). Migrated from /Mimir/data/abb glossary.json. Used by OCR correction + MedicalClaimsExtractor."),
+            },
+            live: SharedKbLive {
+                counts: json!({ "mariadb_terms": count, "icd_mapped": mapped }),
+                source_version: version,
+                status: if count == 0 { "pending_data" } else { "active" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
     let count = kbs.len();
     Ok(Json(json!({ "items": kbs, "count": count })))
 }

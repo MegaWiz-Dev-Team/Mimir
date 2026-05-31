@@ -102,30 +102,6 @@ UPDATE agent_configs SET agent_group_id = (
 -- VERIFICATION
 -- ═══════════════════════════════════════════════════════════════════════════
 
-SELECT 'Agent Groups Seeded Successfully' as status;
-
--- Summary by tenant
-SELECT
-  t.tenant_id,
-  g.display_name as group_name,
-  COUNT(a.id) as agent_count
-FROM agent_groups g
-LEFT JOIN agent_configs a ON g.id=a.agent_group_id AND g.tenant_id=a.tenant_id
-CROSS JOIN (SELECT DISTINCT tenant_id FROM agent_groups) t
-WHERE g.tenant_id=t.tenant_id
-GROUP BY g.tenant_id, g.display_name
-ORDER BY g.tenant_id, g.sort_order;
-
--- Agents with groups (asgard_medical detail)
-SELECT
-  g.display_name as 'Group',
-  a.name as 'Agent Slug',
-  a.display_name as 'Display Name',
-  a.model_id as 'Model',
-  a.agent_version as 'Version'
-FROM agent_configs a
-LEFT JOIN agent_groups g ON a.agent_group_id=g.id
-WHERE a.tenant_id='asgard_medical'
-ORDER BY
-  COALESCE(g.sort_order, 99),
-  a.name;
+-- (verification SELECTs removed — result-set statements make sqlx migrate
+-- mark the migration dirty/partially-applied; the seed INSERTs above are
+-- the actual migration work.)

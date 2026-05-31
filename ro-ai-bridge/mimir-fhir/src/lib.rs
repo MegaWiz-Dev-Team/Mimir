@@ -5,6 +5,7 @@
 
 pub mod datatypes;
 pub mod schema_export;
+pub mod terminology;
 
 // Sprint 2-10 modules — declared but not yet implemented.
 // Uncommenting before sprint kickoff is a planning error.

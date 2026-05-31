@@ -69,8 +69,8 @@ Respond with test methodology, expected vs actual results, and security impact a
     5,
     TRUE,
     FALSE,
-    ''["test-api-injection", "test-prompt-injection", "test-data-exfiltration", "validate-tyr-detection", "enumerate-targets"]'',
-    ''["security-focused", "methodical", "thorough", "compliance-aware", "detection-focused"]'',
+    '["test-api-injection", "test-prompt-injection", "test-data-exfiltration", "validate-tyr-detection", "enumerate-targets"]',
+    '["security-focused", "methodical", "thorough", "compliance-aware", "detection-focused"]',
     'Greetings. I am Loki, the security test agent for Asgard Medical AI Platform.
 
 I am running in the **asgard_platform** isolated testing tenant with authorization for internal security validation.
@@ -112,6 +112,24 @@ What would you like me to test?',
 -- Each tool maps to Loki API endpoint via Hermodr proxy
 -- ============================================================================
 
+-- Per-agent MCP server allowlist. Created here (idempotent) since this is the
+-- first migration to use it. agent_id references agent_configs.id (BIGINT).
+-- UNIQUE(agent_id, mcp_server_name) backs the ON DUPLICATE KEY UPDATE below.
+CREATE TABLE IF NOT EXISTS agent_mcp_servers (
+    id               BIGINT       NOT NULL AUTO_INCREMENT,
+    agent_id         BIGINT       NOT NULL,
+    mcp_server_name  VARCHAR(100) NOT NULL,
+    enabled          BOOLEAN      NOT NULL DEFAULT TRUE,
+    description      TEXT         DEFAULT NULL,
+    tool_list        TEXT         DEFAULT NULL,
+    mcp_endpoint     TEXT         DEFAULT NULL,
+    created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_server (agent_id, mcp_server_name),
+    KEY idx_agent (agent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO agent_mcp_servers
   (agent_id, mcp_server_name, enabled, description, tool_list, mcp_endpoint)
 SELECT
@@ -119,7 +137,7 @@ SELECT
   'hermodr-loki',
   TRUE,
   'Loki Security Testing MCP Bridge: hermodr[SERVICE_NAME=loki] proxies to loki-api:8000',
-  ''["test-api-injection", "test-prompt-injection", "test-data-exfiltration", "validate-tyr-detection", "enumerate-targets"]'',
+  '["test-api-injection", "test-prompt-injection", "test-data-exfiltration", "validate-tyr-detection", "enumerate-targets"]',
   'http://hermodr-mimir.asgard.svc:8090/rpc'
 FROM agent_configs
 WHERE tenant_id = 'asgard_platform' AND name = 'loki-security-test'

@@ -72,6 +72,7 @@ async fn list_items(
         "tmt"      => tmt_items(&pool, &qp, limit, offset, page, per_page).await,
         "tmlt"     => tmlt_items(&pool, &qp, limit, offset, page, per_page).await,
         "snomed"   => snomed_items(&pool, &qp, limit, offset, page, per_page).await,
+        "medical-abbrev" => abbrev_items(&pool, &qp, limit, offset, page, per_page).await,
         "primekg"  => Err((
             StatusCode::NOT_IMPLEMENTED,
             Json(json!({
@@ -183,6 +184,55 @@ async fn tpc_items(
         ],
         items, total, page, per_page,
         filters: json!({ "chapter": chapters }),
+    }))
+}
+
+// ── Medical Abbreviation Glossary ───────────────────────────────────────────
+async fn abbrev_items(
+    pool: &DbPool, qp: &ItemsQuery, limit: i64, offset: i64,
+    page: u32, per_page: u32,
+) -> Result<Json<ItemsResponse>, (StatusCode, Json<JsonValue>)> {
+    let mut sql_where = String::from("tenant_id IS NULL");
+    if let Some(c) = qp.filters.get("filter_category") {
+        sql_where.push_str(&format!(" AND category = '{}'", sql_safe(c)));
+    }
+    if let Some(q) = qp.search() {
+        sql_where.push_str(&format!(
+            " AND (abbrev LIKE '%{q}%' OR full_term_en LIKE '%{q}%' OR full_term_th LIKE '%{q}%')",
+            q = sql_safe(&q)
+        ));
+    }
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM medical_abbrev WHERE {sql_where}"
+    )).fetch_one(pool).await.map_err(db_err)?;
+    let rows = sqlx::query(&format!(
+        "SELECT abbrev, full_term_en, full_term_th, category, icd10tm \
+         FROM medical_abbrev WHERE {sql_where} ORDER BY abbrev LIMIT {limit} OFFSET {offset}"
+    )).fetch_all(pool).await.map_err(db_err)?;
+
+    let items = rows.iter().map(|r| json!({
+        "abbrev": r.get::<String, _>("abbrev"),
+        "full_term_en": r.try_get::<String, _>("full_term_en").unwrap_or_default(),
+        "full_term_th": r.try_get::<String, _>("full_term_th").unwrap_or_default(),
+        "category": r.try_get::<String, _>("category").unwrap_or_default(),
+        "icd10tm": r.try_get::<String, _>("icd10tm").unwrap_or_default(),
+    })).collect();
+
+    let categories: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT category FROM medical_abbrev WHERE tenant_id IS NULL AND category IS NOT NULL ORDER BY category"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    Ok(Json(ItemsResponse {
+        kb_id: "medical-abbrev".into(),
+        columns: vec![
+            Column { name: "abbrev",       label: "Abbrev",     kind: "code" },
+            Column { name: "full_term_en", label: "English",    kind: "string" },
+            Column { name: "full_term_th", label: "ไทย",        kind: "string" },
+            Column { name: "category",     label: "Category",   kind: "enum" },
+            Column { name: "icd10tm",      label: "ICD-10-TM",  kind: "code" },
+        ],
+        items, total, page, per_page,
+        filters: json!({ "category": categories }),
     }))
 }
 

@@ -169,7 +169,7 @@ pub(crate) async fn list_agents(
     let agents = sqlx::query_as::<_, AgentConfig>(
         &format!("SELECT {} FROM agent_configs WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?", AGENT_SELECT_COLS)
     )
-    .bind(tenant_id.as_str())
+    .bind(tenant_id)
     .bind(per_page)
     .bind(offset)
     .fetch_all(&pool)
@@ -180,7 +180,7 @@ pub(crate) async fn list_agents(
     })?;
 
     let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_configs WHERE tenant_id = ?")
-        .bind(tenant_id.as_str())
+        .bind(tenant_id)
         .fetch_one(&pool)
         .await
         .unwrap_or((0,));

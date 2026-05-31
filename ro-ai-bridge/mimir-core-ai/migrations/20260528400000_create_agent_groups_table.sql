@@ -31,15 +31,15 @@ CREATE TABLE IF NOT EXISTS agent_groups (
   KEY idx_sort_order (tenant_id, sort_order)
 ) COMMENT='Agent grouping system - allows flexible categorization per tenant';
 
--- Add agent_group_id to agent_configs
+-- Add agent_group_id to agent_configs (idempotent: column + FK guarded so a
+-- re-run after a partial apply doesn't error 121 on the duplicate FK).
 ALTER TABLE agent_configs
-ADD COLUMN IF NOT EXISTS agent_group_id BIGINT DEFAULT NULL AFTER agent_version,
-ADD FOREIGN KEY fk_agent_group (agent_group_id) REFERENCES agent_groups(id) ON DELETE SET NULL;
+ADD COLUMN IF NOT EXISTS agent_group_id BIGINT DEFAULT NULL AFTER agent_version;
+ALTER TABLE agent_configs DROP FOREIGN KEY IF EXISTS fk_agent_group;
+ALTER TABLE agent_configs
+ADD CONSTRAINT fk_agent_group FOREIGN KEY (agent_group_id)
+REFERENCES agent_groups(id) ON DELETE SET NULL;
 
 -- Create index for agent group queries
 CREATE INDEX IF NOT EXISTS idx_agent_group_id
 ON agent_configs(tenant_id, agent_group_id, is_published);
-
--- Verify schema
-SELECT 'agent_groups table created successfully' as status;
-SHOW COLUMNS FROM agent_groups;
