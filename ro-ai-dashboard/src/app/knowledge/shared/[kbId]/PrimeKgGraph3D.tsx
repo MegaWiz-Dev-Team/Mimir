@@ -35,16 +35,23 @@ type ChatTurn = {
 // Order = clinical priority (treatment & contraindications first, then
 // presentation, then related diseases, then the rest). Safety-distinct
 // styling: ⚠️ CONTRAINDICATION (rose) must never read like 💊 INDICATION.
-type RelGroup = { label: string; icon: string; chip: string; order: number };
+// `cap` = how many chips to show before a "+N เพิ่ม" expander. Clinically
+// salient groups (drugs/diseases/phenotypes) are small and shown in full;
+// the high-volume research groups (genes/proteins, exposures, other) are
+// capped so they don't bury the actionable relations.
+type RelGroup = { label: string; icon: string; chip: string; order: number; cap: number };
+const SHOW_ALL = 999;
 const REL_GROUPS: Record<string, RelGroup> = {
-    INDICATION: { label: "ยาที่ใช้รักษา", icon: "💊", chip: "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100", order: 0 },
-    "OFF-LABEL USE": { label: "ยา (off-label)", icon: "💊", chip: "bg-teal-50 border-teal-200 text-teal-800 hover:bg-teal-100", order: 1 },
-    CONTRAINDICATION: { label: "ยาที่ห้าม/ระวัง", icon: "⚠️", chip: "bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100", order: 2 },
-    DISEASE_PHENOTYPE_POSITIVE: { label: "อาการ/ลักษณะที่พบ", icon: "🩺", chip: "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100", order: 3 },
-    DISEASE_PHENOTYPE_NEGATIVE: { label: "อาการที่มักไม่พบ", icon: "🚫", chip: "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100", order: 4 },
-    DISEASE_DISEASE: { label: "โรคที่เกี่ยวข้อง", icon: "🔗", chip: "bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100", order: 5 },
+    INDICATION: { label: "ยาที่ใช้รักษา", icon: "💊", chip: "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100", order: 0, cap: SHOW_ALL },
+    "OFF-LABEL USE": { label: "ยา (off-label)", icon: "💊", chip: "bg-teal-50 border-teal-200 text-teal-800 hover:bg-teal-100", order: 1, cap: SHOW_ALL },
+    CONTRAINDICATION: { label: "ยาที่ห้าม/ระวัง", icon: "⚠️", chip: "bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100", order: 2, cap: SHOW_ALL },
+    DISEASE_PHENOTYPE_POSITIVE: { label: "อาการ/ลักษณะที่พบ", icon: "🩺", chip: "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100", order: 3, cap: SHOW_ALL },
+    DISEASE_PHENOTYPE_NEGATIVE: { label: "อาการที่มักไม่พบ", icon: "🚫", chip: "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100", order: 4, cap: SHOW_ALL },
+    DISEASE_DISEASE: { label: "โรคที่เกี่ยวข้อง", icon: "🔗", chip: "bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100", order: 5, cap: SHOW_ALL },
+    DISEASE_PROTEIN: { label: "ยีน/โปรตีนที่เกี่ยวข้อง", icon: "🧬", chip: "bg-green-50 border-green-200 text-green-800 hover:bg-green-100", order: 6, cap: 8 },
+    EXPOSURE_DISEASE: { label: "ปัจจัย/สารที่สัมพันธ์", icon: "🌫️", chip: "bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100", order: 7, cap: 8 },
 };
-const REL_FALLBACK: RelGroup = { label: "ความสัมพันธ์อื่นๆ", icon: "🔬", chip: "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100", order: 9 };
+const REL_FALLBACK: RelGroup = { label: "ความสัมพันธ์อื่นๆ", icon: "🔬", chip: "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100", order: 9, cap: 8 };
 const relGroup = (rel: string) => REL_GROUPS[rel] || REL_FALLBACK;
 
 // Compact, grouped summary of the REAL PrimeKG relations, injected into the
@@ -93,6 +100,14 @@ function EvidenceCard({
         (a, b) => relGroup(a[0]).order - relGroup(b[0]).order,
     );
     const hasTreatment = groups.has("INDICATION") || groups.has("OFF-LABEL USE");
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+    const toggleGroup = (rel: string) =>
+        setExpandedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(rel)) next.delete(rel);
+            else next.add(rel);
+            return next;
+        });
 
     return (
         <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm">
@@ -109,6 +124,9 @@ function EvidenceCard({
             <div className="p-2.5 space-y-2.5">
                 {ordered.map(([rel, items]) => {
                     const g = relGroup(rel);
+                    const isExpanded = expandedGroups.has(rel);
+                    const shown = isExpanded ? items : items.slice(0, g.cap);
+                    const hidden = items.length - shown.length;
                     return (
                         <div key={rel}>
                             <div className="flex items-center gap-1.5 mb-1 text-[11px] font-medium text-slate-500">
@@ -118,7 +136,7 @@ function EvidenceCard({
                                 <span className="text-slate-400">{items.length}</span>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
-                                {items.map((r) => (
+                                {shown.map((r) => (
                                     <button
                                         key={r.entity_index}
                                         onClick={() => onGo(r.entity_index, r.name, r.type)}
@@ -128,6 +146,14 @@ function EvidenceCard({
                                         {r.name}
                                     </button>
                                 ))}
+                                {(hidden > 0 || isExpanded) && (
+                                    <button
+                                        onClick={() => toggleGroup(rel)}
+                                        className="rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100 transition-colors"
+                                    >
+                                        {isExpanded ? "ย่อ" : `+${hidden} เพิ่ม`}
+                                    </button>
+                                )}
                             </div>
                         </div>
                     );
