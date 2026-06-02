@@ -21,17 +21,27 @@ Three datasets (each persisted as its own eval run, tenant asgard_platform):
      The 7 labelled claims-pipeline fixtures (data/abb/extractions +
      data/abb/fhir_r5) → every ICD-10-TM code asserted in-scope (resolves in
      icd10_codes). HONEST SCOPE: a vocabulary in-scope check ("is the code real
-     & known to Mimir"), NOT human-label accuracy. Low rate is itself the
-     signal: the fixtures carry ICD-10-CM/WHO 4th-character codes (e.g. N39.0)
-     that are outside Mimir's ICD-10-TM table — a real interoperability gap X1
-     must close. SNOMED-coded and TMT-dose-coded entities are counted too (the
-     fixtures currently carry none → reported n=0, not silently skipped).
+     & known to Mimir"), NOT human-label accuracy. The KB stores codes
+     DOT-STRIPPED (N390, not N39.0) at varying specificity, so matching uses
+     icd_candidates() (dot-stripped → 4-char → 3-char rollup, mirroring the
+     snomed_icd10_map bridge). With that, the fixtures score 12/12 = 100% — the
+     codes are all present; an earlier "25% / fixtures-outside-ICD-10-TM-scope"
+     reading was a measurement bug (dotted-string compare), NOT a KB gap.
+     SNOMED-coded and TMT-dose-coded entities are counted too (the fixtures
+     currently carry none → reported n=0, not silently skipped).
 
   3. snomed-ips-coverage
-     The fixture Condition concepts (ICD-10-TM) mapped via snomed_icd10_map →
-     SNOMED → checked for IPS refset membership. Coverage = % of distinct
-     fixture codes that reach at least one IPS-member SNOMED concept — an
-     interoperability score tracked over time.
+     Two paths to an IPS-member SNOMED concept for the fixture diagnoses:
+       - ips_coverage (map path): ICD-10-TM code → snomed_icd10_map → IPS. A
+         stricter map-QUALITY signal (10/12) — misses are map gaps (e.g. R65.21
+         is ICD-10-CM and the map links septic shock 76571007 to R57.2/WHO; the
+         3-char "N17" isn't expanded to its child N170→35455006). NOT how Iris
+         checks IPS, and NOT "IPS excludes the concept" (both ARE IPS members).
+       - term_ips_coverage (term path): SNOMED term search vs the IPS refset,
+         with medical-abbrev expansion on a miss — this MIRRORS the shipped Iris
+         ips_lookup (/claims/:id/ips-coverage). 23/26 = 0.885 (raw baseline
+         0.73; +lift from expanding HT/DLP/bedsore). Residual misses are
+         OCR/functional-status labels (#bedridden, #bessore typo), not KB gaps.
 
 Baseline floors are set just under the 2026-06-02 actuals so a real regression
 fails while a same-release re-ingest stays green.
