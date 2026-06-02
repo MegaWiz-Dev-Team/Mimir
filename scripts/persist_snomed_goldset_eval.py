@@ -46,7 +46,9 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -68,7 +70,7 @@ FLOORS = {
     "doseform_valid_normalized": 0.99,
     "icd10tm_in_scope": 0.95,
     "ips_coverage": 0.75,
-    "term_ips_coverage": 0.65,
+    "term_ips_coverage": 0.85,  # with abbrev expansion (raw baseline ~0.73)
 }
 
 
@@ -244,6 +246,38 @@ def ips_term_concept(term: str):
     return None
 
 
+def _leading_token(text: str):
+    """First whitespace token, non-alphanumeric stripped from both ends; len>=2.
+    Mirrors coding.rs::leading_token so the eval expands the same way Iris does."""
+    parts = (text or "").split()
+    if not parts:
+        return None
+    t = re.sub(r"^[^0-9A-Za-z]+|[^0-9A-Za-z]+$", "", parts[0])
+    return t if len(t) >= 2 else None
+
+
+def expand_abbrev_term(term: str):
+    """Expand a leading abbreviation via medical-abbrev (full_term_en) — mirrors
+    coding::expand_abbrev, the fallback the Iris ips_lookup now uses."""
+    tok = _leading_token(term)
+    if not tok:
+        return None
+    url = MIMIR_BASE.rstrip("/") + "/api/v1/knowledge/search?q=" + urllib.parse.quote(tok) + "&k=3"
+    try:
+        r = json.loads(urllib.request.urlopen(url, timeout=8).read())
+    except Exception:
+        return None
+    for res in r.get("results", []):
+        if res.get("kb_id") != "medical-abbrev":
+            continue
+        for it in res.get("items", []):
+            if (it.get("abbrev") or "").lower() == tok.lower():
+                full = (it.get("full_term_en") or "").strip()
+                if full:
+                    return full
+    return None
+
+
 def _condition_terms(bundle) -> set:
     """Diagnosis labels from a bundle's Condition.code (text, else first coding
     display) — the raw clinical terms an Iris claim would IPS-check."""
@@ -361,28 +395,41 @@ def gather_ips_coverage(fixtures) -> list[dict]:
     all_terms = set()
     for fx in fixtures:
         all_terms |= fx["dx_terms"]
-    term_hits = 0
+    # Mirror the shipped Iris ips_lookup exactly: raw term search first, and on a
+    # miss fall back to medical-abbrev expansion (full_term_en) and retry. Track
+    # the raw-only baseline too, so the eval shows the lift the expansion gives.
+    raw_hits = exp_hits = 0
     miss_terms = []
     for t in sorted(all_terms):
         if ips_term_concept(t):
-            term_hits += 1
+            raw_hits += 1
+            exp_hits += 1
+            continue
+        expanded = expand_abbrev_term(t)
+        if expanded and ips_term_concept(expanded):
+            exp_hits += 1
         else:
             miss_terms.append(t)
-    t_rate = (term_hits / len(all_terms)) if all_terms else 0.0
+    n = len(all_terms) or 1
+    rows.append({
+        "item_id": "term_ips_coverage_raw", "group": "coverage_info",
+        "input": "raw diagnosis terms resolving to IPS via term search (no abbrev expansion — baseline)",
+        "expected": "info", "got": f"{raw_hits}/{len(all_terms)}={raw_hits/n:.4f}", "ok": True,
+    })
+    t_rate = exp_hits / n
     rows.append({
         "item_id": "term_ips_coverage", "group": "coverage",
-        "input": "fixture diagnosis terms resolving to an IPS-member SNOMED concept via term search (the path Iris uses: ips_lookup, /search?refset=ips)",
+        "input": "fixture diagnosis terms resolving to an IPS-member SNOMED concept via the path Iris uses (ips_lookup: raw /search?refset=ips, then medical-abbrev expansion fallback)",
         "expected": f">={FLOORS['term_ips_coverage']}",
-        "got": f"{term_hits}/{len(all_terms)}={t_rate:.4f}",
+        "got": f"{exp_hits}/{len(all_terms)}={t_rate:.4f}",
         "ok": t_rate >= FLOORS["term_ips_coverage"],
     })
-    # Surface the misses so the gap is inspectable (these are the diagnoses whose
-    # raw label term-search can't map to IPS — typically abbreviations like HT/DLP
-    # and synonyms like "bedsore" vs SNOMED "pressure ulcer"; fixable upstream by
-    # abbreviation expansion before the IPS lookup, not a KB gap).
+    # Remaining misses AFTER expansion — the real residual gap (synonyms like
+    # "bedsore" vs SNOMED "pressure ulcer", not abbreviations). Inspectable, not
+    # a KB gap; would need a synonym layer, deliberately out of scope.
     rows.append({
         "item_id": "term_ips_misses", "group": "coverage_info",
-        "input": "diagnosis terms with no IPS term-search hit (abbrev/synonym gaps)",
+        "input": "diagnosis terms still missing IPS after abbrev expansion (synonym gaps)",
         "expected": "info", "got": "; ".join(miss_terms) or "(none)", "ok": True,
     })
     return rows
