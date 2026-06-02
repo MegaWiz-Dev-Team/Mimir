@@ -276,6 +276,12 @@ def gather_ips_coverage(fixtures) -> list[dict]:
         all_icd |= fx["icd10tm"]
     # icd10_tm is also dot-stripped — match by rollup candidates, then check which
     # candidates reach an IPS- / GPFP-member SNOMED concept.
+    # NB: this measures reachability through the ICD->SNOMED *map* (snomed_icd10_map),
+    # a stricter, map-quality signal. It is NOT how Iris checks IPS — the
+    # /claims/:id/ips-coverage endpoint resolves by SNOMED term search, which finds
+    # IPS concepts the map misses (e.g. septic shock 76571007, AKI 35455006). Misses
+    # here are map gaps (ICD-CM-vs-WHO mismatch, 3-char->child expansion), not absence
+    # of an IPS concept for the diagnosis.
     all_cands = set()
     for c in all_icd:
         all_cands |= icd_candidates(c)
@@ -288,7 +294,7 @@ def gather_ips_coverage(fixtures) -> list[dict]:
     rate = (n_covered / len(all_icd)) if all_icd else 0.0
     rows.append({
         "item_id": "ips_coverage", "group": "coverage",
-        "input": "fixture ICD-10-TM concepts reaching an IPS-member SNOMED concept (dot-stripped+rollup)",
+        "input": "fixture ICD-10-TM concepts reaching an IPS-member SNOMED concept VIA snomed_icd10_map (map-path reachability; Iris itself uses term search, which is higher-recall)",
         "expected": f">={FLOORS['ips_coverage']}",
         "got": f"{n_covered}/{len(all_icd)}={rate:.4f}",
         "ok": rate >= FLOORS["ips_coverage"],
@@ -349,8 +355,9 @@ def main() -> int:
 
     d3 = gather_ips_coverage(fixtures)
     r = persist("snomed-ips-coverage", "snomed-ips",
-                "X2: fixture ICD-10-TM concepts reaching an IPS-member SNOMED concept "
-                "(interoperability coverage score)", "ips-coverage", d3, model_id, {"coverage"})
+                "X2: fixture ICD-10-TM concepts reaching an IPS-member SNOMED concept via "
+                "snomed_icd10_map (map-path reachability — a map-quality signal; NOT term-path, "
+                "which is what Iris uses and is higher-recall)", "ips-coverage", d3, model_id, {"coverage"})
     _report("DS3 IPS coverage", d3, {"coverage"}, *r)
     overall_ok &= (r[1] == r[2])
 
