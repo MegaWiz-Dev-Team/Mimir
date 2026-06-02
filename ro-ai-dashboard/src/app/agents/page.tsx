@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,44 @@ export default function AgentStudioPage() {
     const [evalStarting, setEvalStarting] = useState(false);
     const [evalStartedRunId, setEvalStartedRunId] = useState<string>("");
     const [evalError, setEvalError] = useState<string>("");
+
+    // Group agents by agent_group
+    interface AgentGroup {
+        id: number;
+        display_name: string;
+        icon_emoji: string;
+        color_hex: string;
+        sort_order: number;
+        agents: AgentConfig[];
+    }
+
+    const groupedAgents = useMemo(() => {
+        const grouped = new Map<string, AgentGroup>();
+
+        agents.forEach(agent => {
+            if (agent.agent_group) {
+                const groupKey = agent.agent_group.display_name;
+                if (!grouped.has(groupKey)) {
+                    grouped.set(groupKey, {
+                        id: agent.agent_group.id,
+                        display_name: agent.agent_group.display_name,
+                        icon_emoji: agent.agent_group.icon_emoji,
+                        color_hex: agent.agent_group.color_hex,
+                        sort_order: agent.agent_group.sort_order,
+                        agents: []
+                    });
+                }
+                grouped.get(groupKey)!.agents.push(agent);
+            }
+        });
+
+        return Array.from(grouped.values())
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map(group => ({
+                ...group,
+                agents: group.agents.sort((a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name))
+            }));
+    }, [agents]);
 
     const generateRunName = (a: AgentConfig, bench?: BenchmarkDataset) => {
         const modelTag = (a.model_id || "model").split("/").pop()?.split(":")[0] || "model";
@@ -1080,96 +1118,118 @@ export default function AgentStudioPage() {
                         </div>
                     </div>
                 ) : (
-                    /* Agent cards grid */
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                        {agents.map(agent => {
-                            const gradient = agentColors[agent.provider] || "from-purple-500 to-pink-500";
-                            return (
-                                <div key={agent.id}
-                                    className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-100 dark:border-zinc-800 hover:shadow-xl hover:shadow-purple-100/50 dark:hover:shadow-none hover:border-purple-200 dark:hover:border-purple-800 transition-all duration-300 cursor-pointer overflow-hidden group"
-                                    onClick={() => openChat(agent)}>
-                                    {/* Gradient top bar */}
-                                    <div className={`h-1 bg-gradient-to-r ${gradient}`} />
-                                    <div className="p-5">
-                                        {/* Header */}
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold text-lg shadow-md`}>
-                                                    {(agent.display_name || agent.name).charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <h3 className="font-semibold text-[15px] leading-tight flex items-center gap-1.5">
-                                                        {agent.display_name || agent.name}
-                                                        {champions[agent.name] && (
-                                                            <span title={`Champion: ${champions[agent.name].name} · acc captured · cost $${(champions[agent.name].total_cost_usd ?? 0).toFixed(4)}`}
-                                                                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                                                                <Crown className="w-3 h-3" /> Champion
-                                                            </span>
-                                                        )}
-                                                    </h3>
-                                                    <p className="text-xs text-gray-400 mt-0.5">{agent.provider} · {(agent.model_id || '').split('/').pop()}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <Badge variant={agent.is_published ? "default" : "secondary"}
-                                                    className={`text-[10px] px-2 ${agent.is_published ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-green-200" : "bg-gray-100 text-gray-500"}`}>
-                                                    {agent.is_published ? "● Live" : "Draft"}
-                                                </Badge>
-                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
-                                                    T{agent.tier || 2}
-                                                </Badge>
-                                            </div>
-                                        </div>
-
-                                        {/* Description */}
-                                        <p className="text-sm text-gray-500 dark:text-zinc-400 line-clamp-2 mb-4 min-h-[40px]">
-                                            {agent.description || "No description"}
-                                        </p>
-
-                                        {/* Feature badges */}
-                                        <div className="flex flex-wrap gap-1.5 mb-4">
-                                            {agent.use_rag && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full"><Database className="w-2.5 h-2.5" />RAG</span>}
-                                            {agent.use_knowledge_graph && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full"><Globe className="w-2.5 h-2.5" />KG</span>}
-                                            {agent.tools && (agent.tools as string[]).length > 0 && (
-                                                <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full"><Wrench className="w-2.5 h-2.5" />{(agent.tools as string[]).length} tools</span>
-                                            )}
-                                        </div>
-
-                                        {/* Action bar — always visible */}
-                                        <div className="flex items-center gap-1 pt-3 border-t border-gray-100 dark:border-zinc-800" onClick={e => e.stopPropagation()}>
-                                            <button onClick={() => openChat(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-purple-600 px-2.5 py-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
-                                                <MessageSquare className="w-3.5 h-3.5" /> Chat
-                                            </button>
-
-                                            <button onClick={() => { loadAgentToForm(agent); setView("builder"); }} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
-                                                <Edit className="w-3.5 h-3.5" /> Edit
-                                            </button>
-                                            <button onClick={() => openEvalModal(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-rose-600 px-2.5 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
-                                                <BarChart3 className="w-3.5 h-3.5" /> Evaluate
-                                            </button>
-                                            {!agent.is_published && (
-                                                <button onClick={() => handlePublish(agent.id)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-600 px-2.5 py-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
-                                                    <Rocket className="w-3.5 h-3.5" /> Publish
-                                                </button>
-                                            )}
-                                            <button onClick={() => handleDelete(agent.id)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto">
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
-
-                                        {/* API key row */}
-                                        {agent.is_published && agent.api_key && (
-                                            <div className="mt-3 flex items-center gap-2 text-xs bg-gray-50 dark:bg-zinc-800 rounded-lg px-3 py-2" onClick={e => e.stopPropagation()}>
-                                                <code className="truncate flex-1 font-mono text-[11px] text-gray-500">{agent.api_key}</code>
-                                                <button onClick={() => copyApiKey(agent.api_key!)} className="p-1 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded transition-colors">
-                                                    {copiedKey ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-gray-400" />}
-                                                </button>
-                                            </div>
-                                        )}
+                    /* Agent cards grouped by category */
+                    <div className="space-y-12">
+                        {groupedAgents.map(group => (
+                            <div key={group.id} className="space-y-4">
+                                {/* Group Header */}
+                                <div className="flex items-center gap-3 pb-3 border-b-2" style={{ borderColor: group.color_hex + "40" }}>
+                                    <div className="text-3xl">{group.icon_emoji}</div>
+                                    <div>
+                                        <h2 className="text-2xl font-bold" style={{ color: group.color_hex }}>
+                                            {group.display_name}
+                                        </h2>
+                                        <p className="text-xs text-gray-500">{group.agents.length} agent{group.agents.length !== 1 ? 's' : ''}</p>
                                     </div>
                                 </div>
-                            );
-                        })}
+
+                                {/* Agents Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                    {group.agents.map(agent => {
+                                        const gradient = agentColors[agent.provider] || "from-purple-500 to-pink-500";
+                                        return (
+                                            <div key={agent.id}
+                                                className="bg-white dark:bg-zinc-900 rounded-2xl border-2 transition-all duration-300 cursor-pointer overflow-hidden group hover:shadow-lg"
+                                                style={{
+                                                    borderColor: group.color_hex + "40",
+                                                    backgroundColor: "white"
+                                                }}
+                                                onClick={() => openChat(agent)}>
+                                                {/* Gradient top bar with group color */}
+                                                <div className="h-1.5" style={{ backgroundColor: group.color_hex }} />
+                                                <div className="p-5">
+                                                    {/* Header */}
+                                                    <div className="flex items-start justify-between mb-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold text-lg shadow-md`}>
+                                                                {(agent.display_name || agent.name).charAt(0).toUpperCase()}
+                                                            </div>
+                                                            <div>
+                                                                <h3 className="font-semibold text-[15px] leading-tight flex items-center gap-1.5">
+                                                                    {agent.display_name || agent.name}
+                                                                    {champions[agent.name] && (
+                                                                        <span title={`Champion: ${champions[agent.name].name} · acc captured · cost $${(champions[agent.name].total_cost_usd ?? 0).toFixed(4)}`}
+                                                                            className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                                            <Crown className="w-3 h-3" /> Champion
+                                                                        </span>
+                                                                    )}
+                                                                </h3>
+                                                                <p className="text-xs text-gray-400 mt-0.5">{agent.provider} · {(agent.model_id || '').split('/').pop()}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <Badge variant={agent.is_published ? "default" : "secondary"}
+                                                                className={`text-[10px] px-2 ${agent.is_published ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-green-200" : "bg-gray-100 text-gray-500"}`}>
+                                                                {agent.is_published ? "● Live" : "Draft"}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                                                                T{agent.tier || 2}
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Description */}
+                                                    <p className="text-sm text-gray-500 dark:text-zinc-400 line-clamp-2 mb-4 min-h-[40px]">
+                                                        {agent.description || "No description"}
+                                                    </p>
+
+                                                    {/* Feature badges */}
+                                                    <div className="flex flex-wrap gap-1.5 mb-4">
+                                                        {agent.use_rag && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full"><Database className="w-2.5 h-2.5" />RAG</span>}
+                                                        {agent.use_knowledge_graph && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full"><Globe className="w-2.5 h-2.5" />KG</span>}
+                                                        {agent.tools && (agent.tools as string[]).length > 0 && (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full"><Wrench className="w-2.5 h-2.5" />{(agent.tools as string[]).length} tools</span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Action bar — always visible */}
+                                                    <div className="flex items-center gap-1 pt-3 border-t border-gray-100 dark:border-zinc-800" onClick={e => e.stopPropagation()}>
+                                                        <button onClick={() => openChat(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-purple-600 px-2.5 py-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
+                                                            <MessageSquare className="w-3.5 h-3.5" /> Chat
+                                                        </button>
+
+                                                        <button onClick={() => { loadAgentToForm(agent); setView("builder"); }} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                                                            <Edit className="w-3.5 h-3.5" /> Edit
+                                                        </button>
+                                                        <button onClick={() => openEvalModal(agent)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-rose-600 px-2.5 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
+                                                            <BarChart3 className="w-3.5 h-3.5" /> Evaluate
+                                                        </button>
+                                                        {!agent.is_published && (
+                                                            <button onClick={() => handlePublish(agent.id)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-600 px-2.5 py-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
+                                                                <Rocket className="w-3.5 h-3.5" /> Publish
+                                                            </button>
+                                                        )}
+                                                        <button onClick={() => handleDelete(agent.id)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto">
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+
+                                                    {/* API key row */}
+                                                    {agent.is_published && agent.api_key && (
+                                                        <div className="mt-3 flex items-center gap-2 text-xs bg-gray-50 dark:bg-zinc-800 rounded-lg px-3 py-2" onClick={e => e.stopPropagation()}>
+                                                            <code className="truncate flex-1 font-mono text-[11px] text-gray-500">{agent.api_key}</code>
+                                                            <button onClick={() => copyApiKey(agent.api_key!)} className="p-1 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded transition-colors">
+                                                                {copiedKey ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-gray-400" />}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
 

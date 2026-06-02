@@ -1,0 +1,25 @@
+[package]
+name = "mimir-well"
+version = "0.1.0"
+edition = "2021"
+description = "🪣 Mimir Well — Tulving 3-tier memory artifact store (Sprint 56, ADR-011)"
+license = "AGPL-3.0-only OR LicenseRef-Commercial"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1"
+chrono = { workspace = true }
+futures = { workspace = true }
+neo4rs = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = "1"
+ulid = { version = "1", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

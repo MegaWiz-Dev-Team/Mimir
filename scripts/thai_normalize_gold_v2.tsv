@@ -1,0 +1,50 @@
+เบาหวาน	diabetes	common
+ความดันโลหิตสูง	hypertens	common
+หอบหืด	asthma	common
+กล้ามเนื้อหัวใจตาย	infarction	common
+หลอดเลือดสมอง	stroke|cerebr	common
+ลมชัก	epilep	common
+ไตวาย	renal|kidney	common
+ปอดบวม	pneumonia	common
+ตับแข็ง	cirrhosis	common
+มะเร็งเต้านม	breast	common
+ข้ออักเสบรูมาตอยด์	rheumatoid	common
+ไทรอยด์เป็นพิษ	hyperthyroid|thyrotox	common
+โรคพาร์กินสัน	parkinson	common
+ภาวะหัวใจล้มเหลว	heart failure|cardiac failure	hard
+โรคปอดอุดกั้นเรื้อรัง	obstructive pulmonary|copd	hard
+กล้ามเนื้อหัวใจขาดเลือด	ischem	hard
+ภาวะซึมเศร้า	depress	hard
+โลหิตจางจากการขาดธาตุเหล็ก	iron|anemia|anaemia	hard
+ไข้เลือดออก	dengue	common
+วัณโรค	tuberculosis	common
+ไวรัสตับอักเสบบี	hepatitis b|hepatitis	common
+ไทรอยด์ต่ำ	hypothyroid	common
+ต้อกระจก	cataract	common
+ต้อหิน	glaucoma	common
+ไมเกรน	migraine	common
+ริดสีดวงทวาร	hemorrhoid|haemorrhoid	common
+กรดไหลย้อน	reflux|gerd|gastro-eso|gastroeso	common
+นิ่วในไต	kidney stone|renal calcul|nephrolith|calculus of kidney	common
+ต่อมลูกหมากโต	prostat	common
+โรคเกาต์	gout	common
+กระดูกพรุน	osteoporosis	common
+ข้อเข่าเสื่อม	osteoarthritis|gonarthrosis	common
+โรคสะเก็ดเงิน	psoriasis	common
+ลมพิษ	urticaria	common
+ภูมิแพ้	allerg|hypersensitiv	common
+ไซนัสอักเสบ	sinusitis	common
+ต่อมทอนซิลอักเสบ	tonsillitis	common
+โรคอ้วน	obesity	common
+ไขมันในเลือดสูง	hyperlipid|dyslipid|cholesterol	common
+โรคจิตเภท	schizophren	hard
+โรควิตกกังวล	anxiety	hard
+ภาวะสมองเสื่อม	dementia|alzheimer	hard
+มะเร็งปอด	lung|bronch	common
+มะเร็งตับ	liver|hepatocellular|hepatic	common
+มะเร็งปากมดลูก	cervix|cervical	common
+ธาลัสซีเมีย	thalass	hard
+DM	diabetes	abbrev
+HT	hypertens	abbrev
+COPD	obstructive pulmonary	abbrev
+CKD	chronic kidney|renal	abbrev

@@ -11,6 +11,7 @@
 
 use axum::{
     extract::{Extension, Path, Query, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, patch},
     Json, Router,
@@ -205,6 +206,9 @@ pub fn eval_routes() -> Router<DbPool> {
         .route("/api/v1/eval/runs", get(list_runs).post(start_run))
         .route("/api/v1/eval/runs/{id}", get(get_run_detail))
         .route("/api/v1/eval/runs/{id}/scores", get(get_run_scores))
+        // Phase 4 finetune export: rejection-sample a run's scored items into an
+        // SFT dataset (JSONL). e.g. ?min_acc=4&gt_match=1&context=1
+        .route("/api/v1/eval/runs/{id}/finetune-export", get(finetune_export_run))
         .route("/api/v1/eval/runs/{id}/matrix", get(get_run_matrix))
         .route("/api/v1/eval/runs/{id}/lock-items", axum::routing::post(get_lock_items))
         .route("/api/v1/eval/runs/{id}/promote", axum::routing::post(promote_run))
@@ -331,6 +335,94 @@ async fn get_run_scores(
     }
 
     Json(query.fetch_all(&pool).await.unwrap_or_default())
+}
+
+#[derive(Debug, Deserialize)]
+struct FinetuneExportQuery {
+    /// Minimum effective accuracy (1-5). Default 4.
+    min_acc: Option<i8>,
+    /// Minimum completeness; defaults to `min_acc`.
+    min_comp: Option<i8>,
+    /// Minimum relevance; defaults to `min_acc`.
+    min_rel: Option<i8>,
+    /// Optional safety floor; omit to ignore safety entirely.
+    min_safety: Option<i8>,
+    /// `1` to require the answer to match the benchmark ground truth.
+    gt_match: Option<u8>,
+    /// `1` to fold retrieved context into the user turn (open-book SFT).
+    context: Option<u8>,
+    /// `messages` (default) or `prompt_completion`.
+    format: Option<String>,
+    /// `1` to return only the rejection-sampling stats (preview yield, no body).
+    stats_only: Option<u8>,
+}
+
+/// GET /api/v1/eval/runs/{id}/finetune-export
+///
+/// Rejection-samples the run's scored items into an SFT dataset (JSONL),
+/// keeping only rows that clear the score thresholds (and optionally match
+/// ground truth). Accounting is returned in `X-Export-*` headers; pass
+/// `stats_only=1` to preview the yield as JSON without downloading the body.
+async fn finetune_export_run(
+    State(pool): State<DbPool>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(id): Path<String>,
+    Query(q): Query<FinetuneExportQuery>,
+) -> impl IntoResponse {
+    use mimir_core_ai::evaluation::finetune_export::{
+        export_run_to_jsonl, ExportFormat, ExportOptions,
+    };
+
+    let truthy = |o: Option<u8>| o.map(|n| n != 0).unwrap_or(false);
+    let min_acc = q.min_acc.unwrap_or(4);
+    let format = match q.format.as_deref() {
+        Some("prompt_completion") | Some("prompt-completion") => ExportFormat::PromptCompletion,
+        _ => ExportFormat::OpenAiMessages,
+    };
+    let opts = ExportOptions {
+        min_accuracy: min_acc,
+        min_completeness: q.min_comp.unwrap_or(min_acc),
+        min_relevance: q.min_rel.unwrap_or(min_acc),
+        min_safety: q.min_safety,
+        require_ground_truth_match: truthy(q.gt_match),
+        include_context: truthy(q.context),
+        format,
+        ..Default::default()
+    };
+
+    match export_run_to_jsonl(&pool, &id, &tenant.tenant_id, &opts).await {
+        Ok((jsonl, stats)) => {
+            if truthy(q.stats_only) {
+                return Json(serde_json::json!({ "run_id": id, "stats": stats })).into_response();
+            }
+            let mut hm = HeaderMap::new();
+            hm.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/x-ndjson"),
+            );
+            if let Ok(cd) =
+                HeaderValue::from_str(&format!("attachment; filename=\"finetune_{}.jsonl\"", id))
+            {
+                hm.insert(header::CONTENT_DISPOSITION, cd);
+            }
+            let mut set = |k: &'static str, v: usize| {
+                if let Ok(val) = HeaderValue::from_str(&v.to_string()) {
+                    hm.insert(k, val);
+                }
+            };
+            set("x-export-total", stats.total);
+            set("x-export-kept", stats.kept);
+            set("x-export-dropped-low-score", stats.dropped_low_score);
+            set("x-export-dropped-no-answer", stats.dropped_no_answer);
+            set("x-export-dropped-gt-mismatch", stats.dropped_gt_mismatch);
+            (StatusCode::OK, hm, jsonl).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 async fn get_run_matrix(

@@ -347,6 +347,40 @@ export interface AgentConfigResponse {
 /// Fetch all agents from Agent Studio API
 export async function fetchAgents(): Promise<AgentConfigResponse[]> {
     try {
+        // Try Bifrost proxy first (via Dashboard API endpoint)
+        // Browser accesses /api/bifrost/agents → Dashboard proxies to K8s bifrost.asgard.svc
+        // This solves DNS resolution for external browsers accessing internal K8s service
+        const proxyUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/bifrost/agents`;
+
+        // Get tenant from cookies (set by navbar) or sessionStorage (fallback)
+        const getTenantId = () => {
+            if (typeof window !== "undefined") {
+                // Try cookies first (set by navbar tenant selector)
+                const cookie = document.cookie.split('; ').find(row => row.startsWith('tenant_id='));
+                if (cookie) return cookie.split('=')[1];
+                // Fallback to sessionStorage
+                return sessionStorage.getItem("tenant_id") || "asgard_medical";
+            }
+            return "asgard_medical";
+        };
+
+        const res = await fetch(proxyUrl, {
+            cache: "no-store",
+            headers: {
+                "X-Tenant-Id": getTenantId()
+            }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            return data.agents || [];
+        }
+        console.warn("Bifrost proxy returned:", res.status, res.statusText);
+    } catch (e) {
+        console.warn("Bifrost proxy fetch failed", e);
+    }
+
+    // Fallback to Mimir API
+    try {
         const res = await authFetch(`${API_BASE_URL}/agents`, { cache: "no-store" });
         if (!res.ok) return [];
         const data = await res.json();
@@ -2179,6 +2213,92 @@ export async function searchPrimekgEntity(name: string, limit = 10): Promise<Pri
     return (j.items || []) as PrimekgEntity[];
 }
 
+/// One first-hop relation from a resolved disease to a neighbour entity,
+/// straight from the PrimeKG graph. `relation` is the edge type
+/// (INDICATION / CONTRAINDICATION / DISEASE_PHENOTYPE_POSITIVE / …).
+export interface PrimekgRelation {
+    entity_index: number;
+    name: string;
+    type: string;
+    relation: string;
+}
+
+export interface PrimekgResolved {
+    entity_index: number;
+    name: string;
+    type: string;
+    /** Balanced first-hop neighbours for the chat's Graph Evidence card. */
+    relations: PrimekgRelation[];
+}
+
+/// Resolve the disease/entity a free-text question is about (handles
+/// acronyms like OSA → obstructive sleep apnea + Thai/punctuation
+/// prefixes server-side) plus its balanced first-hop relations — so the
+/// chat panel can re-center the 3D graph AND render a Graph Evidence card.
+/// Returns null when the question names no resolvable entity (e.g. a bare
+/// follow-up "รักษายังไง") — caller keeps the current topic.
+export async function resolvePrimekgQuery(query: string): Promise<PrimekgResolved | null> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/resolve_query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (typeof j.entity_index !== "number") return null;
+    return {
+        entity_index: j.entity_index,
+        name: j.name,
+        type: j.type,
+        relations: Array.isArray(j.relations) ? (j.relations as PrimekgRelation[]) : [],
+    };
+}
+
+/// Cross-KB enrichment for a PrimeKG node, matched by name (best-effort —
+/// PrimeKG uses MONDO/DrugBank/HPO ids, not SNOMED). `snomed` = clinical
+/// FSN + synonyms + ICD-10-TM codes; `tmt` = Thai drug terminology (drugs).
+export interface PrimekgEnrichment {
+    snomed?: {
+        concept_id: string;
+        fsn?: string | null;
+        synonyms: string[];
+        icd10: { who?: string | null; tm?: string | null }[];
+    } | null;
+    tmt?: {
+        tmt_id: string;
+        fsn: string;
+        concept_type?: string | null;
+        manufacturer?: string | null;
+    } | null;
+}
+
+export async function enrichPrimekgNode(
+    name: string,
+    entityType?: string,
+): Promise<PrimekgEnrichment | null> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/enrich`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, entity_type: entityType }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PrimekgEnrichment;
+}
+
+/// Balanced first-hop relations for a KNOWN entity_index. Used for
+/// follow-up questions that name no disease (the topic comes from the
+/// selected graph node) — keeps the evidence card + grounding working.
+export async function fetchPrimekgRelations(entityIndex: number): Promise<PrimekgRelation[]> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/relations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity_index: entityIndex }),
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.relations) ? (j.relations as PrimekgRelation[]) : [];
+}
+
 export interface PrimekgNeighbor {
     neighbor_index: number;
     neighbor_name: string;
@@ -2195,6 +2315,89 @@ export async function fetchPrimekgNeighbors(
     });
     if (!res.ok) throw new Error("PrimeKG neighbors fetch failed");
     return res.json();
+}
+
+// ── PrimeKG Medical Knowledge Assistant ────────────────────────────────────
+// Restored 2026-05-27 from de-minified dashboard v2.3.36 bundle. The widget
+// lives on /knowledge/shared/primekg (PrimeKgGraph3D.tsx aside panel). Both
+// helpers proxy to mimir-api → Bifrost PrimeKG Graph Agent (id=7, tenant
+// asgard_medical). Lost between v2.3.36 (May 22) and v2.3.42 (current) — see
+// memory `iris_swarm_chat_bifrost_gaps` for the silent-regression context.
+
+/// Non-streaming variant. Used as a fallback if the SSE stream isn't
+/// supported by the network path (some VPN setups buffer SSE poorly).
+export async function askPrimekgAssistant(
+    query: string,
+    sessionId?: string,
+): Promise<{ answer: string; reasoning?: string }> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/assistant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, session_id: sessionId }),
+    });
+    if (!res.ok) throw new Error("PrimeKG assistant failed");
+    return res.json();
+}
+
+/// SSE streaming variant. Callbacks fire as events arrive:
+///   - `onStatus()` — heartbeat (clears any "loading…" placeholder)
+///   - `onAnswer(text)` — the final answer text
+///   - `onError(msg)` — fatal mid-stream error
+export async function askPrimekgAssistantStream(
+    query: string,
+    sessionId: string,
+    callbacks: {
+        onStatus?: () => void;
+        onAnswer: (text: string) => void;
+        onError?: (msg: string) => void;
+    },
+): Promise<void> {
+    const res = await authFetch(`${API_BASE_URL}/knowledge/primekg/assistant/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, session_id: sessionId }),
+    });
+    if (!res.ok || !res.body) throw new Error("PrimeKG assistant stream failed");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    const handleEvent = (raw: string) => {
+        let evtType = "message";
+        let data = "";
+        for (const line of raw.split("\n")) {
+            if (line.startsWith("event:")) evtType = line.slice(6).trim();
+            else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (evtType === "status") {
+            callbacks.onStatus?.();
+        } else if (evtType === "answer") {
+            try {
+                callbacks.onAnswer(JSON.parse(data).answer || "");
+            } catch {
+                callbacks.onAnswer(data);
+            }
+        } else if (evtType === "error") {
+            try {
+                callbacks.onError?.(JSON.parse(data).error || "error");
+            } catch {
+                callbacks.onError?.(data);
+            }
+        }
+    };
+
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() || "";
+        for (const evt of events) {
+            if (evt.trim()) handleEvent(evt);
+        }
+    }
+    if (buf.trim()) handleEvent(buf);
 }
 
 export async function fetchGraphVisualization(params?: {

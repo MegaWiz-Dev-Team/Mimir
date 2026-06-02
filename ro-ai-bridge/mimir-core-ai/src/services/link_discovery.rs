@@ -214,9 +214,8 @@ fn extract_title_tag(doc: &Html) -> Option<String> {
 
 fn extract_favicon(doc: &Html, base_url: &str) -> Option<String> {
     // Try <link rel="icon"> or <link rel="shortcut icon">
-    for rel in &["icon", "shortcut icon", "apple-touch-icon"] {
-        let sel_str = format!("link[rel=\"{}\"]", rel);
-        if let Ok(sel) = Selector::parse(&sel_str) {
+    for sel_str in &["link[rel=\"icon\"]", "link[rel=\"shortcut icon\"]", "link[rel=\"apple-touch-icon\"]"] {
+        if let Ok(sel) = Selector::parse(sel_str) {
             if let Some(el) = doc.select(&sel).next() {
                 if let Some(href) = el.value().attr("href") {
                     // Resolve relative favicon URL

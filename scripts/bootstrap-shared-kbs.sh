@@ -28,6 +28,7 @@
 #   ./scripts/bootstrap-shared-kbs.sh --skip-tmt         # skip TMT phase
 #   ./scripts/bootstrap-shared-kbs.sh --skip-tmlt        # skip TMLT phase
 #   ./scripts/bootstrap-shared-kbs.sh --skip-tpc         # skip TPC phase
+#   ./scripts/bootstrap-shared-kbs.sh --skip-snomed-refsets  # skip IPS/GPFP/EDQM phase
 #   ./scripts/bootstrap-shared-kbs.sh --dry-run           # show plan, no work
 #
 # Env (sane defaults — override only if non-standard):
@@ -48,6 +49,7 @@ SKIP_LOINC=false
 SKIP_TMT=false
 SKIP_TMLT=false
 SKIP_TPC=false
+SKIP_SNOMED_REFSETS=false
 DRY_RUN=false
 PRIMEKG_CSV=""
 ICD10_PDF=""
@@ -60,6 +62,7 @@ for arg in "$@"; do
     --skip-tmt)           SKIP_TMT=true ;;
     --skip-tmlt)          SKIP_TMLT=true ;;
     --skip-tpc)           SKIP_TPC=true ;;
+    --skip-snomed-refsets) SKIP_SNOMED_REFSETS=true ;;
     --dry-run)            DRY_RUN=true ;;
     --primekg-csv=*)      PRIMEKG_CSV="${arg#*=}" ;;
     --icd10-pdf=*)        ICD10_PDF="${arg#*=}" ;;
@@ -189,6 +192,7 @@ apply_migration_if_missing loinc_codes "$REPO_ROOT/ro-ai-bridge/migrations/sprin
 apply_migration_if_missing tmt_codes   "$REPO_ROOT/ro-ai-bridge/migrations/sprint50_tmt_codes.sql"
 apply_migration_if_missing tmlt_codes  "$REPO_ROOT/ro-ai-bridge/migrations/sprint51_tmlt_codes.sql"
 apply_migration_if_missing tpc_codes   "$REPO_ROOT/ro-ai-bridge/migrations/sprint52_tpc_codes.sql"
+apply_migration_if_missing snomed_refset_members "$REPO_ROOT/ro-ai-bridge/migrations/sprint58_snomed_refsets_edqm.sql"
 
 # ── Phase 2 — ICD-10-TM ingest ─────────────────────────────────────────────
 log ""
@@ -375,9 +379,41 @@ else
   fi
 fi
 
-# ── Phase 8 — Verify via shared knowledge catalog ─────────────────────────
+# ── Phase 8 — SNOMED refsets (IPS / GP-FP) + EDQM dose map ───────────────
+# Source: SNOMED International MLDS (https://mlds.ihtsdotools.org/), Thailand member.
+# Packages auto-detected under data/SnomedCT/ (symlink to controlled storage).
 log ""
-log "=== Phase 8: Verify via /api/v1/knowledge/shared ==="
+log "=== Phase 8: SNOMED refsets (IPS, GP/FP, EDQM dose map) ==="
+if $SKIP_SNOMED_REFSETS; then
+  log "  skipped (--skip-snomed-refsets)."
+else
+  SCT_DIR="$REPO_ROOT/data/SnomedCT"
+  RS_COUNT=$(mariadb_query "SELECT COUNT(*) FROM snomed_refset_members WHERE tenant_id IS NULL" 2>/dev/null || echo 0)
+  if [[ "$RS_COUNT" -ge 16000 ]]; then
+    log "  $RS_COUNT refset members already present — skipping ingest."
+  else
+    IPS_F=$(ls "$SCT_DIR"/SnomedCT_IPS_*/Snapshot/Refset/Content/der2_Refset_IPSSimpleSnapshot_*.txt 2>/dev/null | grep -v '/\._' | head -1)
+    GPFP_F=$(ls "$SCT_DIR"/SnomedCT_GPFP_*/Snapshot/Refset/Content/der2_Refset_GPFPSimpleSnapshot_*.txt 2>/dev/null | grep -v '/\._' | head -1)
+    EDQM_F=$(ls "$SCT_DIR"/SnomedCT_*EDQM*/Snapshot/Refset/Map/der2_ssRefset_EDQMSimpleMapSnapshot_*.txt 2>/dev/null | grep -v '/\._' | head -1)
+    if [[ -z "$IPS_F$GPFP_F$EDQM_F" ]]; then
+      log "  No IPS/GPFP/EDQM packages under data/SnomedCT/ — skipping (download via MLDS)."
+    else
+      [[ -n "$IPS_F"  ]] && run_or_dry env MARIADB_NAMESPACE="$NEO4J_NAMESPACE" /opt/homebrew/bin/python3 \
+        "$SCRIPT_DIR/snomed_refset_ingest.py" --ips  "$IPS_F"  --source-version sct-ips-20250701  --source-url https://mlds.ihtsdotools.org/
+      [[ -n "$GPFP_F" ]] && run_or_dry env MARIADB_NAMESPACE="$NEO4J_NAMESPACE" /opt/homebrew/bin/python3 \
+        "$SCRIPT_DIR/snomed_refset_ingest.py" --gpfp "$GPFP_F" --source-version sct-gpfp-20260101 --source-url https://mlds.ihtsdotools.org/
+      [[ -n "$EDQM_F" ]] && run_or_dry env MARIADB_NAMESPACE="$NEO4J_NAMESPACE" /opt/homebrew/bin/python3 \
+        "$SCRIPT_DIR/snomed_refset_ingest.py" --edqm "$EDQM_F" --source-version sct-edqm-20250701 --source-url https://mlds.ihtsdotools.org/
+      # TMT→SNOMED dose link needs tmt_codes + snomed_descriptions present.
+      run_or_dry env MARIADB_NAMESPACE="$NEO4J_NAMESPACE" /opt/homebrew/bin/python3 \
+        "$SCRIPT_DIR/snomed_refset_ingest.py" --tmt-dose-link --source-version sct-edqm-20250701 --source-url https://mlds.ihtsdotools.org/
+    fi
+  fi
+fi
+
+# ── Phase 9 — Verify via shared knowledge catalog ─────────────────────────
+log ""
+log "=== Phase 9: Verify via /api/v1/knowledge/shared ==="
 if [[ -z "$MIMIR_JWT" ]]; then
   warn "MIMIR_JWT not set; skipping catalog verify."
 else

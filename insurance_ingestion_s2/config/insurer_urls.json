@@ -1,0 +1,22 @@
+{
+  "_note": "Generic placeholder configuration. Real insurer URLs live in private deployment configs only — do NOT commit real insurer identifiers or scrape targets to this public repo. See Asgard-Confidential or per-customer deployment config for production values.",
+  "insurers": {
+    "insurer_001": {
+      "name": "Insurer A",
+      "name_th": "บริษัทประกัน A",
+      "language": "en",
+      "urls": [
+        "https://insurer-a.example.com/en/products/health/",
+        "https://insurer-a.example.com/en/products/life/"
+      ]
+    },
+    "insurer_002": {
+      "name": "Insurer A Savings",
+      "name_th": "บริษัทประกัน A เซฟวิ่งส์",
+      "language": "en",
+      "urls": [
+        "https://insurer-a.example.com/en/products/savings/"
+      ]
+    }
+  }
+}

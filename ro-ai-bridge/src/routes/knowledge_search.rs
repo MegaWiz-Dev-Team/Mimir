@@ -103,10 +103,14 @@ async fn unified_search(
     // Uses q_replace so Thai symptom aliases (ปวดหัว → headache) get
     // rewritten before tokenisation against PrimeKG phenotype nodes.
     let p7 = symptom_search(&pool, &q_replace, k);
+    // 8th KB: medical abbreviation glossary — match the raw query against the
+    // abbreviation token + EN/TH expansion. Uses raw q (not rewritten): the
+    // whole point is to resolve the literal acronym a doctor wrote (UTI, AKI).
+    let p8 = abbrev_search(&pool, q, k);
 
-    let (r1, r2, r3, r4, r5, r6, r7) = tokio::join!(p1, p2, p3, p4, p5, p6, p7);
+    let (r1, r2, r3, r4, r5, r6, r7, r8) = tokio::join!(p1, p2, p3, p4, p5, p6, p7, p8);
 
-    let results = vec![r1, r2, r3, r4, r5, r6, r7];
+    let results = vec![r1, r2, r3, r4, r5, r6, r7, r8];
 
     Ok(Json(SearchResponse {
         q: q.to_string(),
@@ -684,6 +688,39 @@ async fn tpc_search(pool: &DbPool, q: &str, k: i64) -> KbResult {
     };
     KbResult {
         kb_id: "tpc", kb_name: "TPC (Procedure Codes)",
+        count: items.len(), items,
+        latency_ms: t0.elapsed().as_millis(),
+    }
+}
+
+async fn abbrev_search(pool: &DbPool, q: &str, k: i64) -> KbResult {
+    let t0 = Instant::now();
+    let q_safe = q.replace('\'', "''");
+    // Exact abbreviation match ranks first (UTI → the UTI row), then prefix,
+    // then substring in either expansion. Returns the ICD-10-TM map when present
+    // so a caller can chain straight to Condition.code.
+    let sql = format!(
+        "SELECT abbrev, full_term_en, full_term_th, category, icd10tm, icd9 \
+         FROM medical_abbrev \
+         WHERE tenant_id IS NULL AND \
+               (abbrev = '{q}' OR abbrev LIKE '{q}%' \
+                OR full_term_en LIKE '%{q}%' OR full_term_th LIKE '%{q}%') \
+         ORDER BY (abbrev = '{q}') DESC, (abbrev LIKE '{q}%') DESC, abbrev LIMIT {k}",
+        q = q_safe, k = k,
+    );
+    let items = match sqlx::query(&sql).fetch_all(pool).await {
+        Ok(rs) => rs.iter().map(|r| json!({
+            "abbrev": r.get::<String,_>("abbrev"),
+            "full_term_en": r.try_get::<String,_>("full_term_en").unwrap_or_default(),
+            "full_term_th": r.try_get::<String,_>("full_term_th").unwrap_or_default(),
+            "category": r.try_get::<String,_>("category").unwrap_or_default(),
+            "icd10tm": r.try_get::<String,_>("icd10tm").ok(),
+            "icd9": r.try_get::<String,_>("icd9").ok(),
+        })).collect::<Vec<_>>(),
+        Err(e) => { warn!("abbrev_search: {e}"); vec![] }
+    };
+    KbResult {
+        kb_id: "medical-abbrev", kb_name: "Medical Abbreviation Glossary (Thai)",
         count: items.len(), items,
         latency_ms: t0.elapsed().as_millis(),
     }

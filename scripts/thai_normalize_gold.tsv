@@ -1,0 +1,18 @@
+เบาหวาน	diabetes	common
+ความดันโลหิตสูง	hypertens	common
+หอบหืด	asthma	common
+กล้ามเนื้อหัวใจตาย	infarction	common
+หลอดเลือดสมอง	stroke|cerebr	common
+ลมชัก	epilep	common
+ไตวาย	renal|kidney	common
+ปอดบวม	pneumonia	common
+ตับแข็ง	cirrhosis	common
+มะเร็งเต้านม	breast	common
+ข้ออักเสบรูมาตอยด์	rheumatoid	common
+ไทรอยด์เป็นพิษ	hyperthyroid|thyrotox	common
+โรคพาร์กินสัน	parkinson	common
+ภาวะหัวใจล้มเหลว	heart failure|cardiac failure	hard
+โรคปอดอุดกั้นเรื้อรัง	obstructive pulmonary|copd	hard
+กล้ามเนื้อหัวใจขาดเลือด	ischem	hard
+ภาวะซึมเศร้า	depress	hard
+โลหิตจางจากการขาดธาตุเหล็ก	iron|anemia|anaemia	hard
