@@ -356,6 +356,63 @@ async fn list_shared_kbs(
         });
     }
 
+    // ── SNOMED CT → ICD-10-CM (US Edition official ExtendedMap) ──────────────
+    //
+    // Parallel to the "snomed" card above (which is the Thai ICD-10-TM crosswalk).
+    // This is the OFFICIAL NLM SNOMED CT → ICD-10-CM map (refset 6011000124106),
+    // rule-based (mapGroup/mapPriority/mapRule/mapAdvice/mapCategory), ingested
+    // verbatim by scripts/snomed_icd10cm_map_ingest.py into snomed_icd10cm_map.
+    {
+        let map_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_icd10cm_map WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let mapped_concepts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT concept_id) FROM snomed_icd10cm_map \
+             WHERE tenant_id IS NULL AND icd10cm_code IS NOT NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let distinct_targets: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT icd10cm_code) FROM snomed_icd10cm_map \
+             WHERE tenant_id IS NULL AND icd10cm_code IS NOT NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let needs_review: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_icd10cm_map WHERE tenant_id IS NULL AND needs_review=1",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM snomed_icd10cm_map WHERE tenant_id IS NULL LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "snomed_icd10cm_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "snomed-icd10cm",
+                name: "SNOMED CT → ICD-10-CM (US)",
+                description: "Official NLM SNOMED CT → ICD-10-CM map (US Edition, refset 6011000124106). Rule-based: one concept → N candidate targets by mapGroup/mapPriority, each gated by a mapRule (gender/age) with mapAdvice. The US counterpart to the ICD-10-TM card.",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: "https://www.nlm.nih.gov/healthit/snomedct/us_edition.html",
+                maintainer: "U.S. National Library of Medicine (NLM)",
+                region: "US",
+                languages: vec!["en"],
+                vintage_year: Some(2025),
+                license: "SNOMED CT US Edition — requires UMLS Metathesaurus License (free) + SNOMED Affiliate License",
+                fhir_binding: Some("Condition.code / ConceptMap (SNOMED→ICD-10-CM)"),
+                update_cadence: "Biannual (Mar / Sep, US Edition)",
+                schema_version: "sprint60",
+                notes: Some("Rule-based map, NOT 1:1 — resolve by walking mapGroup in mapPriority order, first matching mapRule wins. needs_review=1 marks rows that are not properly-classified (context-dependent / cannot-classify / empty target). Browse via the items tab; share clinical text → SNOMED via /api/v1/knowledge/snomed/search."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "mariadb_map_rows":      map_rows,
+                    "concepts_mapped":       mapped_concepts,
+                    "distinct_icd10cm":      distinct_targets,
+                    "rows_needs_review":     needs_review,
+                }),
+                source_version: version,
+                status: if map_rows > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
     // ── TPC (currently served by US ICD-9-CM upstream baseline) ───────────
     //
     // Naming note (2026-05-19): we briefly used `active_fallback` here to
