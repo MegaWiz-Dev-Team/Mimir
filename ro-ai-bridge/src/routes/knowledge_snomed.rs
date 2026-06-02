@@ -5,6 +5,7 @@
 //!
 //!   POST /api/v1/knowledge/snomed/search        — FULLTEXT term → concepts
 //!   POST /api/v1/knowledge/snomed/resolve-icd10  — concept_id (+gender,+age) → ICD-10-TM
+//!   POST /api/v1/knowledge/snomed/dose-form      — tmt_id → FHIR doseForm CodeableConcept
 //!
 //! The map (snomed_icd10_map) is pre-split by gender/age, so the resolver just
 //! filters; targets carry a role (mandatory/conditional/advisory) and a
@@ -22,6 +23,7 @@ pub fn knowledge_snomed_routes() -> Router<DbPool> {
     Router::new()
         .route("/search", post(search))
         .route("/resolve-icd10", post(resolve_icd10))
+        .route("/dose-form", post(dose_form))
 }
 
 type RouteError = (StatusCode, Json<JsonValue>);
@@ -36,6 +38,12 @@ fn db_error(e: sqlx::Error) -> RouteError {
 
 fn valid_concept_id(s: &str) -> bool {
     !s.is_empty() && s.len() <= 20 && s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// TMT ids are the medicine identifiers in the dose-link table (`varchar(20)`).
+/// They're numeric in practice, but accept alphanumerics defensively per spec.
+fn valid_tmt_id(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 20 && s.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 // ─── concept search ─────────────────────────────────────────────────────────
@@ -278,5 +286,89 @@ async fn resolve_icd10(
         "age_group": req.age_group,
         "targets": targets,
         "billable": billable,
+    })))
+}
+
+// ─── resolve TMT med → FHIR doseForm CodeableConcept ──────────────────────────
+
+const SYS_SNOMED: &str = "http://snomed.info/sct";
+const SYS_EDQM: &str = "https://standardterms.edqm.eu"; // EDQM Standard Terms code system
+
+#[derive(Debug, Deserialize)]
+struct DoseFormReq {
+    tmt_id: String,
+}
+
+/// Resolve a TMT medicine id to a FHIR R5 `Medication.doseForm` CodeableConcept.
+///
+/// Chain (Sprint 58): tmt_id ──snomed_tmt_dose_link──▶ SNOMED dose-form concept
+/// ──snomed_edqm_dose_map──▶ EDQM code. Only `needs_review=0` links are trusted
+/// (exact/normalized); token_subset links are needs_review=1 and deliberately NOT
+/// auto-coded — they need human confirmation — so this returns `doseForm: null`
+/// (with `trusted: false`) rather than asserting a possibly-wrong subtype.
+///
+/// Port of `scripts/fhir_dose_form.py::resolve_dose_form`.
+async fn dose_form(
+    State(pool): State<DbPool>,
+    Json(req): Json<DoseFormReq>,
+) -> Result<Json<JsonValue>, RouteError> {
+    if !valid_tmt_id(&req.tmt_id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_tmt_id", "hint": "alphanumeric TMT id"})),
+        ));
+    }
+    // SNOMED coding always present; EDQM added when the concept carries a map.
+    // needs_review=0 only — untrusted (token_subset) links resolve to null.
+    let row = sqlx::query(
+        "SELECT l.snomed_concept_id AS concept, \
+           (SELECT term FROM snomed_descriptions d \
+              WHERE d.concept_id = l.snomed_concept_id AND d.term_type = 'fsn' LIMIT 1) AS fsn, \
+           (SELECT e.edqm_code FROM snomed_edqm_dose_map e \
+              WHERE e.snomed_concept_id = l.snomed_concept_id ORDER BY e.edqm_code LIMIT 1) AS edqm \
+         FROM snomed_tmt_dose_link l \
+         WHERE l.tmt_id = ? AND l.needs_review = 0 LIMIT 1",
+    )
+    .bind(&req.tmt_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(db_error)?;
+
+    let concept = row.as_ref().and_then(|r| r.try_get::<String, _>("concept").ok());
+    let concept = match concept {
+        Some(c) if !c.is_empty() => c,
+        _ => {
+            return Ok(Json(
+                json!({"tmt_id": req.tmt_id, "doseForm": JsonValue::Null, "trusted": false}),
+            ));
+        }
+    };
+    let row = row.expect("row present when concept resolved");
+    let fsn: Option<String> = row.try_get("fsn").ok();
+    let edqm: Option<String> = row.try_get("edqm").ok();
+
+    // Display strips the "(dose form)" semantic tag from the FSN.
+    let display = fsn
+        .as_deref()
+        .map(|f| f.replace("(dose form)", "").trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let mut snomed_coding = json!({"system": SYS_SNOMED, "code": concept});
+    if let Some(d) = &display {
+        snomed_coding["display"] = json!(d);
+    }
+    let mut codings = vec![snomed_coding];
+    if let Some(e) = edqm.filter(|e| !e.is_empty()) {
+        codings.push(json!({"system": SYS_EDQM, "code": e}));
+    }
+    let mut cc = json!({"coding": codings});
+    if let Some(d) = &display {
+        cc["text"] = json!(d);
+    }
+
+    Ok(Json(json!({
+        "tmt_id": req.tmt_id,
+        "doseForm": cc,
+        "trusted": true,
     })))
 }
