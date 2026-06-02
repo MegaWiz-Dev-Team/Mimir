@@ -27,6 +27,7 @@ pub fn knowledge_snomed_routes() -> Router<DbPool> {
         .route("/search", post(search))
         .route("/resolve-icd10", post(resolve_icd10))
         .route("/resolve-icd10cm", post(resolve_icd10cm))
+        .route("/resolve-icd10who", post(resolve_icd10who))
         .route("/dose-form", post(dose_form))
 }
 
@@ -293,7 +294,9 @@ async fn resolve_icd10(
     })))
 }
 
-// ─── resolve concept → ICD-10-CM (US official rule-based ExtendedMap) ─────────
+// ─── resolve concept → ICD-10 (official rule-based ExtendedMap) ──────────────
+// One generic resolver over snomed_icd10_extmap, discriminated by target_system:
+//   /resolve-icd10cm  → 'icd10cm' (US)   /resolve-icd10who → 'icd10who' (WHO)
 
 #[derive(Debug, Deserialize)]
 struct ResolveCmReq {
@@ -344,6 +347,21 @@ async fn resolve_icd10cm(
     State(pool): State<DbPool>,
     Json(req): Json<ResolveCmReq>,
 ) -> Result<Json<JsonValue>, RouteError> {
+    resolve_extmap(pool, req, "icd10cm").await
+}
+
+async fn resolve_icd10who(
+    State(pool): State<DbPool>,
+    Json(req): Json<ResolveCmReq>,
+) -> Result<Json<JsonValue>, RouteError> {
+    resolve_extmap(pool, req, "icd10who").await
+}
+
+async fn resolve_extmap(
+    pool: DbPool,
+    req: ResolveCmReq,
+    target_system: &str,
+) -> Result<Json<JsonValue>, RouteError> {
     if !valid_concept_id(&req.concept_id) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -367,12 +385,13 @@ async fn resolve_icd10cm(
     .flatten();
 
     let rows = sqlx::query(
-        "SELECT map_group, map_priority, map_rule, map_advice, icd10cm_code, \
+        "SELECT map_group, map_priority, map_rule, map_advice, icd10_code, \
                 map_category, needs_review \
-         FROM snomed_icd10cm_map \
-         WHERE tenant_id IS NULL AND active = 1 AND concept_id = ? \
+         FROM snomed_icd10_extmap \
+         WHERE tenant_id IS NULL AND active = 1 AND target_system = ? AND concept_id = ? \
          ORDER BY map_group, map_priority",
     )
+    .bind(target_system)
     .bind(&req.concept_id)
     .fetch_all(&pool)
     .await
@@ -381,8 +400,9 @@ async fn resolve_icd10cm(
     if rows.is_empty() {
         return Ok(Json(json!({
             "concept_id": req.concept_id, "concept_fsn": concept_fsn,
+            "target_system": target_system,
             "gender": gender, "groups": [], "billable": [],
-            "note": "no ICD-10-CM map for this concept"
+            "note": "no map for this concept"
         })));
     }
 
@@ -402,7 +422,7 @@ async fn resolve_icd10cm(
         let c = Cand {
             group: r.try_get("map_group").unwrap_or(1),
             priority: r.try_get("map_priority").unwrap_or(1),
-            code: r.try_get::<String, _>("icd10cm_code").ok().filter(|s| !s.is_empty()),
+            code: r.try_get::<String, _>("icd10_code").ok().filter(|s| !s.is_empty()),
             rule: r.try_get("map_rule").unwrap_or_default(),
             advice: r.try_get("map_advice").unwrap_or_default(),
             category: r.try_get("map_category").ok(),
@@ -427,7 +447,7 @@ async fn resolve_icd10cm(
             };
             candidates.push(json!({
                 "map_priority": c.priority,
-                "icd10cm_code": c.code,
+                "icd10_code": c.code,
                 "map_rule": c.rule,
                 "rule_kind": kind_str,
                 "advice": c.advice,
@@ -444,7 +464,7 @@ async fn resolve_icd10cm(
             if selected.is_none() && fires {
                 if let Some(code) = &c.code {
                     selected = Some(json!({
-                        "icd10cm_code": code,
+                        "icd10_code": code,
                         "advice": c.advice,
                         "map_category": c.category,
                         "needs_review": c.needs_review,
@@ -474,6 +494,7 @@ async fn resolve_icd10cm(
     Ok(Json(json!({
         "concept_id": req.concept_id,
         "concept_fsn": concept_fsn,
+        "target_system": target_system,
         "gender": gender,
         "groups": groups_out,
         "billable": billable,

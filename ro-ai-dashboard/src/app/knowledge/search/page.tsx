@@ -140,11 +140,11 @@ function ItemRow({ kbId, item }: { kbId: string; item: any }) {
             </div>
         );
     }
-    if (kbId === "snomed-icd10cm") {
+    if (kbId === "snomed-icd10cm" || kbId === "snomed-icd10who") {
         return (
             <div className="grid grid-cols-[6rem_1fr_5rem] gap-3 items-start">
                 <code className="text-xs font-mono font-bold text-blue-700 dark:text-blue-300">
-                    {item.icd10cm_code || "—"}
+                    {item.icd10_code || "—"}
                 </code>
                 <div className="min-w-0">
                     <div className="text-sm truncate">{item.term || item.concept_id}</div>
@@ -177,6 +177,7 @@ function KbBadge({ kb_id }: { kb_id: string }) {
         primekg: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
         symptoms: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
         "snomed-icd10cm": "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
+        "snomed-icd10who": "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
     };
     const cls = palette[kb_id] || "bg-zinc-100 text-zinc-700";
     return (

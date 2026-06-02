@@ -55,7 +55,25 @@ MAP_CATEGORY = {
     "447635003": "target invalid",
     "450580003": "context dependent",
 }
-ICD10CM_REFSET = "6011000124106"
+ICD10CM_REFSET = "6011000124106"   # SNOMED CT US Edition → ICD-10-CM
+ICD10WHO_REFSET = "447562003"      # SNOMED CT International → ICD-10 (WHO complex map)
+
+# Per-target defaults so one script serves both editions. Adding CM later is just
+# a re-run with --target-system icd10cm; no code change.
+TARGET_DEFAULTS = {
+    "icd10cm": {
+        "refset": ICD10CM_REFSET,
+        "source_version": "sct-us-icd10cm",
+        "source_label": "nlm-snomed-us-icd10cm",
+        "source_url": "https://www.nlm.nih.gov/healthit/snomedct/us_edition.html",
+    },
+    "icd10who": {
+        "refset": ICD10WHO_REFSET,
+        "source_version": "sct-int-icd10who",
+        "source_label": "snomed-international-icd10",
+        "source_url": "https://www.snomed.org/",
+    },
+}
 
 
 def _have_mysql_cli() -> bool:
@@ -110,7 +128,8 @@ def batched_insert(prefix: str, rows: list[str], batch: int = 500, dry: bool = F
     return n
 
 
-def parse_map_file(path: Path, source_version: str, refset_filter: str | None, dry: bool):
+def parse_map_file(path: Path, target_system: str, source_version: str,
+                   refset_filter: str | None, dry: bool):
     rows: list[str] = []
     concepts: set[str] = set()
     cat_counts: dict[str, int] = {}
@@ -149,6 +168,7 @@ def parse_map_file(path: Path, source_version: str, refset_filter: str | None, d
 
             rows.append(
                 "(" + ",".join([
+                    sql_quote(target_system),
                     sql_quote(source_version),
                     sql_quote(refset_id),
                     sql_quote(concept_id),
@@ -164,9 +184,9 @@ def parse_map_file(path: Path, source_version: str, refset_filter: str | None, d
                 ]) + ")"
             )
     prefix = (
-        "INSERT INTO snomed_icd10cm_map "
-        "(source_version, refset_id, concept_id, map_group, map_priority, "
-        "map_rule, map_advice, icd10cm_code, correlation_id, map_category_id, "
+        "INSERT INTO snomed_icd10_extmap "
+        "(target_system, source_version, refset_id, concept_id, map_group, map_priority, "
+        "map_rule, map_advice, icd10_code, correlation_id, map_category_id, "
         "map_category, needs_review) VALUES\n"
     )
     inserted = batched_insert(prefix, rows, dry=dry)
@@ -175,37 +195,44 @@ def parse_map_file(path: Path, source_version: str, refset_filter: str | None, d
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--target-system", required=True, choices=["icd10cm", "icd10who"],
+                    help="which classification this map targets")
     ap.add_argument("--map-file", type=Path, required=True,
                     help="RF2 der2_iisssccRefset_ExtendedMap{Snapshot,Full} file")
-    ap.add_argument("--source-version", default="sct-us-icd10cm")
-    ap.add_argument("--source-label", default="nlm-snomed-us-icd10cm")
-    ap.add_argument("--source-url",
-                    default="https://www.nlm.nih.gov/healthit/snomedct/us_edition.html")
-    ap.add_argument("--refset-id", default=ICD10CM_REFSET,
-                    help="filter to this refsetId; pass empty string to keep all")
+    ap.add_argument("--source-version", default=None)
+    ap.add_argument("--source-label", default=None)
+    ap.add_argument("--source-url", default=None)
+    ap.add_argument("--refset-id", default=None,
+                    help="filter to this refsetId; defaults per target; '' keeps all")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    refset_filter = args.refset_id.strip() or None
+    # Fill per-target defaults for anything not explicitly given.
+    d = TARGET_DEFAULTS[args.target_system]
+    args.source_version = args.source_version or d["source_version"]
+    args.source_label = args.source_label or d["source_label"]
+    args.source_url = args.source_url or d["source_url"]
+    refset_arg = d["refset"] if args.refset_id is None else args.refset_id
+    refset_filter = refset_arg.strip() or None
 
     run_id = str(uuid.uuid4())
     if not args.dry_run:
         mariadb_exec(
-            "INSERT INTO snomed_icd10cm_ingest_runs "
-            "(id, source_version, source_label, source_url, status) VALUES ("
-            f"{sql_quote(run_id)}, {sql_quote(args.source_version)}, "
+            "INSERT INTO snomed_icd10_extmap_ingest_runs "
+            "(id, target_system, source_version, source_label, source_url, status) VALUES ("
+            f"{sql_quote(run_id)}, {sql_quote(args.target_system)}, {sql_quote(args.source_version)}, "
             f"{sql_quote(args.source_label)}, {sql_quote(args.source_url)}, 'RUNNING')"
         )
 
-    print(f"Parsing ICD-10-CM map: {args.map_file}")
+    print(f"Parsing {args.target_system} map: {args.map_file}")
     try:
         n_map, n_concepts, n_review, n_skip, cats = parse_map_file(
-            args.map_file, args.source_version, refset_filter, args.dry_run
+            args.map_file, args.target_system, args.source_version, refset_filter, args.dry_run
         )
     except Exception as e:
         if not args.dry_run:
             mariadb_exec(
-                "UPDATE snomed_icd10cm_ingest_runs SET status='FAILED', finished_at=NOW(), "
+                "UPDATE snomed_icd10_extmap_ingest_runs SET status='FAILED', finished_at=NOW(), "
                 f"status_message={sql_quote(str(e)[:480])} WHERE id={sql_quote(run_id)}"
             )
         raise
@@ -218,7 +245,7 @@ def main() -> int:
 
     if not args.dry_run:
         mariadb_exec(
-            "UPDATE snomed_icd10cm_ingest_runs SET status='COMPLETED', finished_at=NOW(), "
+            "UPDATE snomed_icd10_extmap_ingest_runs SET status='COMPLETED', finished_at=NOW(), "
             f"rows_inserted={n_map}, rows_review={n_review}, rows_skipped={n_skip}, "
             f"concepts_mapped={n_concepts} WHERE id={sql_quote(run_id)}"
         )
