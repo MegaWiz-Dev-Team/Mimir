@@ -62,8 +62,8 @@ FLOORS = {
     "doseform_valid_curated": 0.99,
     "doseform_valid_exact": 0.99,
     "doseform_valid_normalized": 0.99,
-    "icd10tm_in_scope": 0.20,
-    "ips_coverage": 0.15,
+    "icd10tm_in_scope": 0.95,
+    "ips_coverage": 0.75,
 }
 
 
@@ -192,6 +192,31 @@ def _in_clause(codes):
     return ",".join(qstr(c) for c in sorted(codes)) if codes else "''"
 
 
+def icd_candidates(code: str) -> set:
+    """Normalize a fixture ICD-10 code to the forms actually stored in the KB.
+
+    icd10_codes and snomed_icd10_map.icd10_tm store codes WITHOUT the dot and at
+    varying specificity, so a literal "N39.0" never matches the stored "N390".
+    Mirror the snomed_icd10_map bridge: dot-stripped exact → 4-char → 3-char
+    category rollup. A code counts as in-scope if ANY candidate exists.
+    """
+    s = code.replace(".", "").strip().upper()
+    if len(s) < 3:
+        return set()
+    return {c for c in {s, s[:4], s[:3]} if len(c) >= 3}
+
+
+def _fetch_codes(query: str) -> set:
+    """Run a single-column query and return the values as a set of strings."""
+    out = sql(query)
+    return {ln.strip() for ln in out.splitlines() if ln.strip()}
+
+
+def _covered(codes, present: set) -> int:
+    """How many raw codes have at least one rollup candidate in `present`."""
+    return sum(1 for c in codes if icd_candidates(c) & present)
+
+
 # ─── dataset 2: coding validity (fixtures → in-scope) ──────────────────────────
 def gather_coding_validity(fixtures) -> list[dict]:
     rows = []
@@ -202,17 +227,22 @@ def gather_coding_validity(fixtures) -> list[dict]:
         all_snomed |= fx["snomed"]
         total_med += fx["med_count"]
         total_med_tmt += fx["med_tmt"]
-        in_scope = count(
-            f"SELECT COUNT(DISTINCT code) FROM icd10_codes WHERE code IN ({_in_clause(fx['icd10tm'])})"
-        ) if fx["icd10tm"] else 0
+    # Codes are dot-stripped in the KB; match each fixture code by its rollup
+    # candidates (dot-stripped → 4-char → 3-char), not the literal dotted form.
+    all_cands = set()
+    for c in all_icd:
+        all_cands |= icd_candidates(c)
+    present = _fetch_codes(
+        f"SELECT code FROM icd10_codes WHERE tenant_id IS NULL AND code IN ({_in_clause(all_cands)})"
+    ) if all_cands else set()
+    for fx in fixtures:
+        in_scope = _covered(fx["icd10tm"], present)
         rows.append({
             "item_id": f"fixture_{fx['id']}_icd10tm", "group": "per_fixture",
-            "input": f"fixture {fx['id']}: ICD-10-TM codes in-scope (icd10_codes)",
+            "input": f"fixture {fx['id']}: ICD-10-TM codes in-scope (icd10_codes, dot-stripped+rollup)",
             "expected": "info", "got": f"{in_scope}/{len(fx['icd10tm'])}", "ok": True,
         })
-    icd_in = count(
-        f"SELECT COUNT(DISTINCT code) FROM icd10_codes WHERE code IN ({_in_clause(all_icd)})"
-    ) if all_icd else 0
+    icd_in = _covered(all_icd, present)
     rate = (icd_in / len(all_icd)) if all_icd else 0.0
     rows.append({
         "item_id": "icd10tm_in_scope", "group": "validity",
@@ -244,25 +274,32 @@ def gather_ips_coverage(fixtures) -> list[dict]:
     all_icd = set()
     for fx in fixtures:
         all_icd |= fx["icd10tm"]
-    n_covered = count(
-        "SELECT COUNT(DISTINCT m.icd10_tm) FROM snomed_icd10_map m "
+    # icd10_tm is also dot-stripped — match by rollup candidates, then check which
+    # candidates reach an IPS- / GPFP-member SNOMED concept.
+    all_cands = set()
+    for c in all_icd:
+        all_cands |= icd_candidates(c)
+    ips_tm = _fetch_codes(
+        "SELECT DISTINCT m.icd10_tm FROM snomed_icd10_map m "
         "JOIN (SELECT DISTINCT concept_id FROM snomed_refset_members WHERE refset_key='ips') r "
-        f"  ON r.concept_id=m.concept_id WHERE m.icd10_tm IN ({_in_clause(all_icd)})"
-    ) if all_icd else 0
+        f"  ON r.concept_id=m.concept_id WHERE m.icd10_tm IN ({_in_clause(all_cands)})"
+    ) if all_cands else set()
+    n_covered = _covered(all_icd, ips_tm)
     rate = (n_covered / len(all_icd)) if all_icd else 0.0
     rows.append({
         "item_id": "ips_coverage", "group": "coverage",
-        "input": "fixture ICD-10-TM concepts reaching an IPS-member SNOMED concept",
+        "input": "fixture ICD-10-TM concepts reaching an IPS-member SNOMED concept (dot-stripped+rollup)",
         "expected": f">={FLOORS['ips_coverage']}",
         "got": f"{n_covered}/{len(all_icd)}={rate:.4f}",
         "ok": rate >= FLOORS["ips_coverage"],
     })
     # GPFP comparison (info): how many of the same concepts are GPFP members.
-    n_gpfp = count(
-        "SELECT COUNT(DISTINCT m.icd10_tm) FROM snomed_icd10_map m "
+    gpfp_tm = _fetch_codes(
+        "SELECT DISTINCT m.icd10_tm FROM snomed_icd10_map m "
         "JOIN (SELECT DISTINCT concept_id FROM snomed_refset_members WHERE refset_key='gpfp') r "
-        f"  ON r.concept_id=m.concept_id WHERE m.icd10_tm IN ({_in_clause(all_icd)})"
-    ) if all_icd else 0
+        f"  ON r.concept_id=m.concept_id WHERE m.icd10_tm IN ({_in_clause(all_cands)})"
+    ) if all_cands else set()
+    n_gpfp = _covered(all_icd, gpfp_tm)
     rows.append({
         "item_id": "gpfp_coverage", "group": "coverage_info",
         "input": "fixture ICD-10-TM concepts reaching a GPFP-member SNOMED concept",
