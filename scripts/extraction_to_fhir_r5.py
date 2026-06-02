@@ -21,9 +21,16 @@ Conformance / corrections over the embedded `fhir_resources` blocks:
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
 import unicodedata
 from pathlib import Path
+
+# B3: enrich MedicationRequest with a SNOMED+EDQM-coded Medication.doseForm resolved
+# from the TMT id. Opt-in (needs a live MariaDB) so default offline/CI runs are
+# unchanged; enable with FHIR_RESOLVE_DOSEFORM=1.
+RESOLVE_DOSEFORM = os.environ.get("FHIR_RESOLVE_DOSEFORM") == "1"
 
 # --------------------------------------------------------------------------- #
 # Canonical systems & profiles (Thai-profiled R5)
@@ -75,10 +82,14 @@ VITAL_MAP = {
 
 # Best-effort cleaned dosing (OCR sliding-window text in source was garbled).
 # Raw OCR is preserved in dosageInstruction[].text-derived note for traceability.
+# tmt_id: representative TMT GP with a trusted (needs_review=0) dose-form link, so
+# Medication.code carries a real TMT code and doseForm resolves (B3). Drugs whose
+# only TMT forms are token_subset/needs_review (e.g. colistin powder-for-injection)
+# carry no tmt_id and fall back to the concept shape with no doseForm — by design.
 MED_CATALOG = {
-    "levothyroxine": {"display": "Levothyroxine", "dose": "Levothyroxine 50 mcg 0.5 tab PO ac (ก่อนอาหาร 1 ชม.), then 1 tab PO ac"},
-    "albumin": {"display": "Human Albumin", "dose": "20% Albumin 100 mL + Furosemide 40 mg IV drip in 1 hr; later 5% Albumin 250 mL IV drip in 4 hr"},
-    "furosemide": {"display": "Furosemide", "dose": "Furosemide 40 mg IV (with albumin drip)"},
+    "levothyroxine": {"display": "Levothyroxine", "tmt_id": "1154071", "dose": "Levothyroxine 50 mcg 0.5 tab PO ac (ก่อนอาหาร 1 ชม.), then 1 tab PO ac"},
+    "albumin": {"display": "Human Albumin", "tmt_id": "750218", "dose": "20% Albumin 100 mL + Furosemide 40 mg IV drip in 1 hr; later 5% Albumin 250 mL IV drip in 4 hr"},
+    "furosemide": {"display": "Furosemide", "tmt_id": "989509", "dose": "Furosemide 40 mg IV (with albumin drip)"},
     "colistin": {"display": "Colistin (Colistimethate sodium)", "dose": "Colistin 300 mg + NSS 100 mL IV drip 1 hr (loading), then 100 mg + NSS 100 mL IV drip 1 hr q12h"},
     "stiafloxacin": {"display": "Sitafloxacin", "dose": "Sitafloxacin 50 mg 1 tab PO OD"},
     "cpm": {"display": "Chlorpheniramine (CPM)", "dose": "Chlorpheniramine (CPM) — see order"},
@@ -227,22 +238,49 @@ def build_medication_request(med_name: str, idx: int, when: str, raw_dose: str) 
     note = []
     if raw_dose:
         note.append({"text": f"OCR source (verify): {raw_dose.strip()[:180]}"})
-    return {
+
+    # B3: try a trusted SNOMED+EDQM doseForm from the TMT id. When it resolves we
+    # emit a contained Medication (code=TMT, doseForm=resolved) and reference it;
+    # otherwise keep the inline concept shape (a slug placeholder code, no doseForm).
+    dose_form = None
+    tmt_id = cat.get("tmt_id")
+    if RESOLVE_DOSEFORM and tmt_id:
+        try:
+            from fhir_dose_form import resolve_dose_form
+            dose_form = resolve_dose_form(tmt_id)
+        except Exception as exc:  # never let enrichment break the offline transform
+            print(f"  doseForm resolve skipped for {key}: {exc}", file=sys.stderr)
+
+    medreq = {
         "resourceType": "MedicationRequest",
         "id": rid,
         "meta": {"profile": [PROFILE["MedicationRequest"]]},
         "status": "active",
         "intent": "order",
-        # R5: medication is a CodeableReference (was medicationReference in R4)
-        "medication": {"concept": {
-            "coding": [{"system": SYS_TMT, "code": slug(key, 20), "display": cat["display"]}],
-            "text": cat["display"],
-        }},
         "subject": ref("Patient", "patient-001"),
         "authoredOn": when,
         "dosageInstruction": [{"text": cat["dose"]}],
         **({"note": note} if note else {}),
     }
+    if dose_form:
+        med_id = f"med-{idx:02d}-{slug(med_name, 20)}"
+        medreq["contained"] = [{
+            "resourceType": "Medication",
+            "id": med_id,
+            "code": {"coding": [{"system": SYS_TMT, "code": tmt_id, "display": cat["display"]}],
+                     "text": cat["display"]},
+            "doseForm": dose_form,
+        }]
+        # R5 CodeableReference: reference the contained Medication carrying doseForm.
+        medreq["medication"] = {"reference": {"reference": f"#{med_id}"}}
+    else:
+        # R5: medication is a CodeableReference (was medicationReference in R4)
+        medreq["medication"] = {"concept": {
+            "coding": [{"system": SYS_TMT, "code": tmt_id or slug(key, 20),
+                        "display": cat["display"]}],
+            "text": cat["display"],
+        }}
+    return medreq
 
 
 def build_composition(doc_type: str, when: str, cond_ids, obs_ids, med_ids) -> dict:
@@ -367,6 +405,7 @@ def main() -> None:
         "",
         "Thai-profiled FHIR R5 (5.0.0) `Bundle` (type=document), one per source document.",
         "ICD-10-TM primary coding (+ ICD-9-CM equivalence); MedicationRequest.medication as R5 CodeableReference.",
+        "When FHIR_RESOLVE_DOSEFORM=1, TMT-coded meds emit a contained Medication with a SNOMED+EDQM-coded doseForm (Sprint 58 dose link, needs_review=0 only).",
         "",
         "| # | Source document | FHIR resources |",
         "|---|-----------------|----------------|",

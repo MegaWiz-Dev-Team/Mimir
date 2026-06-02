@@ -26,6 +26,26 @@ into the runtime database (Qdrant / MariaDB / Neo4j). Source control sees the
 | **PrimeKG** | MIT (graph schema) built from sources with their **own** licenses (e.g. DrugBank above) | Respect each upstream source license; the most restrictive source governs commercial redistribution. |
 | **UMLS** | UMLS Metathesaurus License | Requires a UMLS license; do not redistribute. |
 
+## SNOMED CT packages in use — provenance
+
+All SNOMED CT packages are obtained via the SNOMED International **Member Licensing
+& Distribution Service (MLDS)**, <https://mlds.ihtsdotools.org/>, under the Thailand
+member account and the **IHTSDO Affiliate License 2023**. License PDFs ship alongside
+the data at `$MIMIR_KB/SnomedCT/*.pdf`. Every package is subject to the SNOMED
+**≤180-day upgrade** obligation.
+
+| Package (MLDS) | Release | Ingested into | Loader |
+|---|---|---|---|
+| International Edition (RF2) | 20260501 | `snomed_descriptions`, `snomed_icd10_map` | `snomed_icd10_map_ingest.py` |
+| GP/FP Refset | 20260101 | `snomed_refset_members` (`gpfp`) | `snomed_refset_ingest.py --gpfp` |
+| International Patient Summary (IPS) RF2 | 20250701 | `snomed_refset_members` (`ips`) | `snomed_refset_ingest.py --ips` |
+| EDQM Dose Forms → SNOMED Map | 20250701 | `snomed_edqm_dose_map` (+ derived `snomed_tmt_dose_link`) | `snomed_refset_ingest.py --edqm` |
+
+These packages contain **no new licensable content beyond the Affiliate License** —
+they are refsets/maps over the International Edition. The MedDRA and Orphanet maps
+(also on MLDS) are **not** ingested: the SNOMED↔MedDRA map is free under the Affiliate
+License, but *using MedDRA terms* requires a separate MedDRA subscription.
+
 ## Operator responsibility
 
 Deployments of Asgard/Mimir are responsible for obtaining the appropriate
