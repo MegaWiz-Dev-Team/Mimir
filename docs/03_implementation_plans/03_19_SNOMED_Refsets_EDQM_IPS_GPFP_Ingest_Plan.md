@@ -142,9 +142,22 @@ Only `needs_review=0` links auto-code; the rest go to the manual review queue.
 - [x] A4 bootstrap wiring — Phase 8 `--skip-snomed-refsets`
 - [x] A5 verification SQL green — `snomed_refset_ingest_runs` all `done`
 - [x] B3 EDQM → FHIR `Medication.doseForm` — resolver `scripts/fhir_dose_form.py` + wired into `extraction_to_fhir_r5.py` (2026-06-02)
-- [ ] B1 IPS → patient-summary concept gate — **next**
-- [ ] B2 GP/FP → primary-care narrowing — **next**
-- [ ] B4 persist eval baseline — **next**
+- [x] B1 IPS → patient-summary concept gate — `knowledge_snomed.rs` search `?refset=ips` boost/filter + `in_refset` flag (2026-06-02)
+- [x] B2 GP/FP → primary-care narrowing — same param `?refset=gpfp` (`refset_only` for hard filter)
+- [x] B4 persist eval baseline — `scripts/persist_snomed_refset_eval.py` → Mimir eval (tenant asgard_platform), coverage 4/4 floors green
+- [x] #6 catalog — `shared_knowledge.rs` SNOMED entry now reports ips/gpfp/edqm/dose-link counts
+- [x] #7 TPC — verified populated (3,077 codes via ICD-9-CM baseline, Phase 7); memory consistent, no action
+
+### B1/B2/B4 done (2026-06-02)
+`GET/POST /api/v1/knowledge/snomed/search` gains `refset` (`ips`|`gpfp`, allowlisted →
+injection-safe) + `refset_only`: members boosted to the top via an EXISTS subquery on
+`snomed_refset_members`, each result tagged `in_refset`. `cargo check` clean; boost SQL
+verified against DB (e.g. "Asthma (disorder)" flagged in IPS, sorted first). Catalog
+(`/api/v1/knowledge/shared`) SNOMED entry now surfaces the Sprint 58 counts. Coverage
+eval persisted (`persist_snomed_refset_eval.py`): re-run after any dose-link re-ingest;
+fails if trusted links drop below the 8,000 floor. **Note:** Rust changes are
+compile-verified — a mimir-api rebuild/redeploy is needed before the live endpoint
+serves them.
 
 ### B3 done (2026-06-02)
 `scripts/fhir_dose_form.py` — `resolve_dose_form(tmt_id, query)` pure/testable + CLI.

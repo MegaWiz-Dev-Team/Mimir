@@ -304,6 +304,19 @@ async fn list_shared_kbs(
             "SELECT COUNT(DISTINCT concept_id) FROM snomed_icd10_map \
              WHERE tenant_id IS NULL AND icd10_tm IS NOT NULL",
         ).fetch_one(&pool).await.unwrap_or(0);
+        // Sprint 58 refset/map overlays (IPS, GP/FP, EDQM dose map, TMT dose link).
+        let ips_members: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_refset_members WHERE tenant_id IS NULL AND refset_key='ips'",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let gpfp_members: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_refset_members WHERE tenant_id IS NULL AND refset_key='gpfp'",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let edqm_maps: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_edqm_dose_map WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let dose_links_trusted: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snomed_tmt_dose_link WHERE tenant_id IS NULL AND needs_review=0",
+        ).fetch_one(&pool).await.unwrap_or(0);
         let version: Option<String> = sqlx::query_scalar(
             "SELECT source_version FROM snomed_icd10_map WHERE tenant_id IS NULL LIMIT 1",
         ).fetch_optional(&pool).await.ok().flatten();
@@ -321,16 +334,20 @@ async fn list_shared_kbs(
                 languages: vec!["en"],
                 vintage_year: Some(2026),
                 license: "SNOMED Affiliate License — restricted (commercial_use requires affiliate; see license docs)",
-                fhir_binding: Some("Condition.code / ConceptMap (SNOMED→ICD-10)"),
+                fhir_binding: Some("Condition.code / ConceptMap (SNOMED→ICD-10); Medication.doseForm (EDQM)"),
                 update_cadence: "Biannual International Edition (must upgrade ≤180d per Affiliate License clause 6.2)",
-                schema_version: "sprint54",
-                notes: Some("POC: resolver at /api/v1/knowledge/snomed/{search,resolve-icd10}. needs_review rows = cannot-classify / context-dependent / external-cause (post-coordination) / TM-absent."),
+                schema_version: "sprint54+sprint58",
+                notes: Some("Resolvers: /api/v1/knowledge/snomed/{search,resolve-icd10}; search ?refset=ips|gpfp boosts/filters refset members. Sprint 58 added IPS + GP/FP refsets, EDQM dose-form map, and TMT→SNOMED dose link (needs_review=0 = trusted for FHIR doseForm)."),
             },
             live: SharedKbLive {
                 counts: json!({
                     "mariadb_descriptions":   descriptions,
                     "mariadb_map_rows":       map_rows,
                     "concepts_mapped_to_tm":  mapped_concepts,
+                    "ips_refset_members":     ips_members,
+                    "gpfp_refset_members":    gpfp_members,
+                    "edqm_dose_maps":         edqm_maps,
+                    "tmt_dose_links_trusted": dose_links_trusted,
                 }),
                 source_version: version,
                 status: if map_rows > 0 { "active" } else { "pending_data" },

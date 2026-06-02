@@ -48,6 +48,15 @@ struct SearchReq {
     /// Optional semantic-tag filter, e.g. "disorder" / "finding" / "procedure".
     #[serde(default)]
     semantic_tag: Option<String>,
+    /// Optional refset gate (Sprint 58): "ips" (International Patient Summary) or
+    /// "gpfp" (GP/FP primary-care reasons-for-encounter). Members are boosted to
+    /// the top and each result carries an `in_refset` flag; with `refset_only`
+    /// they are the *only* results. Lets the patient-summary builder (B1) prefer
+    /// IPS-interoperable concepts and primary-care flows (B2) narrow to GP/FP.
+    #[serde(default)]
+    refset: Option<String>,
+    #[serde(default)]
+    refset_only: bool,
 }
 fn default_limit() -> i64 {
     10
@@ -97,6 +106,30 @@ async fn search(
         }
         _ => String::new(),
     };
+    // Refset gate. refset_key is matched against a fixed allowlist (never
+    // interpolated from raw input), so the membership subquery is injection-safe.
+    let refset_key = match req.refset.as_deref() {
+        Some("ips") => Some("ips"),
+        Some("gpfp") => Some("gpfp"),
+        _ => None,
+    };
+    let (refset_select, refset_boost, refset_filter) = if let Some(rk) = refset_key {
+        let member = format!(
+            "EXISTS(SELECT 1 FROM snomed_refset_members m \
+               WHERE m.refset_key = '{rk}' AND m.concept_id = snomed_descriptions.concept_id \
+               AND m.active = 1)"
+        );
+        let select = format!(", ({member}) AS in_refset");
+        let boost = format!("({member}) DESC, ");
+        let filter = if req.refset_only {
+            format!(" AND {member}")
+        } else {
+            String::new()
+        };
+        (select, boost, filter)
+    } else {
+        (String::new(), String::new(), String::new())
+    };
     // FULLTEXT filters; ranking resolves to the right concept. EXACT term match
     // wins first (so a lay synonym exactly equal to the query — "heart attack" —
     // beats a partial FSN like "Attack (finding)"). FSN preference is only a
@@ -107,11 +140,12 @@ async fn search(
     // to "shortest term wins" and pick a junk same-token match (e.g.
     // "Coats disease" → "Lyme disease" instead of "Coats' disease").
     let sql = format!(
-        "SELECT concept_id, term, term_type, semantic_tag \
+        "SELECT concept_id, term, term_type, semantic_tag{refset_select} \
          FROM snomed_descriptions \
-         WHERE tenant_id IS NULL AND active = 1{semtag_clause} \
+         WHERE tenant_id IS NULL AND active = 1{semtag_clause}{refset_filter} \
            AND MATCH(term) AGAINST('{q}' IN NATURAL LANGUAGE MODE) \
          ORDER BY \
+           {refset_boost}\
            (LOWER(term) = LOWER('{q}')) DESC, \
            (LOWER(term) IN (LOWER('{q} (disorder)'), LOWER('{q} (finding)'))) DESC, \
            (LOWER(term) LIKE LOWER('{q}%')) DESC, \
@@ -121,20 +155,27 @@ async fn search(
          LIMIT {limit}"
     );
     let rows = sqlx::query(&sql).fetch_all(&pool).await.map_err(db_error)?;
+    let want_refset = refset_key.is_some();
     let concepts = rows
         .iter()
         .map(|r| {
-            json!({
+            let mut o = json!({
                 "concept_id": r.get::<String, _>("concept_id"),
                 "term": r.get::<String, _>("term"),
                 "term_type": r.get::<String, _>("term_type"),
                 "semantic_tag": r.try_get::<String, _>("semantic_tag").unwrap_or_default(),
-            })
+            });
+            if want_refset {
+                let in_rs: i64 = r.try_get("in_refset").unwrap_or(0);
+                o["in_refset"] = json!(in_rs != 0);
+            }
+            o
         })
         .collect::<Vec<_>>();
     Ok(Json(json!({
         "query": req.text,
         "negated": negated,
+        "refset": refset_key,
         "concepts": concepts,
     })))
 }
