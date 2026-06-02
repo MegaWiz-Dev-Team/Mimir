@@ -47,6 +47,7 @@ import glob
 import json
 import os
 import sys
+import urllib.request
 import uuid
 
 # Reuse the proven DB plumbing from the B4 coverage eval (single source of truth).
@@ -56,6 +57,9 @@ from persist_snomed_refset_eval import sql, qstr, count  # noqa: E402
 TENANT = "asgard_platform"
 FIXTURE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "abb")
 SYS_SNOMED = "http://snomed.info/sct"
+# Mimir knowledge API for the term-path IPS check (the path Iris actually uses via
+# /claims/:id/ips-coverage). On-host → in-cluster NodePort uses the node IP.
+MIMIR_BASE = os.environ.get("MIMIR_BASE", "http://192.168.139.2:30000")
 
 # Floors — a graded case fails when the live value drops below these.
 FLOORS = {
@@ -64,6 +68,7 @@ FLOORS = {
     "doseform_valid_normalized": 0.99,
     "icd10tm_in_scope": 0.95,
     "ips_coverage": 0.75,
+    "term_ips_coverage": 0.65,
 }
 
 
@@ -184,6 +189,7 @@ def load_fixtures():
                     if "tmt" in json.dumps(e).lower():
                         med_tmt += 1
         fixtures.append({"id": fid, "icd10tm": icd10tm, "snomed": snomed,
+                         "dx_terms": _condition_terms(bundle),
                          "med_count": med_count, "med_tmt": med_tmt})
     return fixtures
 
@@ -215,6 +221,41 @@ def _fetch_codes(query: str) -> set:
 def _covered(codes, present: set) -> int:
     """How many raw codes have at least one rollup candidate in `present`."""
     return sum(1 for c in codes if icd_candidates(c) & present)
+
+
+def ips_term_concept(term: str):
+    """Mirror Iris's ips_lookup: POST /knowledge/snomed/search {refset:ips,
+    refset_only} and return (concept_id, term) of the top IPS-member hit, else
+    None. This is the path the /claims/:id/ips-coverage endpoint actually uses."""
+    term = (term or "").strip()
+    if not term:
+        return None
+    body = json.dumps({"text": term, "refset": "ips", "refset_only": True, "limit": 1}).encode()
+    req = urllib.request.Request(
+        MIMIR_BASE.rstrip("/") + "/api/v1/knowledge/snomed/search",
+        data=body, headers={"Content-Type": "application/json"})
+    try:
+        r = json.loads(urllib.request.urlopen(req, timeout=8).read())
+    except Exception:
+        return None
+    cs = r.get("concepts") or []
+    if cs and cs[0].get("in_refset"):
+        return (cs[0].get("concept_id"), cs[0].get("term", term))
+    return None
+
+
+def _condition_terms(bundle) -> set:
+    """Diagnosis labels from a bundle's Condition.code (text, else first coding
+    display) — the raw clinical terms an Iris claim would IPS-check."""
+    terms = set()
+    for e in bundle.get("entry", []):
+        r = e.get("resource", {})
+        if r.get("resourceType") == "Condition":
+            c = r.get("code", {})
+            t = c.get("text") or next((cd.get("display") for cd in c.get("coding", []) if cd.get("display")), None)
+            if t and t.strip():
+                terms.add(t.strip())
+    return terms
 
 
 # ─── dataset 2: coding validity (fixtures → in-scope) ──────────────────────────
@@ -310,6 +351,39 @@ def gather_ips_coverage(fixtures) -> list[dict]:
         "item_id": "gpfp_coverage", "group": "coverage_info",
         "input": "fixture ICD-10-TM concepts reaching a GPFP-member SNOMED concept",
         "expected": "info", "got": f"{n_gpfp}/{len(all_icd)}", "ok": True,
+    })
+
+    # ── TERM-PATH (the path Iris actually uses) ──────────────────────────────
+    # Iris's /claims/:id/ips-coverage resolves each diagnosis by SNOMED *term*
+    # search against the IPS refset (ips_lookup), not via the ICD→SNOMED map.
+    # Measure that path on the raw fixture diagnosis labels (the realistic input)
+    # so the benchmark reflects Iris's real IPS interoperability.
+    all_terms = set()
+    for fx in fixtures:
+        all_terms |= fx["dx_terms"]
+    term_hits = 0
+    miss_terms = []
+    for t in sorted(all_terms):
+        if ips_term_concept(t):
+            term_hits += 1
+        else:
+            miss_terms.append(t)
+    t_rate = (term_hits / len(all_terms)) if all_terms else 0.0
+    rows.append({
+        "item_id": "term_ips_coverage", "group": "coverage",
+        "input": "fixture diagnosis terms resolving to an IPS-member SNOMED concept via term search (the path Iris uses: ips_lookup, /search?refset=ips)",
+        "expected": f">={FLOORS['term_ips_coverage']}",
+        "got": f"{term_hits}/{len(all_terms)}={t_rate:.4f}",
+        "ok": t_rate >= FLOORS["term_ips_coverage"],
+    })
+    # Surface the misses so the gap is inspectable (these are the diagnoses whose
+    # raw label term-search can't map to IPS — typically abbreviations like HT/DLP
+    # and synonyms like "bedsore" vs SNOMED "pressure ulcer"; fixable upstream by
+    # abbreviation expansion before the IPS lookup, not a KB gap).
+    rows.append({
+        "item_id": "term_ips_misses", "group": "coverage_info",
+        "input": "diagnosis terms with no IPS term-search hit (abbrev/synonym gaps)",
+        "expected": "info", "got": "; ".join(miss_terms) or "(none)", "ok": True,
     })
     return rows
 
