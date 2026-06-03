@@ -120,7 +120,7 @@ pub fn validate_agent(
     if let Some(ms) = mcp_servers {
         if ms.iter().any(|s| !s.trim().is_empty()) {
             v.warnings.push(
-                "mcp_servers are stored but NOT consumed by the execution engine yet (decorative); per-agent MCP servers will not take effect until that wiring lands."
+                "mcp_servers are wired to Hermodr only (hermodr-* targets; other entries are rejected) and take effect on tool-calling-capable models (Gemini); on MLX/gemma models they are discovered but not invoked."
                     .to_string(),
             );
         }
