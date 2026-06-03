@@ -14,6 +14,8 @@ use uuid::Uuid;
 
 use mimir_core_ai::services::db::DbPool;
 
+use super::validation;
+
 /// SELECT column list for agent_configs queries.
 /// Uses CAST(temperature AS DOUBLE) because MariaDB DECIMAL(3,2) is not compatible with Rust f64.
 pub const AGENT_SELECT_COLS: &str = r#"
@@ -198,8 +200,26 @@ pub(crate) async fn create_agent(
     headers: HeaderMap,
     State(pool): State<DbPool>,
     Json(payload): Json<CreateAgentRequest>,
-) -> Result<(StatusCode, Json<AgentConfig>), (StatusCode, Json<Value>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
+
+    // Save-path validation: reject unservable models, collect soft warnings.
+    let validation = validation::validate_agent(
+        &payload.model_id,
+        payload.tools.as_deref(),
+        payload.mcp_servers.as_deref(),
+        &validation::model_allowlist(),
+    );
+    if !validation.is_ok() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": validation.errors.join(" "),
+                "validation_errors": validation.errors,
+            })),
+        ));
+    }
+
     let provider = payload.provider.unwrap_or_else(|| "ollama".into());
     let temperature = payload.temperature.unwrap_or(0.7);
     let max_tokens = payload.max_tokens.unwrap_or(2048);
@@ -280,7 +300,11 @@ pub(crate) async fn create_agent(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(agent)))
+    let mut body = serde_json::to_value(&agent).unwrap_or_else(|_| json!({}));
+    if !validation.warnings.is_empty() {
+        body["warnings"] = json!(validation.warnings);
+    }
+    Ok((StatusCode::CREATED, Json(body)))
 }
 
 /// GET /api/v1/agents/:id — Get agent config by ID
@@ -320,7 +344,7 @@ pub(crate) async fn update_agent(
     State(pool): State<DbPool>,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateAgentRequest>,
-) -> Result<Json<AgentConfig>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&headers);
 
     // Verify agent exists
@@ -354,6 +378,24 @@ pub(crate) async fn update_agent(
     let system_prompt = payload.system_prompt.unwrap_or(existing.system_prompt);
     let model_id = payload.model_id.unwrap_or(existing.model_id);
     let provider = payload.provider.unwrap_or(existing.provider);
+
+    // Save-path validation against the effective model + any tools/mcp the caller
+    // is setting (skip untouched pre-existing values to avoid noisy warnings).
+    let validation = validation::validate_agent(
+        &model_id,
+        payload.tools.as_deref(),
+        payload.mcp_servers.as_deref(),
+        &validation::model_allowlist(),
+    );
+    if !validation.is_ok() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": validation.errors.join(" "),
+                "validation_errors": validation.errors,
+            })),
+        ));
+    }
     let temperature = payload.temperature.unwrap_or(0.7);
     let max_tokens = payload
         .max_tokens
@@ -439,7 +481,11 @@ pub(crate) async fn update_agent(
     })?;
 
     info!("Updated agent config id={}", id);
-    Ok(Json(updated))
+    let mut body = serde_json::to_value(&updated).unwrap_or_else(|_| json!({}));
+    if !validation.warnings.is_empty() {
+        body["warnings"] = json!(validation.warnings);
+    }
+    Ok(Json(body))
 }
 
 /// DELETE /api/v1/agents/:id — Delete agent config

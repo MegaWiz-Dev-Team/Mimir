@@ -16,6 +16,7 @@ mod crud;
 mod generate;
 mod router;
 mod templates;
+mod validation;
 
 // Re-export public types
 pub use crud::{
