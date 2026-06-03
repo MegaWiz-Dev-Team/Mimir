@@ -574,7 +574,18 @@ export default function AgentStudioPage() {
 
     // ─── Tool options ───────────────────────────────────────────────────────────
 
-    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_search", "primekg_search", "clinical_kb_search"];
+    // Tool ids MUST match the names the Bifrost runtime recognizes (skills.rs kb_tool_label +
+    // overseer.rs RAG/memvid wiring). UI-created agents only work when these strings match exactly.
+    const availableTools = ["vector_search", "graph_search", "tree_search", "memvid_agent_memory_search", "search_primekg", "search_clinical_kb"];
+    // Friendly display names (the underlying ids must stay as the runtime tool names above).
+    const toolLabels: Record<string, string> = {
+        vector_search: "Vector Search",
+        graph_search: "Graph Search",
+        tree_search: "Tree Search",
+        memvid_agent_memory_search: "Memory Search",
+        search_primekg: "PrimeKG Search",
+        search_clinical_kb: "Clinical KB Search",
+    };
 
     const toggleTool = (tool: string) => {
         setFormTools(prev =>
@@ -1718,18 +1729,18 @@ export default function AgentStudioPage() {
                                             {tool === "vector_search" && <Database className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
                                             {tool === "graph_search" && <Brain className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
                                             {tool === "tree_search" && <LayoutGrid className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
-                                            {tool === "memvid_search" && <Clock className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
-                                            {tool === "primekg_search" && <Dna className={`w-5 h-5 ${formTools.includes(tool) ? "text-teal-600" : "text-gray-400"}`} />}
-                                            {tool === "clinical_kb_search" && <Stethoscope className={`w-5 h-5 ${formTools.includes(tool) ? "text-rose-600" : "text-gray-400"}`} />}
+                                            {tool === "memvid_agent_memory_search" && <Clock className={`w-5 h-5 ${formTools.includes(tool) ? "text-purple-600" : "text-gray-400"}`} />}
+                                            {tool === "search_primekg" && <Dna className={`w-5 h-5 ${formTools.includes(tool) ? "text-teal-600" : "text-gray-400"}`} />}
+                                            {tool === "search_clinical_kb" && <Stethoscope className={`w-5 h-5 ${formTools.includes(tool) ? "text-rose-600" : "text-gray-400"}`} />}
                                             <div>
-                                                <span className="text-sm font-medium">{tool}</span>
+                                                <span className="text-sm font-medium">{toolLabels[tool] ?? tool}</span>
                                                 <p className="text-xs text-gray-400 mt-1">
                                                     {tool === "vector_search" && <span className="text-indigo-600 dark:text-indigo-400 font-medium">Qdrant Vector Database</span>}
                                                     {tool === "graph_search" && <span className="text-fuchsia-600 dark:text-fuchsia-400 font-medium">Knowledge Graph Traversal</span>}
                                                     {tool === "tree_search" && <span className="text-emerald-600 dark:text-emerald-400 font-medium">Hierarchical Doc Tree</span>}
-                                                    {tool === "memvid_search" && <span className="text-orange-600 dark:text-orange-400 font-medium">Deep Memory Retrieval</span>}
-                                                    {tool === "primekg_search" && <span className="text-teal-600 dark:text-teal-400 font-medium">PrimeKG · 129K Medical Entities</span>}
-                                                    {tool === "clinical_kb_search" && <span className="text-rose-600 dark:text-rose-400 font-medium">Clinical Guidelines · Sleep/ENT/Drug/CPAP</span>}
+                                                    {tool === "memvid_agent_memory_search" && <span className="text-orange-600 dark:text-orange-400 font-medium">Deep Memory Retrieval</span>}
+                                                    {tool === "search_primekg" && <span className="text-teal-600 dark:text-teal-400 font-medium">PrimeKG · 129K Medical Entities</span>}
+                                                    {tool === "search_clinical_kb" && <span className="text-rose-600 dark:text-rose-400 font-medium">Clinical Guidelines · Sleep/ENT/Drug/CPAP</span>}
                                                 </p>
                                             </div>
                                         </div>
