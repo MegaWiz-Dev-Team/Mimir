@@ -1,6 +1,8 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Request, State},
     http::{StatusCode, HeaderMap},
+    middleware::{self, Next},
+    response::Response,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -22,6 +24,32 @@ pub fn a2a_routes() -> Router<DbPool> {
         .route("/rules/{rule_id}", delete(delete_routing_rule))
         .route("/dispatch", post(dispatch_message))
         .route("/chains/{chain_id}", get(get_chain_status))
+        .layer(middleware::from_fn(require_api_key))
+}
+
+/// API-key gate for the publicly-exposed A2A surface.
+/// Backward-compatible: if `A2A_API_KEYS` is unset/empty the gate is OPEN (no auth).
+/// When set (comma-separated allowlist), callers MUST send a matching `X-API-Key` header.
+async fn require_api_key(req: Request, next: Next) -> Result<Response, StatusCode> {
+    let configured = std::env::var("A2A_API_KEYS").unwrap_or_default();
+    let allow: Vec<&str> = configured
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if allow.is_empty() {
+        return Ok(next.run(req).await); // auth disabled (no keys configured)
+    }
+    let provided = req
+        .headers()
+        .get("X-API-Key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !provided.is_empty() && allow.iter().any(|k| *k == provided) {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
 }
 
 /// GET /api/v1/a2a/rules
@@ -276,13 +304,30 @@ async fn dispatch_message(
             let status_code = resp.status();
 
             if status_code.is_success() {
+                // Forward the target agent's actual answer back to the A2A caller.
+                // Bifrost's dispatch returns the full run result (`final_answer`); the
+                // previous fixed ack made A2A async-notify only. Carrying the answer lets
+                // cross-tenant A2A support request/response Q&A while keeping Skuggi
+                // redaction + audit intact. Falls back to the ack if parsing fails.
+                let agent_answer = match resp.json::<serde_json::Value>().await {
+                    Ok(body) => body
+                        .get("final_answer")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| body.to_string()),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to parse Bifrost dispatch response body");
+                        "Message dispatched to target agent".to_string()
+                    }
+                };
+
                 // Update dispatch status to delivered
                 let _ = service.update_dispatch_status(&dispatch_id, "delivered", None).await;
 
                 let response = A2aDispatchResponse {
                     dispatch_id,
                     status: "delivered".to_string(),
-                    message: "Message dispatched to target agent".to_string(),
+                    message: agent_answer,
                     redaction_applied: req.require_pii_redaction,
                     redacted_fields,
                     chain_id: chain_id.clone(),

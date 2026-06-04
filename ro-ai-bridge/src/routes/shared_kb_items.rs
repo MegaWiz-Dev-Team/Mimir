@@ -72,6 +72,8 @@ async fn list_items(
         "tmt"      => tmt_items(&pool, &qp, limit, offset, page, per_page).await,
         "tmlt"     => tmlt_items(&pool, &qp, limit, offset, page, per_page).await,
         "snomed"   => snomed_items(&pool, &qp, limit, offset, page, per_page).await,
+        "snomed-icd10cm" => snomed_extmap_items(&pool, &qp, limit, offset, page, per_page, "icd10cm", "snomed-icd10cm", "ICD-10-CM").await,
+        "snomed-icd10who" => snomed_extmap_items(&pool, &qp, limit, offset, page, per_page, "icd10who", "snomed-icd10who", "ICD-10 (WHO)").await,
         "medical-abbrev" => abbrev_items(&pool, &qp, limit, offset, page, per_page).await,
         "primekg"  => Err((
             StatusCode::NOT_IMPLEMENTED,
@@ -432,6 +434,83 @@ async fn snomed_items(
         ],
         items, total, page, per_page,
         filters: json!({ "semantic_tag": semantic_tags }),
+    }))
+}
+
+// ── SNOMED CT → ICD-10 (rule-based ExtendedMap, US-CM + WHO) ─────────────────
+//
+// Browses `snomed_icd10_extmap` filtered by target_system — one row per candidate
+// (concept, group, priority). The source SNOMED concept FSN is pulled from
+// snomed_descriptions via a correlated subquery (LEFT JOIN would multiply rows
+// when a concept has synonyms). Resolution order at query time is mapGroup →
+// mapPriority; we surface them so an operator can read the rule chain.
+
+async fn snomed_extmap_items(
+    pool: &DbPool, qp: &ItemsQuery, limit: i64, offset: i64,
+    page: u32, per_page: u32,
+    target_system: &'static str, kb_id: &'static str, code_label: &'static str,
+) -> Result<Json<ItemsResponse>, (StatusCode, Json<JsonValue>)> {
+    // target_system is a trusted internal literal ('icd10cm'|'icd10who').
+    let mut sql_where = format!("m.tenant_id IS NULL AND m.target_system = '{target_system}'");
+    if let Some(c) = qp.filters.get("filter_map_category") {
+        sql_where.push_str(&format!(" AND m.map_category = '{}'", sql_safe(c)));
+    }
+    if let Some(r) = qp.filters.get("filter_needs_review") {
+        // "1" → review only, "0" → properly-classified only.
+        sql_where.push_str(&format!(" AND m.needs_review = '{}'", sql_safe(r)));
+    }
+    if let Some(q) = qp.search() {
+        sql_where.push_str(&format!(
+            " AND (m.concept_id LIKE '%{q}%' OR m.icd10_code LIKE '%{q}%' OR m.map_advice LIKE '%{q}%')",
+            q = sql_safe(&q)
+        ));
+    }
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM snomed_icd10_extmap m WHERE {sql_where}"
+    )).fetch_one(pool).await.map_err(db_err)?;
+    let rows = sqlx::query(&format!(
+        "SELECT m.concept_id, m.icd10_code, m.map_group, m.map_priority, \
+                m.map_rule, m.map_advice, m.map_category, m.needs_review, \
+                (SELECT d.term FROM snomed_descriptions d \
+                 WHERE d.concept_id = m.concept_id AND d.term_type = 'fsn' AND d.active = 1 \
+                 LIMIT 1) AS term \
+         FROM snomed_icd10_extmap m WHERE {sql_where} \
+         ORDER BY m.concept_id, m.map_group, m.map_priority LIMIT {limit} OFFSET {offset}"
+    )).fetch_all(pool).await.map_err(db_err)?;
+
+    let items = rows.iter().map(|r| json!({
+        "concept_id":   r.get::<String, _>("concept_id"),
+        "term":         r.try_get::<String, _>("term").unwrap_or_default(),
+        "icd10_code":   r.try_get::<String, _>("icd10_code").unwrap_or_default(),
+        "map_group":    r.try_get::<i32, _>("map_group").unwrap_or(1),
+        "map_priority": r.try_get::<i32, _>("map_priority").unwrap_or(1),
+        "map_rule":     r.try_get::<String, _>("map_rule").unwrap_or_default(),
+        "map_advice":   r.try_get::<String, _>("map_advice").unwrap_or_default(),
+        "map_category": r.try_get::<String, _>("map_category").unwrap_or_default(),
+        "needs_review": r.get::<bool, _>("needs_review"),
+    })).collect();
+
+    let categories: Vec<String> = sqlx::query_scalar(&format!(
+        "SELECT DISTINCT map_category FROM snomed_icd10_extmap \
+         WHERE tenant_id IS NULL AND target_system = '{target_system}' \
+           AND map_category IS NOT NULL ORDER BY map_category"
+    )).fetch_all(pool).await.unwrap_or_default();
+
+    Ok(Json(ItemsResponse {
+        kb_id: kb_id.into(),
+        columns: vec![
+            Column { name: "concept_id",   label: "SNOMED Concept", kind: "code" },
+            Column { name: "term",         label: "FSN",            kind: "string" },
+            Column { name: "icd10_code",   label: code_label,       kind: "code" },
+            Column { name: "map_group",    label: "Grp",            kind: "string" },
+            Column { name: "map_priority", label: "Prio",           kind: "string" },
+            Column { name: "map_rule",     label: "Rule",           kind: "string" },
+            Column { name: "map_advice",   label: "Advice",         kind: "string" },
+            Column { name: "map_category", label: "Category",       kind: "enum" },
+            Column { name: "needs_review", label: "Review",         kind: "boolean" },
+        ],
+        items, total, page, per_page,
+        filters: json!({ "map_category": categories }),
     }))
 }
 

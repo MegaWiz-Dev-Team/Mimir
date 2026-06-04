@@ -1,28 +1,33 @@
-//! SNOMED CT → ICD-10-TM resolver + concept search.
+//! SNOMED CT → ICD-10-TM / ICD-10-CM resolver + concept search.
 //!
 //! Backs the POC pipeline (insurance underwriter + medical coding):
 //!   clinical text ──search──▶ SNOMED concept ──resolve-icd10──▶ ICD-10-TM code(s)
 //!
-//!   POST /api/v1/knowledge/snomed/search        — FULLTEXT term → concepts
-//!   POST /api/v1/knowledge/snomed/resolve-icd10  — concept_id (+gender,+age) → ICD-10-TM
-//!   POST /api/v1/knowledge/snomed/dose-form      — tmt_id → FHIR doseForm CodeableConcept
+//!   POST /api/v1/knowledge/snomed/search          — FULLTEXT term → concepts
+//!   POST /api/v1/knowledge/snomed/resolve-icd10    — concept_id (+gender,+age) → ICD-10-TM (Thai)
+//!   POST /api/v1/knowledge/snomed/resolve-icd10cm  — concept_id (+gender) → ICD-10-CM (US, rule-based)
+//!   POST /api/v1/knowledge/snomed/dose-form        — tmt_id → FHIR doseForm CodeableConcept
 //!
-//! The map (snomed_icd10_map) is pre-split by gender/age, so the resolver just
-//! filters; targets carry a role (mandatory/conditional/advisory) and a
-//! needs_review flag (cannot-classify / context-dependent / TM-absent /
-//! external-cause requiring post-coordination).
+//! The Thai map (snomed_icd10_map) is pre-split by gender/age, so resolve-icd10
+//! just filters. The US map (snomed_icd10cm_map, Sprint 60) is the official NLM
+//! ExtendedMap: rule-based, so resolve-icd10cm walks each mapGroup in mapPriority
+//! order and picks the first row whose mapRule is satisfied (gender evaluated
+//! here; other IFA gates surfaced as `conditional` for the caller to evaluate).
 
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use mimir_core_ai::services::db::DbPool;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use sqlx::Row;
+use std::collections::BTreeMap;
 use tracing::warn;
 
 pub fn knowledge_snomed_routes() -> Router<DbPool> {
     Router::new()
         .route("/search", post(search))
         .route("/resolve-icd10", post(resolve_icd10))
+        .route("/resolve-icd10cm", post(resolve_icd10cm))
+        .route("/resolve-icd10who", post(resolve_icd10who))
         .route("/dose-form", post(dose_form))
 }
 
@@ -285,6 +290,213 @@ async fn resolve_icd10(
         "gender": req.gender,
         "age_group": req.age_group,
         "targets": targets,
+        "billable": billable,
+    })))
+}
+
+// ─── resolve concept → ICD-10 (official rule-based ExtendedMap) ──────────────
+// One generic resolver over snomed_icd10_extmap, discriminated by target_system:
+//   /resolve-icd10cm  → 'icd10cm' (US)   /resolve-icd10who → 'icd10who' (WHO)
+
+#[derive(Debug, Deserialize)]
+struct ResolveCmReq {
+    concept_id: String,
+    /// 'M' | 'F' | None. Evaluates gender-gated mapRules (Male=248153007,
+    /// Female=248152002). Other IFA rules (age/finding) can't be evaluated here.
+    #[serde(default)]
+    gender: Option<String>,
+}
+
+const SNOMED_MALE: &str = "248153007";
+const SNOMED_FEMALE: &str = "248152002";
+
+/// What kind of condition a mapRule expresses, after coarse parsing.
+#[derive(PartialEq)]
+enum RuleKind {
+    /// "TRUE" / "OTHERWISE TRUE" / empty — unconditional, always fires.
+    Always,
+    Male,
+    Female,
+    /// Any other "IFA …" gate (age threshold, finding present) — needs the caller.
+    Conditional,
+}
+
+fn classify_rule(rule: &str) -> RuleKind {
+    let u = rule.trim().to_uppercase();
+    if u.is_empty() || u == "TRUE" || u.ends_with("OTHERWISE TRUE") {
+        return RuleKind::Always;
+    }
+    if rule.contains(SNOMED_MALE) || u.contains("| MALE") {
+        return RuleKind::Male;
+    }
+    if rule.contains(SNOMED_FEMALE) || u.contains("| FEMALE") {
+        return RuleKind::Female;
+    }
+    RuleKind::Conditional
+}
+
+/// Resolve a SNOMED concept to ICD-10-CM via the official NLM rule-based map.
+///
+/// The map partitions candidates into mapGroups; within a group they are tried
+/// in mapPriority order and the FIRST rule that matches wins (an "OTHERWISE TRUE"
+/// row usually closes a conditional group as the catch-all). We evaluate gender
+/// gates deterministically; any other IFA gate we cannot evaluate is left for the
+/// caller (the group's selection falls through to its catch-all if one exists,
+/// otherwise the group is reported unresolved with its conditional candidates).
+async fn resolve_icd10cm(
+    State(pool): State<DbPool>,
+    Json(req): Json<ResolveCmReq>,
+) -> Result<Json<JsonValue>, RouteError> {
+    resolve_extmap(pool, req, "icd10cm").await
+}
+
+async fn resolve_icd10who(
+    State(pool): State<DbPool>,
+    Json(req): Json<ResolveCmReq>,
+) -> Result<Json<JsonValue>, RouteError> {
+    resolve_extmap(pool, req, "icd10who").await
+}
+
+async fn resolve_extmap(
+    pool: DbPool,
+    req: ResolveCmReq,
+    target_system: &str,
+) -> Result<Json<JsonValue>, RouteError> {
+    if !valid_concept_id(&req.concept_id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_concept_id", "hint": "numeric SNOMED id"})),
+        ));
+    }
+    let gender = match req.gender.as_deref() {
+        Some("M") => Some("M"),
+        Some("F") => Some("F"),
+        _ => None,
+    };
+
+    let concept_fsn: Option<String> = sqlx::query_scalar(
+        "SELECT term FROM snomed_descriptions \
+         WHERE tenant_id IS NULL AND concept_id = ? AND term_type = 'fsn' LIMIT 1",
+    )
+    .bind(&req.concept_id)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+
+    let rows = sqlx::query(
+        "SELECT map_group, map_priority, map_rule, map_advice, icd10_code, \
+                map_category, needs_review \
+         FROM snomed_icd10_extmap \
+         WHERE tenant_id IS NULL AND active = 1 AND target_system = ? AND concept_id = ? \
+         ORDER BY map_group, map_priority",
+    )
+    .bind(target_system)
+    .bind(&req.concept_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(db_error)?;
+
+    if rows.is_empty() {
+        return Ok(Json(json!({
+            "concept_id": req.concept_id, "concept_fsn": concept_fsn,
+            "target_system": target_system,
+            "gender": gender, "groups": [], "billable": [],
+            "note": "no map for this concept"
+        })));
+    }
+
+    // One owned candidate per map row, so grouping doesn't borrow the sqlx rows.
+    struct Cand {
+        group: i32,
+        priority: i32,
+        code: Option<String>,
+        rule: String,
+        advice: String,
+        category: Option<String>,
+        needs_review: bool,
+    }
+    // Preserve group order; SQL already sorts by (group, priority).
+    let mut grouped: BTreeMap<i32, Vec<Cand>> = BTreeMap::new();
+    for r in &rows {
+        let c = Cand {
+            group: r.try_get("map_group").unwrap_or(1),
+            priority: r.try_get("map_priority").unwrap_or(1),
+            code: r.try_get::<String, _>("icd10_code").ok().filter(|s| !s.is_empty()),
+            rule: r.try_get("map_rule").unwrap_or_default(),
+            advice: r.try_get("map_advice").unwrap_or_default(),
+            category: r.try_get("map_category").ok(),
+            needs_review: r.try_get::<i8, _>("needs_review").unwrap_or(0) != 0,
+        };
+        grouped.entry(c.group).or_default().push(c);
+    }
+
+    let mut groups_out = Vec::new();
+    let mut billable: Vec<String> = Vec::new();
+
+    for (group, cands) in &grouped {
+        let mut candidates = Vec::new();
+        let mut selected: Option<JsonValue> = None;
+        for c in cands {
+            let kind = classify_rule(&c.rule);
+            let kind_str = match kind {
+                RuleKind::Always => "always",
+                RuleKind::Male => "gender_male",
+                RuleKind::Female => "gender_female",
+                RuleKind::Conditional => "conditional",
+            };
+            candidates.push(json!({
+                "map_priority": c.priority,
+                "icd10_code": c.code,
+                "map_rule": c.rule,
+                "rule_kind": kind_str,
+                "advice": c.advice,
+                "map_category": c.category,
+                "needs_review": c.needs_review,
+            }));
+            // First satisfied rule in priority order wins this group.
+            let fires = match kind {
+                RuleKind::Always => true,
+                RuleKind::Male => gender == Some("M"),
+                RuleKind::Female => gender == Some("F"),
+                RuleKind::Conditional => false,
+            };
+            if selected.is_none() && fires {
+                if let Some(code) = &c.code {
+                    selected = Some(json!({
+                        "icd10_code": code,
+                        "advice": c.advice,
+                        "map_category": c.category,
+                        "needs_review": c.needs_review,
+                        "via_rule": c.rule,
+                    }));
+                    if !c.needs_review {
+                        billable.push(code.clone());
+                    }
+                }
+            }
+        }
+        let reason = if selected.is_some() {
+            "selected"
+        } else if candidates.iter().any(|c| c["rule_kind"] == "conditional") {
+            "unresolved: group gated by a condition this endpoint can't evaluate (age/finding) — caller must decide"
+        } else {
+            "no candidate matched the supplied context"
+        };
+        groups_out.push(json!({
+            "map_group": group,
+            "selected": selected,
+            "reason": reason,
+            "candidates": candidates,
+        }));
+    }
+
+    Ok(Json(json!({
+        "concept_id": req.concept_id,
+        "concept_fsn": concept_fsn,
+        "target_system": target_system,
+        "gender": gender,
+        "groups": groups_out,
         "billable": billable,
     })))
 }
