@@ -1,6 +1,8 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Request, State},
     http::{StatusCode, HeaderMap},
+    middleware::{self, Next},
+    response::Response,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -22,6 +24,32 @@ pub fn a2a_routes() -> Router<DbPool> {
         .route("/rules/{rule_id}", delete(delete_routing_rule))
         .route("/dispatch", post(dispatch_message))
         .route("/chains/{chain_id}", get(get_chain_status))
+        .layer(middleware::from_fn(require_api_key))
+}
+
+/// API-key gate for the publicly-exposed A2A surface.
+/// Backward-compatible: if `A2A_API_KEYS` is unset/empty the gate is OPEN (no auth).
+/// When set (comma-separated allowlist), callers MUST send a matching `X-API-Key` header.
+async fn require_api_key(req: Request, next: Next) -> Result<Response, StatusCode> {
+    let configured = std::env::var("A2A_API_KEYS").unwrap_or_default();
+    let allow: Vec<&str> = configured
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if allow.is_empty() {
+        return Ok(next.run(req).await); // auth disabled (no keys configured)
+    }
+    let provided = req
+        .headers()
+        .get("X-API-Key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !provided.is_empty() && allow.iter().any(|k| *k == provided) {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
 }
 
 /// GET /api/v1/a2a/rules
