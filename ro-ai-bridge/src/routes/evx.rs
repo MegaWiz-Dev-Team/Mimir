@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-use mimir_core_ai::middleware::tenant::TenantContext;
+use mimir_core_ai::middleware::tenant::{tenant_auth_middleware, TenantContext};
 use mimir_core_ai::services::db::DbPool;
 
 #[derive(Debug, Serialize, FromRow)]
@@ -76,5 +76,8 @@ async fn get_scoreboard(
 }
 
 pub fn evx_routes() -> Router<DbPool> {
-    Router::new().route("/api/v1/eval/scoreboard", get(get_scoreboard))
+    Router::new()
+        .route("/api/v1/eval/scoreboard", get(get_scoreboard))
+        // same tenant-auth layer eval_routes() applies — injects TenantContext
+        .layer(axum::middleware::from_fn(tenant_auth_middleware))
 }
