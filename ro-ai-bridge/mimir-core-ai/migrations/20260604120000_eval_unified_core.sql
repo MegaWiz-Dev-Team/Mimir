@@ -183,7 +183,9 @@ CREATE TABLE IF NOT EXISTS evx_span (
     source      VARCHAR(8)   NOT NULL COMMENT 'gold | pred',
     text_hash   CHAR(64)     NULL COMMENT 'SHA2 of span text — NEVER raw PII',
     confidence  DOUBLE       NULL,
+    dedup_key   CHAR(64)     NULL COMMENT 'SHA2 of the span identity — set by idempotent writers/backfill; NULLs allowed for streaming inserts',
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_span_dedup (dedup_key),
     INDEX idx_run_item (run_id, item_id),
     INDEX idx_label    (label),
     INDEX idx_source   (source)
