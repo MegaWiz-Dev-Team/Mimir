@@ -35,6 +35,7 @@ use ro_ai_bridge::routes::cron::{cron_routes, cron_status_routes};
 use ro_ai_bridge::routes::db_connector::db_connector_routes;
 use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::eval::eval_routes;
+use ro_ai_bridge::routes::evx::evx_routes;
 use ro_ai_bridge::routes::training::training_routes;
 use ro_ai_bridge::routes::icd10::icd10_routes;
 use ro_ai_bridge::routes::rag_benchmark::rag_benchmark_routes;
@@ -191,6 +192,7 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
+        .merge(evx_routes())
         // OCR eval, two complementary axes (both tenant-scoped, default
         // asgard_platform): LAYOUT = region detection mAP/IoU (Sprint 53);
         // TEXT = CER/WER per engine (Sprint 51 ocr_eval_*, read-only here).
