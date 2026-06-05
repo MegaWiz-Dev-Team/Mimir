@@ -31,8 +31,8 @@ export interface FamilySpec {
 }
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
-const score5 = (v: number) => `${v.toFixed(2)} / 5`;
 const ratio = (v: number) => v.toFixed(3);
+const points = (v: number) => v.toFixed(1); // 0-100 composite (HealthBench-style)
 
 export const EVAL_FAMILIES: Record<EvalFamily, FamilySpec> = {
     qa: {
@@ -40,8 +40,8 @@ export const EVAL_FAMILIES: Record<EvalFamily, FamilySpec> = {
         primaryMetric: "overall_score",
         higherIsBetter: true,
         sliceDimensions: ["specialty", "difficulty"],
-        format: score5,
-        gate: (v) => v >= 3.5,
+        format: points, // overall_score is a 0-100 composite, not a 1-5 rubric
+        gate: (v) => v >= 50,
     },
     rag: {
         label: "RAG / Retrieval",
