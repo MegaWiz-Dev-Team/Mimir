@@ -1,0 +1,10 @@
+DROP VIEW IF EXISTS evx_scoreboard;
+DROP TABLE IF EXISTS evx_span;
+DROP TABLE IF EXISTS evx_artifact;
+DROP TABLE IF EXISTS evx_item_review;
+DROP TABLE IF EXISTS evx_item;
+DROP TABLE IF EXISTS evx_metric;
+DROP TABLE IF EXISTS evx_run;
+DROP TABLE IF EXISTS evx_experiment;
+DROP TABLE IF EXISTS evx_dataset;
+DROP TABLE IF EXISTS evx_target;
