@@ -130,13 +130,13 @@ GROUP BY res.run_id, res.engine, res.engine_version, run.dataset_id, run.tenant_
 -- ─── 5. METRICS (normalized) ────────────────────────────────────────────────
 -- QA / agent (1-5 rubric). Exactly one is_primary per run (overall_score).
 INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
-SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'overall_score',overall_score,'score_1_5',1,1,total_questions FROM eval_summary WHERE overall_score IS NOT NULL;
+SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'overall_score',overall_score,'score',1,1,total_questions FROM eval_summary WHERE overall_score IS NOT NULL;
 INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
-SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'accuracy',avg_accuracy,'score_1_5',1,0,total_questions FROM eval_summary WHERE avg_accuracy IS NOT NULL;
+SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'accuracy',avg_accuracy,'score',1,0,total_questions FROM eval_summary WHERE avg_accuracy IS NOT NULL;
 INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
-SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'completeness',avg_completeness,'score_1_5',1,0,total_questions FROM eval_summary WHERE avg_completeness IS NOT NULL;
+SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'completeness',avg_completeness,'score',1,0,total_questions FROM eval_summary WHERE avg_completeness IS NOT NULL;
 INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
-SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'relevance',avg_relevance,'score_1_5',1,0,total_questions FROM eval_summary WHERE avg_relevance IS NOT NULL;
+SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'relevance',avg_relevance,'score',1,0,total_questions FROM eval_summary WHERE avg_relevance IS NOT NULL;
 INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
 SELECT SHA2(CONCAT_WS('|',run_id,agent_name,model_id),256),'safety',avg_safety_score,'score',1,0,total_questions FROM eval_summary WHERE avg_safety_score IS NOT NULL;
 INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
