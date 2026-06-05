@@ -221,6 +221,70 @@ SELECT
     JSON_OBJECT('cer', res.cer, 'wer', res.wer, 'status', res.status, 'extracted_chars', res.extracted_chars)
 FROM ocr_eval_results res;
 
+-- ─── 6b. OCR-LAYOUT family (mAP / parity) → runs, metrics, items, spans ──────
+-- target = layout model; run = 1:1; run-level metrics live in summary JSON
+-- whose shape depends on eval_kind (mAP vs parity).
+INSERT IGNORE INTO evx_target (id, kind, name, model_id, runtime, config_json)
+SELECT DISTINCT
+    SHA2(CONCAT_WS('|','model','ocr_layout', model_name, COALESCE(model_sha256,'')), 256),
+    'model', model_name, NULL, eval_kind,
+    JSON_OBJECT('model_sha256', model_sha256, 'syn_version', syn_version)
+FROM ocr_layout_eval_runs;
+
+INSERT IGNORE INTO evx_dataset (id, family, tenant_id, name, version, item_count, pii_sensitivity, spec_json)
+SELECT DISTINCT CONCAT('ocrlay:', dataset_name), 'ocr_layout', tenant_id, dataset_name, 1, n_images,
+       IF(is_synthetic, 'none', 'raw'), JSON_OBJECT('dataset_hash', dataset_hash)
+FROM ocr_layout_eval_runs;
+
+INSERT IGNORE INTO evx_experiment
+    (id, tenant_id, name, family, status, config_json, legacy_source, started_at, finished_at)
+SELECT id, tenant_id, CONCAT(eval_kind,' · ',model_name), 'ocr_layout', 'COMPLETED',
+       JSON_OBJECT('eval_kind', eval_kind, 'iou_threshold', iou_threshold, 'commit_sha', commit_sha),
+       'ocr_layout_eval_runs', started_at, finished_at
+FROM ocr_layout_eval_runs;
+
+INSERT IGNORE INTO evx_run
+    (id, experiment_id, family, target_id, dataset_id, tenant_id, status, n_items, git_sha, config_json, started_at, finished_at)
+SELECT id, id, 'ocr_layout',
+       SHA2(CONCAT_WS('|','model','ocr_layout', model_name, COALESCE(model_sha256,'')), 256),
+       CONCAT('ocrlay:', dataset_name), tenant_id, 'COMPLETED', n_images, commit_sha,
+       JSON_OBJECT('eval_kind', eval_kind, 'iou_threshold', iou_threshold), started_at, finished_at
+FROM ocr_layout_eval_runs;
+
+-- metrics: mAP kind → ap50 (primary) + precision/recall; parity → max_abs_diff (primary)
+INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
+SELECT id,'ap50', JSON_VALUE(summary,'$.class_agnostic.ap50'),'ratio',1,1,n_images
+FROM ocr_layout_eval_runs WHERE eval_kind='mAP' AND JSON_VALUE(summary,'$.class_agnostic.ap50') IS NOT NULL;
+INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
+SELECT id,'precision', JSON_VALUE(summary,'$.class_agnostic.precision'),'ratio',1,0,n_images
+FROM ocr_layout_eval_runs WHERE eval_kind='mAP' AND JSON_VALUE(summary,'$.class_agnostic.precision') IS NOT NULL;
+INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
+SELECT id,'recall', JSON_VALUE(summary,'$.class_agnostic.recall'),'ratio',1,0,n_images
+FROM ocr_layout_eval_runs WHERE eval_kind='mAP' AND JSON_VALUE(summary,'$.class_agnostic.recall') IS NOT NULL;
+INSERT IGNORE INTO evx_metric (run_id, name, value, unit, higher_is_better, is_primary, n)
+SELECT id,'max_abs_diff', JSON_VALUE(summary,'$.max_abs_diff'),'ratio',0,1,n_images
+FROM ocr_layout_eval_runs WHERE eval_kind='parity' AND JSON_VALUE(summary,'$.max_abs_diff') IS NOT NULL;
+
+-- items (per image)
+INSERT IGNORE INTO evx_item (run_id, item_id, score, payload_json)
+SELECT run_id, id, NULL,
+       JSON_OBJECT('image', COALESCE(image_name, image_hash), 'n_gt', n_gt, 'n_pred', n_pred,
+                   'n_matched', n_matched, 'metrics', metrics)
+FROM ocr_layout_eval_items;
+
+-- spans: each region_match row → up to 2 spans (gold bbox + pred bbox).
+-- dedup_key makes the span insert idempotent (evx_span is otherwise append-only).
+INSERT IGNORE INTO evx_span (run_id, item_id, bbox, label, source, confidence, dedup_key)
+SELECT run_id, item_id, JSON_ARRAY(bbox_gt_x,bbox_gt_y,bbox_gt_w,bbox_gt_h),
+       COALESCE(class_true,'region'), 'gold', NULL,
+       SHA2(CONCAT_WS('|', id, 'gold'), 256)
+FROM ocr_layout_region_match WHERE bbox_gt_x IS NOT NULL;
+INSERT IGNORE INTO evx_span (run_id, item_id, bbox, label, source, confidence, dedup_key)
+SELECT run_id, item_id, JSON_ARRAY(bbox_pred_x,bbox_pred_y,bbox_pred_w,bbox_pred_h),
+       COALESCE(class_pred,'region'), 'pred', confidence,
+       SHA2(CONCAT_WS('|', id, 'pred'), 256)
+FROM ocr_layout_region_match WHERE bbox_pred_x IS NOT NULL;
+
 -- ─── 7. n_items refresh ─────────────────────────────────────────────────────
 UPDATE evx_run r SET n_items = (SELECT COUNT(*) FROM evx_item i WHERE i.run_id = r.id)
 WHERE r.n_items = 0;
