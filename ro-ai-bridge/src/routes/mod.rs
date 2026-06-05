@@ -25,6 +25,7 @@ pub mod cron;
 pub mod db_connector;
 pub mod docs;
 pub mod eval;
+pub mod evx;
 pub mod eval_ocr_layout;
 pub mod eval_ocr_text;
 pub mod evaluations_ext;
