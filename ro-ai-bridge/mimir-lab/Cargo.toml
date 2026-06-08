@@ -23,6 +23,10 @@ thiserror = "1"
 # DATABASE_URL dependency). Matches the ro-ai-bridge workspace sqlx version.
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "mysql"] }
 uuid = { version = "1", features = ["v4"] }
+# MinIO/S3 blob storage (matches ro-ai-bridge workspace rust-s3 version).
+rust-s3 = "0.35"
+# Audit emission (Tyr-ingestible structured events).
+tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

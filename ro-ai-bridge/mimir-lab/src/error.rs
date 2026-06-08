@@ -23,6 +23,13 @@ pub enum LabError {
 
     #[error("ingest: {0}")]
     Ingest(String),
+
+    /// A query was interrupted for exceeding its wall-clock budget.
+    #[error("query timeout: {0}")]
+    Timeout(String),
+
+    #[error("storage: {0}")]
+    Storage(String),
 }
 
 pub type Result<T> = std::result::Result<T, LabError>;

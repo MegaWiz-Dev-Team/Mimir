@@ -1,21 +1,29 @@
 //! DuckDB engine wrapper.
 //!
-//! Two design choices keep this robust across DuckDB crate versions and safe by
-//! default:
+//! Design choices that keep this robust + safe by default:
 //!   1. **Read-only guard** — [`Engine::query_readonly`] rejects anything that is
-//!      not a SELECT/WITH/DESCRIBE/SUMMARIZE/EXPLAIN/PRAGMA/SHOW statement, so an
-//!      agent tool call can never mutate via this path.
-//!   2. **CAST-to-VARCHAR fetch** — rather than match every `ValueRef` variant
-//!      (which churns between DuckDB versions), we `CAST` every projected column
-//!      to VARCHAR in SQL and read uniformly as `Option<String>`. Values come
-//!      back as their text form; callers re-type using the column schema.
+//!      not a SELECT/WITH/DESCRIBE/SUMMARIZE/EXPLAIN/PRAGMA/SHOW statement.
+//!   2. **CAST-to-VARCHAR fetch** — every projected column is `CAST` to VARCHAR
+//!      in SQL and read as `Option<String>`, avoiding `ValueRef` variant churn
+//!      across DuckDB versions.
+//!   3. **Query timeout** — [`Engine::query_readonly_timeout`] interrupts a
+//!      runaway query via DuckDB's interrupt handle + a watchdog thread.
+//!   4. **Audit** — every public query is recorded to the attached
+//!      [`AuditSink`] (Tyr-ingestible), with outcome ok/timeout/denied/error.
 
+use crate::audit::{AuditContext, AuditEvent, AuditSink, NoopAuditSink};
 use crate::error::{LabError, Result};
 use crate::schema::{ColumnSchema, TableSchema};
 use duckdb::Connection;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub struct Engine {
     conn: Connection,
+    audit: Arc<dyn AuditSink>,
+    ctx: AuditContext,
 }
 
 /// Result of a capped read-only query.
@@ -29,18 +37,34 @@ pub struct QueryResult {
 }
 
 impl Engine {
-    /// In-memory engine (ingest scratch space, tests).
+    /// In-memory engine (ingest scratch space, tests). No-op audit by default.
     pub fn in_memory() -> Result<Self> {
-        Ok(Self {
-            conn: Connection::open_in_memory()?,
-        })
+        Ok(Self::wrap(Connection::open_in_memory()?))
     }
 
     /// File-backed engine (a tenant's persistent catalog db).
     pub fn open(path: &str) -> Result<Self> {
-        Ok(Self {
-            conn: Connection::open(path)?,
-        })
+        Ok(Self::wrap(Connection::open(path)?))
+    }
+
+    fn wrap(conn: Connection) -> Self {
+        Self {
+            conn,
+            audit: Arc::new(NoopAuditSink),
+            ctx: AuditContext::default(),
+        }
+    }
+
+    /// Attach an audit sink (e.g. `TracingAuditSink` → Tyr).
+    pub fn with_audit(mut self, sink: Arc<dyn AuditSink>) -> Self {
+        self.audit = sink;
+        self
+    }
+
+    /// Attribute audited actions to a tenant/actor.
+    pub fn with_context(mut self, tenant_id: Option<String>, actor: Option<String>) -> Self {
+        self.ctx = AuditContext { tenant_id, actor };
+        self
     }
 
     pub fn conn(&self) -> &Connection {
@@ -81,20 +105,54 @@ impl Engine {
         Ok(TableSchema { columns })
     }
 
-    /// Run a **read-only** query, capped at `row_cap` rows.
+    /// Read-only query, capped at `row_cap` rows. Audited.
     pub fn query_readonly(&self, sql: &str, row_cap: usize) -> Result<QueryResult> {
-        guard_read_only(sql)?;
-        let schema = self.describe(sql)?;
+        let res = self.run_select(sql, row_cap, None);
+        self.audit_query(sql, &res);
+        res
+    }
 
-        // Project every column CAST to VARCHAR so we can fetch uniformly as text.
+    /// Read-only query with a wall-clock timeout (interrupts a runaway query).
+    /// Audited; a timeout yields [`LabError::Timeout`].
+    pub fn query_readonly_timeout(
+        &self,
+        sql: &str,
+        row_cap: usize,
+        timeout: Duration,
+    ) -> Result<QueryResult> {
+        let res = self.run_select(sql, row_cap, Some(timeout));
+        self.audit_query(sql, &res);
+        res
+    }
+
+    /// Internal (un-audited) read-only execution — used by ingest/pii helpers.
+    pub(crate) fn run_select(
+        &self,
+        sql: &str,
+        row_cap: usize,
+        timeout: Option<Duration>,
+    ) -> Result<QueryResult> {
+        guard_read_only(sql)?;
+        match timeout {
+            None => self.run_select_inner(sql, row_cap),
+            Some(d) => self.run_with_watchdog(d, || self.run_select_inner(sql, row_cap)),
+        }
+    }
+
+    fn run_select_inner(&self, sql: &str, row_cap: usize) -> Result<QueryResult> {
+        let schema = self.describe(sql)?;
         let projection = schema
             .columns
             .iter()
             .enumerate()
-            .map(|(i, c)| format!("CAST(t.\"{}\" AS VARCHAR) AS c{i}", c.name.replace('"', "\"\"")))
+            .map(|(i, c)| {
+                format!(
+                    "CAST(t.\"{}\" AS VARCHAR) AS c{i}",
+                    c.name.replace('"', "\"\"")
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
-        // Fetch one extra row to detect truncation.
         let wrapped = format!(
             "SELECT {projection} FROM ({sql}) AS t LIMIT {}",
             row_cap.saturating_add(1)
@@ -121,6 +179,51 @@ impl Engine {
             rows: out,
             truncated,
         })
+    }
+
+    /// Run `f`, interrupting the DuckDB connection if it exceeds `d`.
+    fn run_with_watchdog<T>(&self, d: Duration, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        let (tx, rx) = mpsc::channel::<()>();
+        let handle = self.conn.interrupt_handle();
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_wd = fired.clone();
+        let wd = std::thread::spawn(move || {
+            if let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(d) {
+                fired_wd.store(true, Ordering::SeqCst);
+                handle.interrupt();
+            }
+        });
+        let res = f();
+        let _ = tx.send(()); // tell the watchdog to stand down
+        let _ = wd.join();
+        match res {
+            Err(_) if fired.load(Ordering::SeqCst) => {
+                Err(LabError::Timeout(format!("query exceeded {d:?}")))
+            }
+            other => other,
+        }
+    }
+
+    fn audit_query(&self, sql: &str, res: &Result<QueryResult>) {
+        let outcome = match res {
+            Ok(_) => "ok",
+            Err(LabError::Timeout(_)) => "timeout",
+            Err(LabError::NotReadOnly(_)) => "denied",
+            Err(_) => "error",
+        };
+        let mut target: String = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+        target.truncate(200);
+        self.audit.record(&AuditEvent {
+            action: "analytics.query",
+            tenant_id: self.ctx.tenant_id.clone(),
+            actor: self.ctx.actor.clone(),
+            target: Some(target),
+            outcome,
+            detail: res
+                .as_ref()
+                .ok()
+                .map(|r| format!("rows={} truncated={}", r.rows.len(), r.truncated)),
+        });
     }
 }
 
