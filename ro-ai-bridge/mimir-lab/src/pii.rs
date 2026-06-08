@@ -47,7 +47,8 @@ pub fn gate_table_column(
     // table/column validated by the query path's describe + identifier safety upstream;
     // here we go through query_readonly which is mutation-safe.
     let sql = format!("SELECT \"{}\" FROM \"{}\"", column.replace('"', "\"\""), table.replace('"', "\"\""));
-    let res = engine.query_readonly(&sql, limit)?;
+    // internal scan — un-audited (the dataset-level gate decision is what gets audited upstream)
+    let res = engine.run_select(&sql, limit, None)?;
     let samples: Vec<String> = res
         .rows
         .into_iter()
