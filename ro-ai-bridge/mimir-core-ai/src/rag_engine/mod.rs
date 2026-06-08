@@ -191,6 +191,31 @@ pub struct RagRetriever {
     embed_model: String,
 }
 
+/// Expose the Heimdall-backed embedding path to `services::resolve` without
+/// making `get_embedding` part of the public API. The entity-resolution chain
+/// depends only on this narrow trait, so it stays unit-testable with a stub.
+#[async_trait::async_trait]
+impl crate::services::resolve::Embedder for RagRetriever {
+    async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+        self.get_embedding(text).await
+    }
+
+    fn model_id(&self) -> &str {
+        &self.embed_model
+    }
+
+    fn dim(&self) -> usize {
+        // Best-effort: the configured default model is BGE-M3 (1024-dim). Callers
+        // that store embeddings should prefer the actual returned vector length;
+        // this is advisory for drift-stamping when no vector is at hand.
+        if self.embed_model.contains("bge-m3") {
+            1024
+        } else {
+            0
+        }
+    }
+}
+
 impl RagRetriever {
     pub fn new(qdrant: QdrantService) -> Self {
         // Use Heimdall embedding endpoint

@@ -501,6 +501,11 @@ impl Neo4jService {
         Ok(Self { graph })
     }
 
+    /// Borrow the underlying connection (used by `services::resolve::store`).
+    pub fn graph(&self) -> &neo4rs::Graph {
+        &self.graph
+    }
+
     /// Try to connect, returning None if Neo4j is unavailable (graceful degradation).
     pub async fn try_new(config: &Neo4jConfig) -> Option<Self> {
         match Self::new(config).await {

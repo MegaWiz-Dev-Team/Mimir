@@ -23,6 +23,7 @@ pub mod cypher;
 pub mod gate;
 pub mod naming;
 pub mod scoring;
+pub mod store;
 
 use naming::NameResolution;
 use scoring::Band;
