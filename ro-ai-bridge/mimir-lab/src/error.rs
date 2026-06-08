@@ -10,6 +10,9 @@ pub enum LabError {
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("sqlx: {0}")]
+    Sqlx(#[from] sqlx::Error),
+
     /// A query that is not a read-only statement was passed to a read-only path.
     #[error("read-only violation: only SELECT/WITH/DESCRIBE/SUMMARIZE/EXPLAIN/PRAGMA/SHOW allowed (got: {0})")]
     NotReadOnly(String),
