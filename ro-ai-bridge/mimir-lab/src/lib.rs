@@ -20,6 +20,6 @@ pub mod schema;
 
 pub use engine::{Engine, QueryResult};
 pub use error::{LabError, Result};
-pub use ingest::{export_parquet, ingest_csv, IngestResult};
+pub use ingest::{export_parquet, ingest_csv, ingest_file, IngestResult, SourceFormat};
 pub use pii::{gate_table_column, scan_samples, PiiStatus};
 pub use schema::{ColumnSchema, TableSchema};

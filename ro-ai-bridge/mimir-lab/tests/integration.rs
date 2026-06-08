@@ -1,6 +1,6 @@
 //! mimir-lab MVP integration tests (TDD).
 
-use mimir_lab::{engine::Engine, ingest, pii, pii::PiiStatus, LabError};
+use mimir_lab::{engine::Engine, ingest, ingest::SourceFormat, pii, pii::PiiStatus, LabError};
 
 fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -58,6 +58,35 @@ fn ingest_rejects_bad_table_name() {
     let e = Engine::in_memory().unwrap();
     let err = ingest::ingest_csv(&e, &fixture("people.csv"), "drop table; --").unwrap_err();
     assert!(matches!(err, LabError::BadIdent(_)));
+}
+
+#[test]
+fn source_format_from_path() {
+    assert_eq!(SourceFormat::from_path("/a/b.csv").unwrap(), SourceFormat::Csv);
+    assert_eq!(SourceFormat::from_path("x.parquet").unwrap(), SourceFormat::Parquet);
+    assert_eq!(SourceFormat::from_path("x.JSON").unwrap(), SourceFormat::Json);
+    assert!(SourceFormat::from_path("x.geojson").is_err());
+}
+
+#[test]
+fn ingest_json_infers_schema() {
+    let e = Engine::in_memory().unwrap();
+    let res = ingest::ingest_file(&e, &fixture("people.json"), "people_j").unwrap();
+    assert_eq!(res.row_count, 3);
+    assert!(res.schema.column_names().contains(&"city"));
+}
+
+#[test]
+fn parquet_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let pq = format!("{}/people.parquet", dir.path().display());
+    let e = Engine::in_memory().unwrap();
+    // ingest CSV → export Parquet → ingest Parquet back
+    ingest::ingest_csv(&e, &fixture("people.csv"), "src").unwrap();
+    ingest::export_parquet(&e, "src", &pq).unwrap();
+    let res = ingest::ingest_file(&e, &pq, "from_pq").unwrap();
+    assert_eq!(res.row_count, 4);
+    assert_eq!(res.schema.column_names(), vec!["id", "name", "age", "city"]);
 }
 
 #[test]
