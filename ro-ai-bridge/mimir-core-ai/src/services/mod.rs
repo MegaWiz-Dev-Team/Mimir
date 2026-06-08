@@ -24,6 +24,7 @@ pub mod neo4j;
 pub mod ocr;
 pub mod performance;
 pub mod qdrant;
+pub mod resolve;
 pub mod scraper;
 pub mod sso;
 pub mod sql_import;
