@@ -25,7 +25,10 @@ pub mod registry;
 pub mod schema;
 pub mod storage;
 
-pub use audit::{AuditEvent, AuditSink, NoopAuditSink, TracingAuditSink, VecAuditSink};
+pub use audit::{
+    sink_from_env, AuditEvent, AuditSink, HttpTyrSink, NoopAuditSink, TracingAuditSink,
+    VecAuditSink,
+};
 pub use engine::{Engine, QueryResult};
 pub use error::{LabError, Result};
 pub use ingest::{export_parquet, ingest_csv, ingest_file, IngestResult, SourceFormat};
