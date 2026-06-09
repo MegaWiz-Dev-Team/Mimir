@@ -6,7 +6,9 @@
 //! customer box a log shipper forwards them to Tyr. Per ADR-024 every query /
 //! export over `asgard_analytics` data is audited.
 
+use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// One audit record for an analytics action.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,5 +82,83 @@ impl VecAuditSink {
 impl AuditSink for VecAuditSink {
     fn record(&self, event: &AuditEvent) {
         self.events.lock().unwrap().push(event.clone());
+    }
+}
+
+/// Active sink that **forwards** events to Tyr over HTTP — same transport as
+/// Heimdall / `mimir-well::HttpProvSink`. `record` is non-blocking: it enqueues
+/// onto an unbounded channel drained by a background task that POSTs to the Tyr
+/// audit-ingest endpoint (2s timeout so a slow Tyr never stalls a query).
+///
+/// Must be constructed inside a Tokio runtime (it `tokio::spawn`s the drain).
+pub struct HttpTyrSink {
+    tx: tokio::sync::mpsc::UnboundedSender<AuditEvent>,
+}
+
+impl HttpTyrSink {
+    /// Spawn the drain task. `auth_header` e.g. `Bearer <token>` is optional.
+    pub fn spawn(url: impl Into<String>, auth_header: Option<String>) -> Self {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AuditEvent>();
+        let url = url.into();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .expect("reqwest client");
+        tokio::spawn(async move {
+            while let Some(e) = rx.recv().await {
+                let body = serde_json::json!({
+                    "@type": "AuditEvent",
+                    "asgard:component": "mimir-lab",
+                    "asgard:action": e.action,
+                    "asgard:tenant_id": e.tenant_id,
+                    "asgard:actor": e.actor,
+                    "asgard:outcome": e.outcome,
+                    "asgard:target": e.target,
+                    "asgard:detail": e.detail,
+                    "asgard:emitted_at": chrono::Utc::now().to_rfc3339(),
+                });
+                let mut req = client
+                    .post(&url)
+                    .header("content-type", "application/json")
+                    .json(&body);
+                if let Some(h) = &auth_header {
+                    req = req.header("authorization", h);
+                }
+                match req.send().await {
+                    Ok(r) if !r.status().is_success() => {
+                        tracing::warn!(target: "analytics.audit", status = %r.status(), "tyr audit POST non-2xx")
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "analytics.audit", error = %e, "tyr audit POST failed")
+                    }
+                    _ => {}
+                }
+            }
+        });
+        Self { tx }
+    }
+}
+
+impl AuditSink for HttpTyrSink {
+    fn record(&self, event: &AuditEvent) {
+        // never block / panic on the query path; dropped only if drain is gone.
+        let _ = self.tx.send(event.clone());
+    }
+}
+
+/// Pick the audit sink from env: `TYR_AUDIT_URL` set → forward to Tyr over HTTP
+/// (`TYR_AUDIT_TOKEN` optional → `Bearer` header); otherwise the `tracing` sink
+/// (scraped). Opt-in, matching `mimir-well::HttpProvSink` ("when Tyr is up").
+/// Call inside a Tokio runtime.
+pub fn sink_from_env() -> Arc<dyn AuditSink> {
+    match std::env::var("TYR_AUDIT_URL") {
+        Ok(url) if !url.is_empty() => {
+            let auth = std::env::var("TYR_AUDIT_TOKEN")
+                .ok()
+                .filter(|t| !t.is_empty())
+                .map(|t| format!("Bearer {t}"));
+            Arc::new(HttpTyrSink::spawn(url, auth))
+        }
+        _ => Arc::new(TracingAuditSink),
     }
 }

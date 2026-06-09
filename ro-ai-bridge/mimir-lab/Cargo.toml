@@ -5,7 +5,7 @@
 
 [package]
 name = "mimir-lab"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Asgard Analytics data engine — dataset ingest + schema inference + DuckDB query, with Skuggi PII gating"
 license = "AGPL-3.0-only OR LicenseRef-Commercial"
@@ -25,9 +25,13 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "mysql"] }
 uuid = { version = "1", features = ["v4"] }
 # MinIO/S3 blob storage (matches ro-ai-bridge workspace rust-s3 version).
 rust-s3 = "0.35"
-# Audit emission (Tyr-ingestible structured events).
+# Audit emission (Tyr-ingestible structured events) + active HTTP forward to Tyr.
 tracing = "0.1"
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+wiremock = "0.6"
