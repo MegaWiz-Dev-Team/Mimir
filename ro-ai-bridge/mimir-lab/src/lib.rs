@@ -16,6 +16,7 @@
 //! report_jobs / geo_layers) is defined in `migrations/0001_init_analytics.sql`
 //! and lives in the Mimir MariaDB; this crate owns the DuckDB-side compute.
 
+pub mod api;
 pub mod audit;
 pub mod engine;
 pub mod error;
