@@ -30,6 +30,10 @@ pub enum LabError {
 
     #[error("storage: {0}")]
     Storage(String),
+
+    /// API-layer error (bad column reference, unsupported option, etc.).
+    #[error("api: {0}")]
+    Api(String),
 }
 
 pub type Result<T> = std::result::Result<T, LabError>;
