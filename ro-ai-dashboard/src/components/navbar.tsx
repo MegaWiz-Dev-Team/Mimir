@@ -199,6 +199,7 @@ export function Navbar() {
             icon: BarChart3,
             items: [
                 { name: "Coverage", href: "/coverage", icon: BarChart3 },
+                { name: "Explorer", href: "/analytics/explorer", icon: Search },
                 { name: "LLM Analytics", href: "/analytics/llm", icon: Activity },
                 { name: "Evaluations", href: "/evaluations", icon: FlaskConical },
                 { name: "OCR Eval", href: "/syn-ocr/eval", icon: ScanLine },
