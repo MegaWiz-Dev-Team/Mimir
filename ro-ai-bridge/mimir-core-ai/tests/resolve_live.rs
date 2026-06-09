@@ -12,7 +12,7 @@
 //! Each test uses a unique throwaway tenant and deletes it on entry and exit, so
 //! it never touches real tenant data.
 
-use mimir_core_ai::services::resolve::store;
+use mimir_core_ai::services::resolve::{dream, store};
 use neo4rs::{query, Graph};
 
 fn test_env() -> Option<(String, String, String)> {
@@ -237,6 +237,16 @@ async fn merge_is_idempotent_flag_via_dream_pass() {
     let n1 = store::dream_pass(&g, t, since, &store::ResolveParams { fuzzy_threshold: 0.8, semantic_threshold: 0.9, ..Default::default() }).await.unwrap();
     let n2 = store::dream_pass(&g, t, since, &store::ResolveParams { fuzzy_threshold: 0.8, semantic_threshold: 0.9, ..Default::default() }).await.unwrap();
     assert!(n1 >= 1, "dream pass should flag at least one pair, got {n1}");
+
+    // The cron-facing wrapper sweeps tenants using a now-relative lookback window.
+    let swept = dream::run_dream_pass_once(
+        &g,
+        &[t.to_string()],
+        24 * 365 * 100, // generous lookback so the just-created nodes are "recent"
+        &store::ResolveParams { fuzzy_threshold: 0.8, semantic_threshold: 0.9, ..Default::default() },
+    )
+    .await;
+    let _ = swept; // idempotent: pairs already flagged; assertion below covers edge count
 
     let edges = count(
         &g,

@@ -332,6 +332,10 @@ pub async fn merge_entities(
         .param("code_match", code_match);
     let mut result = graph.execute(q).await.context("merge_entities")?;
     if let Some(row) = result.next().await? {
+        // Provenance: every merge emits a Tyr audit event.
+        super::audit::emit_merge_audit(&super::audit::MergeAudit::new(
+            tenant_id, entity_type, survivor, duplicate, merged_by, confidence, code_match,
+        ));
         Ok(row.get::<String>("survivor_id").unwrap_or_default())
     } else {
         Err(anyhow::anyhow!(

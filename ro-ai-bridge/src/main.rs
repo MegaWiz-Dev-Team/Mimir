@@ -152,6 +152,41 @@ async fn main() {
         .unwrap_or(60);
     let cron_state = cron::start_cron_worker(pool.clone(), cron_tick_seconds);
 
+    // Nightly entity-resolution "dream pass" (opt-in, off by default). Enable with
+    // RESOLVE_DREAM_TENANTS="asgard_medical,asgard_insurance"; tune via
+    // RESOLVE_DREAM_INTERVAL_SECS (default 86400) and RESOLVE_DREAM_LOOKBACK_HOURS (25).
+    // Re-dedups recently ingested nodes reusing stored embeddings; flag-only, never merges.
+    if let Ok(tenants_csv) = std::env::var("RESOLVE_DREAM_TENANTS") {
+        let tenants: Vec<String> = tenants_csv
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !tenants.is_empty() {
+            let interval_secs: u64 = std::env::var("RESOLVE_DREAM_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(86_400);
+            let lookback_hours: i64 = std::env::var("RESOLVE_DREAM_LOOKBACK_HOURS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(25);
+            let neo4j_cfg = mimir_core_ai::services::neo4j::Neo4jConfig::from_env();
+            match mimir_core_ai::services::neo4j::Neo4jService::try_new(&neo4j_cfg).await {
+                Some(svc) => {
+                    mimir_core_ai::services::resolve::dream::start_dream_worker(
+                        svc.graph().clone(),
+                        tenants,
+                        interval_secs,
+                        lookback_hours,
+                        mimir_core_ai::services::resolve::store::ResolveParams::default(),
+                    );
+                }
+                None => tracing::warn!("RESOLVE_DREAM_TENANTS set but Neo4j unavailable; dream pass disabled"),
+            }
+        }
+    }
+
     // Sprint 52 — Yggdrasil JWT auth state (opt-in via YGGDRASIL_ISSUER + JWT_AUDIENCE
     // env vars). When unset, /api/v1/iam/* falls through to legacy HS256-only validation
     // using `config.jwt_secret`. Pattern: memory/asgard_jwt_auth_pattern.md

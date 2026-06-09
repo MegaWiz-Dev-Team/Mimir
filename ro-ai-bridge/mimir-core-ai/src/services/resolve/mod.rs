@@ -19,7 +19,9 @@
 //! is pure and unit-tested with no DB/network. Only [`cypher`] (string builders)
 //! and the integration layer touch Neo4j / Heimdall.
 
+pub mod audit;
 pub mod cypher;
+pub mod dream;
 pub mod gate;
 pub mod naming;
 pub mod scoring;
