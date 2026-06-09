@@ -29,7 +29,7 @@ pub fn build_set_canonical_and_aliases_cypher() -> &'static str {
 /// `:Entity` label only, so global `:PrimeKG` nodes are excluded.
 pub fn build_find_candidates_cypher() -> &'static str {
     "MATCH (n:Entity) \
-     WHERE n.tenant_id = $tenant_id AND n.entity_type = $entity_type \
+     WHERE n.tenant_id = $tenant_id AND n.entity_type = $entity_type AND NOT n:Tombstoned \
      RETURN n.name AS name, \
             coalesce(n.canonical_name, n.name) AS canonical_name, \
             coalesce(n.aliases, []) AS aliases, \
@@ -73,6 +73,76 @@ pub fn build_review_queue_cypher() -> &'static str {
      LIMIT $limit"
 }
 
+// ─── Phase 2: merge / tombstone / review-resolution / dream pass ─────────────────
+
+/// Transition a `DUPLICATE_OF` proposal to `approved` or `rejected` (human
+/// review outcome). Keyed by the pair + tenant, like the flag builder.
+pub fn build_set_duplicate_status_cypher() -> &'static str {
+    "MATCH (b:Entity {name: $src_name, entity_type: $entity_type, tenant_id: $tenant_id}) \
+            -[d:DUPLICATE_OF {tenant_id: $tenant_id}]-> \
+           (a:Entity {name: $dst_name, entity_type: $entity_type, tenant_id: $tenant_id}) \
+     SET d.status = $status, d.decided_by = $decided_by, d.decided_at = datetime() \
+     RETURN elementId(d) AS rel_id"
+}
+
+/// Merge the `duplicate` node into the `survivor` node, in a single statement.
+///
+/// Hand-written (no APOC — it is absent from the stack and would be a per-box
+/// operational dependency). Because edges are a single `RELATES_TO` type keyed by
+/// `{relation_type, tenant_id}` properties, redirect uses `MERGE` so parallel
+/// edges collapse instead of doubling. Self-loops and residual duplicate↔survivor
+/// edges are dropped; both directions are preserved. The duplicate is tombstoned
+/// (label `:Tombstoned`), its `name` is namespaced with `#merged#<id>` so a later
+/// re-ingest of the original name cannot resurrect it via the upsert MERGE key,
+/// and a `MERGED_INTO` audit edge records who/when/confidence for reversibility.
+///
+/// `$merged_aliases` is the precomputed union of both nodes' aliases + the
+/// duplicate's original name (see `naming::merge_alias_set`).
+pub fn build_merge_nodes_cypher() -> &'static str {
+    "MATCH (a:Entity {name: $survivor, entity_type: $entity_type, tenant_id: $tenant_id}) \
+     MATCH (b:Entity {name: $duplicate, entity_type: $entity_type, tenant_id: $tenant_id}) \
+     WHERE elementId(a) <> elementId(b) \
+     CALL { \
+       WITH a, b \
+       MATCH (b)-[r:RELATES_TO]->(x) \
+       WHERE elementId(x) <> elementId(a) AND elementId(x) <> elementId(b) \
+       MERGE (a)-[nr:RELATES_TO {relation_type: r.relation_type, tenant_id: $tenant_id}]->(x) \
+       ON CREATE SET nr.properties = r.properties, nr.source_id = r.source_id, nr.created_at = coalesce(r.created_at, datetime()) \
+       DELETE r \
+     } \
+     CALL { \
+       WITH a, b \
+       MATCH (y)-[r:RELATES_TO]->(b) \
+       WHERE elementId(y) <> elementId(a) AND elementId(y) <> elementId(b) \
+       MERGE (y)-[nr:RELATES_TO {relation_type: r.relation_type, tenant_id: $tenant_id}]->(a) \
+       ON CREATE SET nr.properties = r.properties, nr.source_id = r.source_id, nr.created_at = coalesce(r.created_at, datetime()) \
+       DELETE r \
+     } \
+     WITH a, b \
+     CALL { WITH b MATCH (b)-[r:RELATES_TO]-() DELETE r } \
+     SET a.aliases = $merged_aliases, \
+         b:Tombstoned, \
+         b.merged_into = elementId(a), \
+         b.tombstoned_at = datetime(), \
+         b.name = b.name + '#merged#' + elementId(b) \
+     MERGE (b)-[m:MERGED_INTO {tenant_id: $tenant_id}]->(a) \
+     ON CREATE SET m.merged_by = $merged_by, m.merged_at = datetime(), m.confidence = $confidence, m.code_match = $code_match \
+     RETURN elementId(a) AS survivor_id, b.name AS tombstoned_name"
+}
+
+/// Recently ingested, non-tombstoned entities for a tenant — the dream pass only
+/// re-checks recent nodes rather than scanning the whole graph each night.
+pub fn build_recent_nodes_cypher() -> &'static str {
+    "MATCH (n:Entity) \
+     WHERE n.tenant_id = $tenant_id AND NOT n:Tombstoned AND n.created_at >= datetime($since) \
+     RETURN n.name AS name, \
+            coalesce(n.canonical_name, n.name) AS canonical_name, \
+            n.entity_type AS entity_type, \
+            n.embedding AS embedding \
+     ORDER BY n.created_at DESC \
+     LIMIT $limit"
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -89,9 +159,44 @@ mod tests {
             build_find_candidates_cypher(),
             build_flag_duplicate_cypher(),
             build_review_queue_cypher(),
+            build_set_duplicate_status_cypher(),
+            build_merge_nodes_cypher(),
+            build_recent_nodes_cypher(),
         ] {
             assert!(q.contains("tenant_id"), "builder must be tenant-scoped: {q}");
         }
+    }
+
+    #[test]
+    fn find_candidates_excludes_tombstoned() {
+        assert!(build_find_candidates_cypher().contains("NOT n:Tombstoned"));
+        assert!(build_recent_nodes_cypher().contains("NOT n:Tombstoned"));
+    }
+
+    #[test]
+    fn merge_nodes_is_safe_and_auditable() {
+        let q = build_merge_nodes_cypher();
+        // dependency-free: no APOC
+        assert!(!q.to_lowercase().contains("apoc"), "must not depend on APOC");
+        // redirect uses MERGE (collapses parallel edges) in both directions
+        assert!(q.contains("MERGE (a)-[nr:RELATES_TO {relation_type: r.relation_type, tenant_id: $tenant_id}]->(x)"));
+        assert!(q.contains("MERGE (y)-[nr:RELATES_TO {relation_type: r.relation_type, tenant_id: $tenant_id}]->(a)"));
+        // self-loop / same-node guards
+        assert!(q.contains("elementId(x) <> elementId(b)"));
+        assert!(q.contains("elementId(y) <> elementId(b)"));
+        // tombstone + anti-resurrection name namespacing + audit edge
+        assert!(q.contains("b:Tombstoned"));
+        assert!(q.contains("'#merged#'"));
+        assert!(q.contains("MERGED_INTO"));
+        assert!(q.contains("m.merged_by = $merged_by"));
+    }
+
+    #[test]
+    fn set_duplicate_status_records_decider() {
+        let q = build_set_duplicate_status_cypher();
+        assert!(q.contains("d.status = $status"));
+        assert!(q.contains("d.decided_by = $decided_by"));
+        assert!(q.contains("d.decided_at = datetime()"));
     }
 
     #[test]

@@ -6,41 +6,13 @@
 //! tests. The canonical, fine-grained TDD assertions live inline in each
 //! `resolve/*.rs` module.
 
-use async_trait::async_trait;
 use mimir_core_ai::services::resolve::{
     cypher, gate,
     naming::{self, NameCandidate, NameResolution},
     plan_phase1_action,
     scoring::{self, Band},
-    Action, Embedder,
+    Action,
 };
-
-/// Deterministic embedder for tests.
-struct StubEmbedder {
-    map: std::collections::HashMap<String, Vec<f32>>,
-    dim: usize,
-}
-impl StubEmbedder {
-    fn new(dim: usize) -> Self {
-        Self { map: Default::default(), dim }
-    }
-    fn with(mut self, t: &str, v: Vec<f32>) -> Self {
-        self.map.insert(t.into(), v);
-        self
-    }
-}
-#[async_trait]
-impl Embedder for StubEmbedder {
-    async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(self.map.get(text).cloned().unwrap_or_else(|| vec![0.0; self.dim]))
-    }
-    fn model_id(&self) -> &str {
-        "stub"
-    }
-    fn dim(&self) -> usize {
-        self.dim
-    }
-}
 
 #[test]
 fn scoring_bands_and_weights() {
@@ -80,22 +52,21 @@ fn cypher_builders_are_tenant_scoped_and_flag_only() {
     let flag = cypher::build_flag_duplicate_cypher();
     assert!(flag.contains("DUPLICATE_OF"));
     assert!(!flag.contains("SAME_AS"));
-    // Phase 1 is flag-only: no merge/tombstone builders exist.
-    assert!(!all.iter().any(|q| q.contains("MERGED_INTO") || q.contains("Tombstoned")));
+    // The Phase-1 builders never perform a merge action (no MERGED_INTO edge, no
+    // setting of the :Tombstoned label). Referencing `NOT n:Tombstoned` as a read
+    // guard in find_candidates is fine and expected.
+    assert!(!all.iter().any(|q| q.contains("MERGED_INTO") || q.contains("b:Tombstoned")));
 }
 
-#[tokio::test]
-async fn end_to_end_exact_match_assigns_canonical() {
+#[test]
+fn end_to_end_exact_match_assigns_canonical() {
     let cands = vec![NameCandidate {
         canonical_name: naming::normalize_entity_name("Aspirin"),
         aliases: vec![],
         entity_type: "DRUG".into(),
         embedding: vec![1.0, 0.0],
     }];
-    let emb = StubEmbedder::new(2);
-    let res = naming::resolve_chain("  ASPIRIN ", "DRUG", &cands, &emb, 0.9, 0.9)
-        .await
-        .unwrap();
+    let res = naming::resolve_chain("  ASPIRIN ", "DRUG", &cands, None, 0.9, 0.9);
     let action = plan_phase1_action(&res, Band::AutoMerge);
     assert_eq!(
         action,
@@ -103,18 +74,16 @@ async fn end_to_end_exact_match_assigns_canonical() {
     );
 }
 
-#[tokio::test]
-async fn end_to_end_semantic_dup_is_flagged_never_merged() {
+#[test]
+fn end_to_end_semantic_dup_is_flagged_never_merged() {
     let cands = vec![NameCandidate {
         canonical_name: "myocardial infarction".into(),
         aliases: vec![],
         entity_type: "DISEASE".into(),
         embedding: vec![1.0, 0.0, 0.0],
     }];
-    let emb = StubEmbedder::new(3).with("heart attack", vec![0.99, 0.05, 0.0]);
-    let res = naming::resolve_chain("heart attack", "DISEASE", &cands, &emb, 0.95, 0.9)
-        .await
-        .unwrap();
+    let q_emb = vec![0.99, 0.05, 0.0];
+    let res = naming::resolve_chain("heart attack", "DISEASE", &cands, Some(&q_emb), 0.95, 0.9);
 
     // Recompute the dedup band the way the orchestrator will, then gate it.
     let (cos, fuzzy) = match &res {
@@ -133,17 +102,14 @@ async fn end_to_end_semantic_dup_is_flagged_never_merged() {
     }
 }
 
-#[tokio::test]
-async fn end_to_end_unrelated_entity_is_created() {
+#[test]
+fn end_to_end_unrelated_entity_is_created() {
     let cands = vec![NameCandidate {
         canonical_name: "aspirin".into(),
         aliases: vec![],
         entity_type: "DRUG".into(),
         embedding: vec![1.0, 0.0],
     }];
-    let emb = StubEmbedder::new(2);
-    let res = naming::resolve_chain("warfarin", "DRUG", &cands, &emb, 0.9, 0.9)
-        .await
-        .unwrap();
+    let res = naming::resolve_chain("warfarin", "DRUG", &cands, Some(&[0.0, 1.0]), 0.9, 0.9);
     assert_eq!(plan_phase1_action(&res, Band::New), Action::Create { canonical_name: "warfarin".into() });
 }

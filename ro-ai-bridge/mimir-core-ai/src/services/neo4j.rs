@@ -189,7 +189,7 @@ pub fn build_upsert_relation_cypher() -> &'static str {
 /// Build Cypher for searching entities by text (tenant + global PrimeKG).
 pub fn build_search_entities_cypher() -> &'static str {
     "MATCH (n:Entity) \
-     WHERE n.tenant_id = $tenant_id AND (toLower(n.name) CONTAINS toLower($query) OR toLower(n.entity_type) CONTAINS toLower($query)) \
+     WHERE n.tenant_id = $tenant_id AND NOT n:Tombstoned AND (toLower(n.name) CONTAINS toLower($query) OR toLower(n.entity_type) CONTAINS toLower($query)) \
      RETURN n.name AS name, n.entity_type AS entity_type, n.properties AS properties, elementId(n) AS node_id \
      UNION \
      MATCH (n:PrimeKG) \
@@ -225,7 +225,7 @@ pub fn build_get_neighbors_cypher(depth: u32) -> String {
 
 /// Build Cypher for graph stats.
 pub fn build_graph_stats_cypher() -> &'static str {
-    "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id \
+    "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id AND NOT n:Tombstoned \
      RETURN n.entity_type AS type, count(n) AS cnt \
      ORDER BY cnt DESC"
 }
@@ -247,7 +247,7 @@ pub fn build_delete_by_source_cypher() -> &'static str {
 
 /// Build Cypher for visualization data (nodes + edges).
 pub fn build_visualization_cypher() -> &'static str {
-    "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id \
+    "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id AND NOT n:Tombstoned \
      WITH n LIMIT $limit \
      OPTIONAL MATCH (n)-[r:RELATES_TO]->(m:Entity {tenant_id: $tenant_id}) \
      RETURN collect(DISTINCT {name: n.name, type: n.entity_type, id: elementId(n)}) AS nodes, \
@@ -325,7 +325,7 @@ pub fn build_expand_neighbors_cypher() -> &'static str {
 
 /// Build Cypher for paginated entity listing with optional filters.
 pub fn build_list_entities_cypher(has_query: bool, has_type: bool) -> String {
-    let mut conds = vec!["n.tenant_id = $tenant_id".to_string()];
+    let mut conds = vec!["n.tenant_id = $tenant_id AND NOT n:Tombstoned".to_string()];
     if has_query {
         conds.push("toLower(n.name) CONTAINS toLower($query)".to_string());
     }
@@ -343,7 +343,7 @@ pub fn build_list_entities_cypher(has_query: bool, has_type: bool) -> String {
 
 /// Build Cypher for counting entities with optional filters.
 pub fn build_count_entities_cypher(has_query: bool, has_type: bool) -> String {
-    let mut conds = vec!["n.tenant_id = $tenant_id".to_string()];
+    let mut conds = vec!["n.tenant_id = $tenant_id AND NOT n:Tombstoned".to_string()];
     if has_query {
         conds.push("toLower(n.name) CONTAINS toLower($query)".to_string());
     }

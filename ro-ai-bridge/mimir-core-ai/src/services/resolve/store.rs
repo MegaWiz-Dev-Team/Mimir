@@ -198,17 +198,22 @@ pub async fn resolve_and_flag(
     let embedding = embedder.embed(embed_text).await?;
     store_embedding(graph, tenant_id, raw_name, entity_type, &embedding, embedder.model_id()).await?;
 
-    // 2. Candidates of the same type, then the pure resolution chain.
+    // 2. Candidates of the same type, then the pure resolution chain. The chain
+    //    compares the incoming full-context embedding against candidates' stored
+    //    full-context embeddings (same space).
     let candidates = find_candidates(graph, tenant_id, entity_type, params.candidate_limit).await?;
+    let candidates: Vec<NameCandidate> = candidates
+        .into_iter()
+        .filter(|c| c.canonical_name != naming::normalize_entity_name(raw_name))
+        .collect();
     let resolution = naming::resolve_chain(
         raw_name,
         entity_type,
         &candidates,
-        embedder,
+        Some(&embedding),
         params.fuzzy_threshold,
         params.semantic_threshold,
-    )
-    .await?;
+    );
 
     // 3. Blended dedup band (for the matched candidate), then the medical gate.
     let (score_embed, score_fuzzy, method) = match &resolution {
@@ -266,6 +271,198 @@ pub async fn resolve_and_flag(
     }
 
     Ok(action)
+}
+
+// ─── Phase 2: merge / review-resolution / dream pass ────────────────────────────
+
+/// Read a node's canonical name + alias set (for computing the merged alias union).
+async fn read_aliases(
+    graph: &Graph,
+    tenant_id: &str,
+    name: &str,
+    entity_type: &str,
+) -> Result<(String, Vec<String>)> {
+    let q = query(cypher::build_find_candidates_cypher())
+        .param("tenant_id", tenant_id)
+        .param("entity_type", entity_type)
+        .param("limit", 10_000i64);
+    let mut result = graph.execute(q).await.context("read_aliases")?;
+    let want = naming::normalize_entity_name(name);
+    while let Some(row) = result.next().await? {
+        let n = row.get::<String>("name").unwrap_or_default();
+        if naming::normalize_entity_name(&n) == want {
+            return Ok((
+                row.get::<String>("canonical_name").unwrap_or_else(|_| n.clone()),
+                row.get::<Vec<String>>("aliases").unwrap_or_default(),
+            ));
+        }
+    }
+    Ok((want, vec![]))
+}
+
+/// Merge `duplicate` into `survivor` (single atomic statement). Computes the
+/// union alias set first (pure), then runs the hand-written merge Cypher: edge
+/// redirect (both directions, MERGE-deduped, self-loops dropped), tombstone,
+/// name-namespacing (anti-resurrection), and a `MERGED_INTO` audit edge.
+#[allow(clippy::too_many_arguments)]
+pub async fn merge_entities(
+    graph: &Graph,
+    tenant_id: &str,
+    entity_type: &str,
+    survivor: &str,
+    duplicate: &str,
+    merged_by: &str,
+    confidence: f64,
+    code_match: bool,
+) -> Result<String> {
+    let (surv_canon, surv_aliases) = read_aliases(graph, tenant_id, survivor, entity_type).await?;
+    let (_dup_canon, dup_aliases) = read_aliases(graph, tenant_id, duplicate, entity_type).await?;
+    let mut incoming = dup_aliases;
+    incoming.push(duplicate.to_string()); // the duplicate's surface name becomes an alias
+    let merged_aliases = naming::merge_alias_set(&surv_canon, &surv_aliases, &incoming);
+
+    let q = query(cypher::build_merge_nodes_cypher())
+        .param("survivor", survivor)
+        .param("duplicate", duplicate)
+        .param("entity_type", entity_type)
+        .param("tenant_id", tenant_id)
+        .param("merged_aliases", merged_aliases)
+        .param("merged_by", merged_by)
+        .param("confidence", confidence)
+        .param("code_match", code_match);
+    let mut result = graph.execute(q).await.context("merge_entities")?;
+    if let Some(row) = result.next().await? {
+        Ok(row.get::<String>("survivor_id").unwrap_or_default())
+    } else {
+        Err(anyhow::anyhow!(
+            "merge_entities: no survivor returned (nodes missing or identical?)"
+        ))
+    }
+}
+
+/// Record a human review decision on a `DUPLICATE_OF` proposal. On `approve`,
+/// also executes the merge (survivor = the canonical `dst_name`).
+#[allow(clippy::too_many_arguments)]
+pub async fn resolve_duplicate(
+    graph: &Graph,
+    tenant_id: &str,
+    entity_type: &str,
+    duplicate_name: &str,
+    canonical_name: &str,
+    approve: bool,
+    decided_by: &str,
+    confidence: f64,
+    code_match: bool,
+) -> Result<()> {
+    let status = if approve { "approved" } else { "rejected" };
+    let q = query(cypher::build_set_duplicate_status_cypher())
+        .param("src_name", duplicate_name)
+        .param("dst_name", canonical_name)
+        .param("entity_type", entity_type)
+        .param("tenant_id", tenant_id)
+        .param("status", status)
+        .param("decided_by", decided_by);
+    graph.run(q).await.context("set_duplicate_status")?;
+
+    if approve {
+        merge_entities(
+            graph,
+            tenant_id,
+            entity_type,
+            canonical_name,
+            duplicate_name,
+            decided_by,
+            confidence,
+            code_match,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Recently ingested, non-tombstoned entities (the dream pass's work set).
+/// `since` is an ISO-8601 datetime string.
+pub async fn find_recent_entities(
+    graph: &Graph,
+    tenant_id: &str,
+    since: &str,
+    limit: i64,
+) -> Result<Vec<NameCandidate>> {
+    let q = query(cypher::build_recent_nodes_cypher())
+        .param("tenant_id", tenant_id)
+        .param("since", since)
+        .param("limit", limit);
+    let mut result = graph.execute(q).await.context("find_recent_entities")?;
+    let mut out = Vec::new();
+    while let Some(row) = result.next().await? {
+        out.push(NameCandidate {
+            canonical_name: row.get::<String>("canonical_name").unwrap_or_default(),
+            aliases: vec![],
+            entity_type: row.get::<String>("entity_type").unwrap_or_default(),
+            embedding: row.get::<Vec<f64>>("embedding").map(f64_to_f32).unwrap_or_default(),
+        });
+    }
+    Ok(out)
+}
+
+/// Nightly "dream pass": re-run deduplication over recently ingested nodes only,
+/// reusing their stored embeddings (no embedding calls). Entities ingested in the
+/// same batch never got compared to each other at ingest time; this closes that
+/// gap. Flags new `DUPLICATE_OF` review pairs (idempotent via MERGE); never
+/// merges. Returns the number of pairs flagged.
+pub async fn dream_pass(
+    graph: &Graph,
+    tenant_id: &str,
+    since: &str,
+    params: &ResolveParams,
+) -> Result<usize> {
+    let recent = find_recent_entities(graph, tenant_id, since, params.candidate_limit).await?;
+    let mut flagged = 0usize;
+    for node in &recent {
+        if node.embedding.is_empty() {
+            continue; // can't compare without a stored embedding
+        }
+        let candidates = find_candidates(graph, tenant_id, &node.entity_type, params.candidate_limit).await?;
+        let candidates: Vec<NameCandidate> = candidates
+            .into_iter()
+            .filter(|c| c.canonical_name != node.canonical_name)
+            .collect();
+        let resolution = naming::resolve_chain(
+            &node.canonical_name,
+            &node.entity_type,
+            &candidates,
+            Some(&node.embedding),
+            params.fuzzy_threshold,
+            params.semantic_threshold,
+        );
+        if let NameResolution::Matched { canonical_name, via, score, .. } = &resolution {
+            if *via != naming::MatchMethod::Exact {
+                let (se, sf, method) = match via {
+                    naming::MatchMethod::Semantic => (*score as f64, 0.0, "semantic"),
+                    naming::MatchMethod::Fuzzy => (0.0, *score as f64, "fuzzy"),
+                    naming::MatchMethod::Exact => unreachable!(),
+                };
+                flag_duplicate(
+                    graph,
+                    tenant_id,
+                    &node.entity_type,
+                    &node.canonical_name,
+                    canonical_name,
+                    (*score) as f64,
+                    se,
+                    sf,
+                    method,
+                    "",
+                    node.embedding.len() as i64,
+                    false,
+                    "dream",
+                )
+                .await?;
+                flagged += 1;
+            }
+        }
+    }
+    Ok(flagged)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

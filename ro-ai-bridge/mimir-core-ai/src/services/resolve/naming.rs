@@ -11,7 +11,6 @@
 //! Resolution only assigns a name and tracks aliases; identity is decided later.
 
 use super::scoring::{cosine, fuzzy_ratio};
-use super::Embedder;
 use crate::services::dedup::normalize_text;
 
 /// Maximum number of aliases retained on a node (alias-growth guard).
@@ -106,19 +105,25 @@ pub fn select_canonical_name(candidates: &[CanonicalCandidate]) -> Option<String
         .map(|c| c.name.clone())
 }
 
-/// Run the type-gated short-circuit resolution chain.
+/// Run the type-gated short-circuit resolution chain. Pure and synchronous.
+///
+/// `query_embedding` is the incoming entity's **full-context** embedding (the
+/// same representation stored on candidate nodes at ingest), computed once by the
+/// caller. Pass `None` to skip the semantic step (e.g. when no embedding is
+/// available). Comparing the same embedding space on both sides is essential —
+/// embedding the bare name here while candidates hold full-context vectors would
+/// compare apples to oranges.
 ///
 /// `fuzzy_threshold` / `semantic_threshold` are the minimum similarities for a
-/// fuzzy / semantic match. The query is embedded lazily — only if exact and
-/// fuzzy both fail — so the common case costs no embedding call.
-pub async fn resolve_chain(
+/// fuzzy / semantic match.
+pub fn resolve_chain(
     raw_name: &str,
     entity_type: &str,
     candidates: &[NameCandidate],
-    embedder: &dyn Embedder,
+    query_embedding: Option<&[f32]>,
     fuzzy_threshold: f32,
     semantic_threshold: f32,
-) -> anyhow::Result<NameResolution> {
+) -> NameResolution {
     let query = normalize_entity_name(raw_name);
 
     // Type-gating: only ever compare against the same entity_type.
@@ -130,12 +135,12 @@ pub async fn resolve_chain(
     // 1. Exact — canonical name or any alias equals the query.
     for c in &same_type {
         if c.canonical_name == query || c.aliases.iter().any(|a| a == &query) {
-            return Ok(NameResolution::Matched {
+            return NameResolution::Matched {
                 canonical_name: c.canonical_name.clone(),
                 via: MatchMethod::Exact,
                 score: 1.0,
                 alias_to_add: None,
-            });
+            };
         }
     }
 
@@ -148,41 +153,42 @@ pub async fn resolve_chain(
         }
     }
     if let Some((c, score)) = best_fuzzy {
-        return Ok(NameResolution::Matched {
+        return NameResolution::Matched {
             canonical_name: c.canonical_name.clone(),
             via: MatchMethod::Fuzzy,
             score,
             alias_to_add: Some(query),
-        });
+        };
     }
 
-    // 3. Semantic — embed the query lazily, compare against stored embeddings.
-    if !same_type.is_empty() {
-        let q_emb = embedder.embed(&query).await?;
+    // 3. Semantic — compare the precomputed full-context query embedding against
+    //    candidates' stored embeddings (same space). Skip dim-mismatched ones.
+    if let Some(q_emb) = query_embedding {
         let mut best_sem: Option<(&NameCandidate, f32)> = None;
         for c in &same_type {
             if c.embedding.len() != q_emb.len() {
                 continue; // dimension drift — skip rather than mis-compare
             }
-            let sim = cosine(&q_emb, &c.embedding)?;
-            if sim >= semantic_threshold && best_sem.map_or(true, |(_, bs)| sim > bs) {
-                best_sem = Some((c, sim));
+            if let Ok(sim) = cosine(q_emb, &c.embedding) {
+                if sim >= semantic_threshold && best_sem.map_or(true, |(_, bs)| sim > bs) {
+                    best_sem = Some((c, sim));
+                }
             }
         }
         if let Some((c, score)) = best_sem {
-            return Ok(NameResolution::Matched {
+            return NameResolution::Matched {
                 canonical_name: c.canonical_name.clone(),
                 via: MatchMethod::Semantic,
                 score,
                 alias_to_add: Some(query),
-            });
+            };
         }
     }
 
     // 4. No confident match.
-    Ok(NameResolution::New {
+    NameResolution::New {
         canonical_name: query,
-    })
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -192,38 +198,6 @@ pub async fn resolve_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-
-    /// Deterministic stub: maps a fixed set of strings to vectors, else zeros.
-    struct StubEmbedder {
-        map: std::collections::HashMap<String, Vec<f32>>,
-        dim: usize,
-    }
-    impl StubEmbedder {
-        fn new(dim: usize) -> Self {
-            Self { map: Default::default(), dim }
-        }
-        fn with(mut self, text: &str, v: Vec<f32>) -> Self {
-            self.map.insert(text.to_string(), v);
-            self
-        }
-    }
-    #[async_trait]
-    impl Embedder for StubEmbedder {
-        async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
-            Ok(self
-                .map
-                .get(text)
-                .cloned()
-                .unwrap_or_else(|| vec![0.0; self.dim]))
-        }
-        fn model_id(&self) -> &str {
-            "stub"
-        }
-        fn dim(&self) -> usize {
-            self.dim
-        }
-    }
 
     fn cand(name: &str, ty: &str, emb: Vec<f32>) -> NameCandidate {
         NameCandidate {
@@ -268,13 +242,10 @@ mod tests {
         assert_eq!(select_canonical_name(&c).unwrap(), "hypertension");
     }
 
-    #[tokio::test]
-    async fn exact_match_short_circuits() {
+    #[test]
+    fn exact_match_short_circuits() {
         let cands = vec![cand("Aspirin", "DRUG", vec![1.0, 0.0])];
-        let emb = StubEmbedder::new(2);
-        let r = resolve_chain("  aspirin ", "DRUG", &cands, &emb, 0.9, 0.9)
-            .await
-            .unwrap();
+        let r = resolve_chain("  aspirin ", "DRUG", &cands, None, 0.9, 0.9);
         assert_eq!(
             r,
             NameResolution::Matched {
@@ -286,24 +257,18 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn type_gating_blocks_cross_type_match() {
+    #[test]
+    fn type_gating_blocks_cross_type_match() {
         // Same name, different type → must NOT match; becomes New.
         let cands = vec![cand("apple", "ORG", vec![1.0, 0.0])];
-        let emb = StubEmbedder::new(2);
-        let r = resolve_chain("apple", "FOOD", &cands, &emb, 0.9, 0.9)
-            .await
-            .unwrap();
+        let r = resolve_chain("apple", "FOOD", &cands, Some(&[1.0, 0.0]), 0.9, 0.9);
         assert_eq!(r, NameResolution::New { canonical_name: "apple".into() });
     }
 
-    #[tokio::test]
-    async fn fuzzy_match_adds_alias() {
+    #[test]
+    fn fuzzy_match_adds_alias() {
         let cands = vec![cand("john smith", "PERSON", vec![0.0, 0.0])];
-        let emb = StubEmbedder::new(2);
-        let r = resolve_chain("Jon Smith", "PERSON", &cands, &emb, 0.85, 0.99)
-            .await
-            .unwrap();
+        let r = resolve_chain("Jon Smith", "PERSON", &cands, None, 0.85, 0.99);
         match r {
             NameResolution::Matched { canonical_name, via, alias_to_add, .. } => {
                 assert_eq!(canonical_name, "john smith");
@@ -314,14 +279,12 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn semantic_match_when_lexically_distant() {
-        // Surface forms differ lexically (fuzzy fails) but embeddings align.
+    #[test]
+    fn semantic_match_when_lexically_distant() {
+        // Surface forms differ lexically (fuzzy fails) but full-context embeddings align.
         let cands = vec![cand("myocardial infarction", "DISEASE", vec![1.0, 0.0, 0.0])];
-        let emb = StubEmbedder::new(3).with("heart attack", vec![0.99, 0.1, 0.0]);
-        let r = resolve_chain("heart attack", "DISEASE", &cands, &emb, 0.9, 0.9)
-            .await
-            .unwrap();
+        let q_emb = vec![0.99, 0.1, 0.0];
+        let r = resolve_chain("heart attack", "DISEASE", &cands, Some(&q_emb), 0.9, 0.9);
         match r {
             NameResolution::Matched { canonical_name, via, alias_to_add, .. } => {
                 assert_eq!(canonical_name, "myocardial infarction");
@@ -332,13 +295,17 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn no_match_creates_new() {
+    #[test]
+    fn semantic_skipped_when_no_embedding() {
+        let cands = vec![cand("myocardial infarction", "DISEASE", vec![1.0, 0.0, 0.0])];
+        let r = resolve_chain("heart attack", "DISEASE", &cands, None, 0.9, 0.9);
+        assert_eq!(r, NameResolution::New { canonical_name: "heart attack".into() });
+    }
+
+    #[test]
+    fn no_match_creates_new() {
         let cands = vec![cand("aspirin", "DRUG", vec![1.0, 0.0])];
-        let emb = StubEmbedder::new(2); // unknown query → zero vector, cosine 0
-        let r = resolve_chain("warfarin", "DRUG", &cands, &emb, 0.9, 0.9)
-            .await
-            .unwrap();
+        let r = resolve_chain("warfarin", "DRUG", &cands, Some(&[0.0, 1.0]), 0.9, 0.9);
         assert_eq!(r, NameResolution::New { canonical_name: "warfarin".into() });
     }
 }
