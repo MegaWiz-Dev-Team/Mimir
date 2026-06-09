@@ -12,8 +12,27 @@
 //! Each test uses a unique throwaway tenant and deletes it on entry and exit, so
 //! it never touches real tenant data.
 
-use mimir_core_ai::services::resolve::{dream, store};
+use async_trait::async_trait;
+use mimir_core_ai::services::resolve::{dream, store, Embedder};
 use neo4rs::{query, Graph};
+
+/// Deterministic embedder for live orchestrator tests (no Heimdall needed).
+struct StubEmbedder {
+    map: std::collections::HashMap<String, Vec<f32>>,
+    dim: usize,
+}
+#[async_trait]
+impl Embedder for StubEmbedder {
+    async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(self.map.get(text).cloned().unwrap_or_else(|| vec![0.0; self.dim]))
+    }
+    fn model_id(&self) -> &str {
+        "stub"
+    }
+    fn dim(&self) -> usize {
+        self.dim
+    }
+}
 
 fn test_env() -> Option<(String, String, String)> {
     let uri = std::env::var("NEO4J_TEST_URI").ok()?;
@@ -174,6 +193,46 @@ async fn merge_redirects_dedups_and_tombstones() {
     )
     .await;
     assert_eq!(alias_hit, 1, "duplicate name must become a survivor alias");
+
+    wipe_tenant(&g, t).await;
+}
+
+#[tokio::test]
+async fn ingest_orchestrator_creates_then_flags_duplicate() {
+    // Mirrors the bulk-ingest wiring: upsert a node, then resolve_and_flag. First
+    // entity has no peer → Create + canonical set + embedding stored. A second,
+    // near-duplicate entity → flagged for review (never merged at ingest).
+    let Some(g) = connect().await else { return };
+    let t = "resolve_test_ingest";
+    wipe_tenant(&g, t).await;
+
+    let mut map = std::collections::HashMap::new();
+    map.insert("paracetamol (DRUG)".to_string(), vec![1.0f32, 0.0, 0.0]);
+    map.insert("paracetemol (DRUG)".to_string(), vec![0.99f32, 0.02, 0.0]); // typo, near-identical vec
+    let emb = StubEmbedder { map, dim: 3 };
+    let params = store::ResolveParams { fuzzy_threshold: 0.85, semantic_threshold: 0.9, ..Default::default() };
+
+    // Ingest entity A.
+    mk_entity(&g, t, "paracetamol", "DRUG").await;
+    let a_action = store::resolve_and_flag(&g, &emb, t, "paracetamol", "DRUG", "paracetamol (DRUG)", false, &params).await.unwrap();
+    assert!(matches!(a_action, mimir_core_ai::services::resolve::Action::Create { .. }), "first entity should be Create, got {a_action:?}");
+
+    // Ingest near-duplicate entity B.
+    mk_entity(&g, t, "paracetemol", "DRUG").await;
+    let b_action = store::resolve_and_flag(&g, &emb, t, "paracetemol", "DRUG", "paracetemol (DRUG)", false, &params).await.unwrap();
+    assert!(matches!(b_action, mimir_core_ai::services::resolve::Action::FlagDuplicate { .. }), "near-dup should be flagged, got {b_action:?}");
+
+    // A stored its embedding; a pending DUPLICATE_OF now exists for review.
+    let stored = count(
+        &g,
+        "MATCH (n:Entity {name:'paracetamol', tenant_id:$t}) WHERE n.embedding IS NOT NULL AND n.canonical_name IS NOT NULL RETURN count(n) AS c",
+        t,
+    )
+    .await;
+    assert_eq!(stored, 1, "first entity must have stored embedding + canonical name");
+
+    let pending = store::review_queue(&g, t, 10).await.unwrap();
+    assert_eq!(pending.len(), 1, "ingest must flag exactly one pending duplicate");
 
     wipe_tenant(&g, t).await;
 }

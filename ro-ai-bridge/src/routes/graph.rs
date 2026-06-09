@@ -853,6 +853,20 @@ async fn bulk_create_entities(
 
     let neo4j = get_neo4j_svc().await;
 
+    // Opt-in entity resolution on ingest (off by default). When RESOLVE_ON_INGEST
+    // is set and Neo4j is available, each upserted entity is resolved against
+    // existing same-type nodes: a canonical name + aliases are assigned, and
+    // uncertain duplicates are flagged for human review (flag-only — never merges
+    // during ingest). Resolution failures never block ingest.
+    let resolve_on_ingest = neo4j.is_some()
+        && std::env::var("RESOLVE_ON_INGEST").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let resolve_embedder = resolve_on_ingest.then(|| {
+        mimir_core_ai::rag_engine::RagRetriever::new(
+            mimir_core_ai::services::qdrant::QdrantService::new(),
+        )
+    });
+    let resolve_params = mimir_core_ai::services::resolve::store::ResolveParams::default();
+
     let mut inserted = 0u64;
     let mut skipped = 0u64;
 
@@ -861,7 +875,18 @@ async fn bulk_create_entities(
 
         if let Some(ref neo4j) = neo4j {
             match neo4j.upsert_entity(tenant_id, &ent.name, &ent.entity_type, props_json.as_deref(), source_id, ent.chunk_id).await {
-                Ok(_) => inserted += 1,
+                Ok(_) => {
+                    inserted += 1;
+                    if let Some(ref embedder) = resolve_embedder {
+                        let embed_text = format!("{} ({})", ent.name, ent.entity_type);
+                        if let Err(e) = mimir_core_ai::services::resolve::store::resolve_and_flag(
+                            neo4j.graph(), embedder, tenant_id, &ent.name, &ent.entity_type,
+                            &embed_text, false, &resolve_params,
+                        ).await {
+                            warn!(error = %e, name = %ent.name, "entity resolution (ingest) failed; entity still ingested");
+                        }
+                    }
+                }
                 Err(e) => {
                     warn!(error = %e, name = %ent.name, "Neo4j entity upsert failed");
                     skipped += 1;
