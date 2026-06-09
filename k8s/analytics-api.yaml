@@ -1,0 +1,89 @@
+# analytics-api — Asgard Analytics data engine (ADR-024 P2).
+# Backend behind the Hermodr analytics MCP tools. Queries Parquet/CSV/JSON
+# datasets in ANALYTICS_DATA_DIR via embedded DuckDB; dataset list/profile via
+# the Mimir MariaDB (registry); audit → Tyr.
+#
+# Build (from ro-ai-bridge/):
+#   docker build -f mimir-lab/Dockerfile -t asgard-analytics-api:latest .
+# Deploy:
+#   kubectl apply -f Mimir/k8s/analytics-api.yaml
+---
+# Demo dataset so run_sql works out of the box. Replace with a real
+# ingest→Parquet/MinIO flow in production.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: analytics-sample-data
+  namespace: asgard
+data:
+  people.csv: |
+    id,name,age,city
+    1,Alice,34,Bangkok
+    2,Bob,29,Chiang Mai
+    3,Charoen,41,Khon Kaen
+    4,Dao,52,Bangkok
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-api
+  namespace: asgard
+  labels: { app: analytics-api, component: analytics }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: analytics-api }
+  template:
+    metadata:
+      labels: { app: analytics-api, component: analytics }
+    spec:
+      containers:
+        - name: analytics-api
+          image: asgard-analytics-api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIND
+              value: "0.0.0.0:8091"
+            - name: ANALYTICS_DATA_DIR
+              value: "/data/analytics"
+            - name: RUST_LOG
+              value: "info"
+            # Registry (dataset list/profile) — optional. Enable by setting
+            # MARIADB_URL from the mariadb root secret; run_sql/plot work without it.
+            # - name: MARIADB_URL
+            #   valueFrom: { secretKeyRef: { name: mariadb-secret, key: root-url } }
+            # Tyr audit forward (optional). When unset → tracing only.
+            # - name: TYR_AUDIT_URL
+            #   value: "http://tyr-ingest.asgard.svc/audit"
+          ports:
+            - { name: http, containerPort: 8091 }
+          volumeMounts:
+            - { name: data, mountPath: /data/analytics }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+      volumes:
+        # Demo: mount the sample CSV. Swap for a PVC / MinIO-backed dir in prod.
+        - name: data
+          configMap:
+            name: analytics-sample-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-api
+  namespace: asgard
+  labels: { app: analytics-api }
+spec:
+  type: ClusterIP
+  selector: { app: analytics-api }
+  ports:
+    - { name: http, port: 8091, targetPort: http }
