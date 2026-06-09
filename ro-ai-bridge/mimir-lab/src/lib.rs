@@ -24,6 +24,7 @@ pub mod ingest;
 pub mod pii;
 pub mod registry;
 pub mod schema;
+pub mod server;
 pub mod storage;
 
 pub use audit::{
