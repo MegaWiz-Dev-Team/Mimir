@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Asgard Nótt — Data signals</title>
+<link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css" />
+<style>
+  :root{ --ink:#1c2330; --mut:#6b7585; --line:#e2e6ee; --gray:#eceff4; --accent:#2f6fd0; }
+  *{box-sizing:border-box;} body{margin:0;background:#fff;color:var(--ink);font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;}
+  header{padding:10px 18px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;}
+  header h1{font-size:15px;margin:0;} header .sub{color:var(--mut);font-size:12px;}
+  .wrap{padding:12px 18px 28px;}
+  .summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  .kpi{border:1px solid var(--line);border-radius:7px;padding:6px 10px;min-width:78px;}
+  .kpi .v{font-size:16px;font-weight:600;} .kpi .l{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:.03em;}
+  .kpi.hi{border-color:#9bbcec;background:linear-gradient(160deg,#eef4fd,#fff);} .kpi.hi .v{font-size:19px;color:#1f54a8;}
+  .pheno{font-size:12.5px;} .tag{display:inline-block;background:#eaf0fb;color:#1f54a8;border-radius:5px;padding:1px 7px;font-weight:600;margin-right:6px;}
+  .sev-Severe{background:#fbe7ea;color:#a3203a;} .sev-Moderate{background:#fbf1df;color:#8a5b13;} .sev-Mild{background:#e7f5ec;color:#1e6b39;}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:#3a4356;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:7px 0;margin:8px 0;}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+  #mini{display:block;width:100%;height:74px;border:1px solid var(--line);border-radius:6px;cursor:crosshair;}
+  .navrow{display:flex;align-items:center;gap:8px;margin:6px 0 2px;}
+  .navrow button{border:1px solid var(--line);background:#f7f9fc;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:13px;}
+  .navrow .clk{color:var(--mut);font-size:11px;}
+  .track{display:flex;align-items:stretch;border-bottom:1px solid #f0f2f7;}
+  .track .tlabel{width:74px;min-width:74px;display:flex;align-items:center;color:#3a4356;font-size:11.5px;padding-right:6px;}
+  .track .tchart{flex:1;min-width:0;}
+  .upload{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:7px;background:#fafbfd;}
+  .upload input[type=file]{font-size:12px;} .upload button{border:1px solid #9bbcec;background:#eaf0fb;color:#1f54a8;border-radius:6px;padding:4px 12px;cursor:pointer;font-weight:600;}
+  .eir{position:fixed;right:18px;bottom:18px;z-index:50;font-size:13px;}
+  .eirToggle{display:none;border:none;background:#1f54a8;color:#fff;border-radius:22px;padding:11px 17px;cursor:pointer;box-shadow:0 4px 14px #0003;font-weight:600;}
+  .eir.collapsed .eirToggle{display:block;} .eir.collapsed .eirPanel{display:none;}
+  .eirPanel{width:344px;height:452px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 34px #00000026;overflow:hidden;}
+  .eirHead{background:#1f54a8;color:#fff;padding:9px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
+  .eirMin{cursor:pointer;font-size:16px;line-height:1;padding:0 4px;user-select:none;}
+  .eirBody{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;background:#f7f9fc;}
+  .eirMsg{padding:7px 10px;border-radius:9px;max-width:86%;white-space:pre-wrap;line-height:1.45;}
+  .eirMsg.user{align-self:flex-end;background:#1f54a8;color:#fff;border-bottom-right-radius:2px;}
+  .eirMsg.bot{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:2px;}
+  .eirInput{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line);}
+  .eirInput input{flex:1;border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;}
+  .eirInput button{border:none;background:#1f54a8;color:#fff;border-radius:7px;padding:0 14px;cursor:pointer;font-weight:600;}
+</style>
+</head>
+<body>
+<header><h1>🌙 Asgard Nótt</h1><b style="font-size:13px">Data signals</b><span class="sub" id="sub">loading…</span></header>
+<div class="wrap">
+  <div class="upload" id="upload">
+    <b style="font-size:12px;color:#3a4356">Analyze a recording:</b>
+    <input type="file" id="frec" accept=".edf,.mmrx" />
+    <input type="file" id="fev" accept=".json" title="events.json (optional)" />
+    <button id="go">Analyze →</button>
+    <span class="sub" id="upmsg"></span>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="pheno" id="pheno"></div>
+  <div class="legend" id="legend"></div>
+  <canvas id="mini"></canvas>
+  <div class="navrow">
+    <button id="prev">◄</button><button id="next">►</button>
+    <button id="zin">+</button><button id="zout">−</button>
+    <span class="clk" id="clk"></span>
+  </div>
+  <div id="tracks"></div>
+</div>
+<div id="eir" class="eir collapsed">
+  <button id="eirToggle" class="eirToggle">🩺 Eir Assistant</button>
+  <div class="eirPanel">
+    <div class="eirHead">🩺 Eir Assistant <span class="eirMin" id="eirMin">▾</span></div>
+    <div class="eirBody" id="eirBody"><div class="eirMsg bot">ถามเกี่ยวกับเคสนี้ได้เลย — เช่น "ทำไมจัดเป็น mixed?", "ควรส่ง cardiology ไหม?", "อธิบาย Hypoxic Burden หน่อย"</div></div>
+    <div class="eirInput"><input id="eirQ" placeholder="ถาม Eir เกี่ยวกับเคสนี้…" /><button id="eirSend">ส่ง</button></div>
+  </div>
+</div>
+<script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<script>
+const COL = { ObstructiveApnea:["#e0524f","Obstructive"], CentralApnea:["#6a6fd6","Central"],
+  MixedApnea:["#c77dd6","Mixed"], UnclassifiedApnea:["#e6a6e0","Unclassified"],
+  Hypopnea:["#7cc47e","Hypopnoea"], Desaturation:["#8fd0ee","Desaturation"],
+  Snore:["#e8a36b","Snore"], CheyneStokes:["#5aa0d8","Cheyne-Stokes"] };
+const BAND = new Set(["ObstructiveApnea","CentralApnea","MixedApnea","UnclassifiedApnea","Hypopnea"]);
+const LABEL_W=74, Y_GUT=46;
+let D, charts=[], guard=false, START=0;
+
+function f1(x){return x==null?"–":Math.round(x*10)/10;}
+function clock(secFromStart){ let t=((START+secFromStart)%86400+86400)%86400; let h=Math.floor(t/3600),m=Math.floor(t%3600/60);
+  let ap=h<12?"am":"pm",h12=h%12||12; return `${h12}:${String(m).padStart(2,'0')}${ap}`; }
+
+function bandsPlugin(withLabel){ return { hooks:{ draw:u=>{
+  const ctx=u.ctx,top=u.bbox.top,h=u.bbox.height,min=u.scales.x.min,max=u.scales.x.max;
+  for(const e of D.events){ if(!BAND.has(e.k)) continue; const e1=e.s+Math.max(e.d,1);
+    if(e1<min||e.s>max) continue; const c=COL[e.k][0];
+    const x0=u.valToPos(Math.max(e.s,min),'x',true), x1=u.valToPos(Math.min(e1,max),'x',true);
+    ctx.save(); ctx.globalAlpha=.28; ctx.fillStyle=c; ctx.fillRect(x0,top,Math.max(x1-x0,1),h);
+    if(withLabel){ ctx.globalAlpha=1; ctx.fillStyle=c; ctx.font="11px sans-serif"; ctx.textBaseline="top";
+      if(x1-x0>34) ctx.fillText(COL[e.k][1], x0+3, top+3); }
+    ctx.restore(); }
+}}}; }
+
+function posPlugin(){ return { hooks:{ draw:u=>{
+  if(!D.position) return; const ctx=u.ctx,top=u.bbox.top,mid=top+u.bbox.height/2,min=u.scales.x.min,max=u.scales.x.max;
+  const T=D.position.t,P=D.position.pos; ctx.save(); ctx.fillStyle="#3a4356"; ctx.font="11px sans-serif";
+  ctx.textBaseline="middle"; ctx.textAlign="center";
+  let i=0; while(i<T.length){ if(T[i]>max) break; let j=i; while(j+1<T.length&&P[j+1]===P[i]&&T[j+1]<=max) j++;
+    const a=Math.max(T[i],min),b=Math.min(T[j],max);
+    if(b>=min&&a<=max){ const xm=u.valToPos((a+b)/2,'x',true); const w=u.valToPos(b,'x',true)-u.valToPos(a,'x',true);
+      if(w>30) ctx.fillText(P[i], xm, mid); } i=j+1; }
+  ctx.restore();
+}}}; }
+
+function snorePlugin(){ return { hooks:{ draw:u=>{
+  const ctx=u.ctx,base=u.bbox.top+u.bbox.height-4,min=u.scales.x.min,max=u.scales.x.max;
+  ctx.save(); ctx.strokeStyle=COL.Snore[0]; ctx.lineWidth=1.4;
+  for(const e of D.events){ if(e.k!=="Snore"||e.s<min||e.s>max) continue; const x=u.valToPos(e.s,'x',true);
+    ctx.beginPath(); ctx.moveTo(x,base); ctx.lineTo(x,base-9); ctx.stroke(); } ctx.restore();
+}}}; }
+
+function syncX(min,max){ if(guard)return; guard=true; for(const u of charts) u.setScale('x',{min,max}); drawMini(); updClk(min,max); guard=false; }
+
+function mkTrack(name, ser, h, opts){
+  const row=document.createElement('div'); row.className='track';
+  row.innerHTML=`<div class="tlabel">${name}</div>`; const host=document.createElement('div'); host.className='tchart'; row.appendChild(host);
+  document.getElementById('tracks').appendChild(row);
+  const W=host.clientWidth;
+  const base={ width:W, height:h, cursor:{drag:{x:true,y:false},sync:{key:"n"}},
+    legend:{show:false}, scales:{x:{time:false}},
+    hooks:{ setScale:[ (u,k)=>{ if(k==='x') syncX(u.scales.x.min,u.scales.x.max); } ] },
+    axes:[ Object.assign({stroke:"#6b7585",size:18,grid:{stroke:"#eef1f6"},ticks:{stroke:"#e2e6ee"},
+            values:(u,v)=>v.map(x=>clock(x))}, opts.xaxis||{show:false,size:0}),
+           Object.assign({stroke:"#6b7585",size:Y_GUT,grid:{show:false}}, opts.yaxis||{show:false,size:Y_GUT}) ],
+    series:[{}].concat(ser), plugins:opts.plugins||[] };
+  if(opts.yrange) base.scales.y={range:()=>opts.yrange};
+  const u=new uPlot(Object.assign(base,opts.extra||{}), opts.data||[[0,1],[null,null]], host);
+  charts.push(u); return u;
+}
+
+// ---------- minimap ----------
+const mini=document.getElementById('mini'); let mwin=[0,300];
+function miniGeom(){ const r=mini.getBoundingClientRect(); mini.width=r.width*devicePixelRatio; mini.height=r.height*devicePixelRatio;
+  const ctx=mini.getContext('2d'); ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); return [r.width,r.height,ctx]; }
+function mx(t,W){ const L=LABEL_W+Y_GUT; return L + (t/D.duration_s)*(W-L); }
+function drawMini(){ const [W,H,ctx]=miniGeom(); ctx.clearRect(0,0,W,H);
+  // spo2 envelope
+  if(D.channels.SpO2){ const s=D.channels.SpO2; ctx.strokeStyle="#9cc7e6"; ctx.lineWidth=1; ctx.beginPath();
+    for(let i=0;i<s.t.length;i++){ const x=mx(s.t[i],W), y=H-2-((s.y[i]-40)/60)*(H-14); i?ctx.lineTo(x,y):ctx.moveTo(x,y); } ctx.stroke(); }
+  // event ticks
+  for(const e of D.events){ const c=COL[e.k]; if(!c||e.k==="Snore"||e.k==="Desaturation") continue;
+    const x=mx(e.s,W); ctx.strokeStyle=c[0]; ctx.globalAlpha=.85; ctx.beginPath(); ctx.moveTo(x,2); ctx.lineTo(x,H*0.5); ctx.stroke(); }
+  ctx.globalAlpha=1;
+  // window box
+  const a=mx(mwin[0],W), b=mx(mwin[1],W); ctx.fillStyle="rgba(47,111,208,.14)"; ctx.fillRect(a,1,Math.max(b-a,2),H-2);
+  ctx.strokeStyle="#2f6fd0"; ctx.lineWidth=1.2; ctx.strokeRect(a,1,Math.max(b-a,2),H-2);
+}
+function px2t(px,W){ const L=LABEL_W+Y_GUT; return Math.max(0,Math.min(D.duration_s,(px-L)/(W-L)*D.duration_s)); }
+let drag=null;
+mini.addEventListener('mousedown',e=>{ const rect=mini.getBoundingClientRect(); drag=px2t(e.clientX-rect.left,rect.width); });
+window.addEventListener('mousemove',e=>{ if(drag==null)return; const rect=mini.getBoundingClientRect();
+  const cur=px2t(e.clientX-rect.left,rect.width), a=Math.min(drag,cur), b=Math.max(drag,cur);
+  if(b-a>5) syncX(a,b); });
+window.addEventListener('mouseup',()=>{ drag=null; });
+function setWin(a,b){ a=Math.max(0,a); b=Math.min(D.duration_s,b); if(b-a<10)b=a+10; syncX(a,b); }
+document.getElementById('prev').onclick=()=>{ const w=mwin[1]-mwin[0]; setWin(mwin[0]-w,mwin[1]-w); };
+document.getElementById('next').onclick=()=>{ const w=mwin[1]-mwin[0]; setWin(mwin[0]+w,mwin[1]+w); };
+document.getElementById('zin').onclick=()=>{ const c=(mwin[0]+mwin[1])/2,w=(mwin[1]-mwin[0])/3; setWin(c-w,c+w); };
+document.getElementById('zout').onclick=()=>{ const c=(mwin[0]+mwin[1])/2,w=(mwin[1]-mwin[0])*1.5; setWin(c-w,c+w); };
+function updClk(a,b){ mwin=[a,b]; document.getElementById('clk').textContent=`${clock(a)} – ${clock(b)} (${Math.round(b-a)}s)`; drawMini(); }
+
+function render(){
+  START=D.start_sec||0;
+  document.getElementById('tracks').innerHTML=''; charts=[];
+  document.getElementById('sub').textContent=`${D.patient} · ${clock(0)}–${clock(D.duration_s)} · ${f1(D.duration_h)} h (valid ${f1(D.valid_h)} h)`;
+  const r=D.report, p=D.phenotype;
+  const K=(l,v,u,hi)=>`<div class="kpi${hi?' hi':''}"><div class="v">${v}${u?`<span style="font-size:11px;color:var(--mut)"> ${u}</span>`:''}</div><div class="l">${l}</div></div>`;
+  document.getElementById('summary').innerHTML=
+    K('Hypoxic Burden',f1(r.hb),'%·min/h',1)+K('AHI',f1(r.ahi),'/h')+K('AI / HI',f1(r.ai)+'/'+f1(r.hi))+
+    K('Central',Math.round(r.central_pct),'%')+K('ODI',f1(r.odi),'/h')+K('CSR',f1(r.csr_pct),'%')+
+    K('Mean SpO₂',f1(r.mean_spo2),'%')+K('Lowest SpO₂',f1(r.nadir),'%')+K('T90',f1(r.t90),'%')+K('Supine AHI',f1(r.supine_ahi),'/h');
+  document.getElementById('pheno').innerHTML=`<span class="tag">${p.primary}</span><span class="tag sev-${p.severity}">${p.severity}</span>`+
+    (p.positional?'<span class="tag">Positional</span>':'')+(p.severe_hypoxemia?'<span class="tag">Severe hypoxemia</span>':'')+
+    ` <span style="color:var(--mut)">suggested (HITL): ${p.pathway.join(' · ')}</span>`;
+  document.getElementById('legend').innerHTML=Object.values(COL).map(([c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('');
+
+  const fl=D.channels.Flow, ef=D.channels.Effort, ox=D.channels.SpO2, pu=D.channels.Pulse;
+  const topx={show:true,side:0,size:22};
+  mkTrack('Events',[{}],34,{plugins:[bandsPlugin(true)],xaxis:topx,data:[[0,D.duration_s],[null,null]]});
+  if(fl) mkTrack('Flow',[{stroke:"#222",width:.8,points:{show:false}}],128,{plugins:[bandsPlugin(false)],data:[fl.t,fl.y]});
+  if(ef) mkTrack('Effort',[{stroke:"#222",width:.8,points:{show:false}}],128,{plugins:[bandsPlugin(false)],data:[ef.t,ef.y]});
+  mkTrack('Body Position',[{}],30,{plugins:[posPlugin()],data:[[0,D.duration_s],[null,null]]});
+  if(ox) mkTrack('Ox %',[{stroke:"#2f6fd0",width:1,points:{show:false}}],96,{yrange:[40,100],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[ox.t,ox.y],extra:{scales:{x:{time:false},y:{range:()=>[40,100]}}}});
+  if(pu) mkTrack('Pulse',[{stroke:"#c0392b",width:1,points:{show:false}}],76,{yrange:[40,100],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[pu.t,pu.y],extra:{scales:{x:{time:false},y:{range:()=>[40,100]}}}});
+  mkTrack('Snore',[{}],28,{plugins:[snorePlugin()],xaxis:{show:true,size:18},data:[[0,D.duration_s],[null,null]]});
+
+  // default window: first 5 min (AirView-style detail)
+  setWin(0, Math.min(300, D.duration_s));
+}
+
+// ---- data source: static data.json, or live upload → mimir-sleep-api /analyze ----
+const API = '/api/sleep';
+async function loadStatic(){ try{ D=await (await fetch('data.json?'+Date.now())).json(); render(); }
+  catch(e){ document.getElementById('sub').textContent='— upload a recording to analyze —'; } }
+async function doUpload(){
+  const rec=document.getElementById('frec').files[0];
+  if(!rec){ document.getElementById('upmsg').textContent='choose a .edf/.mmrx'; return; }
+  const fd=new FormData(); fd.append('recording',rec);
+  if(document.getElementById('fev').files[0]) fd.append('events',document.getElementById('fev').files[0]);
+  fd.append('study_id', rec.name.replace(/\.[^.]+$/,''));
+  document.getElementById('upmsg').textContent='analyzing…';
+  try{ const res=await fetch(API+'/analyze',{method:'POST',body:fd}); if(!res.ok) throw new Error(await res.text());
+    D=await res.json(); document.getElementById('upmsg').textContent='✓ '+D.patient; render(); }
+  catch(e){ document.getElementById('upmsg').textContent='error: '+e.message; }
+}
+document.getElementById('go').onclick=doUpload;
+window.addEventListener('resize',()=>{ if(D) drawMini(); });
+
+// ---- Eir Assistant widget (chat about the open case) ----
+const eir=document.getElementById('eir');
+document.getElementById('eirToggle').onclick=()=>{ eir.classList.remove('collapsed'); document.getElementById('eirQ').focus(); };
+document.getElementById('eirMin').onclick=()=>eir.classList.add('collapsed');
+function eirMsg(role,txt){ const b=document.getElementById('eirBody'); const d=document.createElement('div');
+  d.className='eirMsg '+role; d.textContent=txt; b.appendChild(d); b.scrollTop=b.scrollHeight; return d; }
+async function eirAsk(){
+  const inp=document.getElementById('eirQ'); const q=inp.value.trim();
+  if(!q) return; if(!D){ eirMsg('bot','เปิด/อัปโหลดเคสก่อนนะครับ'); return; }
+  inp.value=''; eirMsg('user',q); const t=eirMsg('bot','…');
+  try{ const res=await fetch(API+'/chat',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({question:q, context:{patient:D.patient, report:D.report, phenotype:D.phenotype}})});
+    const j=await res.json(); t.textContent=j.answer||j.error||'(no answer)'; }
+  catch(e){ t.textContent='error: '+e.message; }
+}
+document.getElementById('eirSend').onclick=eirAsk;
+document.getElementById('eirQ').addEventListener('keydown',e=>{ if(e.key==='Enter') eirAsk(); });
+
+loadStatic();
+</script>
+</body>
+</html>

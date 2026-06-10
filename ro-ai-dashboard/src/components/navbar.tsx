@@ -225,6 +225,7 @@ export function Navbar() {
             label: "Analytics",
             icon: BarChart3,
             items: [
+                { name: "Sleep Test (Nótt)", href: "/sleep", icon: Activity },
                 { name: "Coverage", href: "/coverage", icon: BarChart3 },
                 { name: "LLM Analytics", href: "/analytics/llm", icon: Activity },
                 { name: "Evaluations", href: "/evaluations", icon: FlaskConical },
