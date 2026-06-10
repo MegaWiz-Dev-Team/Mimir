@@ -42,6 +42,12 @@
   .eirInput{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line);}
   .eirInput input{flex:1;border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;}
   .eirInput button{border:none;background:#1f54a8;color:#fff;border-radius:7px;padding:0 14px;cursor:pointer;font-weight:600;}
+  .navrow input#docnote{flex:0 1 320px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;}
+  .navrow #savenote,.navrow #genreport{background:#eaf0fb;color:#1f54a8;border-color:#9bbcec;font-weight:600;}
+  #report{display:none;}
+  @media print{ body>*{display:none!important;} #report{display:block!important;padding:26px;font:13px/1.5 sans-serif;color:#111;}
+    #report h2{margin:0 0 2px;} #report h3{margin:16px 0 4px;border-bottom:1px solid #ccc;} #report table{border-collapse:collapse;width:60%;}
+    #report td{padding:2px 8px;border-bottom:1px solid #eee;} }
 </style>
 </head>
 <body>
@@ -64,6 +70,10 @@
     <button id="prev">◄</button><button id="next">►</button>
     <button id="zin">+</button><button id="zout">−</button>
     <span class="clk" id="clk"></span>
+    <span style="flex:1"></span>
+    <input id="docnote" placeholder="ความเห็นแพทย์ / clinical note (สำหรับรายงาน)…" />
+    <button id="savenote" title="บันทึกความเห็น + events ลง record">💾 Save</button>
+    <button id="genreport" title="ออกรายงาน PDF">📄 Report</button>
   </div>
   <div id="tracks"></div>
 </div>
@@ -75,6 +85,7 @@
     <div class="eirInput"><input id="eirQ" placeholder="ถาม Eir เกี่ยวกับเคสนี้…" /><button id="eirSend">ส่ง</button></div>
   </div>
 </div>
+<div id="report"></div>
 <script src="./uPlot.iife.min.js"></script>
 <script>
 const COL = { ObstructiveApnea:["#e0524f","Obstructive"], CentralApnea:["#6a6fd6","Central"],
@@ -186,6 +197,7 @@ function updClk(a,b){ mwin=[a,b]; document.getElementById('clk').textContent=`${
 function render(){
   START=D.start_sec||0;
   document.getElementById('tracks').innerHTML=''; charts=[];
+  document.getElementById('docnote').value = localStorage.getItem('nott-note-'+D.patient) || '';
   document.getElementById('sub').textContent=`${D.patient} · ${clock(0)}–${clock(D.duration_s)} · ${f1(D.duration_h)} h (valid ${f1(D.valid_h)} h)`;
   const r=D.report, p=D.phenotype;
   const K=(l,v,u,hi)=>`<div class="kpi${hi?' hi':''}"><div class="v">${v}${u?`<span style="font-size:11px;color:var(--mut)"> ${u}</span>`:''}</div><div class="l">${l}</div></div>`;
@@ -199,13 +211,16 @@ function render(){
   document.getElementById('legend').innerHTML=Object.values(COL).map(([c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('');
 
   const fl=D.channels.Flow, ef=D.channels.Effort, ox=D.channels.SpO2, pu=D.channels.Pulse;
-  const topx={show:true,side:0,size:30};
-  mkTrack('Events',[{}],34,{plugins:[bandsPlugin(true)],xaxis:topx,data:[[0,D.duration_s],[null,null]]});
+  const topx={show:true,side:0,size:24};
+  // dedicated time-axis row (no bands) → axis labels never overlap event bands
+  mkTrack('',[{}],26,{xaxis:topx,data:[[0,D.duration_s],[null,null]]});
+  // Events row: labeled bands only, its own axis hidden
+  mkTrack('Events',[{}],30,{plugins:[bandsPlugin(true)],xaxis:{show:false,size:0},data:[[0,D.duration_s],[null,null]]});
   if(fl) mkTrack('Flow',[{stroke:"#222",width:.8,points:{show:false}}],128,{plugins:[bandsPlugin(false)],data:[fl.t,fl.y]});
   if(ef) mkTrack('Effort',[{stroke:"#222",width:.8,points:{show:false}}],128,{plugins:[bandsPlugin(false)],data:[ef.t,ef.y]});
   mkTrack('Body Position',[{}],30,{plugins:[posPlugin()],data:[[0,D.duration_s],[null,null]]});
-  if(ox) mkTrack('Ox %',[{stroke:"#2f6fd0",width:1,points:{show:false}}],96,{yrange:[40,100],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[ox.t,ox.y],extra:{scales:{x:{time:false},y:{range:()=>[40,100]}}}});
-  if(pu) mkTrack('Pulse',[{stroke:"#c0392b",width:1,points:{show:false}}],76,{yrange:[40,100],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[pu.t,pu.y],extra:{scales:{x:{time:false},y:{range:()=>[40,100]}}}});
+  if(ox) mkTrack('Ox %',[{stroke:"#2f6fd0",width:1,points:{show:false}}],96,{yrange:[50,102],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[ox.t,ox.y],extra:{scales:{x:{time:false},y:{range:()=>[50,102]}}}});
+  if(pu) mkTrack('Pulse',[{stroke:"#c0392b",width:1,points:{show:false}}],76,{yrange:[40,110],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[pu.t,pu.y],extra:{scales:{x:{time:false},y:{range:()=>[40,110]}}}});
   mkTrack('Snore',[{}],40,{plugins:[snorePlugin()],xaxis:{show:true,side:2,size:26},data:[[0,D.duration_s],[null,null]]});
 
   // default window: first 5 min (AirView-style detail)
@@ -250,6 +265,34 @@ async function eirAsk(){
   catch(e){ t.textContent='error: '+e.message; }
 }
 document.getElementById('eirSend').onclick=eirAsk;
+
+// ---- doctor's note + PDF report ----
+document.getElementById('savenote').addEventListener('click',()=>{ if(!D)return;
+  localStorage.setItem('nott-note-'+D.patient, document.getElementById('docnote').value);
+  document.getElementById('upmsg').textContent='✓ note saved (local)';
+  if(API){ fetch(API+'/note',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({study_id:D.patient,note:document.getElementById('docnote').value})}).catch(()=>{}); } });
+document.getElementById('genreport').addEventListener('click',()=>{ if(!D){alert('เปิดเคสก่อน');return;}
+  const r=D.report,p=D.phenotype,note=document.getElementById('docnote').value.trim();
+  const tr=(l,v,u)=>`<tr><td>${l}</td><td style="text-align:right"><b>${f1(v)}</b> ${u||''}</td></tr>`;
+  const evc={}; (D.events||[]).forEach(e=>evc[e.k]=(evc[e.k]||0)+1);
+  const evList=Object.entries(evc).filter(([k])=>COL[k]).map(([k,n])=>`${COL[k][1]}: ${n}`).join(' · ');
+  document.getElementById('report').innerHTML=
+    `<h2>🌙 Asgard Nótt — Sleep Test Report</h2>`+
+    `<div style="color:#555">Patient ${D.patient} · ${clock(0)}–${clock(D.duration_s)} (${f1(D.duration_h)} h, valid ${f1(D.valid_h)} h) · HSAT (AASM Type 3)</div>`+
+    `<h3>Diagnosis</h3><p><b>${p.primary}</b> — severity <b>${p.severity}</b>`+
+    `${p.positional?' · positional':''}${p.severe_hypoxemia?' · severe hypoxemia':''}<br>`+
+    `ICD-10-TM G47.3 การหยุดหายใจขณะหลับ · suggested pathway (HITL): ${p.pathway.join(', ')}</p>`+
+    `<h3>Indices</h3><table>`+tr('Hypoxic Burden',r.hb,'%·min/h')+tr('AHI',r.ahi,'/h')+
+    `<tr><td>AI / HI</td><td style="text-align:right"><b>${f1(r.ai)} / ${f1(r.hi)}</b></td></tr>`+
+    tr('Central',r.central_pct,'%')+tr('ODI',r.odi,'/h')+tr('CSR',r.csr_pct,'%')+
+    tr('Mean SpO₂',r.mean_spo2,'%')+tr('Lowest SpO₂',r.nadir,'%')+tr('T90',r.t90,'%')+
+    tr('Supine AHI',r.supine_ahi,'/h')+`</table>`+
+    `<h3>Scored events</h3><p>${evList||'—'}</p>`+
+    `<h3>Clinician's note</h3><p style="white-space:pre-wrap;border:1px solid #ddd;padding:8px;min-height:44px">${note||'—'}</p>`+
+    `<p style="color:#888;font-size:11px;margin-top:18px">Decision-support (human-in-the-loop). HSAT limits: no EEG sleep staging; central-vs-obstructive suspected. Generated by Asgard Nótt.</p>`+
+    `<p style="margin-top:24px">Signature: ____________________&nbsp;&nbsp;&nbsp; Date: __________</p>`;
+  window.print(); });
 document.getElementById('eirQ').addEventListener('keydown',e=>{ if(e.key==='Enter') eirAsk(); });
 
 loadStatic();
