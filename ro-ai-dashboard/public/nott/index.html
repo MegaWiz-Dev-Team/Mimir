@@ -43,9 +43,14 @@
   .eirInput input{flex:1;border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;}
   .eirInput button{border:none;background:#1f54a8;color:#fff;border-radius:7px;padding:0 14px;cursor:pointer;font-weight:600;}
   .eirExp{cursor:pointer;font-size:15px;line-height:1;padding:0 2px;user-select:none;}
-  .eir.big .eirPanel{width:min(760px,74vw);height:min(82vh,720px);}
+  .eir.big{right:24px;bottom:24px;}                 /* Odin-style near-fullscreen */
+  .eir.big .eirPanel{width:calc(100vw - 48px);height:calc(100vh - 48px);}
   .eirMsg.bot b{color:#1f2d4d;} .eirMsg.bot code{background:#eef1f6;padding:1px 4px;border-radius:4px;font-size:12px;}
   .eirMsg.bot ul,.eirMsg.bot ol{margin:4px 0;padding-left:20px;} .eirMsg.bot li{margin:2px 0;}
+  .eirMsg.bot table{border-collapse:collapse;margin:6px 0;font-size:12px;width:100%;}
+  .eirMsg.bot th,.eirMsg.bot td{border:1px solid var(--line);padding:3px 7px;text-align:left;}
+  .eirMsg.bot th{background:#eef1f6;}
+  .eir.big .eirMsg{max-width:78%;}
   .navrow input#docnote{flex:0 1 320px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;}
   .navrow #savenote,.navrow #genreport{background:#eaf0fb;color:#1f54a8;border-color:#9bbcec;font-weight:600;}
   .src{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-left:8px;}
@@ -281,15 +286,25 @@ function md(t){ let s=mdesc(String(t));
      .replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>')
      .replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>')
      .replace(/^#{1,6}\s*(.+)$/gm,'<b>$1</b>');
-  const out=[]; let list=null;
-  for(const ln of s.split('\n')){
+  const L=s.split('\n'), out=[]; let list=null, i=0;
+  const cells=ln=>ln.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(c=>c.trim());
+  const isRow=ln=>/^\s*\|.*\|\s*$/.test(ln);
+  const isSep=ln=>/^\s*\|?[\s:|-]+\|?\s*$/.test(ln)&&ln.includes('-');
+  const closeL=()=>{ if(list){ out.push('</'+list+'>'); list=null; } };
+  while(i<L.length){ const ln=L[i];
+    if(isRow(ln) && i+1<L.length && isSep(L[i+1])){ closeL();    // markdown table
+      const head=cells(ln); i+=2; const rows=[];
+      while(i<L.length && isRow(L[i])){ rows.push(cells(L[i])); i++; }
+      out.push('<table><thead><tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+
+        rows.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table>'); continue; }
     const ul=ln.match(/^\s*[\*\-]\s+(.*)$/), ol=ln.match(/^\s*\d+\.\s+(.*)$/);
-    if(ul){ if(list!=='ul'){ if(list)out.push('</'+list+'>'); out.push('<ul>'); list='ul'; } out.push('<li>'+ul[1]+'</li>'); }
-    else if(ol){ if(list!=='ol'){ if(list)out.push('</'+list+'>'); out.push('<ol>'); list='ol'; } out.push('<li>'+ol[1]+'</li>'); }
-    else { if(list){ out.push('</'+list+'>'); list=null; } out.push(ln); } }
-  if(list)out.push('</'+list+'>');
+    if(ul){ if(list!=='ul'){ closeL(); out.push('<ul>'); list='ul'; } out.push('<li>'+ul[1]+'</li>'); }
+    else if(ol){ if(list!=='ol'){ closeL(); out.push('<ol>'); list='ol'; } out.push('<li>'+ol[1]+'</li>'); }
+    else { closeL(); out.push(ln); }
+    i++; }
+  closeL();
   return out.join('\n').replace(/\n{2,}/g,'<br><br>').replace(/\n/g,'<br>')
-    .replace(/<br>\s*(<ul>|<ol>)/g,'$1').replace(/(<\/ul>|<\/ol>|<\/li>)\s*<br>/g,'$1');
+    .replace(/<br>\s*(<ul>|<ol>|<table>)/g,'$1').replace(/(<\/ul>|<\/ol>|<\/li>|<\/table>)\s*<br>/g,'$1');
 }
 function eirMsg(role,txt){ const b=document.getElementById('eirBody'); const d=document.createElement('div');
   d.className='eirMsg '+role; if(role==='bot') d.innerHTML=md(txt); else d.textContent=txt;
@@ -303,7 +318,8 @@ async function eirAsk(){
     const j=await res.json(); t.innerHTML=md(j.answer||j.error||'(no answer)'); }
   catch(e){ t.textContent='error: '+e.message; }
 }
-document.getElementById('eirExp').addEventListener('click',(e)=>{ e.stopPropagation(); eir.classList.toggle('big'); });
+document.getElementById('eirExp').addEventListener('click',(e)=>{ e.stopPropagation();
+  const big=eir.classList.toggle('big'); document.getElementById('eirExp').textContent=big?'⤡':'⤢'; });
 document.getElementById('eirSend').onclick=eirAsk;
 
 // ---- doctor's note + PDF report ----
