@@ -95,13 +95,16 @@ function hms(secFromStart){ let t=((START+secFromStart)%86400+86400)%86400;
 
 function bandsPlugin(withLabel){ return { hooks:{ draw:u=>{
   const ctx=u.ctx,top=u.bbox.top,h=u.bbox.height,min=u.scales.x.min,max=u.scales.x.max;
+  ctx.save();
+  // clip to THIS track's plot rect so bands never bleed into the axis/other tracks
+  ctx.beginPath(); ctx.rect(u.bbox.left, top, u.bbox.width, h); ctx.clip();
   for(const e of D.events){ if(!BAND.has(e.k)) continue; const e1=e.s+Math.max(e.d,1);
     if(e1<min||e.s>max) continue; const c=COL[e.k][0];
     const x0=u.valToPos(Math.max(e.s,min),'x',true), x1=u.valToPos(Math.min(e1,max),'x',true);
-    ctx.save(); ctx.globalAlpha=.28; ctx.fillStyle=c; ctx.fillRect(x0,top,Math.max(x1-x0,1),h);
+    ctx.globalAlpha=.28; ctx.fillStyle=c; ctx.fillRect(x0,top,Math.max(x1-x0,1),h);
     if(withLabel){ ctx.globalAlpha=1; ctx.fillStyle=c; ctx.font="11px sans-serif"; ctx.textBaseline="top";
-      if(x1-x0>34) ctx.fillText(COL[e.k][1], x0+3, top+3); }
-    ctx.restore(); }
+      if(x1-x0>34) ctx.fillText(COL[e.k][1], x0+3, top+3); } }
+  ctx.restore();
 }}}; }
 
 function posPlugin(){ return { hooks:{ draw:u=>{
@@ -159,12 +162,20 @@ function drawMini(){ const [W,H,ctx]=miniGeom(); ctx.clearRect(0,0,W,H);
   ctx.strokeStyle="#2f6fd0"; ctx.lineWidth=1.2; ctx.strokeRect(a,1,Math.max(b-a,2),H-2);
 }
 function px2t(px,W){ const L=LABEL_W+Y_GUT; return Math.max(0,Math.min(D.duration_s,(px-L)/(W-L)*D.duration_s)); }
+// pan the window: grab inside → slide both edges (keeps width = zoom); click
+// outside → recenter window on the click, then keep panning. Zoom via +/− buttons.
 let drag=null;
-mini.addEventListener('mousedown',e=>{ const rect=mini.getBoundingClientRect(); drag=px2t(e.clientX-rect.left,rect.width); });
-window.addEventListener('mousemove',e=>{ if(drag==null)return; const rect=mini.getBoundingClientRect();
-  const cur=px2t(e.clientX-rect.left,rect.width), a=Math.min(drag,cur), b=Math.max(drag,cur);
-  if(b-a>5) syncX(a,b); });
+mini.addEventListener('mousedown',e=>{ const rect=mini.getBoundingClientRect();
+  const t=px2t(e.clientX-rect.left,rect.width); let [a,b]=mwin; const w=b-a;
+  if(t<a||t>b){ a=t-w/2; }                       // outside → recenter at click
+  a=Math.max(0,Math.min(a,D.duration_s-w));
+  drag={t0:t,a0:a,w}; setWin(a,a+w); });
+window.addEventListener('mousemove',e=>{ if(!drag)return; const rect=mini.getBoundingClientRect();
+  const t=px2t(e.clientX-rect.left,rect.width);
+  let a=Math.max(0,Math.min(drag.a0+(t-drag.t0),D.duration_s-drag.w));
+  setWin(a,a+drag.w); });
 window.addEventListener('mouseup',()=>{ drag=null; });
+mini.style.cursor='grab';
 function setWin(a,b){ a=Math.max(0,a); b=Math.min(D.duration_s,b); if(b-a<10)b=a+10; syncX(a,b); }
 document.getElementById('prev').onclick=()=>{ const w=mwin[1]-mwin[0]; setWin(mwin[0]-w,mwin[1]-w); };
 document.getElementById('next').onclick=()=>{ const w=mwin[1]-mwin[0]; setWin(mwin[0]+w,mwin[1]+w); };
