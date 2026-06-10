@@ -195,7 +195,7 @@ function render(){
   mkTrack('Body Position',[{}],30,{plugins:[posPlugin()],data:[[0,D.duration_s],[null,null]]});
   if(ox) mkTrack('Ox %',[{stroke:"#2f6fd0",width:1,points:{show:false}}],96,{yrange:[40,100],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[ox.t,ox.y],extra:{scales:{x:{time:false},y:{range:()=>[40,100]}}}});
   if(pu) mkTrack('Pulse',[{stroke:"#c0392b",width:1,points:{show:false}}],76,{yrange:[40,100],yaxis:{show:true,size:Y_GUT,stroke:"#6b7585",grid:{stroke:"#e2e6ee"}},data:[pu.t,pu.y],extra:{scales:{x:{time:false},y:{range:()=>[40,100]}}}});
-  mkTrack('Snore',[{}],28,{plugins:[snorePlugin()],xaxis:{show:true,size:18},data:[[0,D.duration_s],[null,null]]});
+  mkTrack('Snore',[{}],40,{plugins:[snorePlugin()],xaxis:{show:true,side:2,size:26},data:[[0,D.duration_s],[null,null]]});
 
   // default window: first 5 min (AirView-style detail)
   setWin(0, Math.min(300, D.duration_s));
