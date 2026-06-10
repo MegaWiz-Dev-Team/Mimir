@@ -32,7 +32,10 @@
   .eir{position:fixed;right:18px;bottom:18px;z-index:9999;font-size:13px;}
   .eirToggle{display:none;border:none;background:#1f54a8;color:#fff;border-radius:22px;padding:11px 17px;cursor:pointer;box-shadow:0 4px 14px #0003;font-weight:600;}
   .eir.collapsed .eirToggle{display:block;} .eir.collapsed .eirPanel{display:none;}
-  .eirPanel{width:344px;height:452px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 34px #00000026;overflow:hidden;}
+  .eirPanel{position:relative;width:344px;height:452px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 34px #00000026;overflow:hidden;}
+  .eirResize{position:absolute;top:0;left:0;width:18px;height:18px;cursor:nwse-resize;z-index:3;}
+  .eirResize::before{content:'';position:absolute;top:5px;left:5px;width:8px;height:8px;border-top:2px solid #fff9;border-left:2px solid #fff9;border-radius:2px 0 0 0;}
+  .eir.big .eirResize{display:none;}
   .eirHead{background:#1f54a8;color:#fff;padding:9px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
   .eirMin{cursor:pointer;font-size:16px;line-height:1;padding:0 4px;user-select:none;}
   .eirBody{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;background:#f7f9fc;}
@@ -96,6 +99,7 @@
 <div id="eir" class="eir collapsed">
   <button id="eirToggle" class="eirToggle">🩺 Eir Assistant</button>
   <div class="eirPanel">
+    <div class="eirResize" id="eirResize" title="ลากเพื่อปรับขนาด"></div>
     <div class="eirHead">🩺 Eir Assistant <span><span class="eirExp" id="eirExp" title="ขยาย/ย่อกรอบ">⤢</span> <span class="eirMin" id="eirMin" title="ย่อ">▾</span></span></div>
     <div class="eirBody" id="eirBody"><div class="eirMsg bot">ถามเกี่ยวกับเคสนี้ได้เลย — เช่น "ทำไมจัดเป็น mixed?", "ควรส่ง cardiology ไหม?", "อธิบาย Hypoxic Burden หน่อย"</div></div>
     <div class="eirInput"><input id="eirQ" placeholder="ถาม Eir เกี่ยวกับเคสนี้…" /><button id="eirSend">ส่ง</button></div>
@@ -319,7 +323,16 @@ async function eirAsk(){
   catch(e){ t.textContent='error: '+e.message; }
 }
 document.getElementById('eirExp').addEventListener('click',(e)=>{ e.stopPropagation();
+  const panel=document.querySelector('#eir .eirPanel'); panel.style.width=''; panel.style.height=''; // let class win
   const big=eir.classList.toggle('big'); document.getElementById('eirExp').textContent=big?'⤡':'⤢'; });
+// drag the top-left corner to resize (panel is pinned bottom-right → grows up-left, Odin-style)
+document.getElementById('eirResize').addEventListener('mousedown',(e)=>{ e.preventDefault(); e.stopPropagation();
+  const p=document.querySelector('#eir .eirPanel'); const r=p.getBoundingClientRect();
+  const sx=e.clientX, sy=e.clientY, sw=r.width, sh=r.height;
+  const mv=ev=>{ p.style.width=Math.min(Math.max(sw+(sx-ev.clientX),300),innerWidth-48)+'px';
+    p.style.height=Math.min(Math.max(sh+(sy-ev.clientY),300),innerHeight-48)+'px'; };
+  const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); };
+  document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); });
 document.getElementById('eirSend').onclick=eirAsk;
 
 // ---- doctor's note + PDF report ----
