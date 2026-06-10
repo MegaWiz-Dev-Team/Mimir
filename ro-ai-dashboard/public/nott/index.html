@@ -26,8 +26,10 @@
   .track .tlabel{width:74px;min-width:74px;display:flex;align-items:center;color:#3a4356;font-size:11.5px;padding-right:6px;}
   .track .tchart{flex:1;min-width:0;}
   .upload{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:7px;background:#fafbfd;}
-  .upload input[type=file]{font-size:12px;} .upload button{border:1px solid #9bbcec;background:#eaf0fb;color:#1f54a8;border-radius:6px;padding:4px 12px;cursor:pointer;font-weight:600;}
-  .eir{position:fixed;right:18px;bottom:18px;z-index:50;font-size:13px;}
+  .upload input[type=file]{font-size:11px;max-width:150px;} .upload button{border:1px solid #9bbcec;background:#eaf0fb;color:#1f54a8;border-radius:6px;padding:4px 12px;cursor:pointer;font-weight:600;}
+  .ulab{display:flex;flex-direction:column;font-size:10px;color:#3a4356;font-weight:600;gap:2px;}
+  .ulab .muted{color:var(--mut);font-weight:400;}
+  .eir{position:fixed;right:18px;bottom:18px;z-index:9999;font-size:13px;}
   .eirToggle{display:none;border:none;background:#1f54a8;color:#fff;border-radius:22px;padding:11px 17px;cursor:pointer;box-shadow:0 4px 14px #0003;font-weight:600;}
   .eir.collapsed .eirToggle{display:block;} .eir.collapsed .eirPanel{display:none;}
   .eirPanel{width:344px;height:452px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 34px #00000026;overflow:hidden;}
@@ -46,9 +48,11 @@
 <header><h1>🌙 Asgard Nótt</h1><b style="font-size:13px">Data signals</b><span class="sub" id="sub">loading…</span></header>
 <div class="wrap">
   <div class="upload" id="upload">
-    <b style="font-size:12px;color:#3a4356">Analyze a recording:</b>
-    <input type="file" id="frec" accept=".edf,.mmrx" />
-    <input type="file" id="fev" accept=".json" title="events.json (optional)" />
+    <b style="font-size:12px;color:#3a4356">Analyze a recording</b>
+    <label class="ulab">Recording <span class="muted">.edf / .mmrx · required</span>
+      <input type="file" id="frec" accept=".edf,.mmrx" /></label>
+    <label class="ulab">Events <span class="muted">.json · optional (only for .edf; .mmrx has events inside)</span>
+      <input type="file" id="fev" accept=".json" /></label>
     <button id="go">Analyze →</button>
     <span class="sub" id="upmsg"></span>
   </div>
@@ -194,7 +198,7 @@ function render(){
 }
 
 // ---- data source: static data.json, or live upload → mimir-sleep-api /analyze ----
-const API = '/api/sleep';
+const API = location.port==='8899' ? 'http://localhost:8910' : '';
 async function loadStatic(){ try{ D=await (await fetch('data.json?'+Date.now())).json(); render(); }
   catch(e){ document.getElementById('sub').textContent='— upload a recording to analyze —'; } }
 async function doUpload(){
@@ -213,8 +217,12 @@ window.addEventListener('resize',()=>{ if(D) drawMini(); });
 
 // ---- Eir Assistant widget (chat about the open case) ----
 const eir=document.getElementById('eir');
-document.getElementById('eirToggle').onclick=()=>{ eir.classList.remove('collapsed'); document.getElementById('eirQ').focus(); };
-document.getElementById('eirMin').onclick=()=>eir.classList.add('collapsed');
+const eirOpen=()=>{ eir.classList.remove('collapsed'); document.getElementById('eirQ').focus(); };
+const eirClose=()=>eir.classList.add('collapsed');
+document.getElementById('eirToggle').addEventListener('click', eirOpen);
+document.getElementById('eirMin').addEventListener('click', (e)=>{ e.stopPropagation(); eirClose(); });
+// whole header toggles too (bigger hit area)
+document.querySelector('#eir .eirHead').addEventListener('click', eirClose);
 function eirMsg(role,txt){ const b=document.getElementById('eirBody'); const d=document.createElement('div');
   d.className='eirMsg '+role; d.textContent=txt; b.appendChild(d); b.scrollTop=b.scrollHeight; return d; }
 async function eirAsk(){
