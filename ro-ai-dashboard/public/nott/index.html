@@ -44,6 +44,10 @@
   .eirInput button{border:none;background:#1f54a8;color:#fff;border-radius:7px;padding:0 14px;cursor:pointer;font-weight:600;}
   .navrow input#docnote{flex:0 1 320px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;}
   .navrow #savenote,.navrow #genreport{background:#eaf0fb;color:#1f54a8;border-color:#9bbcec;font-weight:600;}
+  .src{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-left:8px;}
+  .src button{border:none;border-radius:0;border-right:1px solid var(--line);font-size:12px;padding:3px 9px;}
+  .src button:last-child{border-right:none;} .src button.on{background:#1f54a8;color:#fff;}
+  .cmp{font-size:12px;color:#3a4356;margin-left:8px;}
   #report{display:none;}
   @media print{ body>*{display:none!important;} #report{display:block!important;padding:26px;font:13px/1.5 sans-serif;color:#111;}
     #report h2{margin:0 0 2px;} #report h3{margin:16px 0 4px;border-bottom:1px solid #ccc;} #report table{border-collapse:collapse;width:60%;}
@@ -69,6 +73,9 @@
   <div class="navrow">
     <button id="prev">◄</button><button id="next">►</button>
     <button id="zin">+</button><button id="zout">−</button>
+    <span class="src" id="srctoggle">
+      <button data-src="airview" class="on">AirView</button><button data-src="detected">Nótt</button><button data-src="compare">เทียบ</button>
+    </span>
     <span class="clk" id="clk"></span>
     <span style="flex:1"></span>
     <input id="docnote" placeholder="ความเห็นแพทย์ / clinical note (สำหรับรายงาน)…" />
@@ -94,7 +101,11 @@ const COL = { ObstructiveApnea:["#e0524f","Obstructive"], CentralApnea:["#6a6fd6
   Snore:["#e8a36b","Snore"], CheyneStokes:["#5aa0d8","Cheyne-Stokes"] };
 const BAND = new Set(["ObstructiveApnea","CentralApnea","MixedApnea","UnclassifiedApnea","Hypopnea"]);
 const LABEL_W=74, Y_GUT=46;
-let D, charts=[], guard=false, START=0;
+let D, charts=[], guard=false, START=0, SRC='airview';
+// scoring source: AirView events.json vs Nótt's own detector vs compare
+function curReport(){ return SRC==='detected' && D.detected ? D.detected.report : D.report; }
+function curPheno(){ return SRC==='detected' && D.detected ? D.detected.phenotype : D.phenotype; }
+function curEvents(){ return SRC==='detected' && D.detected ? (D.detected.events||[]) : (D.events||[]); }
 
 function f1(x){return x==null?"–":Math.round(x*10)/10;}
 function clock(secFromStart){ let t=((START+secFromStart)%86400+86400)%86400; let h=Math.floor(t/3600),m=Math.floor(t%3600/60);
@@ -107,14 +118,16 @@ function hms(secFromStart){ let t=((START+secFromStart)%86400+86400)%86400;
 function bandsPlugin(withLabel){ return { hooks:{ draw:u=>{
   const ctx=u.ctx,top=u.bbox.top,h=u.bbox.height,min=u.scales.x.min,max=u.scales.x.max;
   ctx.save();
-  // clip to THIS track's plot rect so bands never bleed into the axis/other tracks
   ctx.beginPath(); ctx.rect(u.bbox.left, top, u.bbox.width, h); ctx.clip();
-  for(const e of D.events){ if(!BAND.has(e.k)) continue; const e1=e.s+Math.max(e.d,1);
+  const drawSet=(events,mode)=>{ for(const e of events){ if(!BAND.has(e.k)) continue; const e1=e.s+Math.max(e.d,1);
     if(e1<min||e.s>max) continue; const c=COL[e.k][0];
-    const x0=u.valToPos(Math.max(e.s,min),'x',true), x1=u.valToPos(Math.min(e1,max),'x',true);
-    ctx.globalAlpha=.28; ctx.fillStyle=c; ctx.fillRect(x0,top,Math.max(x1-x0,1),h);
-    if(withLabel){ ctx.globalAlpha=1; ctx.fillStyle=c; ctx.font="11px sans-serif"; ctx.textBaseline="top";
-      if(x1-x0>34) ctx.fillText(COL[e.k][1], x0+3, top+3); } }
+    const x0=u.valToPos(Math.max(e.s,min),'x',true), x1=u.valToPos(Math.min(e1,max),'x',true), w=Math.max(x1-x0,1);
+    if(mode==='outline'){ ctx.globalAlpha=1; ctx.strokeStyle=c; ctx.lineWidth=1.5; ctx.strokeRect(x0,top+1,w,h-2); }
+    else { ctx.globalAlpha=.26; ctx.fillStyle=c; ctx.fillRect(x0,top,w,h);
+      if(withLabel&&w>34){ ctx.globalAlpha=1; ctx.fillStyle=c; ctx.font="11px sans-serif"; ctx.textBaseline="top"; ctx.fillText(COL[e.k][1],x0+3,top+3); } } } };
+  if(SRC==='detected') drawSet((D.detected&&D.detected.events)||[], 'fill');
+  else if(SRC==='compare'){ drawSet(D.events||[],'fill'); drawSet((D.detected&&D.detected.events)||[],'outline'); }
+  else drawSet(D.events||[], 'fill');
   ctx.restore();
 }}}; }
 
@@ -165,7 +178,7 @@ function drawMini(){ const [W,H,ctx]=miniGeom(); ctx.clearRect(0,0,W,H);
   if(D.channels.SpO2){ const s=D.channels.SpO2; ctx.strokeStyle="#9cc7e6"; ctx.lineWidth=1; ctx.beginPath();
     for(let i=0;i<s.t.length;i++){ const x=mx(s.t[i],W), y=H-2-((s.y[i]-40)/60)*(H-14); i?ctx.lineTo(x,y):ctx.moveTo(x,y); } ctx.stroke(); }
   // event ticks
-  for(const e of D.events){ const c=COL[e.k]; if(!c||e.k==="Snore"||e.k==="Desaturation") continue;
+  for(const e of curEvents()){ const c=COL[e.k]; if(!c||e.k==="Snore"||e.k==="Desaturation") continue;
     const x=mx(e.s,W); ctx.strokeStyle=c[0]; ctx.globalAlpha=.85; ctx.beginPath(); ctx.moveTo(x,2); ctx.lineTo(x,H*0.5); ctx.stroke(); }
   ctx.globalAlpha=1;
   // window box
@@ -199,7 +212,11 @@ function render(){
   document.getElementById('tracks').innerHTML=''; charts=[];
   document.getElementById('docnote').value = localStorage.getItem('nott-note-'+D.patient) || '';
   document.getElementById('sub').textContent=`${D.patient} · ${clock(0)}–${clock(D.duration_s)} · ${f1(D.duration_h)} h (valid ${f1(D.valid_h)} h)`;
-  const r=D.report, p=D.phenotype;
+  // toggle availability: hide Nótt/เทียบ when this payload has no detector output
+  document.querySelectorAll('#srctoggle button[data-src="detected"],#srctoggle button[data-src="compare"]').forEach(b=>b.style.display=D.detected?'':'none');
+  if(!D.detected && SRC!=='airview') SRC='airview';
+  const r=curReport(), p=curPheno();
+  const srcTag = SRC==='detected'?' <span class="cmp">· source: Nótt-detected</span>':(SRC==='compare'&&D.detected?` <span class="cmp">· AHI AirView ${f1(D.report.ahi)} vs Nótt ${f1(D.detected.report.ahi)} /h</span>`:'');
   const K=(l,v,u,hi)=>`<div class="kpi${hi?' hi':''}"><div class="v">${v}${u?`<span style="font-size:11px;color:var(--mut)"> ${u}</span>`:''}</div><div class="l">${l}</div></div>`;
   document.getElementById('summary').innerHTML=
     K('Hypoxic Burden',f1(r.hb),'%·min/h',1)+K('AHI',f1(r.ahi),'/h')+K('AI / HI',f1(r.ai)+'/'+f1(r.hi))+
@@ -207,7 +224,7 @@ function render(){
     K('Mean SpO₂',f1(r.mean_spo2),'%')+K('Lowest SpO₂',f1(r.nadir),'%')+K('T90',f1(r.t90),'%')+K('Supine AHI',f1(r.supine_ahi),'/h');
   document.getElementById('pheno').innerHTML=`<span class="tag">${p.primary}</span><span class="tag sev-${p.severity}">${p.severity}</span>`+
     (p.positional?'<span class="tag">Positional</span>':'')+(p.severe_hypoxemia?'<span class="tag">Severe hypoxemia</span>':'')+
-    ` <span style="color:var(--mut)">suggested (HITL): ${p.pathway.join(' · ')}</span>`;
+    ` <span style="color:var(--mut)">suggested (HITL): ${p.pathway.join(' · ')}</span>`+srcTag;
   document.getElementById('legend').innerHTML=Object.values(COL).map(([c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('');
 
   const fl=D.channels.Flow, ef=D.channels.Effort, ox=D.channels.SpO2, pu=D.channels.Pulse;
@@ -295,6 +312,12 @@ document.getElementById('genreport').addEventListener('click',()=>{ if(!D){alert
   window.print(); });
 document.getElementById('eirQ').addEventListener('keydown',e=>{ if(e.key==='Enter') eirAsk(); });
 
+// scoring-source toggle: AirView | Nótt-detected | compare
+document.querySelectorAll('#srctoggle button').forEach(b=>b.addEventListener('click',()=>{
+  SRC=b.dataset.src;
+  document.querySelectorAll('#srctoggle button').forEach(x=>x.classList.toggle('on', x.dataset.src===SRC));
+  if(D) render();
+}));
 loadStatic();
 </script>
 </body>
