@@ -168,7 +168,11 @@ def suite_fuzzy_typos():
     ]
     rows = []
     for inp, kw, klass in cases:
-        res, ms = call("/resolve", {"text": inp})
+        # /entity carries the fuzzy "did you mean" fallback (main). The /resolve
+        # handler now exists too (mimir-resolve, merged from this branch) — a
+        # follow-up can move this assertion to /resolve for an end-to-end
+        # SNOMED → MONDO → PrimeKG signal.
+        res, ms = call("/entity", {"name": inp, "limit": 5})
         suggestions = res.get("did_you_mean", []) or []
         names = [s.get("name", "") for s in suggestions]
         top = (names[0] if names else "").lower()

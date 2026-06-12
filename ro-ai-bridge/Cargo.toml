@@ -1,6 +1,6 @@
 [package]
 name = "ro-ai-bridge"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 
 [workspace]
@@ -38,8 +38,9 @@ uuid = { workspace = true }
 regex = { workspace = true }
 tower-http = { workspace = true }
 tower = { workspace = true }
+tower_governor = { workspace = true }
 async-trait = "0.1.89"
-mimir-core-ai = { version = "0.2.2", path = "mimir-core-ai" }
+mimir-core-ai = { version = "0.2.3", path = "mimir-core-ai" }
 skuggi-core = { version = "0.2", path = "skuggi-core" }
 ro-ai-domain-game = { version = "0.1.0", path = "ro-ai-domain-game" }
 ro-ai-domain-medical = { version = "0.1.0", path = "ro-ai-domain-medical" }
@@ -54,6 +55,9 @@ opentelemetry = "0.31.0"
 tonic = "0.14.5"
 dashmap = "6.1.0"
 once_cell = "1.21.4"
+
+[dev-dependencies]
+http-body-util = { workspace = true }
 
 [workspace.dependencies]
 anyhow = "1.0.101"
@@ -80,6 +84,7 @@ tracing = "0.1.44"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter", "time"] }
 tower = { version = "0.5", features = ["util"] }
+tower_governor = "0.8"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.10.0"
 tower-http = { version = "0.6.8", features = ["cors"] }
@@ -92,3 +97,4 @@ csv = "1.3"
 moka = { version = "0.12", features = ["future"] }
 wiremock = "0.6"
 tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
+http-body-util = "0.1"

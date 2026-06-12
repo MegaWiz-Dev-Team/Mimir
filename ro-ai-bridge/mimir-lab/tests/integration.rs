@@ -1,6 +1,10 @@
 //! mimir-lab MVP integration tests (TDD).
 
-use mimir_lab::{engine::Engine, ingest, ingest::SourceFormat, pii, pii::PiiStatus, LabError};
+use mimir_lab::{
+    engine::Engine, ingest, ingest::SourceFormat, pii, pii::PiiStatus, LabError, VecAuditSink,
+};
+use std::sync::Arc;
+use std::time::Duration;
 
 fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -87,6 +91,45 @@ fn parquet_round_trip() {
     let res = ingest::ingest_file(&e, &pq, "from_pq").unwrap();
     assert_eq!(res.row_count, 4);
     assert_eq!(res.schema.column_names(), vec!["id", "name", "age", "city"]);
+}
+
+#[test]
+fn query_timeout_allows_fast_query() {
+    let e = Engine::in_memory().unwrap();
+    let r = e
+        .query_readonly_timeout("SELECT 1 AS a", 10, Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(r.rows.len(), 1);
+}
+
+#[test]
+fn query_timeout_interrupts_runaway() {
+    let e = Engine::in_memory().unwrap();
+    // ~1e12-row cross join aggregation — never completes within the budget.
+    let slow = "SELECT sum(a.x * b.y) FROM range(1000000) a(x), range(1000000) b(y)";
+    let err = e
+        .query_readonly_timeout(slow, 10, Duration::from_millis(200))
+        .unwrap_err();
+    assert!(matches!(err, LabError::Timeout(_)), "got {err:?}");
+}
+
+#[test]
+fn audit_records_query_outcomes() {
+    let sink = Arc::new(VecAuditSink::new());
+    let e = Engine::in_memory()
+        .unwrap()
+        .with_audit(sink.clone())
+        .with_context(Some("asgard_analytics".into()), Some("tester".into()));
+
+    e.query_readonly("SELECT 42 AS a", 10).unwrap();
+    let _ = e.query_readonly("DROP TABLE nope", 10); // denied
+
+    let events = sink.events();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].action, "analytics.query");
+    assert_eq!(events[0].outcome, "ok");
+    assert_eq!(events[0].tenant_id.as_deref(), Some("asgard_analytics"));
+    assert_eq!(events[1].outcome, "denied");
 }
 
 #[test]

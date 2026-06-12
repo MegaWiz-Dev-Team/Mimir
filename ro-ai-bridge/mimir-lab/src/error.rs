@@ -10,6 +10,9 @@ pub enum LabError {
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("sqlx: {0}")]
+    Sqlx(#[from] sqlx::Error),
+
     /// A query that is not a read-only statement was passed to a read-only path.
     #[error("read-only violation: only SELECT/WITH/DESCRIBE/SUMMARIZE/EXPLAIN/PRAGMA/SHOW allowed (got: {0})")]
     NotReadOnly(String),
@@ -20,6 +23,17 @@ pub enum LabError {
 
     #[error("ingest: {0}")]
     Ingest(String),
+
+    /// A query was interrupted for exceeding its wall-clock budget.
+    #[error("query timeout: {0}")]
+    Timeout(String),
+
+    #[error("storage: {0}")]
+    Storage(String),
+
+    /// API-layer error (bad column reference, unsupported option, etc.).
+    #[error("api: {0}")]
+    Api(String),
 }
 
 pub type Result<T> = std::result::Result<T, LabError>;

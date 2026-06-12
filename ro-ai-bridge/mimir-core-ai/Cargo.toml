@@ -1,7 +1,7 @@
 [package]
 name = "mimir-core-ai"
-version = "0.2.2"
-edition = "2021"
+version = "0.2.3"
+edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -42,6 +42,7 @@ base64 = "0.22"
 neo4rs = { workspace = true }
 moka = { workspace = true }
 tokenizers = { workspace = true }
+strsim = "0.11"
 
 [dev-dependencies]
 wiremock = { workspace = true }

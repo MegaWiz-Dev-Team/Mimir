@@ -1,0 +1,67 @@
+# 📨 Hermodr (analytics flavor) — MCP sidecar exposing analytics-api's
+# dataset/query/plot tools as a JSON-RPC catalog for Bifrost agents.
+#
+# Sister of Mimir/k8s/hermodr-mimir.yaml. Hermodr's main.rs picks the catalog via
+# `name_lower.contains("analytics")` → services::analytics::tools() (4 tools:
+# dataset_list, dataset_profile, run_sql, plot). Single-upstream Proxy →
+# analytics-api.
+#
+# ⚠️ Image must include services/analytics.rs (Hermodr branch
+# feat/asgard-analytics-tools) — rebuild asgard-hermodr before deploying.
+#
+# Deploy:
+#   kubectl apply -f Mimir/k8s/hermodr-analytics.yaml
+# Smoke (in-cluster):
+#   curl -s -X POST http://hermodr-analytics.asgard.svc:8090/rpc \
+#     -H 'content-type: application/json' \
+#     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermodr-analytics
+  namespace: asgard
+  labels: { app: hermodr-analytics, component: mcp-sidecar }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: hermodr-analytics }
+  template:
+    metadata:
+      labels: { app: hermodr-analytics, component: mcp-sidecar }
+    spec:
+      containers:
+        - name: hermodr
+          image: asgard-hermodr:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: NODE_ENV, value: "production" }
+            - { name: PORT, value: "8090" }
+            - { name: UPSTREAM_URL, value: "http://analytics-api.asgard.svc:8091" }
+            # "analytics" → services::analytics::tools()
+            - { name: SERVICE_NAME, value: "analytics" }
+          ports:
+            - { name: http, containerPort: 8090 }
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermodr-analytics
+  namespace: asgard
+  labels: { app: hermodr-analytics }
+spec:
+  type: ClusterIP
+  selector: { app: hermodr-analytics }
+  ports:
+    - { name: http, port: 8090, targetPort: http }

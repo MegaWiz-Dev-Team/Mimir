@@ -35,6 +35,7 @@ use ro_ai_bridge::routes::cron::{cron_routes, cron_status_routes};
 use ro_ai_bridge::routes::db_connector::db_connector_routes;
 use ro_ai_bridge::routes::docs::docs_routes;
 use ro_ai_bridge::routes::eval::eval_routes;
+use ro_ai_bridge::routes::evx::evx_routes;
 use ro_ai_bridge::routes::training::training_routes;
 use ro_ai_bridge::routes::icd10::icd10_routes;
 use ro_ai_bridge::routes::rag_benchmark::rag_benchmark_routes;
@@ -226,6 +227,7 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
+        .merge(evx_routes())
         // OCR eval, two complementary axes (both tenant-scoped, default
         // asgard_platform): LAYOUT = region detection mAP/IoU (Sprint 53);
         // TEXT = CER/WER per engine (Sprint 51 ocr_eval_*, read-only here).
@@ -319,7 +321,19 @@ async fn main() {
     info!(event = "server_starting", address = %addr, "🚀 listening on {}", addr);
 
     let listener = TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // tower-governor's SmartIpKeyExtractor (used on /api/v1/agents public-read)
+    // falls back to the peer IP from ConnectInfo when X-Forwarded-For /
+    // X-Real-IP / Forwarded headers are absent. Without
+    // `into_make_service_with_connect_info`, axum doesn't populate
+    // ConnectInfo and the extractor errors with "Unable To Extract Key!".
+    // Direct-NodePort callers (no ingress) need this — same fix as Bifrost
+    // (commit 03a44ce in Bifrost).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn health_check() -> Json<Value> {
