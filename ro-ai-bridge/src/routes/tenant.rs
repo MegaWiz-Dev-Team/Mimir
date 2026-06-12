@@ -1,12 +1,14 @@
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    middleware,
     routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
 use mimir_core_ai::services::db::DbPool;
 
 // ── Models ────────────────────────────────────────────
@@ -80,9 +82,14 @@ async fn ensure_tenant_columns(pool: &DbPool) {
 // ── Routes ────────────────────────────────────────────
 
 pub fn tenant_routes() -> Router<DbPool> {
+    // Require auth: GET /api/v1/tenants leaked the full tenant list (customer
+    // names, domains, product strategy) unauthenticated. Mirror the iam routes'
+    // guard so this data path is gated like /api/v1/iam/tenants. (A01:2025 /
+    // API5:2023 / CWE-862.)
     Router::new()
         .route("/", get(list_tenants).post(create_tenant))
         .route("/{id}", get(get_tenant).delete(delete_tenant))
+        .route_layer(middleware::from_fn(dual_mode_auth_middleware))
 }
 
 // ── Handlers ──────────────────────────────────────────
