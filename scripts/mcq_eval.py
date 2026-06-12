@@ -139,21 +139,42 @@ DATASET_NAMES = {"medqa": "medqa-usmle", "medmcqa": "medmcqa",
                  "medxpertqa": "medxpertqa-text", "pubmedqa": "pubmedqa-labeled"}
 
 
-def build_prompt(item):
+def build_prompt(item, cot=False):
     if item["kind"] == "pqa":
         ctx = f"Abstract: {item['context']}\n\n" if item.get("context") else ""
+        if cot:
+            return (f"You are a biomedical expert. {ctx}Question: {item['prompt_q']}\n\n"
+                    "Reason step by step, then end with a line in the exact format "
+                    "'Answer: <yes|no|maybe>'.")
         return (f"You are a biomedical expert. {ctx}Question: {item['prompt_q']}\n\n"
                 "Answer with ONLY one word — yes, no, or maybe.\nAnswer:")
+    if cot:
+        return ("You are a medical expert taking a board examination. Work through the "
+                "question step by step, then end with a line in the exact format "
+                f"'Answer: <letter>'.\n\n{item['prompt_q']}")
     return ("You are a medical expert taking a board examination. Choose the single "
             "best answer. Respond with ONLY the letter of the correct option — no "
             f"explanation.\n\n{item['prompt_q']}\n\nAnswer:")
 
 
-def extract(out, item):
+def extract(out, item, cot=False):
     if item["kind"] == "pqa":
+        if cot:
+            ms = list(re.finditer(r"answer\s*[:\-]?\s*\**\s*(yes|no|maybe)\b", out, re.I))
+            if ms:
+                return ms[-1].group(1).lower()
         m = re.search(r"\b(yes|no|maybe)\b", out, re.I)
         return m.group(1).lower() if m else ""
     valid = set(item["valid"])
+    if cot:
+        # prefer the letter on the final 'Answer:' line; fall back to last valid letter
+        ms = list(re.finditer(r"answer\s*[:\-]?\s*\**\s*([A-J])\b", out, re.I))
+        if ms and ms[-1].group(1).upper() in valid:
+            return ms[-1].group(1).upper()
+        for ch in reversed(out.upper()):
+            if ch in valid:
+                return ch
+        return ""
     for ch in out.upper():
         if ch in valid:
             return ch
@@ -172,7 +193,15 @@ def main():
     ap.add_argument("--auth-key", help="Bearer token for --server (cloud)")
     ap.add_argument("--provider", default="heimdall")
     ap.add_argument("--reasoning-effort", default="none")
+    ap.add_argument("--cot", action="store_true",
+                    help="chain-of-thought prompting + answer-line extraction (test-time compute)")
+    ap.add_argument("--timeout", type=int, default=120,
+                    help="per-request HTTP timeout (s); raise for slow CoT generations")
     args = ap.parse_args()
+    if args.cot and args.max_tokens == 12:
+        args.max_tokens = 768  # CoT needs room to reason before the Answer: line
+    if args.cot and args.timeout == 120:
+        args.timeout = 600  # long CoT generations can exceed the 120s default
 
     items = LOADERS[args.benchmark](args.n, args.seed)
     n = len(items)
@@ -207,7 +236,7 @@ def main():
             ts = time.time()
             req = urllib.request.Request(args.server.rstrip("/") + "/chat/completions",
                                          data=json.dumps(payload).encode(), headers=hdrs)
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=args.timeout) as r:
                 d = json.loads(r.read())
             ms = int((time.time() - ts) * 1000)
             return d.get("choices", [{}])[0].get("message", {}).get("content", "") or "", ms
@@ -236,7 +265,8 @@ def main():
 
     run_id = str(uuid.uuid4())
     cfg = {"benchmark_dataset_id": ds_id, "model": args.model, "benchmark": args.benchmark,
-           "runner": "mcq_eval", "n": n, "seed": args.seed, "load_seconds": load_s}
+           "runner": "mcq_eval", "n": n, "seed": args.seed, "load_seconds": load_s,
+           "cot": bool(args.cot), "max_tokens": args.max_tokens}
     sql("INSERT INTO eval_runs (id,name,status,total_combinations,completed_combinations,config,tenant_id,variable_under_test) VALUES (" +
         ",".join([sql_quote(run_id), sql_quote(f"{ds_name} — {args.model.split('/')[-1]}"),
                   sql_quote("RUNNING"), str(n), "0", sql_quote(json.dumps(cfg)),
@@ -245,8 +275,12 @@ def main():
     hits = 0
     lat = []
     for idx, it in enumerate(items):
-        out, ms = generate(build_prompt(it))
-        pred = extract(out, it)
+        try:
+            out, ms = generate(build_prompt(it, cot=args.cot))
+        except Exception as e:  # slow/failed request must not kill the whole run
+            out, ms = "", args.timeout * 1000
+            print(f"  ! item {idx+1} generate failed: {type(e).__name__}", file=sys.stderr)
+        pred = extract(out, it, cot=args.cot)
         gold = it["gold"]
         hit = 1 if pred and pred.lower() == gold.lower() else 0
         hits += hit
