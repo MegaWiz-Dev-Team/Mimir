@@ -18,6 +18,12 @@ mod tests {
         reqwest::blocking::Client::new()
     }
 
+    /// Auth token for the now-gated /api/v1/tenants routes (set MIMIR_TEST_TOKEN
+    /// to a valid Yggdrasil/legacy JWT when running this suite).
+    fn token() -> String {
+        std::env::var("MIMIR_TEST_TOKEN").unwrap_or_default()
+    }
+
     // ── Health ─────────────────────────────────────────
 
     #[test]
@@ -50,6 +56,7 @@ mod tests {
     fn t10_list_tenants() {
         let resp = client()
             .get(format!("{}/api/v1/tenants", base_url()))
+            .bearer_auth(token())
             .send()
             .unwrap();
         assert_eq!(resp.status(), 200);
@@ -63,6 +70,7 @@ mod tests {
     fn t11_create_tenant() {
         let resp = client()
             .post(format!("{}/api/v1/tenants", base_url()))
+            .bearer_auth(token())
             .json(&json!({
                 "id": "test_tdd_agent",
                 "name": "TDD Test Agent",
@@ -89,6 +97,7 @@ mod tests {
         // Regression test for #251: domain VARCHAR(20) was too short
         let resp = client()
             .post(format!("{}/api/v1/tenants", base_url()))
+            .bearer_auth(token())
             .json(&json!({
                 "id": "heimdall_llm_gateway",
                 "name": "Heimdall LLM Gateway Service",
@@ -109,6 +118,7 @@ mod tests {
     fn t13_get_tenant() {
         let resp = client()
             .get(format!("{}/api/v1/tenants/test_tdd_agent", base_url()))
+            .bearer_auth(token())
             .send()
             .unwrap();
         assert_eq!(resp.status(), 200);
@@ -121,6 +131,7 @@ mod tests {
     fn t14_get_nonexistent_tenant() {
         let resp = client()
             .get(format!("{}/api/v1/tenants/does_not_exist", base_url()))
+            .bearer_auth(token())
             .send()
             .unwrap();
         assert_eq!(resp.status(), 404, "Should return 404 for unknown tenant");
@@ -130,6 +141,7 @@ mod tests {
     fn t15_create_duplicate_tenant() {
         let resp = client()
             .post(format!("{}/api/v1/tenants", base_url()))
+            .bearer_auth(token())
             .json(&json!({"id": "muninn", "name": "Duplicate Muninn"}))
             .send()
             .unwrap();
@@ -137,6 +149,19 @@ mod tests {
             resp.status(),
             409,
             "Duplicate tenant should return 409 Conflict"
+        );
+
+        // Security regression: the list endpoint must reject unauthenticated
+        // callers (it previously leaked the full tenant list — customer names,
+        // domains, product strategy — to the public internet).
+        let unauth = client()
+            .get(format!("{}/api/v1/tenants", base_url()))
+            .send()
+            .unwrap();
+        assert_eq!(
+            unauth.status(),
+            401,
+            "GET /api/v1/tenants without auth must be 401, not a data leak"
         );
     }
 
