@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Cookies from "js-cookie";
 
 /**
@@ -15,7 +14,6 @@ import Cookies from "js-cookie";
  */
 
 export default function CallbackPage() {
-    const router = useRouter();
     const [error, setError] = useState("");
     const [status, setStatus] = useState("Exchanging authorization code...");
 
@@ -97,13 +95,16 @@ export default function CallbackPage() {
                 document.cookie = "oidc_state=; path=/; max-age=0";
 
                 setStatus("Login successful! Redirecting...");
-                router.push("/");
-                router.refresh();
+                // Full-page navigation (NOT router.push) so the browser commits the
+                // access_token cookie before the next request. Edge middleware gates "/"
+                // on that cookie; a soft nav races the cookie write → middleware sees no
+                // token → redirects to /login → silent-SSO issues a second code → double login.
+                window.location.replace("/");
             } catch (e: any) {
                 setError(e.message);
             }
         })();
-    }, [router]);
+    }, []);
 
     return (
         <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-zinc-950">
