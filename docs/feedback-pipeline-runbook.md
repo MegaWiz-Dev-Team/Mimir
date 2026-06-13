@@ -25,11 +25,15 @@ RL / fine-tune / Laminar-bridge  ──read──►  agent_feedback
 |------|-------|
 | `agent_feedback` table | ✅ **applied to live DB** (`mariadb.asgard-infra`) + migration committed |
 | Migration files | ✅ `migrations/20260606000000_agent_feedback.sql` (+ `down/`) |
-| API patch (`submit_feedback`) | ⚠️ **staged on branch `feat/agent-feedback-store`, NOT built/deployed** |
-| Mimir rebuild + redeploy | ⏳ pending safe window (memory pressure — see caution) |
+| API patch (`submit_feedback`) | ✅ **deployed** — image `asgard-mimir-api:agent-feedback` (asgard ns, pull=Never), built on `feat/asgard-studio-agents` (merged to main) |
+| Mimir rebuild + redeploy | ✅ **DONE 2026-06-13** |
 
-Until Mimir is redeployed, the API still writes only the old column; `agent_feedback`
-stays empty. The table + migration are safe and additive regardless.
+**Phase 1 VERIFIED 2026-06-13:** `POST /conversations/5/feedback` (X-Tenant-Id
+asgard_medical, thumbs_up) → `{"status":"ok"}` and a row in `agent_feedback`
+(tenant_id asgard_medical, conversation_id 5, agent_id 56, quality_score 1.000,
+source dashboard). Cross-tenant guard confirmed: same id with X-Tenant-Id
+asgard_platform → **404 Not Found**, no row written (total=1, wrong_tenant=0). The
+API now writes BOTH the back-compat column and the `agent_feedback` source-of-truth.
 
 ## Deploy (Phase 1)
 
