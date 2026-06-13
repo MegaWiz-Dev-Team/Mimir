@@ -16,7 +16,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use mimir_core_ai::services::db::DbPool;
 
@@ -188,6 +188,7 @@ async fn get_conversation(
 /// POST /api/v1/conversations/:id/feedback — Submit feedback on a message
 async fn submit_feedback(
     State(pool): State<DbPool>,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     Json(payload): Json<FeedbackRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -199,9 +200,18 @@ async fn submit_feedback(
         ));
     }
 
-    let result = sqlx::query("UPDATE agent_conversations SET feedback = ? WHERE id = ?")
+    let tenant_id = extract_tenant_id(&headers);
+    // thumbs_up -> 1.0, thumbs_down -> 0.0 (DECIMAL(4,3) in agent_feedback)
+    let quality_score: f64 = if payload.feedback == "thumbs_up" { 1.0 } else { 0.0 };
+
+    // Back-compat: keep the inline column on agent_conversations in sync.
+    // Tenant-guarded so one tenant cannot label another tenant's message.
+    let result = sqlx::query(
+        "UPDATE agent_conversations SET feedback = ? WHERE id = ? AND tenant_id = ?",
+    )
         .bind(&payload.feedback)
         .bind(id)
+        .bind(tenant_id)
         .execute(&pool)
         .await
         .map_err(|e| {
@@ -218,9 +228,29 @@ async fn submit_feedback(
         ));
     }
 
+    // Source-of-truth: append to the owned agent_feedback store, copying
+    // conversation context (agent_id, session_id) from the message row.
+    // Non-fatal — the column update above already succeeded.
+    if let Err(e) = sqlx::query(
+        r#"INSERT INTO agent_feedback
+            (tenant_id, conversation_id, session_id, agent_id, feedback, quality_score, source)
+           SELECT tenant_id, id, session_id, agent_config_id, ?, ?, 'dashboard'
+           FROM agent_conversations
+           WHERE id = ? AND tenant_id = ?"#,
+    )
+        .bind(&payload.feedback)
+        .bind(quality_score)
+        .bind(id)
+        .bind(tenant_id)
+        .execute(&pool)
+        .await
+    {
+        warn!("agent_feedback insert failed for message id={}: {}", id, e);
+    }
+
     info!(
-        "Feedback '{}' submitted for message id={}",
-        payload.feedback, id
+        "Feedback '{}' submitted for message id={} (tenant={})",
+        payload.feedback, id, tenant_id
     );
     Ok(Json(
         json!({"status": "ok", "id": id, "feedback": payload.feedback}),
