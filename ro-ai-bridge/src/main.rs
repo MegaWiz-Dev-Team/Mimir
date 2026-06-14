@@ -181,9 +181,17 @@ async fn main() {
         );
     }
 
-    // CORS layer for dashboard
+    // CORS layer for dashboard.
+    // SECURITY: avoid wildcard `Access-Control-Allow-Origin: *`. Trusted
+    // origins are sourced from the `ALLOWED_ORIGINS` env var (comma-separated)
+    // and fall back to local-dev hosts when unset.
+    let allowed_origins: Vec<axum::http::HeaderValue> = std::env::var("ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:3000,http://localhost:5173".to_string())
+        .split(',')
+        .filter_map(|o| o.trim().parse().ok())
+        .collect();
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(allowed_origins)
         .allow_methods(Any)
         .allow_headers(Any);
 
