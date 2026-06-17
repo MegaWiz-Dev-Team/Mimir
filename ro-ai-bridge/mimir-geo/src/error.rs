@@ -5,20 +5,14 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum GeoError {
-    #[error("duckdb: {0}")]
-    Duck(String),
     #[error("geometry: {0}")]
     Geometry(String),
     #[error("h3: {0}")]
     H3(String),
-    /// The Python spatial-stats sandbox failed, timed out, or was busy (serialized).
-    #[error("python sandbox: {0}")]
-    Sandbox(String),
     #[error("ingest: {0}")]
     Ingest(String),
-    /// A write/DDL statement reached the read-only guard.
-    #[error("read-only violation: {0}")]
-    ReadOnly(String),
+    #[error("stats: {0}")]
+    Stats(String),
     #[error("invalid request: {0}")]
     BadRequest(String),
 }

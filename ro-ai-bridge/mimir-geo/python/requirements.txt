@@ -1,8 +1,0 @@
-# Sandboxed spatial-statistics kernel (PySAL/scipy). Installed into a dedicated
-# venv with --no-system-site-packages; no network at runtime. Pin exact versions
-# at implementation time. ⚠️ on-prem box has no PyPI on some hosts — vendor wheels.
-esda          # Moran's I, LISA (PySAL exploratory spatial data analysis)
-libpysal      # spatial weights (contiguity / KNN / distance band)
-pointpats     # point-pattern stats (Ripley's K, nearest-neighbour)
-scipy         # kriging / interpolation helpers
-numpy

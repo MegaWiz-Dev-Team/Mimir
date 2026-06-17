@@ -1,32 +1,23 @@
 //! # mimir-geo — Asgard Analytics spatial engine (ADR-024, P4)
 //!
-//! Adds GIS + spatial-statistics on top of [`mimir-lab`]'s tabular engine, behind
-//! the same governance (read-only guard, row-cap, Tyr audit, Skuggi PII gate). Three
-//! layers:
+//! Pure-Rust geometry + H3 + spatial statistics, **offline-safe** (no DuckDB
+//! `spatial` extension, which needs a network INSTALL — see Cargo.toml note). Backs
+//! the Hermodr `geo_*` / `stats_*` MCP tools that the `analyst-geo` / `analyst-stats`
+//! agents call (asgard_analytics tenant).
 //!
-//! 1. **DuckDB spatial** ([`engine`]) — loads the `spatial` extension; `ST_*` ops +
-//!    `ST_Read` for GeoJSON/Shapefile ingest. Shares the read-only/timeout/audit
-//!    discipline of `mimir-lab::Engine`.
-//! 2. **GeoRust + H3** ([`spatial`], [`h3`]) — pure-Rust geometry ops (buffer,
-//!    distance, centroid, choropleth bucketing) and Uber H3 indexing (lat/lng→cell,
-//!    k-ring, polyfill) for ops better done in Rust than SQL.
-//! 3. **Sandboxed-Python spatial-stats** ([`stats_py`]) — PySAL/scipy (Moran's I,
-//!    LISA, kriging, point-pattern) in an **isolated, resource-capped, serialized**
-//!    venv. The one sanctioned Rust-first exception (ADR-024); serialized per the
-//!    Mac-mini memory-pressure rule — never run two Python jobs concurrently.
+//! - [`spatial`] — GeoRust ops: `geo_distance`, point-in-polygon `geo_join`,
+//!   `geo_buffer` (point→circle), `geo_choropleth` classification.
+//! - [`h3`] — Uber H3 (h3o): lat/lng→cell, boundary, k-ring, point aggregation.
+//! - [`stats`] — spatial statistics in Rust: global Moran's I, mean nearest-neighbour
+//!   (kriging / LISA stay for the deferred Python sandbox — vendor PySAL wheels first).
+//! - [`ingest_geo`] — GeoJSON → features + summary (Shapefile/Excel deferred).
 //!
-//! The [`api`] handlers back the Hermodr `geo_*` / `stats_*` MCP tools that the
-//! `analyst-geo` / `analyst-stats` agents call (see asgard_analytics_tenant memory).
-//!
-//! Status: **P4 scaffold** — module skeletons + signatures + TDD targets. Implement
-//! per `README.md` checklist.
+//! All ops are deterministic + explainable (no ML).
 
-pub mod api;
-pub mod engine;
 pub mod error;
 pub mod h3;
 pub mod ingest_geo;
 pub mod spatial;
-pub mod stats_py;
+pub mod stats;
 
 pub use error::{GeoError, Result};
