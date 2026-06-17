@@ -13,8 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake ca-certificates pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-# path dependency of mimir-lab
+# path dependencies of mimir-lab
 COPY skuggi-core skuggi-core
+COPY mimir-geo mimir-geo
 COPY mimir-lab mimir-lab
 WORKDIR /build/mimir-lab
 RUN cargo build --release --bin analytics-api
