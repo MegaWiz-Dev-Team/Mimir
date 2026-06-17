@@ -16,6 +16,8 @@ license = "AGPL-3.0-only OR LicenseRef-Commercial"
 duckdb = { version = "1.10503", features = ["bundled"] }
 # Tier-1 PII gate (engine + builtin rules); shared with Heimdall/Mimir.
 skuggi-core = { version = "0.2", path = "../skuggi-core" }
+# Spatial engine (GeoRust + h3o, pure Rust) — backs the geo_*/stats_* handlers.
+mimir-geo = { path = "../mimir-geo" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
