@@ -352,22 +352,33 @@ export async function fetchAgents(): Promise<AgentConfigResponse[]> {
         // This solves DNS resolution for external browsers accessing internal K8s service
         const proxyUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/bifrost/agents`;
 
-        // Get tenant from cookies (set by navbar) or sessionStorage (fallback)
-        const getTenantId = () => {
+        // Get tenant from cookies (set by navbar) or sessionStorage (fallback).
+        // Returns null when no tenant is resolvable — we must NOT default to a
+        // real tenant (was 'asgard_medical'), or a dropped/missing tenant_id
+        // silently renders another tenant's agents (cross-tenant leak).
+        const getTenantId = (): string | null => {
             if (typeof window !== "undefined") {
                 // Try cookies first (set by navbar tenant selector)
                 const cookie = document.cookie.split('; ').find(row => row.startsWith('tenant_id='));
                 if (cookie) return cookie.split('=')[1];
                 // Fallback to sessionStorage
-                return sessionStorage.getItem("tenant_id") || "asgard_medical";
+                return sessionStorage.getItem("tenant_id");
             }
-            return "asgard_medical";
+            return null;
         };
+
+        // Fail closed: with no tenant, refuse to fetch rather than let the
+        // proxy/backend pick a default tenant for us.
+        const tenantId = getTenantId();
+        if (!tenantId) {
+            console.warn("fetchAgents: no tenant_id resolved; skipping fetch (fail-closed)");
+            return [];
+        }
 
         const res = await fetch(proxyUrl, {
             cache: "no-store",
             headers: {
-                "X-Tenant-Id": getTenantId()
+                "X-Tenant-Id": tenantId
             }
         });
         if (res.ok) {
