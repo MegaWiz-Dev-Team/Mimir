@@ -13,8 +13,19 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get tenant from query param or header
-    const tenantId = request.headers.get('X-Tenant-Id') || 'asgard_medical';
+    // Fail closed: never default a missing tenant to a real tenant.
+    // Silently falling back (previously 'asgard_medical') leaks one tenant's
+    // agents to any caller whose X-Tenant-Id was dropped — a cross-tenant
+    // isolation hole. Bifrost itself returns 401 on a missing tenant; mirror
+    // that here with a 400 so the client surfaces the misconfig instead of
+    // rendering another tenant's data.
+    const tenantId = request.headers.get('X-Tenant-Id');
+    if (!tenantId) {
+      return NextResponse.json(
+        { error: 'missing_tenant', detail: 'X-Tenant-Id header is required' },
+        { status: 400 }
+      );
+    }
 
     // Call Bifrost internally (uses K8s service DNS)
     const bifrostUrl = 'http://bifrost.asgard.svc:8100/v1/agents';
