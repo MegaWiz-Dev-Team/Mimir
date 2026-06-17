@@ -8,7 +8,7 @@ import {
     LogOut, LayoutDashboard, Database, ShieldCheck, Link as LinkIcon,
     Bot, Settings, BookOpen, BarChart3, Activity, Brain, MessageSquare,
     Share2, ChevronDown, Search, FlaskConical, Users, Building2, Boxes, ListTree, Beaker,
-    ClipboardList, ScanLine
+    ClipboardList, ScanLine, MapPin
 } from "lucide-react";
 import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
 
@@ -200,6 +200,7 @@ export function Navbar() {
             items: [
                 { name: "Coverage", href: "/coverage", icon: BarChart3 },
                 { name: "Explorer", href: "/analytics/explorer", icon: Search },
+                { name: "Map", href: "/analytics/map", icon: MapPin },
                 { name: "LLM Analytics", href: "/analytics/llm", icon: Activity },
                 { name: "Evaluations", href: "/evaluations", icon: FlaskConical },
                 { name: "OCR Eval", href: "/syn-ocr/eval", icon: ScanLine },
