@@ -2346,6 +2346,12 @@ export async function askPrimekgAssistant(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, session_id: sessionId }),
     });
+    // Guard: this deployment's mimir-api may not ship the PrimeKG assistant
+    // route yet (returns 404). Fail soft with a clear message instead of a
+    // cryptic "assistant failed" so the panel degrades gracefully.
+    if (res.status === 404) {
+        throw new Error("Medical Knowledge Assistant is not available on this deployment yet.");
+    }
     if (!res.ok) throw new Error("PrimeKG assistant failed");
     return res.json();
 }
@@ -2368,6 +2374,11 @@ export async function askPrimekgAssistantStream(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, session_id: sessionId }),
     });
+    // Guard: 404 = mimir-api on this deployment lacks the assistant route.
+    // Degrade gracefully with a clear message rather than a stream error.
+    if (res.status === 404) {
+        throw new Error("Medical Knowledge Assistant is not available on this deployment yet.");
+    }
     if (!res.ok || !res.body) throw new Error("PrimeKG assistant stream failed");
 
     const reader = res.body.getReader();
