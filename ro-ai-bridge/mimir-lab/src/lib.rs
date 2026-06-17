@@ -20,6 +20,7 @@ pub mod api;
 pub mod audit;
 pub mod engine;
 pub mod error;
+pub mod geo_api;
 pub mod ingest;
 pub mod pii;
 pub mod registry;

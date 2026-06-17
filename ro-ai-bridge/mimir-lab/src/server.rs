@@ -44,6 +44,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/analytics/plot", post(plot))
         .route("/api/v1/analytics/datasets/list", post(datasets_list))
         .route("/api/v1/analytics/datasets/profile", post(datasets_profile))
+        // spatial (mimir-geo) — pure handlers, state-agnostic
+        .route("/api/v1/analytics/geo/distance", post(crate::geo_api::distance))
+        .route("/api/v1/analytics/geo/buffer", post(crate::geo_api::buffer))
+        .route("/api/v1/analytics/geo/join", post(crate::geo_api::join))
+        .route("/api/v1/analytics/geo/choropleth", post(crate::geo_api::choropleth))
+        .route("/api/v1/analytics/geo/h3", post(crate::geo_api::h3_aggregate))
+        .route("/api/v1/analytics/geo/ingest", post(crate::geo_api::ingest))
+        .route("/api/v1/analytics/stats/moran", post(crate::geo_api::moran))
+        .route("/api/v1/analytics/stats/nn", post(crate::geo_api::nn))
         .with_state(state)
 }
 
