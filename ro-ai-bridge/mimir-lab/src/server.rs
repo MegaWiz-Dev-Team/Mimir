@@ -53,6 +53,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/analytics/geo/ingest", post(crate::geo_api::ingest))
         .route("/api/v1/analytics/stats/moran", post(crate::geo_api::moran))
         .route("/api/v1/analytics/stats/nn", post(crate::geo_api::nn))
+        // research RAG (proxies mimir-api knowledge/search) — P5 lit_search
+        .route("/api/v1/analytics/lit_search", post(crate::lit_api::lit_search))
         .with_state(state)
 }
 

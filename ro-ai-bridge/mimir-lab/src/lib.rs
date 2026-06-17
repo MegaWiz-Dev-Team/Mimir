@@ -22,6 +22,7 @@ pub mod engine;
 pub mod error;
 pub mod geo_api;
 pub mod ingest;
+pub mod lit_api;
 pub mod pii;
 pub mod registry;
 pub mod schema;
