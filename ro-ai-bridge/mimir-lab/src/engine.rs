@@ -140,6 +140,9 @@ impl Engine {
     }
 
     fn run_select_inner(&self, sql: &str, row_cap: usize) -> Result<QueryResult> {
+        // Strip trailing ';' / whitespace — LLM agents often append them, which breaks both
+        // `DESCRIBE {sql}` and the `(... ) AS t` row-cap wrapper (DuckDB "syntax error near ;").
+        let sql = sql.trim_end_matches(|c: char| c == ';' || c.is_whitespace());
         let schema = self.describe(sql)?;
         let projection = schema
             .columns
