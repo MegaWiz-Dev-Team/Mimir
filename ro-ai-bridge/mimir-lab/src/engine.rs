@@ -212,7 +212,12 @@ impl Engine {
             Err(_) => "error",
         };
         let mut target: String = sql.split_whitespace().collect::<Vec<_>>().join(" ");
-        target.truncate(200);
+        // char-boundary-safe truncate (String::truncate panics mid-UTF8-char, e.g. Thai SQL)
+        let mut end = target.len().min(200);
+        while end > 0 && !target.is_char_boundary(end) {
+            end -= 1;
+        }
+        target.truncate(end);
         self.audit.record(&AuditEvent {
             action: "analytics.query",
             tenant_id: self.ctx.tenant_id.clone(),
