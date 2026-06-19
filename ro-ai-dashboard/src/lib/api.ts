@@ -346,12 +346,38 @@ export interface AgentConfigResponse {
 
 /// Fetch all agents from Agent Studio API
 export async function fetchAgents(): Promise<AgentConfigResponse[]> {
+    // Load the agent list via the Bifrost proxy (header-based, NO JWT) so the
+    // SELECTED tenant is honored. The previous path — authFetch -> mimir-api
+    // /api/v1/agents — attaches the session JWT, whose tenant is pinned to the
+    // user's home tenant (tenant_users); mimir-api then ignores X-Tenant-Id and
+    // always returns the pinned tenant's agents, making the tenant dropdown a
+    // no-op. The Bifrost proxy forwards only X-Tenant-Id, which Bifrost honors,
+    // so admins actually switch tenants (and Bifrost returns ALL agents, not a
+    // paginated subset).
     try {
-        const res = await authFetch(`${API_BASE_URL}/agents`, { cache: "no-store" });
-        if (!res.ok) return [];
+        const proxyUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/bifrost/agents`;
+        // Read tenant with js-cookie — the same reader the navbar uses, so the
+        // list always matches the dropdown. Fail closed: no tenant -> no fetch
+        // (never default to a real tenant).
+        const tenantId = typeof window !== "undefined"
+            ? (Cookies.get("tenant_id") || sessionStorage.getItem("tenant_id") || null)
+            : null;
+        if (!tenantId) {
+            console.warn("fetchAgents: no tenant_id resolved; skipping fetch (fail-closed)");
+            return [];
+        }
+        const res = await fetch(proxyUrl, {
+            cache: "no-store",
+            headers: { "X-Tenant-Id": tenantId },
+        });
+        if (!res.ok) {
+            console.warn("fetchAgents: bifrost proxy returned", res.status, res.statusText);
+            return [];
+        }
         const data = await res.json();
-        return Array.isArray(data) ? data : (data.agents || []);
-    } catch {
+        return data.agents || [];
+    } catch (e) {
+        console.warn("fetchAgents: bifrost proxy fetch failed", e);
         return [];
     }
 }
