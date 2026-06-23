@@ -2,6 +2,15 @@
 
 This directory contains the public certificates required to access the internal `.asgard.internal` network endpoints securely.
 
+> **Auto-distributed.** `asgard-root-ca.crt` here is kept in sync with the live
+> cluster root by `com.asgard.ca-distributor` (Asgard/scripts/asgard-ca-distributor.sh).
+> The root is a **10-year** cert (cert-manager `asgard-root-ca`, key preserved on
+> renewal so leaf certs never break). You normally don't need to install it by
+> hand — this host's System keychain is updated automatically, and other devices
+> can fetch it + install instructions from the LAN portal at
+> `http://<mac-mini>:8079/`. Always verify the SHA-256 shown on that page.
+> Manual install steps below remain valid as a fallback.
+
 ## ⚠️ SECURITY WARNING
 **Never** store any private keys (`tls.key` or `.key` files) in this repository. This directory is strictly for PUBLIC certificates (`.crt` or `.pem`).
 

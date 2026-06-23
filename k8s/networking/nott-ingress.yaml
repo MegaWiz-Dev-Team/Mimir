@@ -1,0 +1,29 @@
+# Nótt (sleep test) — TLS front door for the mimir-sleep-api engine.
+# Reuses the existing wildcard *.asgard.internal cert (asgard-tls-secret),
+# so no new cert-manager Certificate is needed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nott-ingress
+  namespace: asgard
+  labels:
+    app: mimir-sleep
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - nott.asgard.internal
+      secretName: asgard-tls-secret
+  rules:
+    - host: nott.asgard.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mimir-sleep-api
+                port:
+                  number: 8910

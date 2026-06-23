@@ -18,9 +18,16 @@ spec:
   isCA: true
   commonName: Asgard Private Enterprise Root CA
   secretName: asgard-root-secret
+  # Roots must be long-lived. Without these fields cert-manager defaults the
+  # root to 90 days, which silently expires the trust anchor every quarter.
+  # 10y lifetime, renew 90d early. rotationPolicy:Never preserves the key on
+  # renewal so every already-issued leaf cert stays valid across re-issues.
+  duration: 87600h    # 10 years
+  renewBefore: 2160h  # 90 days
   privateKey:
     algorithm: ECDSA
     size: 256
+    rotationPolicy: Never
   issuerRef:
     name: asgard-selfsigned-issuer
     kind: ClusterIssuer
