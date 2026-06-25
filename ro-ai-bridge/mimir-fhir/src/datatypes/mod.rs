@@ -24,6 +24,6 @@ pub use human_name::{HumanName, NameUse};
 pub use metadata::{Annotation, Meta, Narrative, NarrativeStatus};
 pub use numeric::{Money, Quantity, QuantityComparator, Range, Ratio};
 pub use primitive::{
-    Code, CodeError, DateTime, DateTimeError, Decimal, Id, IdError, Instant, InstantError,
-    Markdown, MarkdownError, Uri, UriError, Url,
+    Code, CodeError, Date, DateError, DateTime, DateTimeError, Decimal, Id, IdError, Instant,
+    InstantError, Markdown, MarkdownError, Uri, UriError, Url,
 };

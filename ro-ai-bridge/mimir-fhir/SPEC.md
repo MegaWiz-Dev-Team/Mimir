@@ -1,6 +1,6 @@
 # mimir-fhir — Specification
 
-> **Spec status:** Living · **Version:** 0.1 · **Last updated:** 2026-05-30
+> **Spec status:** Living · **Version:** 0.1 · **Last updated:** 2026-06-26
 > **Part of:** [Asgard platform](../../../Asgard/docs/SPEC.md) — this is **Layer 1** (FHIR data plane).
 > Consumed by: [asgard-iris](../../../asgard-iris/docs/SPEC.md) (extraction-service), and planned for asgard-underwriter, Eir, Mimir REST.
 
@@ -19,20 +19,23 @@
 
 > This is the single most important section. Treat anything not in "implemented" as **not existing yet**.
 
-**Implemented today (Sprint 1):**
-- `datatypes` — primitives + complex + numeric + metadata + name/address
-- `schema_export` — emits JSON Schema for all datatypes (for Hermodr MCP / frontend codegen)
+**Implemented today (Sprint 1 + Sprint 2):**
+- `datatypes` — primitives + complex + numeric + metadata + name/address (Sprint 2 added the `Date` primitive)
+- `resources` — **Sprint 2:** `Patient` + `Encounter` (R5 canonical) each with an `External*` lenient-ingest pair (ADR-006 D4); backbone elements `PatientContact` / `Encounter{Diagnosis,Admission,Location}`; `AdministrativeGender` / `EncounterStatus` value sets
+- `translate::{r4_to_r5, r5_to_r4}` — **Sprint 2:** Patient pass-through + Encounter renames (`period`↔`actualPeriod`, `hospitalization`↔`admission`), `class` widening, status remap; round-trip identity on the lossless subset
+- `validators` — **Sprint 2:** TH Core / MoPH-PC Patient profile stubs (return Ok; real logic Sprint 7)
+- `schema_export` — `all_datatype_schemas()` + **`all_resource_schemas()`** (Sprint 2)
 - `terminology` — canonical system/identifier/extension/profile URIs (added 2026-05-30, ahead of resources, to converge consumers now)
-- **16 test files, ~2,388+ LOC of tests**
+- **20 test files** (Sprint 2 added `resources_patient`, `resources_encounter`, `translate_r4_r5`, `datatypes_date`)
 
-**NOT implemented (commented out in `src/lib.rs`, "Sprint 2-10 — not yet implemented"):**
-`resources` · `profiles` · `translate` (R4↔R5) · `adapters` · `validators` · `rest`
+**NOT implemented (commented out in `src/lib.rs`):**
+`profiles` · `adapters` · `rest`
 
-⇒ **Zero FHIR resources exist in code yet.** No `Patient`/`Condition`/`Observation`/`MedicationRequest`/`Composition`/`Coverage`/`Claim` structs. Any component needing FHIR *resources* is gated on Sprint 2+.
+⇒ **2 of the 21 resources exist** (`Patient`, `Encounter`). The remaining 19 (`Condition`/`Observation`/`MedicationRequest`/`Composition`/`Coverage`/`Claim`/...) are gated on Sprint 3+.
 
 ## 3. Datatypes implemented
 
-- **Primitives:** `Id`, `Code`, `Uri`, `Url`, `Markdown`, `DateTime` (partial precision), `Instant`, `Decimal` (via `rust_decimal`, 28–29 sig digits — no IEEE-754 drift). *Deferred:* `Canonical`, `Date`, `Time`, `Base64Binary`, `PositiveInt`, `UnsignedInt`.
+- **Primitives:** `Id`, `Code`, `Uri`, `Url`, `Markdown`, `Date` (partial precision; Sprint 2), `DateTime` (partial precision), `Instant`, `Decimal` (via `rust_decimal`, 28–29 sig digits — no IEEE-754 drift). *Deferred:* `Canonical`, `Time`, `Base64Binary`, `PositiveInt`, `UnsignedInt`.
 - **Complex:** `Coding`, `CodeableConcept`, `Identifier`, `Period`, `ContactPoint`, `Reference`, `Extension` (9 common `value[x]` variants + nested).
 - **Numeric:** `Quantity` (UCUM), `Money` (ISO 4217 + Thai Baht helper), `Range`, `Ratio`.
 - **Metadata:** `Annotation`, `Meta` (versionId/lastUpdated derived from **Tyr** audit), `Narrative`.
@@ -68,7 +71,7 @@ Patient, Practitioner, Organization, Location, Encounter, Observation (+8 sub-pr
 
 ## 8. Sprint roadmap
 
-S0 scaffold (in progress) · **S1 datatypes ✅** · S2–5 resources (+ R4→R5 translator) · S6 REST · S7 profiles + validators · S8 **43Files/HOSxP adapter** (largest) · S9 SMART-on-FHIR launch + OpenEMR · S10 polish/deploy.
+S0 scaffold ✅ · **S1 datatypes ✅** · **S2 Patient + Encounter + R4↔R5 scaffold ✅** · S3–5 remaining resources · S6 REST · S7 profiles + validators · S8 **43Files/HOSxP adapter** (largest) · S9 SMART-on-FHIR launch + OpenEMR · S10 polish/deploy.
 
 ## 9. Tech
 

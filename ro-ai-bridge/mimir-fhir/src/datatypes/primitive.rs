@@ -623,6 +623,93 @@ fn is_valid_full_date(s: &str) -> bool {
 }
 
 // =============================================================================
+// Date — FHIR R5 date (partial precision; no time component)
+// =============================================================================
+
+/// FHIR R5 `date` primitive type.
+///
+/// Per FHIR R5 spec (<http://hl7.org/fhir/R5/datatypes.html#date>):
+/// A date, or partial date — with NO time zone and NO time component. One of
+/// three formats:
+///
+/// - `YYYY` — year only (e.g. `"2026"`)
+/// - `YYYY-MM` — year + month (e.g. `"2026-05"`)
+/// - `YYYY-MM-DD` — full date (e.g. `"2026-05-24"`)
+///
+/// Distinct from [`DateTime`], which additionally permits a full
+/// `YYYY-MM-DDThh:mm:ss±hh:mm` instant. Used by `Patient.birthDate`, etc.
+/// Partial precision is common for Thai patients whose exact day of birth is
+/// unrecorded (year-only is valid).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
+#[serde(transparent)]
+pub struct Date(String);
+
+/// Errors raised when constructing an invalid [`Date`].
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum DateError {
+    #[error("FHIR date has invalid format: {0:?} (expected YYYY, YYYY-MM, or YYYY-MM-DD)")]
+    InvalidFormat(String),
+}
+
+impl Date {
+    /// Construct a `Date`, validating against the FHIR R5 grammar.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DateError::InvalidFormat`] if the input does not match one of
+    /// the three FHIR R5 date formats (year, year-month, full date). A full
+    /// `dateTime` with a time component is rejected — use [`DateTime`] for that.
+    pub fn new(s: impl Into<String>) -> Result<Self, DateError> {
+        let s = s.into();
+        let ok = match s.len() {
+            4 => is_valid_year(&s),
+            7 => is_valid_year_month(&s),
+            10 => is_valid_full_date(&s),
+            _ => false,
+        };
+        if ok {
+            Ok(Self(s))
+        } else {
+            Err(DateError::InvalidFormat(s))
+        }
+    }
+
+    /// Borrow the inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume self and return the inner String.
+    #[must_use]
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for Date {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Date {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Date {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::new(s).map_err(serde::de::Error::custom)
+    }
+}
+
+// =============================================================================
 // Instant — FHIR R5 instant (full datetime with required TZ)
 // =============================================================================
 
