@@ -60,6 +60,28 @@ pub fn all_datatype_schemas() -> BTreeMap<String, RootSchema> {
     out
 }
 
+/// Generate JSON Schemas for all implemented `mimir-fhir` resources.
+///
+/// Resource-layer mirror of [`all_datatype_schemas`] (Sprint 2+). As of
+/// Sprint 2 this is `Patient` + `Encounter`; later sprints extend the list as
+/// each resource lands. Keyed by FHIR resource type name, sorted for stable
+/// CI diffs.
+#[must_use]
+pub fn all_resource_schemas() -> BTreeMap<String, RootSchema> {
+    use crate::resources::{Encounter, Patient};
+
+    let mut out = BTreeMap::new();
+    macro_rules! add {
+        ($t:ty) => {{
+            let schema = schema_for!($t);
+            out.insert(stringify!($t).to_string(), schema);
+        }};
+    }
+    add!(Patient);
+    add!(Encounter);
+    out
+}
+
 /// Convenience: serialise all schemas to JSON strings, keyed by type name.
 ///
 /// Use this when writing schemas to disk or shipping to Hermodr MCP.

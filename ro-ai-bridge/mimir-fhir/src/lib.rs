@@ -4,15 +4,15 @@
 //! and [ADR-013](../../../../Asgard/docs/decisions/ADR-013-fhir-r5-canonical-version.md) for design.
 
 pub mod datatypes;
+pub mod resources;
 pub mod schema_export;
 pub mod terminology;
+pub mod translate;
+pub mod validators;
 
-// Sprint 2-10 modules — declared but not yet implemented.
+// Sprint 3-10 modules — declared but not yet implemented.
 // Uncommenting before sprint kickoff is a planning error.
 //
-// pub mod resources;
 // pub mod profiles;
-// pub mod translate;
 // pub mod adapters;
-// pub mod validators;
 // pub mod rest;
