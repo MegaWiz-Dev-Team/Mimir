@@ -1,0 +1,37 @@
+# Standalone crate (not in ro-ai-bridge workspace yet — will be wired in
+# after Sprint 0 work is reviewed). Empty [workspace] table tells cargo to
+# treat this as its own workspace root, avoiding membership conflicts.
+[workspace]
+
+[package]
+name = "mimir-fhir"
+version = "0.0.1"
+edition = "2021"
+description = "FHIR R5 canonical type system for Asgard medical AI platform (Phase 1; ADR-006, ADR-012, ADR-013)"
+license = "AGPL-3.0-only OR LicenseRef-Commercial"
+authors = ["Megawiz / Asgard"]
+repository = "https://github.com/megawiz/asgard"
+readme = "README.md"
+keywords = ["fhir", "fhir-r5", "healthcare", "thai-medical", "moph"]
+categories = ["data-structures"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = { version = "0.8", features = ["chrono", "preserve_order"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
