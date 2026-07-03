@@ -12,6 +12,7 @@
 //!   tmlt      → FULLTEXT on fsn
 //!   loinc     → LIKE on long_common_name + short_name
 //!   primekg   → semantic via Qdrant primekg-entities (BGE-M3 1024-d)
+//!   pubmed    → semantic via Qdrant pubmed-abstracts (BGE-M3 1024-d)
 //!
 //! Returns a flat envelope so the UI can render with one template:
 //!   { q, k, results: [{kb_id, items, count, latency_ms}], total_ms }
@@ -103,10 +104,15 @@ async fn unified_search(
     // Uses q_replace so Thai symptom aliases (ปวดหัว → headache) get
     // rewritten before tokenisation against PrimeKG phenotype nodes.
     let p7 = symptom_search(&pool, &q_replace, k);
+    // 8th KB: PubMed abstracts — semantic search over the `pubmed-abstracts`
+    // Qdrant collection (BGE-M3 1024-d, dense). Global literature corpus, so
+    // no tenant filter (same as PrimeKG). q_replace expands acronyms first
+    // (e.g. `OSA` → `obstructive sleep apnea`), which the embedder prefers.
+    let p8 = pubmed_search(&q_replace, k);
 
-    let (r1, r2, r3, r4, r5, r6, r7) = tokio::join!(p1, p2, p3, p4, p5, p6, p7);
+    let (r1, r2, r3, r4, r5, r6, r7, r8) = tokio::join!(p1, p2, p3, p4, p5, p6, p7, p8);
 
-    let results = vec![r1, r2, r3, r4, r5, r6, r7];
+    let results = vec![r1, r2, r3, r4, r5, r6, r7, r8];
 
     Ok(Json(SearchResponse {
         q: q.to_string(),
@@ -780,6 +786,23 @@ async fn primekg_search(q: &str, k: i64) -> KbResult {
     }
 }
 
+/// PubMed worker: 8th KB in the L3 fan-out. Semantic search over the
+/// `pubmed-abstracts` Qdrant collection (see `embed_and_qdrant_pubmed`).
+/// Quiet on any error (Heimdall/Qdrant down, empty collection) — returns
+/// an empty KbResult rather than failing the whole fan-out.
+async fn pubmed_search(q: &str, k: i64) -> KbResult {
+    let t0 = Instant::now();
+    let items = match embed_and_qdrant_pubmed(q, k as usize).await {
+        Ok(v) => v,
+        Err(e) => { warn!("pubmed_search: {e}"); vec![] }
+    };
+    KbResult {
+        kb_id: "pubmed", kb_name: "PubMed (Abstracts)",
+        count: items.len(), items,
+        latency_ms: t0.elapsed().as_millis(),
+    }
+}
+
 /// Symptom → Disease worker: 7th KB in the L3 fan-out.
 ///
 /// Pipeline:
@@ -949,6 +972,84 @@ async fn embed_and_qdrant(text: &str, k: usize) -> Result<Vec<JsonValue>, String
             "entity_index": p.get("entity_index"),
             "name": p.get("name"),
             "entity_type": p.get("entity_type"),
+            "source": p.get("source"),
+            "score": h.get("score"),
+        })
+    }).collect())
+}
+
+/// Heimdall BGE-M3 embed + Qdrant `pubmed-abstracts` dense search.
+///
+/// The collection is dense-only (no BM25 sparse), so this uses the plain
+/// `/points/search` dense path rather than hybrid. It mixes the bulk PMC
+/// open-access load with topic backfills (E-utilities) — both carry a
+/// `topic` tag and `pmid`/`title`/`content`/`citation` payload. A modest
+/// score floor drops off-topic noise (BGE-M3 gives real matches ~0.5-0.6
+/// on this noisier full-text corpus); override via `PUBMED_SCORE_THRESHOLD`.
+async fn embed_and_qdrant_pubmed(text: &str, k: usize) -> Result<Vec<JsonValue>, String> {
+    let heimdall_url = std::env::var("HEIMDALL_API_URL")
+        .unwrap_or_else(|_| "http://localhost:8080/v1".into());
+    let heimdall_key = std::env::var("HEIMDALL_API_KEY").unwrap_or_default();
+    let qdrant_url = std::env::var("QDRANT_URL")
+        .unwrap_or_else(|_| "http://localhost:6333".into());
+    let embed_model = std::env::var("EMBED_MODEL")
+        .unwrap_or_else(|_| "BAAI/bge-m3".into());
+    let score_threshold: f64 = std::env::var("PUBMED_SCORE_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.40);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let embed_resp: JsonValue = client
+        .post(format!("{}/embeddings", heimdall_url.trim_end_matches('/')))
+        .bearer_auth(&heimdall_key)
+        .json(&json!({"model": embed_model, "input": text}))
+        .send().await.map_err(|e| e.to_string())?
+        .error_for_status().map_err(|e| e.to_string())?
+        .json().await.map_err(|e| e.to_string())?;
+    let vector = embed_resp
+        .pointer("/data/0/embedding")
+        .and_then(|v| v.as_array())
+        .ok_or("missing data[0].embedding")?
+        .iter()
+        .filter_map(|v| v.as_f64().map(|x| x as f32))
+        .collect::<Vec<_>>();
+
+    let qd: JsonValue = client
+        .post(format!(
+            "{}/collections/pubmed-abstracts/points/search",
+            qdrant_url.trim_end_matches('/')
+        ))
+        .json(&json!({
+            "vector": {"name": "dense", "vector": vector},
+            "limit": k,
+            "with_payload": true,
+            "score_threshold": score_threshold,
+        }))
+        .send().await.map_err(|e| e.to_string())?
+        .error_for_status().map_err(|e| e.to_string())?
+        .json().await.map_err(|e| e.to_string())?;
+
+    let hits = qd.get("result").and_then(|v| v.as_array())
+        .ok_or("missing result")?;
+    Ok(hits.iter().map(|h| {
+        let p = h.get("payload").cloned().unwrap_or(json!({}));
+        // `content` mixes clean abstracts (E-utilities) and raw NXML (PMC bulk);
+        // a truncated snippet is enough for the UI/agent to preview + cite.
+        let snippet = p.get("content").and_then(|v| v.as_str())
+            .map(|s| s.chars().take(300).collect::<String>());
+        let pmid = p.get("pmid").and_then(|v| v.as_str());
+        json!({
+            "pmid": pmid,
+            "title": p.get("title"),
+            "citation": p.get("citation"),
+            "topic": p.get("topic"),
+            "url": pmid.map(|id| format!("https://pubmed.ncbi.nlm.nih.gov/{id}/")),
+            "snippet": snippet,
             "source": p.get("source"),
             "score": h.get("score"),
         })
