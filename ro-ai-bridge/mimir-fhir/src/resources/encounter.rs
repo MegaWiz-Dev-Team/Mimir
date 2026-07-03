@@ -39,7 +39,10 @@ pub enum EncounterStatus {
     Discharged,
     Completed,
     Cancelled,
-    Discarded,
+    /// R5 wire code `discontinued` — a planned/started encounter that was
+    /// stopped before completion (kebab-case rename must serialize exactly
+    /// as `"discontinued"`, the R5 value-set code).
+    Discontinued,
     EnteredInError,
     Unknown,
 }

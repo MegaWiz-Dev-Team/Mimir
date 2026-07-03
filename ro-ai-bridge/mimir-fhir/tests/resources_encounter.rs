@@ -28,6 +28,21 @@ fn encounter_entered_in_error_is_kebab_case() {
     );
 }
 
+// Guards the R5 value-set code: the variant is `Discontinued`, and it MUST
+// serialize as `"discontinued"` (not `"discarded"`). Because `Encounter` is
+// `deny_unknown_fields` with no catch-all variant, a wrong code would also make
+// real R5 payloads with `status:"discontinued"` fail to deserialize.
+#[test]
+fn encounter_discontinued_uses_r5_value_set_code() {
+    assert_eq!(
+        serde_json::to_value(EncounterStatus::Discontinued).unwrap(),
+        "discontinued"
+    );
+    // Round-trips from the wire code an external R5 system would send.
+    let parsed: EncounterStatus = serde_json::from_value(serde_json::json!("discontinued")).unwrap();
+    assert_eq!(parsed, EncounterStatus::Discontinued);
+}
+
 #[test]
 fn opd_class_uses_ambulatory_actcode() {
     let e = Encounter::new(EncounterStatus::Completed).outpatient();
