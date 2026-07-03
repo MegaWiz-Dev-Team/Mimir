@@ -26,7 +26,7 @@ pub fn encounter(r5: &Encounter) -> R4Encounter {
 /// Map an R5 [`EncounterStatus`] back to an R4 `Encounter.status` string.
 ///
 /// Inverse of the R4 → R5 status remap on the lossless subset. R5-only states
-/// (`discharged`, `discarded`) have no exact R4 equivalent and map best-effort.
+/// (`discharged`, `discontinued`) have no exact R4 equivalent and map best-effort.
 #[must_use]
 // The R5-only arms intentionally share a body with a lossless arm but are kept
 // separate to document the best-effort mapping explicitly (Sprint 7 may revise).
@@ -41,6 +41,9 @@ pub fn r5_status_to_r4(status: EncounterStatus) -> &'static str {
         EncounterStatus::EnteredInError => "entered-in-error",
         EncounterStatus::Unknown => "unknown",
         EncounterStatus::Discharged => "in-progress",
-        EncounterStatus::Discarded => "entered-in-error",
+        // R5-only "discontinued" (stopped before completion) has no exact R4
+        // code; "cancelled" is the closest (vs "entered-in-error", which means
+        // the record should never have existed).
+        EncounterStatus::Discontinued => "cancelled",
     }
 }
