@@ -2,7 +2,7 @@
 //!
 //! Per `feedback_no_new_norse_components`, this is **not a new component** —
 //! it's a Mimir surface that aggregates the existing shared master stores
-//! (ICD-10-TM, PrimeKG, LOINC, TMT, TMLT, TPC) into one read-only catalog
+//! (ICD-10-TM, PrimeKG, PubMed, LOINC, TMT, TMLT, TPC) into one read-only catalog
 //! that the UI can render with rich metadata.
 //!
 //! Tenant model: every entry has `tenant_id=null` — these are global, not
@@ -164,6 +164,41 @@ async fn list_shared_kbs(
                 }),
                 source_version: Some("primekg-v2".into()),
                 status,
+                last_local_refresh: None,
+            },
+        });
+    }
+
+    // ── PubMed (abstracts) ───────────────────────────────────────────────────
+    //
+    // Qdrant-only literature corpus. Mixes a one-off BigQuery PMC open-access
+    // bulk load with topic-targeted E-utilities backfills (each point tagged
+    // `topic`). No MariaDB table / ingest_runs, so counts come straight from
+    // Qdrant and there's no last_local_refresh to report.
+    {
+        let qdrant_count = qdrant_collection_points("pubmed-abstracts").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "pubmed",
+                name: "PubMed (Abstracts)",
+                description: "Biomedical literature corpus (titles + abstracts / PMC open-access full text). Semantic search via BGE-M3; powers the unified knowledge search + the research agent's lit_search. Topic-tagged (e.g. sleep_osa_cpap, cardiology).",
+                kind: "literature",
+                stores: vec!["qdrant"],
+                source_url: "https://pubmed.ncbi.nlm.nih.gov/",
+                maintainer: "NCBI / U.S. National Library of Medicine",
+                region: "INTL",
+                languages: vec!["en"],
+                vintage_year: None,
+                license: "PubMed metadata/abstracts per NLM terms; PMC subset = open-access (commercial-use tier)",
+                fhir_binding: None,
+                update_cadence: "Rolling — topic backfill via NCBI E-utilities (idempotent by PMID); daily incremental CronJob available",
+                schema_version: "wave4b",
+                notes: Some("Dense-only (BGE-M3 1024-d); no BM25 sparse yet, so served by dense search not hybrid. Point id = uuid5('pubmed:{pmid}') → re-runs never duplicate. Ingest: scripts/sync_pubmed_incremental.py (PUBMED_QUERY/PUBMED_TOPIC)."),
+            },
+            live: SharedKbLive {
+                counts: json!({ "qdrant_points": qdrant_count }),
+                source_version: Some("pmc-oa-commercial + ncbi-eutils".into()),
+                status: if qdrant_count > 0 { "active" } else { "pending_data" },
                 last_local_refresh: None,
             },
         });
