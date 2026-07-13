@@ -80,8 +80,8 @@ impl RuleSet {
     pub fn builtin() -> Self {
         // (category, placeholder, pattern, mode) — anchored (Group1) first,
         // then free-text (Whole) mop-up.
-        let specs: [(&'static str, &'static str, &str, ReplaceMode); 8] = [
-            // Tier 1b — anchored
+        let specs: [(&'static str, &'static str, &str, ReplaceMode); 13] = [
+            // ── Tier 1b — anchored (English labels) ─────────────────────
             (
                 "patient_name",
                 "[REDACTED_PATIENT_NAME]",
@@ -112,7 +112,47 @@ impl RuleSet {
                 r"(?i)\bThai\s*ID\s*[:：]?\s*(\d{13})",
                 ReplaceMode::Group1,
             ),
-            // Tier 1a — free-text mop up
+            // ── Tier 1b — anchored (Thai labels; added 2026-07-14 to close
+            //    the Thai-name recall gap. Explicit label ⇒ high precision) ──
+            (
+                "patient_name",
+                "[REDACTED_PATIENT_NAME]",
+                r"(?:ผู้ป่วยชื่อ|ชื่อผู้ป่วย|ชื่อ[-\s]?สกุล|ชื่อ[-\s]?นามสกุล)\s*[:：]?\s*((?:นาย|นาง|นางสาว|เด็กชาย|เด็กหญิง|นพ\.|พญ\.)?\s*[ก-๙]+(?:\s+[ก-๙]+){0,2})",
+                ReplaceMode::Group1,
+            ),
+            (
+                "doctor_name",
+                "[REDACTED_DOCTOR_NAME]",
+                r"(?:แพทย์ผู้รักษา|แพทย์เจ้าของไข้|ชื่อแพทย์)\s*[:：]?\s*((?:นพ\.|พญ\.|นาย|นาง|นางสาว)?\s*[ก-๙]+(?:\s+[ก-๙]+){0,2})",
+                ReplaceMode::Group1,
+            ),
+            (
+                "hn",
+                "[REDACTED_HN]",
+                r"(?:เลขเวชระเบียน|เวชระเบียน|เลขที่ผู้ป่วย)\s*[:：]?\s*([0-9][\d\-/]*)",
+                ReplaceMode::Group1,
+            ),
+            // ── Tier 1b.5 — Thai title-prefixed FREE names (added 2026-07-14).
+            //    Unambiguous titles ONLY (period-abbrevs + นางสาว/เด็กชาย/หญิง);
+            //    bare นาย/นาง are excluded — they false-positive on นายแพทย์/
+            //    นางพยาบาล. Free names without a title need Tier-2 NER. ──
+            (
+                // Require first + surname (≥1 space-separated word AFTER the
+                // first) so descriptor prefixes like "เด็กชายอายุ 2 ปี" /
+                // "เด็กหญิงมีผื่น…" (title + a common word, no real surname)
+                // do NOT match — only genuine two-part Thai names do.
+                "patient_name",
+                "[REDACTED_PATIENT_NAME]",
+                r"(?:^|[\s(])((?:นางสาว|เด็กชาย|เด็กหญิง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*[ก-๙]+(?:\s+[ก-๙]+)+)",
+                ReplaceMode::Group1,
+            ),
+            (
+                "doctor_name",
+                "[REDACTED_DOCTOR_NAME]",
+                r"(?:^|[\s(])((?:นพ\.|พญ\.)\s*[ก-๙]+(?:\s+[ก-๙]+){0,2})",
+                ReplaceMode::Group1,
+            ),
+            // ── Tier 1a — free-text mop up ──────────────────────────────
             (
                 "thai_national_id",
                 "[REDACTED_THAI_ID]",
@@ -495,16 +535,17 @@ mod tests {
     // ─── v0.2 RuleSet API ──────────────────────────────────────────────────
 
     #[test]
-    fn builtin_has_eight_rules_in_anchored_first_order() {
+    fn builtin_has_rules_in_anchored_first_order() {
         let rs = RuleSet::builtin();
-        assert_eq!(rs.len(), 8);
+        // 5 English-anchored + 3 Thai-anchored + 2 Thai free-name + 3 free-text.
+        assert_eq!(rs.len(), 13);
         assert!(!rs.is_empty());
-        // First five are the anchored Group1 detectors, last three free-text.
+        // Anchored Group1 detectors first, free-text Whole detectors last.
         assert_eq!(rs.rules[0].category, "patient_name");
         assert_eq!(rs.rules[0].mode, ReplaceMode::Group1);
-        assert_eq!(rs.rules[5].category, "thai_national_id");
-        assert_eq!(rs.rules[5].mode, ReplaceMode::Whole);
-        assert_eq!(rs.rules[7].category, "email");
+        assert_eq!(rs.rules[10].category, "thai_national_id");
+        assert_eq!(rs.rules[10].mode, ReplaceMode::Whole);
+        assert_eq!(rs.rules[12].category, "email");
     }
 
     #[test]
@@ -585,6 +626,6 @@ mode = "whole"
 
     #[test]
     fn init_default_rules_returns_builtin_count() {
-        assert_eq!(init_default_rules(), 8);
+        assert_eq!(init_default_rules(), 13);
     }
 }
