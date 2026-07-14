@@ -1107,7 +1107,7 @@ export async function saveOcrAdminPolicy(update: OcrAdminPolicyUpdate): Promise<
 
 // ─── B-50b — Skuggi PII Guardrail policy ──────────────────────────────────
 
-export type SkuggiPiiMode = "off" | "detect-only" | "mask-and-send" | "block-on-pii";
+export type SkuggiPiiMode = "off" | "detect-only" | "mask-and-send" | "block-on-pii" | "local-only";
 
 export interface SkuggiPolicy {
     tenant_id: string;

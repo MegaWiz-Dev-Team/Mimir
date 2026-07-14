@@ -61,7 +61,14 @@ const MODE_OPTIONS: ModeOption[] = [
         value: "block-on-pii",
         label: "Block on PII",
         summary: "Detect + audit. If any PII found, REJECT the call with 422.",
-        detail: "Strictest mode. Use for tenants under explicit no-cloud policy. Application must handle 422 responses gracefully.",
+        detail: "Detection-gated no-cloud. Rejects only when PII is actually detected. Application must handle 422 responses gracefully.",
+        risk: "low",
+    },
+    {
+        value: "local-only",
+        label: "Local Only",
+        summary: "Categorically block ALL external providers with 403 — never send to any cloud, regardless of PII detection.",
+        detail: "Strongest posture for no-cloud tenants (medical / PHI). Fail-closed: rejects before payload inspection and holds even if the policy DB is unreachable (env allow-list backstop). Requests must use a local model. Unlike block-on-pii, does not rely on the detector firing.",
         risk: "low",
     },
 ];
@@ -80,6 +87,7 @@ function modeIcon(mode: string) {
         case "detect-only":    return <ShieldAlert className="w-5 h-5 text-amber-500" />;
         case "mask-and-send":  return <ShieldCheck className="w-5 h-5 text-emerald-500" />;
         case "block-on-pii":   return <Shield className="w-5 h-5 text-indigo-500" />;
+        case "local-only":     return <Shield className="w-5 h-5 text-teal-600" fill="currentColor" />;
         default:               return <Shield className="w-5 h-5 text-muted-foreground" />;
     }
 }

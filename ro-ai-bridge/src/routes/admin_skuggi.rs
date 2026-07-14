@@ -325,7 +325,7 @@ async fn score_batch(
 // one cache window. Document but don't add cache-bust plumbing in v0.
 
 /// Canonical pii_mode values. Mirrors Heimdall's `PiiMode` enum.
-const ALLOWED_PII_MODES: &[&str] = &["off", "detect-only", "mask-and-send", "block-on-pii"];
+const ALLOWED_PII_MODES: &[&str] = &["off", "detect-only", "mask-and-send", "block-on-pii", "local-only"];
 
 #[derive(Debug, Serialize)]
 pub struct SkuggiPolicy {
@@ -495,7 +495,7 @@ async fn list_redactions(
     // builder so query plans stay predictable.
     type Row = (
         String,                         // id
-        chrono::NaiveDateTime,          // created_at
+        chrono::DateTime<chrono::Utc>,  // created_at (column is TIMESTAMP, not DATETIME)
         Option<String>,                 // request_id
         Option<String>,                 // provider
         Option<String>,                 // model
@@ -503,12 +503,12 @@ async fn list_redactions(
         String,                         // surface
         Option<String>,                 // detection_tier
         String,                         // decision
-        Option<i64>,                    // pii_total_count
-        Option<i64>,                    // blocked (TINYINT comes back as i64)
+        Option<i32>,                    // pii_total_count (INT → i32)
+        Option<i64>,                    // blocked (CAST AS SIGNED → BIGINT → i64)
         Option<serde_json::Value>,      // detections
-        Option<i64>,                    // payload_bytes
-        Option<i64>,                    // redacted_bytes
-        Option<i64>,                    // duration_us
+        Option<i32>,                    // payload_bytes (INT → i32)
+        Option<i32>,                    // redacted_bytes (INT → i32)
+        Option<i32>,                    // duration_us (INT → i32)
         Option<i32>,                    // latency_ms
     );
 
@@ -580,7 +580,7 @@ async fn list_redactions(
             }
             RedactionRow {
                 id: r.0,
-                created_at: r.1.and_utc().to_rfc3339(),
+                created_at: r.1.to_rfc3339(),
                 request_id: r.2,
                 provider: r.3,
                 model: r.4,
@@ -588,12 +588,12 @@ async fn list_redactions(
                 surface: r.6,
                 detection_tier: r.7,
                 decision: r.8,
-                pii_total_count: pii_count,
+                pii_total_count: pii_count as i64,
                 blocked,
                 detections: r.11.unwrap_or(serde_json::Value::Array(vec![])),
-                payload_bytes: r.12,
-                redacted_bytes: r.13,
-                duration_us: r.14,
+                payload_bytes: r.12.map(|v| v as i64),
+                redacted_bytes: r.13.map(|v| v as i64),
+                duration_us: r.14.map(|v| v as i64),
                 latency_ms: r.15,
             }
         })
