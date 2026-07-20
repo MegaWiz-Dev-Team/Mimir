@@ -1,0 +1,268 @@
+# Flask app served by the neo4j-graph-viewer Deployment, mounted at /app.
+#
+# Kept inline so the whole component applies with `kubectl apply -f k8s/graph-viewer/`.
+# A ConfigMap change does NOT restart the pod on its own -- after editing this
+# file run:
+#
+#   kubectl apply -f k8s/graph-viewer/viewer-app-configmap.yaml
+#   kubectl rollout restart deploy/neo4j-graph-viewer -n asgard
+#
+# The name carries a historical -v3 suffix; the running Deployment mounts that
+# exact name, so renaming it means updating neo4j-graph-viewer.yaml too.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-viewer-app-v3
+  namespace: asgard
+  labels:
+    app: neo4j-graph-viewer
+data:
+  app.py: |
+    from flask import Flask, jsonify, Response, request
+    import requests
+    import base64
+    import logging
+    import os
+    
+    app = Flask(__name__)
+    logging.basicConfig(level=logging.INFO)
+    
+    NEO4J_URL = os.environ.get("NEO4J_HTTP_URL", "http://neo4j.asgard-infra.svc:7474")
+    NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
+    NEO4J_PASS = os.environ.get("NEO4J_PASSWORD", "")
+    
+    # How many relationships to pull for the graph view. The full graph is ~137k
+    # nodes, which no browser can lay out -- so /api/graph always samples.
+    DEFAULT_LIMIT = int(os.environ.get("GRAPH_LIMIT", "250"))
+    MAX_LIMIT = 2000
+    
+    if not NEO4J_PASS:
+        logging.error("NEO4J_PASSWORD is empty -- every Neo4j query will fail with 401")
+    
+    @app.after_request
+    def add_cors_headers(response):
+        """Add CORS headers to all responses"""
+        origin = request.headers.get('Origin', '*')
+        allowed_origins = [
+            "https://mimir.asgard.internal",
+            "http://localhost:3000",
+            "http://localhost:8080",
+            "http://mimir-dashboard.asgard.svc:3000"
+        ]
+    
+        if origin in allowed_origins or origin == '*':
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            response.headers['Access-Control-Max-Age'] = '3600'
+    
+        return response
+    
+    class Neo4jError(Exception):
+        pass
+    
+    
+    def query_neo4j(cypher, params=None):
+        """Run a Cypher statement. Raises Neo4jError instead of returning None so a
+        failure surfaces as a 502 rather than silently rendering an empty graph."""
+        headers = {"Authorization": f"Basic {base64.b64encode(f'{NEO4J_USER}:{NEO4J_PASS}'.encode()).decode()}", "Content-Type": "application/json"}
+        payload = {"statements": [{"statement": cypher, "parameters": params or {}}]}
+        try:
+            response = requests.post(f"{NEO4J_URL}/db/neo4j/tx/commit", headers=headers, json=payload, timeout=30)
+        except requests.RequestException as exc:
+            logging.exception("Neo4j request failed")
+            raise Neo4jError(f"cannot reach Neo4j at {NEO4J_URL}: {exc}") from exc
+    
+        if response.status_code != 200:
+            logging.error("Neo4j HTTP %s: %s", response.status_code, response.text[:300])
+            raise Neo4jError(f"Neo4j returned HTTP {response.status_code}: {response.text[:200]}")
+    
+        body = response.json()
+        if body.get("errors"):
+            logging.error("Neo4j cypher errors: %s", body["errors"])
+            raise Neo4jError(str(body["errors"][:1]))
+    
+        return body.get("results", [{}])[0].get("data", [])
+    
+    GRAPH_CYPHER = """
+    MATCH (a)-[r]->(b)
+    RETURN id(a) AS sid, labels(a)[0] AS stype, coalesce(a.name, a.title, a.code, '') AS sname,
+           id(b) AS tid, labels(b)[0] AS ttype, coalesce(b.name, b.title, b.code, '') AS tname,
+           type(r) AS rtype
+    LIMIT $limit
+    """
+    
+    
+    def _clamp_limit(raw):
+        try:
+            return max(1, min(int(raw), MAX_LIMIT))
+        except (TypeError, ValueError):
+            return DEFAULT_LIMIT
+    
+    
+    @app.route("/api/graph", methods=["GET", "OPTIONS"])
+    def get_graph():
+        if request.method == "OPTIONS":
+            return '', 204
+    
+        limit = _clamp_limit(request.args.get("limit", DEFAULT_LIMIT))
+        try:
+            rows = query_neo4j(GRAPH_CYPHER, {"limit": limit})
+        except Neo4jError as exc:
+            return jsonify({"error": str(exc), "nodes": [], "links": []}), 502
+    
+        nodes, seen, links = [], {}, []
+    
+        def add_node(node_id, node_type, name):
+            if node_id not in seen:
+                seen[node_id] = True
+                node_type = node_type or "Unknown"
+                nodes.append({"id": f"n{node_id}", "name": name or node_type, "type": node_type})
+    
+        for item in rows:
+            row = item.get("row", [])
+            if len(row) < 7:
+                continue
+            sid, stype, sname, tid, ttype, tname, rtype = row[:7]
+            add_node(sid, stype, sname)
+            add_node(tid, ttype, tname)
+            links.append({"source": f"n{sid}", "target": f"n{tid}", "type": rtype})
+    
+        return jsonify({"nodes": nodes, "links": links, "limit": limit, "sampled": len(links) >= limit})
+    
+    @app.route("/api/graph/stats", methods=["GET", "OPTIONS"])
+    def get_stats():
+        if request.method == "OPTIONS":
+            return '', 204
+    
+        try:
+            nodes_count = query_neo4j("MATCH (n) RETURN count(n) AS count")
+            rels_count = query_neo4j("MATCH ()-[r]->() RETURN count(r) AS count")
+        except Neo4jError as exc:
+            return jsonify({"status": "error", "error": str(exc)}), 502
+    
+        return jsonify({
+            "nodes": nodes_count[0]["row"][0] if nodes_count else 0,
+            "relationships": rels_count[0]["row"][0] if rels_count else 0,
+            "status": "operational"
+        })
+    
+    @app.route("/healthz", methods=["GET"])
+    def healthz():
+        try:
+            query_neo4j("RETURN 1")
+        except Neo4jError as exc:
+            return jsonify({"status": "unhealthy", "error": str(exc)}), 503
+        return jsonify({"status": "ok"})
+    
+    @app.route("/", methods=["GET"])
+    @app.route("/graph", methods=["GET"])
+    def graph_page():
+        return Response('''<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Medical Knowledge Graph - Asgard Mimir</title>
+        <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#f8f9fa;color:#333}
+        .header{background:white;border-bottom:1px solid #e9ecef;padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between}
+        .header-left{display:flex;align-items:center;gap:2rem}
+        .logo{font-size:1.3rem;font-weight:600;color:#4f46e5}
+        .nav-links{display:flex;gap:2rem;font-size:0.95rem}
+        .nav-links a{text-decoration:none;color:#666;cursor:pointer}
+        .nav-links a:hover{color:#4f46e5}
+        .header-right{display:flex;align-items:center;gap:1.5rem;font-size:0.9rem}
+        .breadcrumb{padding:1rem 2rem;display:flex;align-items:center;gap:0.5rem;font-size:0.9rem;color:#666;background:white;border-bottom:1px solid #e9ecef}
+        .breadcrumb a{color:#4f46e5;cursor:pointer;text-decoration:none}
+        .breadcrumb a:hover{text-decoration:underline}
+        .main{display:flex;height:calc(100vh - 120px)}
+        .sidebar{width:280px;background:white;border-right:1px solid #e9ecef;padding:1.5rem;overflow-y:auto}
+        .sidebar h3{color:#4f46e5;font-size:0.85rem;text-transform:uppercase;margin-top:1.5rem;margin-bottom:0.75rem;font-weight:600}
+        .sidebar h3:first-child{margin-top:0}
+        .metric{padding:1rem;background:#f8f9fa;border-radius:6px;margin-bottom:0.75rem}
+        .metric-label{color:#666;font-size:0.8rem;margin-bottom:0.25rem}
+        .metric-value{color:#4f46e5;font-size:1.3rem;font-weight:600}
+        .legend-item{display:flex;align-items:center;margin:0.75rem 0;font-size:0.9rem}
+        .color-dot{width:12px;height:12px;border-radius:50%;margin-right:0.75rem}
+        #content{flex:1;display:flex;flex-direction:column;background:#f8f9fa}
+        #graph-container{flex:1;background:white;border:1px solid #e9ecef;margin:1.5rem;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1rem;color:#999}
+        svg{width:100%;height:100%}
+        .tooltip{position:fixed;background:rgba(0,0,0,.9);color:white;padding:8px 12px;border-radius:4px;font-size:0.8rem;pointer-events:none;display:none;z-index:1000;max-width:200px}
+        </style></head><body>
+        <div class="header">
+        <div class="header-left">
+        <div class="logo">Asgard Mimir</div>
+        <div class="nav-links">
+        <a>Overview</a>
+        <a>Data</a>
+        <a>AI</a>
+        <a>Analytics</a>
+        </div>
+        </div>
+        <div class="header-right">
+        <span>Tenant: asgard_medical</span>
+        </div>
+        </div>
+        <div class="breadcrumb">
+        <a>&larr; Back to Dashboard</a>
+        <span>/</span>
+        <span>Medical Knowledge Graph</span>
+        </div>
+        <div class="main">
+        <div class="sidebar">
+        <h3>📊 Statistics</h3>
+        <div class="metric">
+        <div class="metric-label">Total Nodes</div>
+        <div class="metric-value" id="nodes">-</div>
+        </div>
+        <div class="metric">
+        <div class="metric-label">Relationships</div>
+        <div class="metric-value" id="rels">-</div>
+        </div>
+        <h3>🎨 Entity Types</h3>
+        <div class="legend-item"><span class="color-dot" style="background:#FF6B6B"></span>Condition</div>
+        <div class="legend-item"><span class="color-dot" style="background:#4ECDC4"></span>Treatment</div>
+        <div class="legend-item"><span class="color-dot" style="background:#FFE66D"></span>Symptom</div>
+        <div class="legend-item"><span class="color-dot" style="background:#95E1D3"></span>Gene</div>
+        <div class="legend-item"><span class="color-dot" style="background:#F38181"></span>Disease</div>
+        <div class="legend-item"><span class="color-dot" style="background:#FFD700"></span>Phenotype</div>
+        <h3>ℹ️ Information</h3>
+        <p style="font-size:0.85rem;line-height:1.6;color:#666">PrimeKG biomedical data + Thai medical records. The full graph is too large to draw, so this view samples a connected subgraph &mdash; use <code>?limit=</code> to change the size. Drag nodes to explore connections.</p>
+        </div>
+        <div id="content">
+        <div style="padding:1.5rem;color:#333">
+        <h2 style="margin-bottom:0.5rem">Medical Knowledge Graph</h2>
+        <p style="color:#666;font-size:0.95rem">Semantic visualization of medical entities and their relationships from clinical records and biomedical databases.</p>
+        </div>
+        <div id="graph-container">Loading graph...</div>
+        </div>
+        </div>
+        <div class="tooltip" id="tooltip"></div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"><\/script>
+        <script>
+        const colors={"Condition":"#FF6B6B","Treatment":"#4ECDC4","Symptom":"#FFE66D","Gene":"#95E1D3","Disease":"#F38181","Protein":"#B4A7FF","Compound":"#FF9999","Phenotype":"#FFD700"};
+        const container=document.getElementById("graph-container");
+        document.querySelector(".breadcrumb a").onclick=()=>window.location.href="/";
+        fetch("/api/graph/stats").then(r=>r.json()).then(s=>{
+          document.getElementById("nodes").textContent=s.status==="error"?"!":s.nodes.toLocaleString();
+          document.getElementById("rels").textContent=s.status==="error"?"!":s.relationships.toLocaleString();
+        }).catch(()=>{document.getElementById("nodes").textContent="!";document.getElementById("rels").textContent="!"});
+        const limit=new URLSearchParams(location.search).get("limit")||"";
+        fetch("/api/graph"+(limit?"?limit="+encodeURIComponent(limit):"")).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+          if(!ok||j.error){throw new Error(j.error||"failed to load graph")}
+          const d=j;
+          if(!d.nodes.length){container.innerHTML="<p style='color:#999'>No relationships found in the graph.<\/p>";return}
+          const w=container.clientWidth,h=container.clientHeight;
+          container.innerHTML="";
+          const svg=d3.select("#graph-container").append("svg").attr("width",w).attr("height",h);
+          const g=svg.append("g");
+          const sim=d3.forceSimulation(d.nodes).force("link",d3.forceLink(d.links).id(x=>x.id).distance(60)).force("charge",d3.forceManyBody().strength(-80)).force("center",d3.forceCenter(w/2,h/2));
+          const link=g.append("g").selectAll("line").data(d.links).enter().append("line").attr("stroke","#ddd").attr("stroke-width",1);
+          const node=g.append("g").selectAll("circle").data(d.nodes).enter().append("circle").attr("r",8).attr("fill",n=>colors[n.type]||"#999").attr("stroke","white").attr("stroke-width",2).call(d3.drag().on("start",e=>{sim.alphaTarget(.3).restart();e.subject.fx=e.subject.x;e.subject.fy=e.subject.y}).on("drag",e=>{e.subject.fx=e.x;e.subject.fy=e.y}).on("end",e=>{sim.alphaTarget(0);e.subject.fx=null;e.subject.fy=null}));
+          const label=g.append("g").selectAll("text").data(d.nodes).enter().append("text").text(n=>n.name.substring(0,3)).attr("font-size","6px").attr("text-anchor","middle").attr("dy",".2em").attr("fill","#333").attr("pointer-events","none");
+          node.on("mouseover",(e,n)=>{const t=document.getElementById("tooltip");t.style.display="block";t.style.left=(e.pageX+10)+"px";t.style.top=(e.pageY+10)+"px";t.innerHTML="<strong>"+n.name+"<\/strong><br/>"+n.type}).on("mouseout",()=>{document.getElementById("tooltip").style.display="none"});
+          sim.on("tick",()=>{link.attr("x1",l=>l.source.x).attr("y1",l=>l.source.y).attr("x2",l=>l.target.x).attr("y2",l=>l.target.y);node.attr("cx",n=>n.x).attr("cy",n=>n.y);label.attr("x",n=>n.x).attr("y",n=>n.y)});
+          if(d.sampled){const b=document.createElement("div");b.style.cssText="padding:0 1.5rem 0.75rem;font-size:0.8rem;color:#999";b.textContent="Showing a sample of "+d.links.length+" relationships ("+d.nodes.length+" nodes). Full graph is larger.";container.parentNode.insertBefore(b,container)}
+        }).catch(e=>{container.innerHTML="<p style='color:#c00'>Error: "+e.message+"<\/p>";console.error(e)});
+        <\/script>
+        </body></html>''', mimetype="text/html")
+    
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=5555)

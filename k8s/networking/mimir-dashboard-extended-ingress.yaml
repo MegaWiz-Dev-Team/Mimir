@@ -1,0 +1,53 @@
+# Extra routes on mimir.asgard.internal, layered on top of asgard-ingress.
+#
+# asgard-ingress (ingress-routes.yaml) owns `/` -> mimir-dashboard for this
+# host. This object adds the more specific prefixes; nginx matches longest
+# prefix first, so these win over the `/` catch-all. Do NOT add `/` here --
+# asgard-ingress already owns it and a duplicate rule only creates ambiguity.
+#
+# History: this Ingress existed only in the cluster, never in a repo. Its
+# spec.rules were at some point overwritten by `kubectl patch`, which left only
+# /api/v1 and dropped both graph routes. Because `kubectl patch` does not update
+# the last-applied-configuration annotation, that annotation kept advertising
+# the original three paths while the live object served one -- the discrepancy
+# that made `/graph` fall through to the dashboard and 307 to /login. Keeping
+# this file in git is what makes the drift recoverable; apply it, do not patch
+# it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mimir-dashboard-extended
+  namespace: asgard
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - mimir.asgard.internal
+      secretName: mimir-tls
+  rules:
+    - host: mimir.asgard.internal
+      http:
+        paths:
+          - path: /api/graph
+            pathType: Prefix
+            backend:
+              service:
+                name: neo4j-graph-viewer
+                port:
+                  number: 5555
+          - path: /graph
+            pathType: Prefix
+            backend:
+              service:
+                name: neo4j-graph-viewer
+                port:
+                  number: 5555
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: mimir-api
+                port:
+                  number: 8080

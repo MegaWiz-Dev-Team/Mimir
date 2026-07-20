@@ -1,0 +1,104 @@
+# GraphKG viewer — the /graph page on mimir.asgard.internal.
+#
+# Serves a sampled D3 view of the Neo4j knowledge graph. Reads Neo4j over the
+# HTTP transaction endpoint; the app itself lives in the companion ConfigMap
+# (viewer-app-configmap.yaml) and is mounted at /app.
+#
+# History: this Deployment, its Service and its Ingress ran for two months as
+# hand-applied resources with no definition in any repo. On 2026-05-17 Neo4j was
+# redeployed with a fresh PVC and a fresh secret; the viewer still carried a
+# hardcoded password, so every query 401'd. Because the app swallowed the error
+# and returned {"nodes":0,"status":"operational"}, nothing looked broken. The
+# password now comes from a secret, and the readiness probe below makes a
+# credential failure visible instead of silent.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j-graph-viewer
+  namespace: asgard
+  labels:
+    app: neo4j-graph-viewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j-graph-viewer
+  template:
+    metadata:
+      labels:
+        app: neo4j-graph-viewer
+    spec:
+      containers:
+        - name: viewer
+          image: python:3.11-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              pip install flask requests -q && python /app/app.py
+          ports:
+            - containerPort: 5555
+              protocol: TCP
+          env:
+            - name: NEO4J_USER
+              value: neo4j
+            - name: NEO4J_HTTP_URL
+              value: http://neo4j.asgard-infra.svc:7474
+            # Number of relationships /api/graph samples per request. The full
+            # graph is ~137k nodes / 8.1M relationships -- rendering it all
+            # wedges the browser, so this endpoint always samples.
+            - name: GRAPH_LIMIT
+              value: "250"
+            # Was hardcoded in app.py until 2026-07-20 and silently went stale
+            # when Neo4j was rebuilt. Keep it sourced from the secret.
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: asgard-secrets
+                  key: NEO4J_PASSWORD
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+          # /healthz runs a real Cypher query, so bad credentials or an
+          # unreachable Neo4j take the pod out of the Service endpoints rather
+          # than letting it serve an empty graph that looks healthy.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5555
+            # pip install runs at container start; give it room before probing.
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Deliberately NOT /healthz: a Neo4j outage would then restart this
+          # pod in a loop for a dependency it cannot fix. "/" renders without
+          # touching Neo4j, so liveness only trips when Flask itself is wedged.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5555
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: app-code
+          configMap:
+            name: neo4j-viewer-app-v3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-graph-viewer
+  namespace: asgard
+  labels:
+    app: neo4j-graph-viewer
+spec:
+  type: NodePort
+  selector:
+    app: neo4j-graph-viewer
+  ports:
+    - port: 5555
+      targetPort: 5555
+      nodePort: 30888
+      protocol: TCP
