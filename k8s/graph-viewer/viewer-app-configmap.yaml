@@ -1,14 +1,11 @@
 # Flask app served by the neo4j-graph-viewer Deployment, mounted at /app.
 #
-# Kept inline so the whole component applies with `kubectl apply -f k8s/graph-viewer/`.
-# A ConfigMap change does NOT restart the pod on its own -- after editing this
-# file run:
+# Source of truth is app.py in this directory. After editing app.py regenerate
+# this file, then apply + rollout restart:
 #
+#   ( printf ... header ... ; sed "s/^/    /" app.py ) > viewer-app-configmap.yaml
 #   kubectl apply -f k8s/graph-viewer/viewer-app-configmap.yaml
 #   kubectl rollout restart deploy/neo4j-graph-viewer -n asgard
-#
-# The name carries a historical -v3 suffix; the running Deployment mounts that
-# exact name, so renaming it means updating neo4j-graph-viewer.yaml too.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -35,6 +32,14 @@ data:
     # nodes, which no browser can lay out -- so /api/graph always samples.
     DEFAULT_LIMIT = int(os.environ.get("GRAPH_LIMIT", "250"))
     MAX_LIMIT = 2000
+    
+    # D3 is vendored and served from this origin (see the /d3.min.js route) instead
+    # of a public CDN. mimir.asgard.internal is reachable over the tailnet from
+    # devices that have no route to the internet, so a <script src=cdn> tag there
+    # hangs on a TCP timeout and the page never renders. Serving it same-origin
+    # also keeps the page working if the report-only CSP (script-src 'self') is
+    # ever switched to enforce.
+    D3_PATH = os.environ.get("D3_PATH", "/vendor/d3.min.js")
     
     if not NEO4J_PASS:
         logging.error("NEO4J_PASSWORD is empty -- every Neo4j query will fail with 401")
@@ -155,6 +160,19 @@ data:
             return jsonify({"status": "unhealthy", "error": str(exc)}), 503
         return jsonify({"status": "ok"})
     
+    @app.route("/d3.min.js", methods=["GET"])
+    def d3_lib():
+        """Serve the vendored D3 bundle from the same origin as the page."""
+        try:
+            with open(D3_PATH, "rb") as fh:
+                body = fh.read()
+        except OSError as exc:
+            logging.error("cannot read vendored D3 at %s: %s", D3_PATH, exc)
+            return Response("/* D3 asset missing on server */", status=500,
+                            mimetype="application/javascript")
+        return Response(body, mimetype="application/javascript",
+                        headers={"Cache-Control": "public, max-age=86400"})
+    
     @app.route("/", methods=["GET"])
     @app.route("/graph", methods=["GET"])
     def graph_page():
@@ -235,7 +253,7 @@ data:
         </div>
         </div>
         <div class="tooltip" id="tooltip"></div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"><\/script>
+        <script src="/d3.min.js" onerror="document.getElementById('graph-container').innerHTML='<p style=\\'color:#c00\\'>Could not load the graph library (/d3.min.js).<\/p>'"></script>
         <script>
         const colors={"Condition":"#FF6B6B","Treatment":"#4ECDC4","Symptom":"#FFE66D","Gene":"#95E1D3","Disease":"#F38181","Protein":"#B4A7FF","Compound":"#FF9999","Phenotype":"#FFD700"};
         const container=document.getElementById("graph-container");
@@ -261,7 +279,7 @@ data:
           sim.on("tick",()=>{link.attr("x1",l=>l.source.x).attr("y1",l=>l.source.y).attr("x2",l=>l.target.x).attr("y2",l=>l.target.y);node.attr("cx",n=>n.x).attr("cy",n=>n.y);label.attr("x",n=>n.x).attr("y",n=>n.y)});
           if(d.sampled){const b=document.createElement("div");b.style.cssText="padding:0 1.5rem 0.75rem;font-size:0.8rem;color:#999";b.textContent="Showing a sample of "+d.links.length+" relationships ("+d.nodes.length+" nodes). Full graph is larger.";container.parentNode.insertBefore(b,container)}
         }).catch(e=>{container.innerHTML="<p style='color:#c00'>Error: "+e.message+"<\/p>";console.error(e)});
-        <\/script>
+        </script>
         </body></html>''', mimetype="text/html")
     
     if __name__ == "__main__":

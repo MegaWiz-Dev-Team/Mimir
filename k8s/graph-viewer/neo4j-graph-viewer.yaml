@@ -48,6 +48,12 @@ spec:
             # wedges the browser, so this endpoint always samples.
             - name: GRAPH_LIMIT
               value: "250"
+            # D3 is served same-origin from this file (mounted below) instead of
+            # a public CDN. mimir.asgard.internal is reached over the tailnet by
+            # devices with no internet route, where a <script src=cdn> hangs on a
+            # TCP timeout and the graph never renders.
+            - name: D3_PATH
+              value: /vendor/d3.min.js
             # Was hardcoded in app.py until 2026-07-20 and silently went stale
             # when Neo4j was rebuilt. Keep it sourced from the secret.
             - name: NEO4J_PASSWORD
@@ -58,6 +64,9 @@ spec:
           volumeMounts:
             - name: app-code
               mountPath: /app
+            - name: d3-lib
+              mountPath: /vendor
+              readOnly: true
           # /healthz runs a real Cypher query, so bad credentials or an
           # unreachable Neo4j take the pod out of the Service endpoints rather
           # than letting it serve an empty graph that looks healthy.
@@ -85,6 +94,9 @@ spec:
         - name: app-code
           configMap:
             name: neo4j-viewer-app-v3
+        - name: d3-lib
+          configMap:
+            name: neo4j-viewer-d3
 ---
 apiVersion: v1
 kind: Service
