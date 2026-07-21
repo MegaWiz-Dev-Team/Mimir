@@ -160,9 +160,14 @@ data:
             return jsonify({"status": "unhealthy", "error": str(exc)}), 503
         return jsonify({"status": "ok"})
     
-    @app.route("/d3.min.js", methods=["GET"])
+    @app.route("/graph/d3.min.js", methods=["GET"])
     def d3_lib():
-        """Serve the vendored D3 bundle from the same origin as the page."""
+        """Serve the vendored D3 bundle from the same origin as the page.
+    
+        Served under /graph/ (not /d3.min.js) on purpose: the shared ingress routes
+        only /graph and /api/graph to this viewer. A bare /d3.min.js would fall
+        through to asgard-ingress's `/` -> mimir-dashboard and return HTML, so the
+        browser got `d3 is not defined`. /graph/d3.min.js rides the /graph prefix."""
         try:
             with open(D3_PATH, "rb") as fh:
                 body = fh.read()
@@ -253,7 +258,7 @@ data:
         </div>
         </div>
         <div class="tooltip" id="tooltip"></div>
-        <script src="/d3.min.js" onerror="document.getElementById('graph-container').innerHTML='<p style=\\'color:#c00\\'>Could not load the graph library (/d3.min.js).<\/p>'"></script>
+        <script src="/graph/d3.min.js" onerror="document.getElementById('graph-container').innerHTML='<p style=\\'color:#c00\\'>Could not load the graph library (/graph/d3.min.js).<\/p>'"></script>
         <script>
         const colors={"Condition":"#FF6B6B","Treatment":"#4ECDC4","Symptom":"#FFE66D","Gene":"#95E1D3","Disease":"#F38181","Protein":"#B4A7FF","Compound":"#FF9999","Phenotype":"#FFD700"};
         const container=document.getElementById("graph-container");
