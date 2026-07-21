@@ -1,18 +1,22 @@
 # Extra routes on mimir.asgard.internal, layered on top of asgard-ingress.
 #
-# asgard-ingress (ingress-routes.yaml) owns `/` -> mimir-dashboard for this
-# host. This object adds the more specific prefixes; nginx matches longest
-# prefix first, so these win over the `/` catch-all. Do NOT add `/` here --
-# asgard-ingress already owns it and a duplicate rule only creates ambiguity.
+# asgard-ingress (ingress-routes.yaml) owns `/` -> mimir-dashboard for this host.
+# The mimir-dashboard (Next.js) serves its OWN rich pages under that catch-all,
+# including /graph (a sigma.js knowledge-graph view with search + the /api/assistant
+# chat) and /graph/3d. Those pages fetch graph data straight from mimir-api
+# (NEXT_PUBLIC_API_URL / MIMIR_API_URL), so they need no special ingress route.
 #
-# History: this Ingress existed only in the cluster, never in a repo. Its
-# spec.rules were at some point overwritten by `kubectl patch`, which left only
-# /api/v1 and dropped both graph routes. Because `kubectl patch` does not update
-# the last-applied-configuration annotation, that annotation kept advertising
-# the original three paths while the live object served one -- the discrepancy
-# that made `/graph` fall through to the dashboard and 307 to /login. Keeping
-# this file in git is what makes the drift recoverable; apply it, do not patch
-# it.
+# This object exists for ONE thing the catch-all can't serve: /api/v1 must reach
+# mimir-api directly (SSO config at /api/v1/auth/sso-config, /api/v1/assistant/help,
+# etc.). Longest-prefix match makes /api/v1 win over `/`.
+#
+# History / do-not-repeat: an earlier revision of THIS file also routed /graph and
+# /api/graph to the standalone neo4j-graph-viewer (a bare D3 page). That was a
+# mistake -- it shadowed the dashboard's own /graph and users lost search + chat.
+# The viewer is a separate, simpler tool; reach it directly on its NodePort
+# (:30888) if you want the raw D3 view. Do NOT put /graph here: /graph belongs to
+# the dashboard. The `kubectl patch` that once reduced this Ingress to /api/v1 was
+# intentional for exactly this reason, not accidental drift.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -30,20 +34,6 @@ spec:
     - host: mimir.asgard.internal
       http:
         paths:
-          - path: /api/graph
-            pathType: Prefix
-            backend:
-              service:
-                name: neo4j-graph-viewer
-                port:
-                  number: 5555
-          - path: /graph
-            pathType: Prefix
-            backend:
-              service:
-                name: neo4j-graph-viewer
-                port:
-                  number: 5555
           - path: /api/v1
             pathType: Prefix
             backend:
