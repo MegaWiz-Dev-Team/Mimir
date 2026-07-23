@@ -1,0 +1,57 @@
+# brand<TAB>ingredient — RxNorm (public domain), built dev-time from RxNav. Ships in product.
+# combos (multi-ingredient) dropped in v1 — see docs/NORMALIZER.md §8.
+tylenol	acetaminophen
+advil	ibuprofen
+motrin	ibuprofen
+aleve	naproxen
+coumadin	warfarin
+plavix	clopidogrel
+lipitor	atorvastatin
+crestor	rosuvastatin
+zocor	simvastatin
+nexium	esomeprazole
+prilosec	omeprazole
+prevacid	lansoprazole
+glucophage	metformin
+januvia	sitagliptin
+lantus	insulin glargine
+ventolin	albuterol
+proair	albuterol
+singulair	montelukast
+zyrtec	cetirizine
+claritin	loratadine
+allegra	fexofenadine
+benadryl	diphenhydramine
+prozac	fluoxetine
+zoloft	sertraline
+lexapro	escitalopram
+effexor	venlafaxine
+wellbutrin	bupropion
+xanax	alprazolam
+ativan	lorazepam
+ambien	zolpidem
+norvasc	amlodipine
+toprol	metoprolol
+cozaar	losartan
+diovan	valsartan
+lasix	furosemide
+coreg	carvedilol
+zithromax	azithromycin
+cipro	ciprofloxacin
+levaquin	levofloxacin
+keflex	cephalexin
+flagyl	metronidazole
+viagra	sildenafil
+cialis	tadalafil
+synthroid	levothyroxine
+medrol	methylprednisolone
+neurontin	gabapentin
+lyrica	pregabalin
+morphine	morphine
+eliquis	apixaban
+xarelto	rivaroxaban
+pradaxa	dabigatran etexilate
+flonase	fluticasone
+glucotrol	glipizide
+amaryl	glimepiride
+protonix	pantoprazole
