@@ -7,6 +7,7 @@ pub mod knowledge_search;
 pub mod knowledge_primekg;
 pub mod knowledge_tmt;
 pub mod knowledge_snomed;
+pub mod medical_safety;
 pub mod agents;
 pub mod app_settings;
 pub mod ask;

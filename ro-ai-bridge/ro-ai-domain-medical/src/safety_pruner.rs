@@ -26,13 +26,14 @@ pub struct PatientContext {
     pub conditions: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FindingKind {
     DrugDrug,
     Contraindication,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Finding {
     pub kind: FindingKind,
     pub proposed_drug: String,
