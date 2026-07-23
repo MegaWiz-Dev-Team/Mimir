@@ -15,6 +15,8 @@ pub mod curation;
 pub mod graphrag;
 pub mod search;
 pub mod bigquery;
+pub mod normalizer;
+pub mod safety_pruner;
 
 /// Medical Domain Service — entry point for medical-specific operations.
 pub struct MedicalDomainService;

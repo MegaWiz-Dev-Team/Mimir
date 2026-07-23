@@ -430,6 +430,20 @@ pub fn build_two_hop_path_cypher() -> &'static str {
      LIMIT 5"
 }
 
+/// Build Cypher to check whether a typed edge connects two PrimeKG nodes
+/// (matched by entity_index). UNDIRECTED on purpose: a safety gate must not miss
+/// an edge because of stored direction (PrimeKG stores DDI as two directed edges
+/// per pair; CONTRAINDICATION once). `rel` is INTERPOLATED because Cypher cannot
+/// bind a relationship type — callers MUST pass a value from a fixed allow-list
+/// (see `primekg_relation_exists`), never raw input.
+pub fn build_relation_exists_cypher(rel: &str) -> String {
+    format!(
+        "MATCH (a:PrimeKG {{entity_index: $a_idx}})-[r:{rel}]-(b:PrimeKG {{entity_index: $b_idx}}) \
+         RETURN type(r) AS rel_type, r.source AS source, r.display_relation AS display \
+         LIMIT 1"
+    )
+}
+
 /// Build Cypher for PrimeKG Drug-Disease exploration.
 pub fn build_primekg_cypher() -> &'static str {
     "MATCH (d1:PrimeKG:Drug)-[r]-(d2:PrimeKG:Disease) \
@@ -1436,6 +1450,36 @@ impl Neo4jService {
             }));
         }
         Ok(out)
+    }
+
+    /// Does `rel` connect the two PrimeKG nodes (by entity_index)? Returns the
+    /// edge's `source` provenance on a hit, `None` if no such edge. `rel` must be
+    /// a known PrimeKG edge type; anything else is a hard error (guards the
+    /// relationship-type interpolation in build_relation_exists_cypher).
+    pub async fn primekg_relation_exists(
+        &self,
+        a_index: i64,
+        b_index: i64,
+        rel: &str,
+    ) -> Result<Option<String>> {
+        const ALLOWED: &[&str] = &["DRUG_DRUG", "CONTRAINDICATION", "INDICATION", "OFF_LABEL_USE"];
+        if !ALLOWED.contains(&rel) {
+            anyhow::bail!("primekg_relation_exists: relation `{rel}` not in allow-list");
+        }
+        let cypher = build_relation_exists_cypher(rel);
+        let q = neo4rs::query(&cypher)
+            .param("a_idx", a_index)
+            .param("b_idx", b_index);
+        let mut result = self
+            .graph
+            .execute(q)
+            .await
+            .context("primekg_relation_exists query failed")?;
+        if let Some(row) = result.next().await? {
+            let source: Option<String> = row.get("source").ok().flatten();
+            return Ok(Some(source.unwrap_or_default()));
+        }
+        Ok(None)
     }
 
     /// Drugs associated with a disease, grouped by relation. Returns three
