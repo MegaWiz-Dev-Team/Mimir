@@ -1,0 +1,65 @@
+{"id": "res-000", "term": "metformin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Metformin"}
+{"id": "res-001", "term": "warfarin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Warfarin"}
+{"id": "res-002", "term": "simvastatin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Simvastatin"}
+{"id": "res-003", "term": "atorvastatin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-004", "term": "clarithromycin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Clarithromycin"}
+{"id": "res-005", "term": "sildenafil", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Sildenafil"}
+{"id": "res-006", "term": "nitroglycerin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Nitroglycerin"}
+{"id": "res-007", "term": "propranolol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Propranolol"}
+{"id": "res-008", "term": "amoxicillin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Amoxicillin"}
+{"id": "res-009", "term": "loratadine", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Loratadine"}
+{"id": "res-010", "term": "cetirizine", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-011", "term": "levothyroxine", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-012", "term": "lisinopril", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-013", "term": "spironolactone", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-014", "term": "ibuprofen", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-015", "term": "omeprazole", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-016", "term": "amlodipine", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-017", "term": "metoprolol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-018", "term": "furosemide", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-019", "term": "prednisone", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-020", "term": "azithromycin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-021", "term": "ciprofloxacin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-022", "term": "fluoxetine", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-023", "term": "sertraline", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-024", "term": "tramadol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-025", "term": "gabapentin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-026", "term": "digoxin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-027", "term": "clopidogrel", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-028", "term": "enoxaparin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-029", "term": "ondansetron", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-030", "term": "dexamethasone", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-031", "term": "aspirin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Acetylsalicylic acid"}
+{"id": "res-032", "term": "acetaminophen", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-033", "term": "paracetamol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-034", "term": "tylenol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-035", "term": "panadol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-036", "term": "coumadin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Warfarin"}
+{"id": "res-037", "term": "glucophage", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Metformin"}
+{"id": "res-038", "term": "viagra", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": true, "expected": "Sildenafil"}
+{"id": "res-039", "term": "ventolin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-040", "term": "salbutamol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-041", "term": "albuterol", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-042", "term": "lasix", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-043", "term": "augmentin", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-044", "term": "advil", "type": "drug", "category": "drug_resolution", "locale": "en", "gold": false}
+{"id": "res-045", "term": "asthma", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-046", "term": "hypertension", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-047", "term": "high blood pressure", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-048", "term": "diabetes mellitus", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-049", "term": "type 2 diabetes", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-050", "term": "kidney failure", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-051", "term": "renal failure", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-052", "term": "chronic kidney disease", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-053", "term": "heart attack", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-054", "term": "myocardial infarction", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-055", "term": "heart failure", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-056", "term": "stroke", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-057", "term": "epilepsy", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-058", "term": "peptic ulcer", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-059", "term": "gastric ulcer", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-060", "term": "copd", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-061", "term": "pneumonia", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-062", "term": "gout", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-063", "term": "migraine", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
+{"id": "res-064", "term": "depression", "type": "disease", "category": "disease_resolution", "locale": "en", "gold": false}
