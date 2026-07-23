@@ -1,0 +1,31 @@
+# drug_a<TAB>drug_b<TAB>severity — keyed on PrimeKG-canonical (ingredient) names, lowercased, order-independent.
+# Sources (license-clean, published clinical facts — NOT DDInter/DrugBank):
+#   ONC-15 high-priority DDIs (Phansalkar et al., JAMIA 2012), FDA-label
+#   contraindications, standard clinical references. Unlisted pair -> Moderate.
+#
+# ---- contraindicated (FDA / ONC-15) ----
+sildenafil	nitroglycerin	contraindicated
+sildenafil	isosorbide mononitrate	contraindicated
+tadalafil	nitroglycerin	contraindicated
+phenelzine	fluoxetine	contraindicated
+phenelzine	sertraline	contraindicated
+tranylcypromine	fluoxetine	contraindicated
+selegiline	sertraline	contraindicated
+phenelzine	meperidine	contraindicated
+# ---- major ----
+warfarin	acetylsalicylic acid	major
+warfarin	ibuprofen	major
+warfarin	naproxen	major
+simvastatin	clarithromycin	major
+atorvastatin	clarithromycin	major
+simvastatin	itraconazole	major
+lovastatin	itraconazole	major
+lisinopril	spironolactone	major
+lisinopril	potassium chloride	major
+digoxin	amiodarone	major
+clarithromycin	colchicine	major
+# ---- minor (managed / routinely co-prescribed) ----
+warfarin	acetaminophen	minor
+atorvastatin	acetylsalicylic acid	minor
+metformin	lisinopril	minor
+amlodipine	atorvastatin	minor

@@ -11,11 +11,12 @@
 //! - `Decision::Unresolved` is a SAFETY state: if a name can't be mapped to a
 //!   PrimeKG node we cannot verify it, so it must surface to the clinician and
 //!   NEVER be reported as a clean pass.
-//! - PrimeKG `DRUG_DRUG` carries no severity. Findings therefore have no severity
-//!   yet; a DDInter-sourced severity gate (eval-only, never in the product KG)
-//!   is layered on later to cut over-prune.
+//! - PrimeKG `DRUG_DRUG` carries no severity, so a curated license-clean gate
+//!   (`severity::SeverityGate`, ONC-15/FDA) ranks each finding; unlisted pairs
+//!   default to Moderate. DDInter (CC BY-NC-SA) is eval-only, never shipped.
 
 use crate::normalizer::{DrugDiseaseNormalizer, EntityKind};
+use crate::severity::{Severity, SeverityGate};
 use anyhow::Result;
 use mimir_core_ai::services::neo4j::Neo4jService;
 
@@ -41,6 +42,7 @@ pub struct Finding {
     pub resolved_proposed: String, // canonical PrimeKG name matched
     pub resolved_against: String,
     pub kg_source: String,         // edge provenance
+    pub severity: Severity,        // from the curated ONC-15/FDA gate
 }
 
 /// Outcome of a pruner check. `Unresolved` is a SAFETY state, not a pass.
@@ -54,6 +56,7 @@ pub enum Decision {
 pub struct PrimeKgPruner<'a> {
     neo4j: &'a Neo4jService,
     normalizer: DrugDiseaseNormalizer,
+    severity: SeverityGate,
 }
 
 impl<'a> PrimeKgPruner<'a> {
@@ -61,6 +64,7 @@ impl<'a> PrimeKgPruner<'a> {
         Self {
             neo4j,
             normalizer: DrugDiseaseNormalizer::seed(),
+            severity: SeverityGate::load(),
         }
     }
 
@@ -105,6 +109,7 @@ impl<'a> PrimeKgPruner<'a> {
                         .primekg_relation_exists(p_idx, d_idx, "DRUG_DRUG")
                         .await?
                     {
+                        let severity = self.severity.drug_drug(&p_name, &d_name);
                         findings.push(Finding {
                             kind: FindingKind::DrugDrug,
                             proposed_drug: proposed_drug.to_string(),
@@ -112,6 +117,7 @@ impl<'a> PrimeKgPruner<'a> {
                             resolved_proposed: p_name.clone(),
                             resolved_against: d_name,
                             kg_source: src,
+                            severity,
                         });
                     }
                 }
@@ -134,6 +140,8 @@ impl<'a> PrimeKgPruner<'a> {
                             resolved_proposed: p_name.clone(),
                             resolved_against: c_name,
                             kg_source: src,
+                            // a PrimeKG CONTRAINDICATION edge = "do not use" → Major
+                            severity: Severity::Major,
                         });
                     }
                 }
@@ -142,6 +150,7 @@ impl<'a> PrimeKgPruner<'a> {
         }
 
         if !findings.is_empty() {
+            findings.sort_by(|a, b| b.severity.cmp(&a.severity)); // worst first
             Ok(Decision::Flag(findings))
         } else if !unresolved.is_empty() {
             // Nothing flagged, but some entities were not verifiable — surface it,

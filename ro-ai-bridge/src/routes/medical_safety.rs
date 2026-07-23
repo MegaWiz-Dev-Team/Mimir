@@ -22,6 +22,7 @@ use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::neo4j::{Neo4jConfig, Neo4jService};
 use ro_ai_domain_medical::safety_pruner::{Decision, PatientContext, PrimeKgPruner};
+use ro_ai_domain_medical::severity::Severity;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use std::sync::Arc;
@@ -29,8 +30,9 @@ use tokio::sync::OnceCell;
 use tracing::warn;
 
 const SEVERITY_NOTE: &str =
-    "PrimeKG DRUG_DRUG carries no severity; findings are unranked. A DDInter \
-     severity gate (eval-only) is pending.";
+    "Severity from a curated ONC-15/FDA rules gate (license-clean). Unlisted \
+     interactions default to 'moderate' (exists, severity not established) — \
+     never 'safe'. Use min_severity to filter.";
 
 pub fn medication_safety_routes() -> Router<DbPool> {
     Router::new().route("/check", post(check))
@@ -79,6 +81,10 @@ struct CheckReq {
     current_drugs: Vec<String>,
     #[serde(default)]
     conditions: Vec<String>,
+    /// Optional: only return findings at or above this severity
+    /// (minor|moderate|major|contraindicated). Default: return all.
+    #[serde(default)]
+    min_severity: Option<String>,
 }
 
 async fn check(
@@ -103,13 +109,22 @@ async fn check(
 
     let body = match decision {
         Decision::Pass => json!({ "decision": "pass" }),
-        Decision::Flag(findings) => {
-            let items = serde_json::to_value(&findings).unwrap_or_else(|_| json!([]));
-            json!({
-                "decision": "flag",
-                "findings": items,
-                "severity_note": SEVERITY_NOTE,
-            })
+        Decision::Flag(mut findings) => {
+            if let Some(min) = req.min_severity.as_deref().and_then(Severity::parse) {
+                findings.retain(|f| f.severity >= min);
+            }
+            if findings.is_empty() {
+                json!({ "decision": "pass", "note": "no findings at or above min_severity" })
+            } else {
+                let worst = findings.iter().map(|f| f.severity).max().map(|s| s.label());
+                let items = serde_json::to_value(&findings).unwrap_or_else(|_| json!([]));
+                json!({
+                    "decision": "flag",
+                    "worst_severity": worst,
+                    "findings": items,
+                    "severity_note": SEVERITY_NOTE,
+                })
+            }
         }
         Decision::Unresolved(names) => json!({
             "decision": "unresolved",
