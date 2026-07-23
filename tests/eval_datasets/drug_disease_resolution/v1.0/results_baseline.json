@@ -1,0 +1,33 @@
+{
+  "variant": "naive_baseline_primekg_lookup_entity",
+  "note": "PROTOTYPE — from scratchpad ddi-safety-bench/resolution_bench, NOT the production PrimeKgPruner wired into eval runner. Store labeled as baseline, not as a validated pruner result.",
+  "date": "2026-07-23",
+  "resolver": "primekg_lookup_entity (exact > prefix > substr, shorter-name tiebreak)",
+  "neo4j": "asgard-infra/neo4j, PrimeKG 129375 nodes (live)",
+  "n_terms": 65,
+  "by_type": {
+    "drug":    { "n": 45, "exact_pct": 73.3, "prefix_pct": 0.0,  "substr_pct": 2.2,  "miss_pct": 24.4 },
+    "disease": { "n": 20, "exact_pct": 45.0, "prefix_pct": 35.0, "substr_pct": 10.0, "miss_pct": 10.0 }
+  },
+  "labeled_correctness": {
+    "correct": 9, "total": 13, "pct": 69.2,
+    "wrong": [
+      { "term": "aspirin",    "expected": "Acetylsalicylic acid", "got": "Nitroaspirin" },
+      { "term": "coumadin",   "expected": "Warfarin",             "got": "(miss)" },
+      { "term": "glucophage", "expected": "Metformin",            "got": "(miss)" },
+      { "term": "viagra",     "expected": "Sildenafil",           "got": "(miss)" }
+    ]
+  },
+  "suspect_substr": [
+    "aspirin -> Nitroaspirin",
+    "renal failure -> end stage renal failure",
+    "depression -> unipolar depression"
+  ],
+  "miss": [
+    "paracetamol", "tylenol", "panadol", "coumadin", "glucophage", "viagra",
+    "ventolin", "albuterol", "lasix", "augmentin", "advil",
+    "high blood pressure", "heart attack"
+  ],
+  "headline": "drug exact 73.3% / labeled 69.2%; 100% of BRAND names fail; cross-region generics miss (paracetamol->Acetaminophen, albuterol->Salbutamol); ~1 in 4 drug mentions unverifiable.",
+  "next": "Build drug/disease normalizer (RxNorm brand->ingredient + DrugBank synonyms + TMT for Thai) in front of resolve(); re-run this bench as the regression gate."
+}
