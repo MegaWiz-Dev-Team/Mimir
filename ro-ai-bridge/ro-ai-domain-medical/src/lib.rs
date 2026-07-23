@@ -17,6 +17,7 @@ pub mod search;
 pub mod bigquery;
 pub mod normalizer;
 pub mod safety_pruner;
+pub mod severity;
 
 /// Medical Domain Service — entry point for medical-specific operations.
 pub struct MedicalDomainService;
