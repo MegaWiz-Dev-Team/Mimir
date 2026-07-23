@@ -21,6 +21,7 @@ use ro_ai_bridge::routes::knowledge_search::knowledge_search_routes;
 use ro_ai_bridge::routes::knowledge_primekg::knowledge_primekg_routes;
 use ro_ai_bridge::routes::knowledge_tmt::{knowledge_tmt_routes, knowledge_tmlt_routes};
 use ro_ai_bridge::routes::knowledge_snomed::knowledge_snomed_routes;
+use ro_ai_bridge::routes::medical_safety::medication_safety_routes;
 use ro_ai_bridge::routes::agents::agents_routes;
 use ro_ai_bridge::routes::ask::ask_routes;
 use ro_ai_bridge::routes::auth::auth_routes;
@@ -259,6 +260,7 @@ async fn main() {
         .nest("/api/v1/knowledge/tmt", knowledge_tmt_routes())
         .nest("/api/v1/knowledge/tmlt", knowledge_tmlt_routes())
         .nest("/api/v1/knowledge/snomed", knowledge_snomed_routes())
+        .nest("/api/v1/medical/medication-safety", medication_safety_routes())
         // Sprint 18: Coverage Analytics routes
         .nest("/api/v1/coverage", coverage_routes())
         .nest("/api/v1/prompts", prompts_routes())
