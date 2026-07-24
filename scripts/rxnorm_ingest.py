@@ -125,21 +125,25 @@ def parse_rel(path: Path):
 
 
 def parse_sat(path: Path):
-    """RXNSAT → UNII rows (ATN='UNII')."""
+    """RXNSAT → UNII rows. The UNII attribute is ATN='FDA_UNII_CODE' (SAB=DRUGBANK): ATV is
+    the FDA UNII, and CODE (field 6) is the DrugBank id — a direct RxNorm→PrimeKG join key."""
     seen, rows = set(), []
     with open(path, encoding="utf-8") as f:
         for line in f:
             c = line.rstrip("\n").split("|")
             if len(c) < 11:
                 continue
-            rxcui, atn, atv = c[0], c[8], c[10]
-            if atn != "UNII" or not rxcui or not atv.strip():
+            # RXNSAT: RXCUI|LUI|SUI|RXAUI|STYPE|CODE|ATUI|SATUI|ATN|SAB|ATV|SUPPRESS|CVF
+            rxcui, code, atn, atv = c[0], c[5], c[8], c[10]
+            if atn != "FDA_UNII_CODE" or not rxcui or not atv.strip():
                 continue
-            k = (rxcui, atv.strip())
+            unii = atv.strip()
+            db = code.strip() if code.strip().upper().startswith("DB") else None
+            k = (rxcui, unii)
             if k in seen:
                 continue
             seen.add(k)
-            rows.append({"rxcui": rxcui, "unii": atv.strip()})
+            rows.append({"rxcui": rxcui, "unii": unii, "drugbank_id": db})
     return rows
 
 
@@ -189,11 +193,13 @@ def insert_unii(rows, source_version, batch=1000):
     for i in range(0, len(rows), batch):
         vals = []
         for r in rows[i:i + batch]:
-            vals.append("({}, {}, {}, NULL, NOW())".format(
-                sql_quote(r["rxcui"]), sql_quote(r["unii"]), sql_quote(source_version)))
+            vals.append("({}, {}, {}, {}, NULL, NOW())".format(
+                sql_quote(r["rxcui"]), sql_quote(r["unii"]),
+                sql_quote(r.get("drugbank_id")), sql_quote(source_version)))
         mariadb_exec(
-            "INSERT INTO rxnorm_unii (rxcui, unii, source_version, tenant_id, created_at) "
-            "VALUES " + ",".join(vals) + " ON DUPLICATE KEY UPDATE unii=VALUES(unii)")
+            "INSERT INTO rxnorm_unii (rxcui, unii, drugbank_id, source_version, tenant_id, created_at) "
+            "VALUES " + ",".join(vals) +
+            " ON DUPLICATE KEY UPDATE unii=VALUES(unii), drugbank_id=VALUES(drugbank_id)")
         n += len(vals)
     return n
 
