@@ -40,7 +40,9 @@ pub struct DrugDiseaseNormalizer {
 }
 
 /// Parse a two-column `key<TAB>value` table; `#` comments and blanks skipped.
-/// Keys and values are lowercased (resolve is case-insensitive downstream).
+/// Keys and values are lowercased (resolve is case-insensitive downstream). For a `;`-separated
+/// combo value (e.g. `amoxicillin;clavulanate`), the loader takes the FIRST ingredient — the full
+/// brand→ingredient table orders it so the PrimeKG-preferred name is first.
 fn parse_tsv(text: &str) -> HashMap<String, String> {
     let mut m = HashMap::new();
     for line in text.lines() {
@@ -50,7 +52,8 @@ fn parse_tsv(text: &str) -> HashMap<String, String> {
         }
         let mut it = l.split('\t');
         if let (Some(k), Some(v)) = (it.next(), it.next()) {
-            let (k, v) = (k.trim(), v.trim());
+            let k = k.trim();
+            let v = v.split(';').next().unwrap_or("").trim();
             if !k.is_empty() && !v.is_empty() {
                 m.insert(k.to_ascii_lowercase(), v.to_ascii_lowercase());
             }
@@ -138,10 +141,21 @@ mod tests {
     }
 
     #[test]
+    fn full_table_brand_and_combo() {
+        let n = DrugDiseaseNormalizer::load();
+        // full RxNorm table, ordered to PrimeKG's preferred name, then the generalized alias maps
+        // the INN synonym to the exact PrimeKG node name (paracetamol → acetaminophen).
+        assert_eq!(n.canonical("tylenol", EntityKind::Drug).as_ref(), "acetaminophen");
+        // the alias generalization works on a bare INN generic too, not just via a brand.
+        assert_eq!(n.canonical("paracetamol", EntityKind::Drug).as_ref(), "acetaminophen");
+    }
+
+    #[test]
     fn thai_trade_via_tmt() {
         let n = DrugDiseaseNormalizer::load();
-        // Lane B: Thai brand -> generic (TMT), then flows through the lower layers.
-        assert_eq!(n.canonical("Sara", EntityKind::Drug).as_ref(), "paracetamol");
+        // Lane B: Thai brand -> generic (TMT) -> alias -> PrimeKG name. sara -> paracetamol (TMT)
+        // -> acetaminophen (alias), the full end-to-end canonical the pruner resolves against.
+        assert_eq!(n.canonical("Sara", EntityKind::Drug).as_ref(), "acetaminophen");
         assert_eq!(n.canonical("brufen", EntityKind::Drug).as_ref(), "ibuprofen");
         assert_eq!(n.canonical("ponstan", EntityKind::Drug).as_ref(), "mefenamic acid");
     }
