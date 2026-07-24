@@ -2,8 +2,8 @@
 //!
 //! Per `feedback_no_new_norse_components`, this is **not a new component** —
 //! it's a Mimir surface that aggregates the existing shared master stores
-//! (ICD-10-TM, PrimeKG, PubMed, LOINC, TMT, TMLT, TPC) into one read-only catalog
-//! that the UI can render with rich metadata.
+//! (ICD-10-TM, PrimeKG, PubMed, LOINC, TMT, RxNorm, TMLT, SNOMED, TPC) into one
+//! read-only catalog that the UI can render with rich metadata.
 //!
 //! Tenant model: every entry has `tenant_id=null` — these are global, not
 //! per-tenant. Per-tenant ingest sources still go through `/api/v1/tenants/...`
@@ -281,6 +281,53 @@ async fn list_shared_kbs(
                 }),
                 source_version: version,
                 status: if count > 0 { "active" } else { "pending_data" },
+                last_local_refresh: refresh,
+            },
+        });
+    }
+
+    // ── RxNorm (drug normalizer) ─────────────────────────────────────────────
+    {
+        let atoms: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rxnorm_atoms WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let rel_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rxnorm_rel WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let unii: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rxnorm_unii WHERE tenant_id IS NULL",
+        ).fetch_one(&pool).await.unwrap_or(0);
+        let version: Option<String> = sqlx::query_scalar(
+            "SELECT source_version FROM rxnorm_ingest_runs WHERE status='DONE' \
+             ORDER BY created_at DESC LIMIT 1",
+        ).fetch_optional(&pool).await.ok().flatten();
+        let refresh = fetch_last_refresh(&pool, "rxnorm_ingest_runs").await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "rxnorm",
+                name: "RxNorm (Drug Normalizer)",
+                description: "US drug vocabulary — brand→ingredient crosswalk + UNII/DrugBank-id keys. Normalizes drug names to the PrimeKG-canonical form for the medication-safety pruner.",
+                kind: "terminology",
+                stores: vec!["mariadb"],
+                source_url: "https://www.nlm.nih.gov/research/umls/rxnorm/",
+                maintainer: "US NLM (National Library of Medicine)",
+                region: "INTL",
+                languages: vec!["en"],
+                vintage_year: Some(2026),
+                license: "Public domain (US NLM) — SAB=RXNORM core ships",
+                fhir_binding: Some("MedicationRequest.medicationCodeableConcept"),
+                update_cadence: "Monthly full release (RxNorm_full_MMDDYYYY)",
+                schema_version: "sprint55",
+                notes: Some("Feeds DrugDiseaseNormalizer (brand→ingredient) + rxnorm_primekg_bridge (drugbank_id→PrimeKG node). DrugBank curated content excluded; only IDs/keys used."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "mariadb_atoms":         atoms,
+                    "mariadb_relationships": rel_count,
+                    "mariadb_unii":          unii,
+                }),
+                source_version: version,
+                status: if atoms > 0 { "active" } else { "pending_data" },
                 last_local_refresh: refresh,
             },
         });
