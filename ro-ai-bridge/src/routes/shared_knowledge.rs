@@ -131,6 +131,8 @@ async fn list_shared_kbs(
         let neo_count = primekg_neo4j_count().await;
         let qdrant_count = qdrant_collection_points("primekg-entities").await;
         let edges = primekg_edge_count().await;
+        // authoritative version from the graph's (:Meta) node; fall back to the known label.
+        let version = primekg_version().await.or_else(|| Some("primekg-v2".into()));
         let status = if neo_count > 0 && qdrant_count > 0 {
             "active"
         } else if neo_count > 0 {
@@ -162,7 +164,7 @@ async fn list_shared_kbs(
                     "neo4j_edges":   edges,
                     "qdrant_points": qdrant_count,
                 }),
-                source_version: Some("primekg-v2".into()),
+                source_version: version,
                 status,
                 last_local_refresh: None,
             },
@@ -490,4 +492,12 @@ async fn primekg_edge_count() -> i64 {
     let cfg = Neo4jConfig::from_env();
     let Some(svc) = Neo4jService::try_new(&cfg).await else { return 0 };
     svc.count_primekg_edges().await.unwrap_or(0)
+}
+
+/// Pinned PrimeKG version from the `(:Meta {kb:'primekg'})` node — authoritative over any
+/// hardcoded label. `None` if Neo4j is unreachable or the node hasn't been seeded.
+async fn primekg_version() -> Option<String> {
+    let cfg = Neo4jConfig::from_env();
+    let svc = Neo4jService::try_new(&cfg).await?;
+    svc.primekg_meta_version().await.ok().flatten()
 }
