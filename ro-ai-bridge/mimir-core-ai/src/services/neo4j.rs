@@ -993,6 +993,23 @@ impl Neo4jService {
         }
     }
 
+    /// The pinned PrimeKG release version, read from the `(:Meta {kb:'primekg'})` node
+    /// seeded at load time (migrations/neo4j/primekg_meta.cypher). Authoritative — reflects
+    /// what is actually in the graph, not a hardcoded string. `None` if the node is absent.
+    pub async fn primekg_meta_version(&self) -> Result<Option<String>> {
+        let mut result = self
+            .graph
+            .execute(neo4rs::query(
+                "MATCH (m:Meta {kb:'primekg'}) RETURN m.version AS version LIMIT 1",
+            ))
+            .await?;
+        if let Some(row) = result.next().await? {
+            Ok(row.get::<String>("version").ok())
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Count edges incident on PrimeKG nodes (informational only).
     pub async fn count_primekg_edges(&self) -> Result<i64> {
         let mut result = self
