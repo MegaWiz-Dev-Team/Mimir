@@ -61,17 +61,22 @@ CREATE TABLE rxnorm_rel (
     KEY idx_tenant (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ── 3. UNII (RXNSAT ATN='UNII') — chemical-identity bridge to DrugBank/PrimeKG ──────
--- FDA UNII is public domain and language-neutral: the same substance has one UNII
--- across RxNorm, DrugBank, TMT SUBS, INN. This is the join key for the PrimeKG bridge.
+-- ── 3. UNII + DrugBank-ID (RXNSAT ATN='FDA_UNII_CODE') — bridge keys to PrimeKG ─────
+-- In the RxNorm release the UNII attribute is `FDA_UNII_CODE` (SAB=DRUGBANK): its ATV is
+-- the FDA UNII (public domain) and its CODE is the DrugBank id (DBxxxxx). PrimeKG nodes are
+-- keyed by DrugBank id, so `drugbank_id` gives a DIRECT RxNorm→PrimeKG join — no external
+-- vocab needed. Per handoff: DrugBank IDs / crosswalk KEYS are fine to store; only DrugBank
+-- curated *content* is barred. UNII stays the language-neutral fallback join.
 CREATE TABLE rxnorm_unii (
     rxcui             BIGINT       NOT NULL,          -- an ingredient concept (TTY IN/PIN)
-    unii              VARCHAR(10)  NOT NULL,          -- FDA UNII (10-char)
+    unii              VARCHAR(10)  NOT NULL,          -- FDA UNII (10-char, public domain)
+    drugbank_id       VARCHAR(16)  DEFAULT NULL,      -- DrugBank id from CODE (a key, not content)
     source_version    VARCHAR(32)  NOT NULL,
     tenant_id         VARCHAR(50)  DEFAULT NULL,
     created_at        TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (rxcui, unii, source_version),
     KEY idx_unii (unii),
+    KEY idx_drugbank (drugbank_id),
     KEY idx_tenant (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
