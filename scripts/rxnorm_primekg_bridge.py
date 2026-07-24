@@ -9,29 +9,26 @@ bridge — and, crucially, MEASURES coverage so we know whether the DrugBank/UNI
 dependency is even needed.
 
 Identity chain:
-    written name → RxNorm IN (RXCUI) → { name | INN-synonym | UNII } → PrimeKG node
+    written name → RxNorm IN (RXCUI) → { drugbank_id | name | INN-synonym } → PrimeKG node
 
-Three match tiers, most-license-clean first:
-  1. name    — RxNorm IN/PIN string == PrimeKG node name (normalized). Zero external
-               data. Covers the majority (both use standardized generic names).
-  2. inn_syn — a RxNorm SY atom of that ingredient == PrimeKG name. Catches US↔INN
-               (albuterol→salbutamol) using RxNorm's OWN synonymy — still no DrugBank.
-  3. unii    — RxNorm UNII == DrugBank UNII. ONLY runs if --drugbank-vocab is given
-               (DrugBank's open vocabulary.csv: 'DrugBank ID','UNII'). Verify that
-               file's license before shipping; without it the tier is skipped and the
-               residual it *would* rescue is reported (so the decision is data-driven).
+Three match tiers, strongest first:
+  1. drugbank_id — RxNorm carries the DrugBank id per ingredient (RXNSAT FDA_UNII_CODE,
+                   captured into rxnorm_unii.drugbank_id). PrimeKG nodes are keyed by
+                   DrugBank id → an EXACT join, no external vocab. Dominant tier.
+  2. name        — RxNorm IN/PIN string == PrimeKG node name (normalized).
+  3. inn_syn     — a RxNorm SY atom of that ingredient == PrimeKG name (US↔INN).
 
-The residual (PrimeKG drug nodes no tier reaches) is printed — never silently dropped.
+The residual (PrimeKG drug nodes no tier reaches) is printed — never silently dropped;
+it's mostly PrimeKG's experimental/withdrawn compounds that aren't in (clinical) RxNorm.
 
-Usage:
-    NEO4J_URL=http://127.0.0.1:7474 NEO4J_USER=neo4j NEO4J_PASSWORD=… \\
-    python3 scripts/rxnorm_primekg_bridge.py --source-version rxnorm-20260601 \\
-        [--drugbank-vocab data/DrugBank/drugbank_vocabulary.csv] [--dry-run]
+Usage (offline PrimeKG source avoids Neo4j creds):
+    python3 scripts/rxnorm_primekg_bridge.py --source-version rxnorm-20260706 \\
+        --primekg-drugs primekg_drugs.tsv --dry-run
+    # or, live: NEO4J_URL=… NEO4J_PASSWORD=… … (omit --primekg-drugs)
 """
 from __future__ import annotations
 import argparse
 import base64
-import csv
 import json
 import os
 import subprocess
@@ -123,93 +120,84 @@ def load_rxnorm(source_version):
         f"WHERE a.source_version={sv} AND a.tty IN ('SY','TMSY','PSN')"):
         if rxcui in ingredient_cuis:
             syn_index.setdefault(str_norm, rxcui)
-    # UNII per rxcui, and inverted unii → rxcui
-    unii_by_rxcui, rxcui_by_unii = {}, {}
-    for rxcui, unii in rows(
-        f"SELECT rxcui, unii FROM rxnorm_unii WHERE source_version={sv}"):
+    # UNII per rxcui (inverted), and DrugBank-id → rxcui (the direct PrimeKG join key)
+    unii_by_rxcui, rxcui_by_unii, dbid_to_rxcui = {}, {}, {}
+    for rxcui, unii, drugbank_id in rows(
+        f"SELECT rxcui, unii, drugbank_id FROM rxnorm_unii WHERE source_version={sv}"):
         unii_by_rxcui.setdefault(rxcui, set()).add(unii)
         rxcui_by_unii.setdefault(unii, rxcui)
-    return name_index, syn_index, unii_by_rxcui, rxcui_by_unii, in_name
+        if drugbank_id and drugbank_id != "NULL":
+            dbid_to_rxcui.setdefault(drugbank_id, rxcui)
+    return name_index, syn_index, unii_by_rxcui, rxcui_by_unii, in_name, dbid_to_rxcui
 
 
-def load_primekg_drugs():
+def load_primekg_drugs(path=None):
     # PrimeKG drug nodes carry a DrugBank id (entity_id like 'DB00682') + name.
+    # Offline: a `drugbank_id<TAB>name` TSV (extract from kg.csv: $5=="drug"{print $4"\t"$6}).
+    if path:
+        out, seen = [], set()
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                c = line.rstrip("\n").split("\t")
+                if len(c) >= 2 and c[0].strip() and c[0] not in seen:
+                    seen.add(c[0])
+                    out.append({"db_id": c[0].strip(), "name": c[1].strip(), "idx": None})
+        return out
     return neo4j_query(
         "MATCH (n:PrimeKG) WHERE toLower(n.type) CONTAINS 'drug' "
         "RETURN n.entity_id AS db_id, n.name AS name, n.entity_index AS idx")
 
 
-def load_drugbank_unii(path):
-    # DrugBank open vocabulary.csv → {DB id: UNII}. License: verify before shipping.
-    m = {}
-    with open(path, encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            dbid = (r.get("DrugBank ID") or r.get("drugbank_id") or "").strip()
-            unii = (r.get("UNII") or r.get("unii") or "").strip()
-            if dbid and unii:
-                m[dbid] = unii
-    return m
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source-version", required=True)
-    ap.add_argument("--drugbank-vocab", help="DrugBank vocabulary.csv (DB id→UNII); enables the unii tier")
+    ap.add_argument("--primekg-drugs", help="offline PrimeKG drug TSV (db_id, name); else query Neo4j")
     ap.add_argument("--dry-run", action="store_true", help="report coverage; no DB writes")
     ap.add_argument("--residual-top", type=int, default=25)
     args = ap.parse_args()
 
     print("loading RxNorm ingredient index from MariaDB …", flush=True)
-    name_index, syn_index, unii_by_rxcui, rxcui_by_unii, in_name = load_rxnorm(args.source_version)
+    name_index, syn_index, unii_by_rxcui, rxcui_by_unii, in_name, dbid_to_rxcui = \
+        load_rxnorm(args.source_version)
     print(f"  {len(name_index)} ingredient names · {len(syn_index)} synonyms · "
-          f"{len(rxcui_by_unii)} UNII", flush=True)
+          f"{len(rxcui_by_unii)} UNII · {len(dbid_to_rxcui)} DrugBank-id keys", flush=True)
 
-    print("loading PrimeKG drug nodes from Neo4j …", flush=True)
-    drugs = load_primekg_drugs()
+    src = args.primekg_drugs or "Neo4j"
+    print(f"loading PrimeKG drug nodes from {src} …", flush=True)
+    drugs = load_primekg_drugs(args.primekg_drugs)
     print(f"  {len(drugs)} PrimeKG drug nodes", flush=True)
 
-    db_unii = {}
-    if args.drugbank_vocab:
-        db_unii = load_drugbank_unii(args.drugbank_vocab)
-        print(f"  DrugBank vocab: {len(db_unii)} DB→UNII rows (unii tier ENABLED)", flush=True)
-    else:
-        print("  --drugbank-vocab not given → unii tier SKIPPED (residual reported)", flush=True)
-
+    # Tiers, strongest first: drugbank_id (exact key match, RxNorm carries it via FDA_UNII_CODE),
+    # then name, then INN synonym. The direct id join retires the external DrugBank-vocab dependency.
     mapped, residual = [], []
-    counts = {"name": 0, "inn_syn": 0, "unii": 0}
-    would_unii_rescue = 0
+    counts = {"drugbank_id": 0, "name": 0, "inn_syn": 0}
     for d in drugs:
         db_id, name = d.get("db_id"), d.get("name")
         nn = norm(name)
         method = rxcui = None
-        if nn in name_index:
+        if db_id in dbid_to_rxcui:
+            method, rxcui = "drugbank_id", dbid_to_rxcui[db_id]
+        elif nn in name_index:
             method, rxcui = "name", name_index[nn]
         elif nn in syn_index:
             method, rxcui = "inn_syn", syn_index[nn]
-        elif db_unii.get(db_id) and db_unii[db_id] in rxcui_by_unii:
-            method, rxcui = "unii", rxcui_by_unii[db_unii[db_id]]
         if method:
             counts[method] += 1
             unii = next(iter(unii_by_rxcui.get(rxcui, [])), None)
-            conf = {"name": 1.00, "inn_syn": 0.95, "unii": 0.90}[method]
+            conf = {"drugbank_id": 1.00, "name": 1.00, "inn_syn": 0.95}[method]
             mapped.append({"rxcui": rxcui, "unii": unii, "db_id": db_id,
                            "idx": d.get("idx"), "name": name,
                            "method": method, "conf": conf})
         else:
-            # would a UNII bridge have rescued this if we had the DB vocab?
-            if not args.drugbank_vocab and db_id:
-                would_unii_rescue += 0  # unknown without vocab; leave 0 (honest)
             residual.append((db_id, name))
 
     total = len(drugs)
     bridged = len(mapped)
     print("\n── coverage ──────────────────────────────────────────────")
     print(f"  bridged      {bridged:>6}/{total}  ({100*bridged/total:.1f}%)")
-    for m in ("name", "inn_syn", "unii"):
-        print(f"    {m:8}   {counts[m]:>6}  ({100*counts[m]/total:.1f}%)")
+    for m in ("drugbank_id", "name", "inn_syn"):
+        print(f"    {m:12} {counts[m]:>6}  ({100*counts[m]/total:.1f}%)")
     print(f"  residual     {len(residual):>6}  ({100*len(residual)/total:.1f}%)")
-    if not args.drugbank_vocab and residual:
-        print("  (supply --drugbank-vocab to let the UNII tier attempt the residual)")
     print("  residual sample (PrimeKG nodes no tier reached):")
     for db_id, name in residual[:args.residual_top]:
         print(f"    {db_id:10} {name}")
