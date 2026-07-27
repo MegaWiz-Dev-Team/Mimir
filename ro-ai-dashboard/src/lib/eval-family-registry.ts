@@ -13,7 +13,9 @@ export type EvalFamily =
     | "ocr"
     | "ocr_layout"
     | "ner"
-    | "coding";
+    | "coding"
+    | "stt"
+    | "tts";
 
 export interface FamilySpec {
     /** Human label for the family chip/section. */
@@ -80,6 +82,21 @@ export const EVAL_FAMILIES: Record<EvalFamily, FamilySpec> = {
         higherIsBetter: true,
         sliceDimensions: ["code_system"],
         format: pct,
+    },
+    stt: {
+        label: "STT (speech)",
+        primaryMetric: "cer",
+        higherIsBetter: false,
+        sliceDimensions: ["channel"],
+        format: ratio,
+        // no gate yet — no agreed CER target for Thai clinical speech
+    },
+    tts: {
+        label: "TTS (speech synthesis)",
+        primaryMetric: "mos",
+        higherIsBetter: true,
+        sliceDimensions: ["channel"],
+        format: (v: number) => v.toFixed(2), // MOS 1-5
     },
 };
 
