@@ -282,8 +282,10 @@ async fn run_evaluation_task(
               benchmark_id, bench_tenant, params.item_ids.is_some());
         // Sprint 40: also accept __global__ datasets (medical benchmarks loaded
         // for cross-tenant use) — same fallback as the listing/get endpoints.
+        // CAST: items is utf8mb4_bin, which sqlx surfaces as BLOB and refuses
+        // to decode into String without it.
         let row: Option<(String, String)> = sqlx::query_as(
-            "SELECT items, scoring_fn FROM eval_benchmark_datasets
+            "SELECT CAST(items AS CHAR), scoring_fn FROM eval_benchmark_datasets
              WHERE id = ? AND (tenant_id = ? OR tenant_id = '__global__')",
         )
         .bind(benchmark_id)
@@ -320,9 +322,11 @@ async fn run_evaluation_task(
             .take(params.question_limit)
             .collect()
     } else {
+        // qa_results no longer carries a status column — every stored row is a
+        // finished Q&A pair, so no filter beyond tenant.
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT question, answer FROM qa_results
-             WHERE tenant_id = ? AND status = 'COMPLETED'
+             WHERE tenant_id = ?
              ORDER BY RAND() LIMIT ?",
         )
         .bind(&params.tenant_id)
