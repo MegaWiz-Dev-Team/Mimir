@@ -701,6 +701,13 @@ async fn run_evaluation_task(
     .execute(&pool)
     .await?;
 
+    // Mirror into evx_* so the unified scoreboard sees the run immediately.
+    // Never fails the run — on error the scoreboard lags until the next
+    // manual backfill (scripts/eval_unify_backfill.sql) catches it up.
+    if let Err(e) = super::evx_sync::sync_qa_run_to_evx(&pool, &run_id).await {
+        warn!("evx sync failed for run {}: {} — scoreboard will lag until backfill", run_id, e);
+    }
+
     info!("✅ Evaluation run {} completed", run_id);
     Ok(())
 }
