@@ -202,12 +202,12 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/healthz", get(health_check))
         .merge(eval_routes())
-        .merge(evx_routes())
+        .merge(evx_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         // OCR eval, two complementary axes (both tenant-scoped, default
         // asgard_platform): LAYOUT = region detection mAP/IoU (Sprint 53);
         // TEXT = CER/WER per engine (Sprint 51 ocr_eval_*, read-only here).
-        .nest("/api/v1/eval/ocr/layout", ro_ai_bridge::routes::eval_ocr_layout::eval_ocr_layout_routes())
-        .nest("/api/v1/eval/ocr/text", ro_ai_bridge::routes::eval_ocr_text::eval_ocr_text_routes())
+        .nest("/api/v1/eval/ocr/layout", ro_ai_bridge::routes::eval_ocr_layout::eval_ocr_layout_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
+        .nest("/api/v1/eval/ocr/text", ro_ai_bridge::routes::eval_ocr_text::eval_ocr_text_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         // Sprint 39: Mimir Curator (annotation) + LoRA training tracking
         .merge(training_routes())
         // Sprint 48: ICD-10 / ICD-10-TM lookup (Hermodr-bound skill)
@@ -256,7 +256,7 @@ async fn main() {
         .nest("/api/v1/admin/knowledge", admin_knowledge_routes())
         .nest("/api/v1/knowledge/shared", shared_knowledge_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/knowledge/shared", shared_kb_items_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
-        .nest("/api/v1/knowledge/search", knowledge_search_routes())
+        .nest("/api/v1/knowledge/search", knowledge_search_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/knowledge/primekg", knowledge_primekg_routes())
         .nest("/api/v1/knowledge/tmt", knowledge_tmt_routes())
         .nest("/api/v1/knowledge/tmlt", knowledge_tmlt_routes())
@@ -270,7 +270,7 @@ async fn main() {
         // Sprint 30: Tenant Management + PageIndex
         .nest("/api/v1/tenants", tenant_routes())
         .nest("/api/v1/tenants/{tenant_id}/ingest", ingest_routes())
-        .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes())
+        .nest("/api/v1/tenants/{tenant_id}/query", tenant_query_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1", ro_ai_bridge::routes::features::features_routes())
         // Sprint 32: RAG Ensemble Playground (Phase 2)
         .merge(search_routes())
