@@ -1023,6 +1023,49 @@ impl Neo4jService {
         }
     }
 
+    /// Count ClinicalKB nodes (shared-knowledge catalog).
+    pub async fn count_clinicalkb_nodes(&self) -> Result<i64> {
+        let mut result = self
+            .graph
+            .execute(neo4rs::query("MATCH (n:ClinicalKB) RETURN count(n) AS total"))
+            .await?;
+        if let Some(row) = result.next().await? {
+            Ok(row.get::<i64>("total").unwrap_or(0))
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Count relationships between ClinicalKB nodes (excludes SAME_AS bridges).
+    pub async fn count_clinicalkb_edges(&self) -> Result<i64> {
+        let mut result = self
+            .graph
+            .execute(neo4rs::query(
+                "MATCH (:ClinicalKB)-[r]->(:ClinicalKB) RETURN count(r) AS c",
+            ))
+            .await?;
+        if let Some(row) = result.next().await? {
+            Ok(row.get::<i64>("c").unwrap_or(0))
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Count SAME_AS bridges from ClinicalKB into PrimeKG.
+    pub async fn count_clinicalkb_bridges(&self) -> Result<i64> {
+        let mut result = self
+            .graph
+            .execute(neo4rs::query(
+                "MATCH (:ClinicalKB)-[r:SAME_AS]->(:PrimeKG) RETURN count(r) AS c",
+            ))
+            .await?;
+        if let Some(row) = result.next().await? {
+            Ok(row.get::<i64>("c").unwrap_or(0))
+        } else {
+            Ok(0)
+        }
+    }
+
     /// Fetch a batch of PrimeKG nodes for embedding, ordered by entity_index.
     pub async fn stream_primekg_nodes(
         &self,

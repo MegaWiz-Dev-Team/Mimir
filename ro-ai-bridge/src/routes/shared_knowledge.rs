@@ -171,6 +171,42 @@ async fn list_shared_kbs(
         });
     }
 
+    // ── ClinicalKB (Emergency Medicine) ────────────────────────────────────
+    {
+        let neo_count = clinicalkb_neo4j_count().await;
+        let edges = clinicalkb_edge_count().await;
+        let bridges = clinicalkb_bridge_count().await;
+        kbs.push(SharedKbEntry {
+            meta: SharedKbMeta {
+                id: "clinicalkb",
+                name: "ClinicalKB (Emergency Medicine)",
+                description: "Curated emergency-medicine knowledge graph — 298 chapters, 14 clinical relation types (dosing, first-line treatment, presentation with typicality, red flags) + DDXPlus presentation seed, bridged into PrimeKG via SAME_AS. Powers Embla illness scripts + AI patient agents.",
+                kind: "graph_ontology",
+                stores: vec!["neo4j"],
+                source_url: "internal://Embla/docs/KB_TINTINALLI_PLAN.md",
+                maintainer: "Megawiz (internal — trade secret, no redistribution)",
+                region: "INTL",
+                languages: vec!["en"],
+                vintage_year: Some(2020),
+                license: "Proprietary — internal only (derived content; verbatim quotes never leave the server)",
+                fhir_binding: None,
+                update_cadence: "Progressive — nightly local-ensemble crawl upgrades confidence tiers (phase 3.5)",
+                schema_version: "clinicalkb-v1.0.0",
+                notes: Some("PROVISIONAL pending clinician validation (E2). Every edge carries confidence_tier (single_source measured P=0.84). 1,492 diseases are AI-patient capable; 301 have symptoms+treatment."),
+            },
+            live: SharedKbLive {
+                counts: json!({
+                    "neo4j_nodes":      neo_count,
+                    "neo4j_edges":      edges,
+                    "same_as_bridges":  bridges,
+                }),
+                source_version: Some("tintinalli-9e + ddxplus".into()),
+                status: if neo_count > 0 { "active" } else { "pending_data" },
+                last_local_refresh: None,
+            },
+        });
+    }
+
     // ── PubMed (abstracts) ───────────────────────────────────────────────────
     //
     // Qdrant-only literature corpus. Mixes a one-off BigQuery PMC open-access
@@ -547,4 +583,22 @@ async fn primekg_version() -> Option<String> {
     let cfg = Neo4jConfig::from_env();
     let svc = Neo4jService::try_new(&cfg).await?;
     svc.primekg_meta_version().await.ok().flatten()
+}
+
+async fn clinicalkb_neo4j_count() -> i64 {
+    let cfg = Neo4jConfig::from_env();
+    let Some(svc) = Neo4jService::try_new(&cfg).await else { return 0 };
+    svc.count_clinicalkb_nodes().await.unwrap_or(0)
+}
+
+async fn clinicalkb_edge_count() -> i64 {
+    let cfg = Neo4jConfig::from_env();
+    let Some(svc) = Neo4jService::try_new(&cfg).await else { return 0 };
+    svc.count_clinicalkb_edges().await.unwrap_or(0)
+}
+
+async fn clinicalkb_bridge_count() -> i64 {
+    let cfg = Neo4jConfig::from_env();
+    let Some(svc) = Neo4jService::try_new(&cfg).await else { return 0 };
+    svc.count_clinicalkb_bridges().await.unwrap_or(0)
 }
