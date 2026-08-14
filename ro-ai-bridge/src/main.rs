@@ -10,6 +10,7 @@ use opentelemetry::global;
 use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
 
 use mimir_core_ai::middleware::request_id::request_id_middleware;
+use mimir_core_ai::middleware::dual_mode_auth::dual_mode_auth_middleware;
 use mimir_core_ai::services::cron;
 use mimir_core_ai::services::db;
 use ro_ai_bridge::config::Config;
@@ -215,26 +216,26 @@ async fn main() {
         .merge(rag_benchmark_routes())
         .nest("/api/v1/app-settings", ro_ai_bridge::routes::app_settings::app_settings_routes())
         .nest("/api/v1", ro_ai_bridge::routes::auto_tune::auto_tune_routes())
-        .nest("/api/v1", ro_ai_bridge::routes::insights::insights_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::insights::insights_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/iam", iam_routes())
         .nest("/api/v1/auth", auth_routes())
         .nest("/api/v1/pipeline", pipeline_routes())
         .nest("/api/v1/qc", qc_routes())
-        .nest("/api/v1", ro_ai_bridge::routes::stats::stats_routes())
+        .nest("/api/v1", ro_ai_bridge::routes::stats::stats_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/vector", vector_routes())
         .nest(
             "/api/v1/sources",
             ro_ai_bridge::routes::sources::sources_routes(),
         )
         .nest("/api/v1/chunks", chunks_routes())
-        .nest("/api/v1/llm-usage", llm_usage_routes())
-        .nest("/api/v1/agents", agents_routes())
-        .nest("/api/v1/agents", chat_routes())
-        .nest("/api/v1/conversations", conversations_routes())
+        .nest("/api/v1/llm-usage", llm_usage_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
+        .nest("/api/v1/agents", agents_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
+        .nest("/api/v1/agents", chat_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
+        .nest("/api/v1/conversations", conversations_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/evaluations", evaluations_ext_routes())
         .nest("/api/v1/rag-eval", rag_eval_routes())
-        .nest("/api/v1/settings", budget_settings_routes())
-        .merge(budget_usage_routes())
+        .nest("/api/v1/settings", budget_settings_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
+        .merge(budget_usage_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         // Sprint 14: Cron schedule, feedback & OCR routes
         .nest("/api/v1", cron_routes())
         .nest("/api/v1", cron_status_routes())
@@ -244,17 +245,17 @@ async fn main() {
         // Sprint 50b — Skuggi PII test corpus admin (B-50b)
         .nest("/api/v1", ro_ai_bridge::routes::admin_skuggi::admin_skuggi_routes())
         .nest("/api/v1", batch_pipeline_routes())
-        .nest("/api/v1/db-connector", db_connector_routes())
+        .nest("/api/v1/db-connector", db_connector_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1", models_routes())
-        .nest("/api/v1/vault", vault_routes())
+        .nest("/api/v1/vault", vault_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/mcp", mcp_routes())
-        .nest("/api/v1/backup", backup_routes())
+        .nest("/api/v1/backup", backup_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/docs", docs_routes())
         // Sprint 17: Knowledge Graph routes
-        .nest("/api/v1/graph", graph_routes())
+        .nest("/api/v1/graph", graph_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/admin/knowledge", admin_knowledge_routes())
-        .nest("/api/v1/knowledge/shared", shared_knowledge_routes())
-        .nest("/api/v1/knowledge/shared", shared_kb_items_routes())
+        .nest("/api/v1/knowledge/shared", shared_knowledge_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
+        .nest("/api/v1/knowledge/shared", shared_kb_items_routes().route_layer(middleware::from_fn(dual_mode_auth_middleware)))
         .nest("/api/v1/knowledge/search", knowledge_search_routes())
         .nest("/api/v1/knowledge/primekg", knowledge_primekg_routes())
         .nest("/api/v1/knowledge/tmt", knowledge_tmt_routes())
