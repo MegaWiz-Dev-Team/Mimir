@@ -22,6 +22,9 @@ fn build_body_is_one_user_turn_and_honours_force_json() {
     let cfg = GeminiCallConfig { temperature: 0.2, max_output_tokens: 99, force_json: true, timeout_secs: 1 };
     let body = build_body("hi", &cfg);
     assert_eq!(body["contents"].as_array().map(Vec::len), Some(1));
+    // Vertex rejects a turn without a role ("Please use a valid role: user, model"); AI Studio
+    // merely tolerates its absence. Always send it so one body serves both routes.
+    assert_eq!(body["contents"][0]["role"], "user");
     assert_eq!(body["contents"][0]["parts"][0]["text"], "hi");
     assert_eq!(body["generationConfig"]["maxOutputTokens"], 99);
     assert_eq!(body["generationConfig"]["response_mime_type"], "application/json");
