@@ -12,11 +12,16 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::time::Duration;
 
+/// The one cheap Gemini default. Gemini 2.5 Flash is retired (Vertex + Gemini API: public
+/// access ends 2026-10-20, shutdown 2027-03-31); Gemini 3.5 Flash-Lite is Google's like-for-like
+/// successor at the same price ($0.30 / $2.50 per 1M tokens).
+pub const DEFAULT_GEMINI_MODEL: &str = "gemini-3.5-flash-lite";
+
 /// Default model for LLM-as-judge scoring (cheap, fast).
-pub const DEFAULT_JUDGE_MODEL: &str = "gemini-2.5-flash";
+pub const DEFAULT_JUDGE_MODEL: &str = DEFAULT_GEMINI_MODEL;
 
 /// Default model for analysis/insights (cheap, structured output).
-pub const DEFAULT_INSIGHT_MODEL: &str = "gemini-2.5-flash";
+pub const DEFAULT_INSIGHT_MODEL: &str = DEFAULT_GEMINI_MODEL;
 
 /// Default model for hypothesis generation + auto-tuning (more capable, slower).
 pub const DEFAULT_AUTO_TUNE_MODEL: &str = "gemini-3.1-pro-preview";
@@ -71,9 +76,9 @@ pub struct GeminiCallResult {
     pub output_tokens: i64,
 }
 
-/// Call Gemini's generateContent with a single text prompt.
-/// Returns (text, input_tokens, output_tokens).
-pub async fn call_text(model: &str, prompt: &str, cfg: &GeminiCallConfig) -> Result<GeminiCallResult> {
+/// One user turn. Every call here is stateless — there is no prior model turn, so no Gemini 3
+/// `thoughtSignature` to echo back.
+pub fn build_body(prompt: &str, cfg: &GeminiCallConfig) -> Value {
     let mut gen_config = serde_json::json!({
         "temperature": cfg.temperature,
         "maxOutputTokens": cfg.max_output_tokens,
@@ -81,11 +86,33 @@ pub async fn call_text(model: &str, prompt: &str, cfg: &GeminiCallConfig) -> Res
     if cfg.force_json {
         gen_config["response_mime_type"] = serde_json::json!("application/json");
     }
-
-    let body = serde_json::json!({
+    serde_json::json!({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": gen_config,
-    });
+    })
+}
+
+/// Answer text of the first candidate. Gemini 3 may prepend `thought: true` summary parts and
+/// attaches a `thoughtSignature` to the answer part; only the non-thought text parts count.
+/// Empty when there is no answer (caller reports the finish reason).
+pub fn extract_text(json: &Value) -> String {
+    json["candidates"]
+        .get(0)
+        .and_then(|c| c["content"]["parts"].as_array())
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p["thought"].as_bool() != Some(true))
+                .filter_map(|p| p["text"].as_str())
+                .collect::<String>()
+        })
+        .unwrap_or_default()
+}
+
+/// Call Gemini's generateContent with a single text prompt.
+/// Returns (text, input_tokens, output_tokens).
+pub async fn call_text(model: &str, prompt: &str, cfg: &GeminiCallConfig) -> Result<GeminiCallResult> {
+    let body = build_body(prompt, cfg);
 
     let url = generate_content_url(model)?;
     let resp = reqwest::Client::builder()
@@ -104,11 +131,7 @@ pub async fn call_text(model: &str, prompt: &str, cfg: &GeminiCallConfig) -> Res
     }
 
     let json: Value = resp.json().await.context("Gemini response not JSON")?;
-    let text = json["candidates"].get(0)
-        .and_then(|c| c["content"]["parts"].get(0))
-        .and_then(|p| p["text"].as_str())
-        .unwrap_or("")
-        .to_string();
+    let text = extract_text(&json);
     let input_tokens = json["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0);
     let output_tokens = json["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0);
 

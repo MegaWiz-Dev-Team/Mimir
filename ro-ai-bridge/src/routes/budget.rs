@@ -347,6 +347,10 @@ fn estimate_cost(model_id: &str, total_tokens: i64) -> f64 {
     let per_1m = match model_id {
         m if m.starts_with("gpt-4") => 30.0,
         m if m.starts_with("gpt-3.5") => 2.0,
+        m if m.starts_with("gemini-3.5-flash-lite") => 2.5,
+        m if m.starts_with("gemini-3.5-flash") => 9.0,
+        m if m.starts_with("gemini-3.1-flash-lite") => 1.5,
+        m if m.starts_with("gemini-3.1-pro") => 12.0,
         m if m.starts_with("gemini-2.5-pro") => 10.0,
         m if m.starts_with("gemini") => 0.5,
         _ => 0.0, // Local models: free

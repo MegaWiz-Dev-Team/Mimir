@@ -250,6 +250,12 @@ fn estimate_cost(model_id: &str, _provider: &str, total_tokens: i64) -> f64 {
         m if m.contains("gpt-4o") => 5.0,
         m if m.contains("gpt-4") => 30.0,
         m if m.contains("gpt-3.5") => 0.5,
+        // Gemini 3 (USD per 1M input tokens, 2026-09): 3.5 Flash 1.50, 3.5 Flash-Lite 0.30,
+        // 3.1 Flash-Lite 0.25, 3.1 Pro 2.00. Gemini 2.5 rows stay for historical usage.
+        m if m.contains("gemini-3.5-flash-lite") => 0.30,
+        m if m.contains("gemini-3.5-flash") => 1.50,
+        m if m.contains("gemini-3.1-flash-lite") => 0.25,
+        m if m.contains("gemini-3.1-pro") => 2.00,
         m if m.contains("gemini-2.5-pro") => 1.25,
         m if m.contains("gemini-2.5-flash") => 0.15,
         m if m.contains("gemini-2.0-flash") => 0.10,
