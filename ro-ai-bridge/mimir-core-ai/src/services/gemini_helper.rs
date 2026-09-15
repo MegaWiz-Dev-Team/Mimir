@@ -87,7 +87,7 @@ pub fn build_body(prompt: &str, cfg: &GeminiCallConfig) -> Value {
         gen_config["response_mime_type"] = serde_json::json!("application/json");
     }
     serde_json::json!({
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": gen_config,
     })
 }
