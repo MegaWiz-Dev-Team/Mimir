@@ -16,7 +16,7 @@ Env vars (all optional except required):
   RUN_NAME            default: auto-generated
   MIMIR_API           default: http://localhost:30000
   GEMINI_API_KEY      from env
-  JUDGE_MODEL         default: gemini-2.5-flash
+  JUDGE_MODEL         default: gemini-3.5-flash-lite
   RUN_ID              optional: re-use existing run id; otherwise auto
 
 Inserts:
@@ -42,7 +42,7 @@ MAX_ITEMS     = int(os.environ.get("MAX_ITEMS", "10"))
 RUN_NAME      = os.environ.get("RUN_NAME") or f"HealthBench-Pro-{time.strftime('%Y%m%d-%H%M%S')}"
 MIMIR_API     = os.environ.get("MIMIR_API", "http://localhost:30000")
 GEMINI_KEY    = os.environ.get("GEMINI_API_KEY", "")
-JUDGE_MODEL   = os.environ.get("JUDGE_MODEL", "gemini-2.5-flash")
+JUDGE_MODEL   = os.environ.get("JUDGE_MODEL", "gemini-3.5-flash-lite")
 RUN_ID        = os.environ.get("RUN_ID") or str(uuid.uuid4())
 # Sprint 51c finding: judge_thinking=default vs thinkingBudget=0 swings scores
 # by up to 11pp on the same dataset. Canonical judge config locked to

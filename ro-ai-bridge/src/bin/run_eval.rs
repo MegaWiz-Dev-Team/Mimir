@@ -49,7 +49,8 @@ async fn main() -> Result<()> {
     dotenv().ok();
 
     let is_test_run = env::var("TEST_RUN").unwrap_or_default() == "1";
-    let judge_model = env::var("JUDGE_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let judge_model = env::var("JUDGE_MODEL")
+        .unwrap_or_else(|_| mimir_core_ai::services::gemini_helper::DEFAULT_JUDGE_MODEL.to_string());
 
     // ─── 1. Load Q/A Dataset ──────────────────────────────────────────────
     let dataset_path = "data/qa_dataset.json";

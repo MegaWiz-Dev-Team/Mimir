@@ -185,7 +185,7 @@ def strip_reasoning(text: str) -> tuple[str, str]:
 # ─── Gemini judge ─────────────────────────────────────────────────────────
 def judge(
     question: str, expected: str, actual: str, api_key: str,
-    model: str = "gemini-2.5-flash", judge_thinking: bool = False,
+    model: str = "gemini-3.5-flash-lite", judge_thinking: bool = False,
 ) -> dict:
     """When `judge_thinking` is True, leaves Gemini's thinking budget at
     its default (unlimited up to maxOutputTokens) — useful to compare

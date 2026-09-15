@@ -178,7 +178,7 @@ pub(crate) async fn agent_chat(
         let expanded_query: String = if query_expansion_n >= 2 {
             // Use the cheap default Gemini judge model — already configured + reachable.
             let gemini_model = std::env::var("QUERY_EXPANSION_MODEL")
-                .unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+                .unwrap_or_else(|_| mimir_core_ai::services::gemini_helper::DEFAULT_JUDGE_MODEL.to_string());
             let prompt = format!(
                 "Rewrite this medical question in exactly {} different but semantically equivalent ways. \
                  Use medical synonyms, alternate phrasings, and clinical terminology variations. \

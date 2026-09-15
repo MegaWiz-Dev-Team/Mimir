@@ -18,7 +18,7 @@ For each model in MODELS:
 Env (auto-discoverable):
   MODELS               comma-separated 'model_id:provider' pairs
                        default: 'gemini-3-flash-preview:google,
-                                 gemini-2.5-flash:google,
+                                 gemini-3.5-flash-lite:google,
                                  <currently-loaded MLX>:heimdall'
   API_BASE             default http://localhost:30000
   HEIMDALL_BASE        default http://localhost:8080
@@ -215,7 +215,7 @@ def build_default_model_list():
     """Default plan: cloud baselines + currently-loaded MLX (if any)."""
     plan = [
         {"id": "gemini-3-flash-preview", "provider": "google", "kind": "cloud"},
-        {"id": "gemini-2.5-flash",        "provider": "google", "kind": "cloud"},
+        {"id": "gemini-3.5-flash-lite",   "provider": "google", "kind": "cloud"},
     ]
     active_mlx = detect_active_mlx_model()
     if active_mlx:

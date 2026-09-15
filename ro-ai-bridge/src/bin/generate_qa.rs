@@ -47,7 +47,8 @@ async fn main() -> Result<()> {
     };
 
     // ACU Extractor + Verifier — uses Gemini via Heimdall
-    let gemini_model = env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let gemini_model = env::var("GEMINI_MODEL")
+        .unwrap_or_else(|_| mimir_core_ai::services::gemini_helper::DEFAULT_GEMINI_MODEL.to_string());
     let gemini_prefixed = format!("gemini/{}", gemini_model);
 
     info!("☁️ ACU/Verifier: Gemini via Heimdall (model={})", gemini_prefixed);

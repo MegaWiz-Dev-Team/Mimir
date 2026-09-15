@@ -80,7 +80,7 @@ impl Config {
             }),
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
             gemini_model: env::var("GEMINI_MODEL")
-                .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
+                .unwrap_or_else(|_| mimir_core_ai::services::gemini_helper::DEFAULT_GEMINI_MODEL.to_string()),
 
             // Heimdall (Self-hosted LLM Gateway)
             heimdall_api_url: env::var("HEIMDALL_API_URL").unwrap_or_else(|_| {

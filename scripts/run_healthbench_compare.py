@@ -34,7 +34,7 @@ RUN_NAME         = os.environ.get("RUN_NAME") or f"HealthBench-compare-{time.str
 RUN_ID           = os.environ.get("RUN_ID") or str(uuid.uuid4())
 MIMIR_API        = os.environ.get("MIMIR_API", "http://localhost:30000")
 GEMINI_KEY       = os.environ.get("GEMINI_API_KEY", "")
-JUDGE_MODEL      = os.environ.get("JUDGE_MODEL", "gemini-2.5-flash")
+JUDGE_MODEL      = os.environ.get("JUDGE_MODEL", "gemini-3.5-flash-lite")
 
 if not AGENT_ID or not GEMINI_KEY or not MODELS_STR:
     print("❌ Required: AGENT_ID, GEMINI_API_KEY, MODELS", file=sys.stderr)

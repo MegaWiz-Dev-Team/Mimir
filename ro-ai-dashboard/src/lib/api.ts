@@ -1204,7 +1204,7 @@ export interface PageIndexResponse {
 export async function generatePageIndexTree(
     sourceId: number,
     provider: string = "gemini",
-    model: string = "gemini-2.5-flash"
+    model: string = "gemini-3.5-flash-lite"
 ): Promise<PageIndexResponse> {
     const res = await authFetch(`${API_BASE_URL}/sources/${sourceId}/extract-pageindex`, {
         method: "POST",

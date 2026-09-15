@@ -155,8 +155,12 @@ async fn deactivate_missing_models(pool: &MySqlPool, active_models: &std::collec
     deactivated
 }
 
-async fn seed_default_heimdall_models(pool: &MySqlPool, active_models: &mut std::collections::HashSet<(String, String)>) {
-    let default_models = vec![
+/// Fallback catalog used when Heimdall cannot be reached. Cloud rows must only name models that
+/// still answer: Gemini 2.5 is retired (shutdown 2027-01-28 Flash-Lite, 2027-03-31 Flash / Pro),
+/// replaced by the GA Gemini 3 ids (3.1 Flash-Lite for 2.5 Flash-Lite; 3.5 Flash-Lite / 3.5 Flash
+/// for 2.5 Flash; 3.5 Flash or 3.1 Pro for 2.5 Pro).
+pub fn default_models() -> Vec<(&'static str, &'static str, &'static str)> {
+    vec![
         ("heimdall", "mlx-community/Qwen3.5-35B-A3B-4bit", "{\"reasoning\":true,\"tools\":true,\"vision\":false}"),
         ("heimdall", "mlx-community/Qwen3.5-27B-4bit", "{\"reasoning\":true,\"tools\":true,\"vision\":false}"),
         ("heimdall", "mlx-community/Qwen3.5-9B-MLX-4bit", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
@@ -164,14 +168,16 @@ async fn seed_default_heimdall_models(pool: &MySqlPool, active_models: &mut std:
         ("heimdall", "qwen2.5", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
         ("heimdall", "llama3.2", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
         ("google", "gemini-3.1-pro-preview", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
-        ("google", "gemini-3.1-flash-lite-preview", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
+        ("google", "gemini-3.5-flash", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
+        ("google", "gemini-3.5-flash-lite", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
+        ("google", "gemini-3.1-flash-lite", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
         ("google", "gemini-3.1-flash-image-preview", "{\"reasoning\":false,\"tools\":true,\"vision\":true}"),
-        ("google", "gemini-2.5-pro", "{\"reasoning\":true,\"tools\":true,\"vision\":true}"),
-        ("google", "gemini-2.5-flash", "{\"reasoning\":false,\"tools\":true,\"vision\":true}"),
-        ("google", "gemini-2.5-flash-lite-preview", "{\"reasoning\":false,\"tools\":true,\"vision\":false}"),
         ("sakura", "sakura/Qwen3.5-110B-Chat", "{\"reasoning\":true,\"tools\":true,\"vision\":false}"),
-    ];
-    for (provider, model, caps) in default_models {
+    ]
+}
+
+async fn seed_default_heimdall_models(pool: &MySqlPool, active_models: &mut std::collections::HashSet<(String, String)>) {
+    for (provider, model, caps) in default_models() {
         active_models.insert((provider.to_string(), model.to_string()));
         upsert_model(pool, model, provider, caps).await;
     }
