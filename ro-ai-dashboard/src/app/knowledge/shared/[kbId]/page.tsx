@@ -84,8 +84,17 @@ export default function KbBrowserPage() {
                     { cache: "no-store" },
                 );
                 if (!res.ok) {
+                    // The API answers {error, hint} (e.g. 501 for a KB with no
+                    // table) — show that sentence, not the raw JSON.
                     const body = await res.text();
-                    throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+                    let msg = body.slice(0, 200);
+                    try {
+                        const j = JSON.parse(body);
+                        if (j?.error) msg = j.hint ? `${j.error}. ${j.hint}` : j.error;
+                    } catch {
+                        /* not JSON — keep the raw text */
+                    }
+                    throw new Error(`HTTP ${res.status}: ${msg}`);
                 }
                 const j = await res.json();
                 if (!cancelled) {

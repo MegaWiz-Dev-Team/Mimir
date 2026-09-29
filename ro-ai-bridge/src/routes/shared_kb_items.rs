@@ -5,6 +5,11 @@
 //! Returns paginated rows from the relational master tables, with a
 //! `columns` metadata array so the UI can render any KB with the same
 //! generic table component.
+//!
+//! This module is also the single source of truth for *which* browser each
+//! shared KB has (`browser_for`). The catalog and the cross-KB search report
+//! it so the UI links a card only where a page will actually load — it never
+//! guesses from the presence of a `kb_id`.
 
 use axum::{
     extract::{Path, Query, State},
@@ -20,6 +25,96 @@ use std::collections::HashMap;
 
 pub fn shared_kb_items_routes() -> Router<DbPool> {
     Router::new().route("/{kb_id}/items", get(list_items))
+}
+
+/// Which detail browser the UI can open for a shared KB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Browser {
+    /// Paginated rows from this route (`/{kb_id}/items`).
+    Table,
+    /// Neo4j graph explorer (`/api/v1/graph/{kb_id}/...`).
+    Graph,
+    /// Reachable only through the cross-KB search (`/api/v1/knowledge/search`).
+    Search,
+    /// Listed in the catalog, but no browser yet.
+    None,
+}
+
+/// The KBs this route serves as tables. `list_items` matches on it
+/// exhaustively and `browser_for` derives `Browser::Table` from it, so the
+/// catalog can never advertise a table that has no handler.
+#[derive(Debug, Clone, Copy)]
+enum TableKb {
+    Icd10,
+    Tpc,
+    Loinc,
+    Tmt,
+    Tmlt,
+    Snomed,
+    RxNorm,
+}
+
+impl TableKb {
+    fn from_id(kb_id: &str) -> Option<Self> {
+        Some(match kb_id {
+            "icd10-tm" => Self::Icd10,
+            "tpc"      => Self::Tpc,
+            "loinc"    => Self::Loinc,
+            "tmt"      => Self::Tmt,
+            "tmlt"     => Self::Tmlt,
+            "snomed"   => Self::Snomed,
+            "rxnorm"   => Self::RxNorm,
+            _ => return None,
+        })
+    }
+}
+
+/// Browser for a shared KB id. `None` means this route has never heard of
+/// the id; a catalog entry it doesn't know should be shown as `Browser::None`
+/// (a card without a link), never as a guess.
+pub fn browser_for(kb_id: &str) -> Option<Browser> {
+    if TableKb::from_id(kb_id).is_some() {
+        return Some(Browser::Table);
+    }
+    match kb_id {
+        "primekg"    => Some(Browser::Graph),
+        "pubmed"     => Some(Browser::Search),
+        // Neo4j graph like PrimeKG, but no neighbours/search endpoints yet.
+        "clinicalkb" => Some(Browser::None),
+        _ => None,
+    }
+}
+
+/// Error for a kb_id with no table rows: 501 with a pointer to where the KB
+/// *can* be browsed if it is a known shared KB, 404 only for ids nobody knows.
+fn no_table(kb_id: &str) -> (StatusCode, Json<JsonValue>) {
+    let (error, hint) = match browser_for(kb_id) {
+        Some(Browser::Graph) => (
+            format!("{kb_id} is a graph KB — it has no table rows"),
+            format!("Use GET /api/v1/graph/{kb_id}/entity/{{idx}}/neighbors, or the graph view at /knowledge/shared/{kb_id}"),
+        ),
+        Some(Browser::Search) => (
+            format!("{kb_id} has no table browser — it is searchable only"),
+            "Use GET /api/v1/knowledge/search?q=<term>, or the Cross-KB Search page at /knowledge/search".to_string(),
+        ),
+        Some(Browser::None) => (
+            format!("{kb_id} has no browser yet"),
+            "Its counts and metadata are on /knowledge/shared".to_string(),
+        ),
+        // Unreachable while `browser_for` derives Table from `TableKb`.
+        Some(Browser::Table) => (
+            format!("{kb_id} is listed as a table but has no handler"),
+            String::new(),
+        ),
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": format!("Unknown kb_id: {kb_id}")})),
+            )
+        }
+    };
+    (StatusCode::NOT_IMPLEMENTED, Json(json!({"error": error, "hint": hint})))
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,24 +160,17 @@ async fn list_items(
     let offset = ((page - 1) * per_page) as i64;
     let limit = per_page as i64;
 
-    match kb_id.as_str() {
-        "icd10-tm" => icd10_items(&pool, &qp, limit, offset, page, per_page).await,
-        "tpc"      => tpc_items(&pool, &qp, limit, offset, page, per_page).await,
-        "loinc"    => loinc_items(&pool, &qp, limit, offset, page, per_page).await,
-        "tmt"      => tmt_items(&pool, &qp, limit, offset, page, per_page).await,
-        "tmlt"     => tmlt_items(&pool, &qp, limit, offset, page, per_page).await,
-        "snomed"   => snomed_items(&pool, &qp, limit, offset, page, per_page).await,
-        "primekg"  => Err((
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({
-                "error": "PrimeKG browser not yet implemented",
-                "hint": "PrimeKG is in Neo4j; use GET /api/v1/graph/primekg/entity/{idx}/neighbors for now, or open Neo4j browser at http://localhost:7474"
-            })),
-        )),
-        _ => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("Unknown kb_id: {kb_id}")})),
-        )),
+    let Some(table) = TableKb::from_id(&kb_id) else {
+        return Err(no_table(&kb_id));
+    };
+    match table {
+        TableKb::Icd10  => icd10_items(&pool, &qp, limit, offset, page, per_page).await,
+        TableKb::Tpc    => tpc_items(&pool, &qp, limit, offset, page, per_page).await,
+        TableKb::Loinc  => loinc_items(&pool, &qp, limit, offset, page, per_page).await,
+        TableKb::Tmt    => tmt_items(&pool, &qp, limit, offset, page, per_page).await,
+        TableKb::Tmlt   => tmlt_items(&pool, &qp, limit, offset, page, per_page).await,
+        TableKb::Snomed => snomed_items(&pool, &qp, limit, offset, page, per_page).await,
+        TableKb::RxNorm => rxnorm_items(&pool, &qp, limit, offset, page, per_page).await,
     }
 }
 
@@ -385,6 +473,60 @@ async fn snomed_items(
     }))
 }
 
+// ── RxNorm (atoms) ───────────────────────────────────────────────────────────
+//
+// Browses `rxnorm_atoms` — one row per name string, many per concept (rxcui).
+// Only SAB='RXNORM' atoms: the full release also carries strings from other
+// UMLS sources whose licences restrict display, and the catalog's licence line
+// ("SAB=RXNORM core ships") covers the RXNORM core only. So the total here is
+// lower than the catalog's all-source atom count.
+
+async fn rxnorm_items(
+    pool: &DbPool, qp: &ItemsQuery, limit: i64, offset: i64,
+    page: u32, per_page: u32,
+) -> Result<Json<ItemsResponse>, (StatusCode, Json<JsonValue>)> {
+    let mut sql_where = String::from("tenant_id IS NULL AND sab = 'RXNORM'");
+    if let Some(tty) = qp.filters.get("filter_tty") {
+        sql_where.push_str(&format!(" AND tty = '{}'", sql_safe(tty)));
+    }
+    if let Some(q) = qp.search() {
+        sql_where.push_str(&format!(
+            " AND (rxcui LIKE '%{q}%' OR str LIKE '%{q}%')",
+            q = sql_safe(&q)
+        ));
+    }
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM rxnorm_atoms WHERE {sql_where}"
+    )).fetch_one(pool).await.map_err(db_err)?;
+    let rows = sqlx::query(&format!(
+        "SELECT rxcui, str, tty \
+         FROM rxnorm_atoms WHERE {sql_where} \
+         ORDER BY rxcui, rxaui LIMIT {limit} OFFSET {offset}"
+    )).fetch_all(pool).await.map_err(db_err)?;
+
+    let items = rows.iter().map(|r| json!({
+        "rxcui": r.get::<i64, _>("rxcui"),
+        "str": r.get::<String, _>("str"),
+        "tty": r.get::<String, _>("tty"),
+    })).collect();
+
+    let ttys: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT tty FROM rxnorm_atoms \
+         WHERE tenant_id IS NULL AND sab = 'RXNORM' ORDER BY tty"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    Ok(Json(ItemsResponse {
+        kb_id: "rxnorm".into(),
+        columns: vec![
+            Column { name: "rxcui", label: "RxCUI",     kind: "code" },
+            Column { name: "str",   label: "Name",      kind: "string" },
+            Column { name: "tty",   label: "Term Type", kind: "enum" },
+        ],
+        items, total, page, per_page,
+        filters: json!({ "tty": ttys }),
+    }))
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 impl ItemsQuery {
@@ -404,4 +546,65 @@ fn sql_safe(s: &str) -> String {
 fn db_err(e: sqlx::Error) -> (StatusCode, Json<JsonValue>) {
     (StatusCode::INTERNAL_SERVER_ERROR,
      Json(json!({"error": format!("db: {e}")})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every KB in the shared catalog, with the browser the UI may open.
+    /// Adding a catalog entry without a row here still fails safe (the card
+    /// gets `none`), but this pins the ones that exist today.
+    const CATALOG: &[(&str, Browser)] = &[
+        ("icd10-tm",   Browser::Table),
+        ("tpc",        Browser::Table),
+        ("loinc",      Browser::Table),
+        ("tmt",        Browser::Table),
+        ("tmlt",       Browser::Table),
+        ("snomed",     Browser::Table),
+        ("rxnorm",     Browser::Table),
+        ("primekg",    Browser::Graph),
+        ("pubmed",     Browser::Search),
+        ("clinicalkb", Browser::None),
+    ];
+
+    #[test]
+    fn every_catalog_kb_has_a_declared_browser() {
+        for (kb_id, want) in CATALOG {
+            assert_eq!(browser_for(kb_id), Some(*want), "{kb_id}");
+        }
+    }
+
+    #[test]
+    fn a_table_browser_always_has_a_handler() {
+        for (kb_id, browser) in CATALOG {
+            assert_eq!(
+                TableKb::from_id(kb_id).is_some(),
+                *browser == Browser::Table,
+                "{kb_id}: browser_for and the list_items dispatch disagree",
+            );
+        }
+    }
+
+    #[test]
+    fn known_kbs_without_a_table_get_501_with_a_hint() {
+        for kb_id in ["primekg", "pubmed", "clinicalkb"] {
+            let (status, Json(body)) = no_table(kb_id);
+            assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{kb_id}");
+            assert!(body["hint"].as_str().is_some_and(|h| !h.is_empty()), "{kb_id}: {body}");
+        }
+    }
+
+    #[test]
+    fn unknown_kb_is_404() {
+        let (status, _) = no_table("not-a-kb");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(browser_for("not-a-kb"), None);
+    }
+
+    #[test]
+    fn browser_serializes_lowercase() {
+        assert_eq!(serde_json::to_value(Browser::Table).unwrap(), json!("table"));
+        assert_eq!(serde_json::to_value(Browser::None).unwrap(), json!("none"));
+    }
 }

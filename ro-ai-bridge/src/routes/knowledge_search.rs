@@ -15,8 +15,12 @@
 //!   pubmed    → semantic via Qdrant pubmed-abstracts (BGE-M3 1024-d)
 //!
 //! Returns a flat envelope so the UI can render with one template:
-//!   { q, k, results: [{kb_id, items, count, latency_ms}], total_ms }
+//!   { q, k, results: [{kb_id, items, count, latency_ms, browser}], total_ms }
+//!
+//! `browser` is the same value the catalog reports (`browser_for`), so the
+//! page offers "Open in browser" only where a detail page will load.
 
+use crate::routes::shared_kb_items::{browser_for, Browser};
 use axum::{extract::{Query, State}, http::StatusCode, routing::get, Json, Router};
 use mimir_core_ai::services::db::DbPool;
 use serde::{Deserialize, Serialize};
@@ -48,11 +52,19 @@ struct KbResult {
     latency_ms: u128,
 }
 
+/// A KB's hits plus which browser its "Open in browser" link may open.
+#[derive(Debug, Serialize)]
+struct KbResultOut {
+    #[serde(flatten)]
+    result: KbResult,
+    browser: Browser,
+}
+
 #[derive(Debug, Serialize)]
 struct SearchResponse {
     q: String,
     k: u32,
-    results: Vec<KbResult>,
+    results: Vec<KbResultOut>,
     total_ms: u128,
 }
 
@@ -112,7 +124,14 @@ async fn unified_search(
 
     let (r1, r2, r3, r4, r5, r6, r7, r8) = tokio::join!(p1, p2, p3, p4, p5, p6, p7, p8);
 
-    let results = vec![r1, r2, r3, r4, r5, r6, r7, r8];
+    let results = vec![r1, r2, r3, r4, r5, r6, r7, r8]
+        .into_iter()
+        .map(|result| KbResultOut {
+            // `symptoms` is a derived view, not a catalog KB → `none`.
+            browser: browser_for(result.kb_id).unwrap_or(Browser::None),
+            result,
+        })
+        .collect();
 
     Ok(Json(SearchResponse {
         q: q.to_string(),
