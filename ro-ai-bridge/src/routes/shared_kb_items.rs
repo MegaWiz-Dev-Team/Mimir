@@ -78,10 +78,9 @@ pub fn browser_for(kb_id: &str) -> Option<Browser> {
         return Some(Browser::Table);
     }
     match kb_id {
-        "primekg"    => Some(Browser::Graph),
-        "pubmed"     => Some(Browser::Search),
-        // Neo4j graph like PrimeKG, but no neighbours/search endpoints yet.
-        "clinicalkb" => Some(Browser::None),
+        // Neo4j graphs — neighbours/search under /api/v1/graph/{kb_id}/.
+        "primekg" | "clinicalkb" => Some(Browser::Graph),
+        "pubmed" => Some(Browser::Search),
         _ => None,
     }
 }
@@ -92,7 +91,7 @@ fn no_table(kb_id: &str) -> (StatusCode, Json<JsonValue>) {
     let (error, hint) = match browser_for(kb_id) {
         Some(Browser::Graph) => (
             format!("{kb_id} is a graph KB — it has no table rows"),
-            format!("Use GET /api/v1/graph/{kb_id}/entity/{{idx}}/neighbors, or the graph view at /knowledge/shared/{kb_id}"),
+            format!("Use GET /api/v1/graph/{kb_id}/entity/{{id}}/neighbors, or the graph view at /knowledge/shared/{kb_id}"),
         ),
         Some(Browser::Search) => (
             format!("{kb_id} has no table browser — it is searchable only"),
@@ -565,7 +564,7 @@ mod tests {
         ("rxnorm",     Browser::Table),
         ("primekg",    Browser::Graph),
         ("pubmed",     Browser::Search),
-        ("clinicalkb", Browser::None),
+        ("clinicalkb", Browser::Graph),
     ];
 
     #[test]

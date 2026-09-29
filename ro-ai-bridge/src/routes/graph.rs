@@ -130,6 +130,8 @@ pub fn graph_routes() -> Router<DbPool> {
         .route("/source/{id}", delete(delete_source_entities))
         .route("/extraction-runs", get(get_extraction_runs))
         .route("/primekg/entity/{entity_index}/neighbors", get(get_primekg_neighbors))
+        .route("/clinicalkb/entity", get(search_clinicalkb_entities))
+        .route("/clinicalkb/entity/{ckb_id}/neighbors", get(get_clinicalkb_neighbors))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -985,6 +987,73 @@ async fn get_primekg_neighbors(
     }
 }
 
+// ── ClinicalKB graph browser ─────────────────────────────────────────────────
+//
+// The ClinicalKB counterpart of the PrimeKG endpoints above, for the 3D browser
+// at /knowledge/shared/clinicalkb. Identity + relation type only: edge
+// evidence/chunk/context are verbatim source text and never leave the server
+// (see `ClinicalKbEntity` in mimir-core-ai).
+
+#[derive(Debug, Deserialize)]
+struct ClinicalKbSearchQuery {
+    q: String,
+    limit: Option<i64>,
+}
+
+/// GET /api/v1/graph/clinicalkb/entity?q=<name>&limit=N
+async fn search_clinicalkb_entities(
+    Query(params): Query<ClinicalKbSearchQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let q = params.q.trim();
+    if q.chars().count() < 2 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "q must be at least 2 characters"})),
+        ));
+    }
+    let limit = params.limit.unwrap_or(10).clamp(1, 50);
+
+    let Some(neo4j) = get_neo4j_svc().await else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Neo4j not available (set USE_NEO4J_GRAPH=true)"})),
+        ));
+    };
+    match neo4j.search_clinicalkb(q, limit).await {
+        Ok(items) => Ok(Json(json!({ "count": items.len(), "items": items }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("ClinicalKB search failed: {}", e)})),
+        )),
+    }
+}
+
+/// GET /api/v1/graph/clinicalkb/entity/{ckb_id}/neighbors?limit=N
+async fn get_clinicalkb_neighbors(
+    Path(ckb_id): Path<String>,
+    Query(params): Query<PrimeKGNeighborQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+
+    let Some(neo4j) = get_neo4j_svc().await else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Neo4j not available (set USE_NEO4J_GRAPH=true)"})),
+        ));
+    };
+    match neo4j.get_clinicalkb_neighbors(&ckb_id, limit).await {
+        Ok(neighbors) => Ok(Json(json!({
+            "ckb_id": ckb_id,
+            "neighbor_count": neighbors.len(),
+            "neighbors": neighbors,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Graph traversal failed: {}", e)})),
+        )),
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -992,6 +1061,28 @@ async fn get_primekg_neighbors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ClinicalKB licence: verbatim source text never leaves the server. The
+    /// browser queries may read node identity and `type(r)`, nothing off `r`.
+    #[test]
+    fn clinicalkb_browser_queries_never_return_edge_text() {
+        use mimir_core_ai::services::neo4j::{CLINICALKB_NEIGHBORS_CYPHER, CLINICALKB_SEARCH_CYPHER};
+        for cypher in [CLINICALKB_SEARCH_CYPHER, CLINICALKB_NEIGHBORS_CYPHER] {
+            for forbidden in ["evidence", "chunk", "context", "properties(", "r."] {
+                assert!(
+                    !cypher.contains(forbidden),
+                    "ClinicalKB browser query reads `{forbidden}`: {cypher}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn clinicalkb_neighbors_stay_inside_clinicalkb() {
+        // SAME_AS bridges lead into PrimeKG; the ClinicalKB browser must not follow them.
+        use mimir_core_ai::services::neo4j::CLINICALKB_NEIGHBORS_CYPHER;
+        assert!(CLINICALKB_NEIGHBORS_CYPHER.contains("(m:ClinicalKB)"));
+    }
 
     #[test]
     fn test_graph_routes_assembly() {
