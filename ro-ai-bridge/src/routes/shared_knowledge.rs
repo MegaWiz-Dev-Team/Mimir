@@ -12,6 +12,7 @@
 //! Routes:
 //!   GET /api/v1/knowledge/shared        — list all shared KBs with metadata
 
+use crate::routes::shared_kb_items::{browser_for, Browser};
 use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
 use mimir_core_ai::services::db::DbPool;
 use mimir_core_ai::services::neo4j::{Neo4jConfig, Neo4jService};
@@ -80,6 +81,16 @@ struct SharedKbEntry {
     meta: SharedKbMeta,
     #[serde(flatten)]
     live: SharedKbLive,
+}
+
+/// What the list returns per KB: the entry plus which browser its card may
+/// open. `browser` comes from the items route (`browser_for`), never set by
+/// hand here, so a card can't link to a page the backend doesn't serve.
+#[derive(Debug, Serialize)]
+struct SharedKbCard<'a> {
+    #[serde(flatten)]
+    entry: &'a SharedKbEntry,
+    browser: Browser,
 }
 
 async fn list_shared_kbs(
@@ -523,8 +534,15 @@ async fn list_shared_kbs(
         });
     }
 
-    let count = kbs.len();
-    Ok(Json(json!({ "items": kbs, "count": count })))
+    let cards: Vec<SharedKbCard> = kbs
+        .iter()
+        .map(|entry| SharedKbCard {
+            entry,
+            browser: browser_for(entry.meta.id).unwrap_or(Browser::None),
+        })
+        .collect();
+    let count = cards.len();
+    Ok(Json(json!({ "items": cards, "count": count })))
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

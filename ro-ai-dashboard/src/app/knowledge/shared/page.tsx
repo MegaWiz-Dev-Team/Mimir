@@ -51,7 +51,37 @@ type SharedKb = {
     source_version: string | null;
     status: "active" | "active_fallback" | "degraded" | "pending_data" | string;
     last_local_refresh: string | null;
+    // Which detail browser the backend serves for this KB. The card links
+    // only where a page will load; missing (older API) counts as "none".
+    browser?: "table" | "graph" | "search" | "none";
 };
+
+/** Where a KB's card leads, or null when the backend has no browser for it. */
+function browserHref(kb: SharedKb): string | null {
+    if (kb.browser === "table" || kb.browser === "graph") return `/knowledge/shared/${kb.id}`;
+    if (kb.browser === "search") return "/knowledge/search";
+    return null;
+}
+
+function BrowserBadge({ browser }: { browser: SharedKb["browser"] }) {
+    if (browser === "table" || browser === "graph") return null;
+    const label = browser === "search" ? "Search only" : "Browser not available";
+    return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 whitespace-nowrap">
+            {label}
+        </span>
+    );
+}
+
+/** The card is a link only when `href` is set; otherwise a plain block. */
+function KbCardShell({ href, children }: { href: string | null; children: React.ReactNode }) {
+    if (!href) return <div className="block">{children}</div>;
+    return (
+        <Link href={href} className="block transition-shadow hover:shadow-lg">
+            {children}
+        </Link>
+    );
+}
 
 function StatusBadge({ status }: { status: string }) {
     if (status === "active") {
@@ -265,11 +295,7 @@ export default function SharedKnowledgePage() {
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {kbs.map((kb) => (
-                        <Link
-                            key={kb.id}
-                            href={`/knowledge/shared/${kb.id}`}
-                            className="block transition-shadow hover:shadow-lg"
-                        >
+                        <KbCardShell key={kb.id} href={browserHref(kb)}>
                         <Card className="overflow-hidden h-full">
                             <CardHeader className="pb-3 space-y-2">
                                 <div className="flex items-start justify-between gap-3">
@@ -285,7 +311,10 @@ export default function SharedKnowledgePage() {
                                             </CardDescription>
                                         </div>
                                     </div>
-                                    <StatusBadge status={kb.status} />
+                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                        <StatusBadge status={kb.status} />
+                                        <BrowserBadge browser={kb.browser} />
+                                    </div>
                                 </div>
                             </CardHeader>
 
@@ -422,7 +451,7 @@ export default function SharedKnowledgePage() {
                                 )}
                             </CardContent>
                         </Card>
-                        </Link>
+                        </KbCardShell>
                     ))}
                 </div>
             )}
