@@ -15,7 +15,8 @@ import {
     ArrowLeft, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { API_BASE_URL, authFetch } from "@/lib/api";
-import PrimeKgGraph3D from "./PrimeKgGraph3D";
+import KbGraph3D from "./KbGraph3D";
+import { GRAPH_ADAPTERS } from "./graphAdapters";
 
 type Column = {
     name: string;
@@ -36,9 +37,9 @@ type ItemsResponse = {
 export default function KbBrowserPage() {
     const params = useParams();
     const kbId = String(params?.kbId || "");
-    // PrimeKG lives in Neo4j (no relational items table) — render the 3D graph
-    // browser instead of the generic table.
-    const isPrimekg = kbId === "primekg";
+    // Graph KBs (PrimeKG, ClinicalKB) live in Neo4j with no relational items
+    // table — render the 3D graph browser instead of the generic table.
+    const isGraphKb = Object.prototype.hasOwnProperty.call(GRAPH_ADAPTERS, kbId);
 
     const [data, setData] = useState<ItemsResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -63,7 +64,7 @@ export default function KbBrowserPage() {
 
     useEffect(() => {
         if (!kbId) return;
-        if (isPrimekg) {
+        if (isGraphKb) {
             // No relational items endpoint — graph component fetches its own data.
             setLoading(false);
             return;
@@ -159,8 +160,8 @@ export default function KbBrowserPage() {
                 )}
             </div>
 
-            {isPrimekg ? (
-                <PrimeKgGraph3D />
+            {isGraphKb ? (
+                <KbGraph3D key={kbId} kbId={kbId} />
             ) : (
             <>
             {/* Search + filters */}

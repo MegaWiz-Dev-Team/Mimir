@@ -119,6 +119,52 @@ pub struct PrimeKGNeighbor {
     pub direction: String,
 }
 
+/// A ClinicalKB node as the graph browser sees it — identity only.
+///
+/// ClinicalKB is proprietary: its edges carry `evidence` / `chunk` / `context`,
+/// which hold verbatim source text that must never leave the server. Neither
+/// this struct nor [`ClinicalKbNeighbor`] has a field for any edge property.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClinicalKbEntity {
+    pub ckb_id: String,
+    pub name: String,
+    pub kind: String,
+}
+
+/// One distinct ClinicalKB neighbour of a node: who, and by which relation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClinicalKbNeighbor {
+    pub neighbor_id: String,
+    pub neighbor_name: String,
+    pub neighbor_kind: String,
+    pub relation_type: String,
+    pub direction: String,
+}
+
+/// Name search that seeds the ClinicalKB graph browser. Shortest names first so
+/// an exact concept ("sepsis") ranks above the phrases that contain it.
+/// `toString(ckb_id)`: the browser round-trips ids as strings, whatever type
+/// the loader stored.
+pub const CLINICALKB_SEARCH_CYPHER: &str = "\
+    MATCH (n:ClinicalKB) WHERE toLower(n.name) CONTAINS toLower($q) \
+    RETURN toString(n.ckb_id) AS ckb_id, n.name AS name, n.kind AS kind \
+    ORDER BY size(n.name), n.name \
+    LIMIT $limit";
+
+/// Distinct ClinicalKB neighbours of one node. `m:ClinicalKB` leaves out the
+/// SAME_AS bridges into PrimeKG; DISTINCT folds parallel edges of one type (a
+/// drug has many DOSE edges). Returns identity + relation type only — never an
+/// edge property. (`pub` so ro-ai-bridge's tests pin that — this crate's own
+/// test target doesn't build on main.)
+pub const CLINICALKB_NEIGHBORS_CYPHER: &str = "\
+    MATCH (n:ClinicalKB) WHERE toString(n.ckb_id) = $ckb_id \
+    MATCH (n)-[r]-(m:ClinicalKB) \
+    RETURN DISTINCT \
+        toString(m.ckb_id) AS neighbor_id, m.name AS neighbor_name, m.kind AS neighbor_kind, \
+        type(r) AS relation_type, \
+        CASE WHEN startNode(r) = n THEN 'outgoing' ELSE 'incoming' END AS direction \
+    LIMIT $limit";
+
 /// Path result between two entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathResult {
@@ -1066,6 +1112,46 @@ impl Neo4jService {
         }
     }
 
+    /// ClinicalKB nodes whose name contains `q` (case-insensitive).
+    pub async fn search_clinicalkb(&self, q: &str, limit: i64) -> Result<Vec<ClinicalKbEntity>> {
+        let query = neo4rs::query(CLINICALKB_SEARCH_CYPHER)
+            .param("q", q)
+            .param("limit", limit);
+        let mut result = self.graph.execute(query).await.context("ClinicalKB search failed")?;
+        let mut entities = Vec::new();
+        while let Some(row) = result.next().await? {
+            entities.push(ClinicalKbEntity {
+                ckb_id: row.get("ckb_id").unwrap_or_default(),
+                name: row.get("name").unwrap_or_default(),
+                kind: row.get("kind").unwrap_or_default(),
+            });
+        }
+        Ok(entities)
+    }
+
+    /// Distinct ClinicalKB neighbours of the node with this `ckb_id`.
+    pub async fn get_clinicalkb_neighbors(
+        &self,
+        ckb_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ClinicalKbNeighbor>> {
+        let query = neo4rs::query(CLINICALKB_NEIGHBORS_CYPHER)
+            .param("ckb_id", ckb_id)
+            .param("limit", limit);
+        let mut result = self.graph.execute(query).await.context("ClinicalKB neighbor query failed")?;
+        let mut neighbors = Vec::new();
+        while let Some(row) = result.next().await? {
+            neighbors.push(ClinicalKbNeighbor {
+                neighbor_id: row.get("neighbor_id").unwrap_or_default(),
+                neighbor_name: row.get("neighbor_name").unwrap_or_default(),
+                neighbor_kind: row.get("neighbor_kind").unwrap_or_default(),
+                relation_type: row.get("relation_type").unwrap_or_default(),
+                direction: row.get("direction").unwrap_or_default(),
+            });
+        }
+        Ok(neighbors)
+    }
+
     /// Fetch a batch of PrimeKG nodes for embedding, ordered by entity_index.
     pub async fn stream_primekg_nodes(
         &self,
@@ -2004,4 +2090,5 @@ mod tests {
         let far = strsim::jaro_winkler("amarosis fugax", "amaurosis-hypertrichosis syndrome");
         assert!(close > far, "closer name must score higher: close={close} far={far}");
     }
+
 }
