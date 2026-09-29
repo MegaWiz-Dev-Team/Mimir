@@ -2197,6 +2197,41 @@ export async function fetchPrimekgNeighbors(
     return res.json();
 }
 
+// ── ClinicalKB (Neo4j) graph browser ────────────────────────────────────────
+// Identity + relation type only; the API never returns edge evidence text.
+export interface ClinicalkbEntity {
+    ckb_id: string;
+    name: string;
+    kind: string;
+}
+
+export async function searchClinicalkbEntity(q: string, limit = 10): Promise<ClinicalkbEntity[]> {
+    const qs = new URLSearchParams({ q, limit: String(limit) });
+    const res = await authFetch(`${API_BASE_URL}/graph/clinicalkb/entity?${qs}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("ClinicalKB entity search failed");
+    const j = await res.json();
+    return (j.items || []) as ClinicalkbEntity[];
+}
+
+export interface ClinicalkbNeighbor {
+    neighbor_id: string;
+    neighbor_name: string;
+    neighbor_kind: string;
+    relation_type: string;
+    direction: string;
+}
+
+export async function fetchClinicalkbNeighbors(
+    ckbId: string,
+): Promise<{ ckb_id: string; neighbor_count: number; neighbors: ClinicalkbNeighbor[] }> {
+    const res = await authFetch(
+        `${API_BASE_URL}/graph/clinicalkb/entity/${encodeURIComponent(ckbId)}/neighbors`,
+        { cache: "no-store" },
+    );
+    if (!res.ok) throw new Error("ClinicalKB neighbors fetch failed");
+    return res.json();
+}
+
 export async function fetchGraphVisualization(params?: {
     limit?: number;
     type?: string;

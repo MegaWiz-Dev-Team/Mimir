@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import {
-    searchPrimekgEntity,
-    fetchPrimekgNeighbors,
-    type PrimekgEntity,
-} from "@/lib/api";
+import { GRAPH_ADAPTERS, type GraphEntity } from "./graphAdapters";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Loader2, Search, X } from "lucide-react";
@@ -20,7 +16,8 @@ const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
     ),
 });
 
-// PrimeKG node types → colours (white-background friendly).
+// PrimeKG node types → colours (white-background friendly). Types not listed
+// here (e.g. ClinicalKB `kind`s) get a stable colour hashed from the name.
 const TYPE_COLORS: Record<string, string> = {
     disease: "#e11d48",
     drug: "#2563eb",
@@ -33,17 +30,29 @@ const TYPE_COLORS: Record<string, string> = {
     pathway: "#db2777",
     cellular_component: "#ca8a04",
 };
-const colorFor = (t: string) => TYPE_COLORS[t] || "#64748b";
+const FALLBACK_COLORS = [
+    "#e11d48", "#2563eb", "#16a34a", "#f59e0b", "#9333ea", "#0d9488",
+    "#0891b2", "#7c3aed", "#db2777", "#ca8a04", "#ea580c", "#4f46e5",
+];
+const colorFor = (t: string) => {
+    if (TYPE_COLORS[t]) return TYPE_COLORS[t];
+    if (!t) return "#64748b";
+    let h = 0;
+    for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+};
 
 type GNode = { id: string; label: string; type: string; color: string; val: number };
 type GLink = { id: string; source: string; target: string; label: string };
 
 /**
- * PrimeKG 3D browser — replaces the "not implemented" table for the PrimeKG KB
- * (PrimeKG lives in Neo4j). Search an entity to seed the graph, click any node
- * to pull in its neighbours. Auto-rotating, white background.
+ * 3D browser for a Neo4j graph KB (PrimeKG, ClinicalKB) — replaces the table
+ * for KBs that have no relational rows. Search an entity to seed the graph,
+ * click any node to pull in its neighbours. Auto-rotating, white background.
+ * `kbId` picks the adapter in `graphAdapters.ts`.
  */
-export default function PrimeKgGraph3D() {
+export default function KbGraph3D({ kbId }: { kbId: string }) {
+    const adapter = GRAPH_ADAPTERS[kbId];
     const fgRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -55,32 +64,30 @@ export default function PrimeKgGraph3D() {
     const [error, setError] = useState<string | null>(null);
 
     const [search, setSearch] = useState("");
-    const [results, setResults] = useState<PrimekgEntity[]>([]);
+    const [results, setResults] = useState<GraphEntity[]>([]);
     const [searching, setSearching] = useState(false);
 
     const [dim, setDim] = useState({ w: 800, h: 600 });
 
     // Pull a node's neighbours into the graph.
     const expand = useCallback(
-        async (idx: number, name: string, type: string) => {
-            const centerId = String(idx);
+        async (centerId: string, name: string, type: string) => {
             if (expanded.has(centerId)) return;
             setBusy(true);
             try {
-                const d = await fetchPrimekgNeighbors(idx);
+                const neighbors = await adapter.neighbors(centerId);
                 setNodes((prev) => {
                     const m = new Map(prev);
                     if (!m.has(centerId)) {
                         m.set(centerId, { id: centerId, label: name, type, color: colorFor(type), val: 8 });
                     }
-                    for (const n of d.neighbors) {
-                        const id = String(n.neighbor_index);
-                        if (!m.has(id)) {
-                            m.set(id, {
-                                id,
-                                label: n.neighbor_name,
-                                type: n.neighbor_type || "",
-                                color: colorFor(n.neighbor_type || ""),
+                    for (const n of neighbors) {
+                        if (!m.has(n.id)) {
+                            m.set(n.id, {
+                                id: n.id,
+                                label: n.name,
+                                type: n.type,
+                                color: colorFor(n.type),
                                 val: 4,
                             });
                         }
@@ -89,11 +96,10 @@ export default function PrimeKgGraph3D() {
                 });
                 setLinks((prev) => {
                     const m = new Map(prev);
-                    for (const n of d.neighbors) {
-                        const nid = String(n.neighbor_index);
-                        const [s, t] = n.direction === "incoming" ? [nid, centerId] : [centerId, nid];
-                        const id = `${s}-${t}-${n.relation_type}`;
-                        if (!m.has(id)) m.set(id, { id, source: s, target: t, label: n.relation_type });
+                    for (const n of neighbors) {
+                        const [s, t] = n.direction === "incoming" ? [n.id, centerId] : [centerId, n.id];
+                        const id = `${s}-${t}-${n.relation}`;
+                        if (!m.has(id)) m.set(id, { id, source: s, target: t, label: n.relation });
                     }
                     return m;
                 });
@@ -105,23 +111,19 @@ export default function PrimeKgGraph3D() {
                 setBusy(false);
             }
         },
-        [expanded],
+        [expanded, adapter],
     );
 
-    // Seed with a recognisable hub on first mount.
+    // Seed with a recognisable hub on first mount: the first seed term that hits.
     useEffect(() => {
         (async () => {
             try {
-                const hits = await searchPrimekgEntity("diabetes mellitus", 1);
-                if (hits[0]) {
-                    setSelected({
-                        id: String(hits[0].entity_index),
-                        label: hits[0].name,
-                        type: hits[0].type,
-                        color: colorFor(hits[0].type),
-                        val: 8,
-                    });
-                    await expand(hits[0].entity_index, hits[0].name, hits[0].type);
+                for (const term of adapter.seeds) {
+                    const [hit] = await adapter.search(term, 1);
+                    if (!hit) continue;
+                    setSelected({ id: hit.id, label: hit.name, type: hit.type, color: colorFor(hit.type), val: 8 });
+                    await expand(hit.id, hit.name, hit.type);
+                    break;
                 }
             } catch {
                 /* seed best-effort */
@@ -165,7 +167,7 @@ export default function PrimeKgGraph3D() {
         const t = setTimeout(async () => {
             setSearching(true);
             try {
-                setResults(await searchPrimekgEntity(q, 8));
+                setResults(await adapter.search(q, 8));
             } catch {
                 setResults([]);
             } finally {
@@ -173,7 +175,7 @@ export default function PrimeKgGraph3D() {
             }
         }, 350);
         return () => clearTimeout(t);
-    }, [search]);
+    }, [search, adapter]);
 
     const graphData = useMemo(
         () => ({ nodes: Array.from(nodes.values()), links: Array.from(links.values()) }),
@@ -196,24 +198,17 @@ export default function PrimeKgGraph3D() {
     const onNodeClick = useCallback(
         (node: any) => {
             focusNode(node);
-            const idx = Number(node.id);
-            if (!Number.isNaN(idx)) expand(idx, node.label, node.type);
+            if (node?.id != null) expand(String(node.id), node.label, node.type);
         },
         [focusNode, expand],
     );
 
     const pickResult = useCallback(
-        (e: PrimekgEntity) => {
+        (e: GraphEntity) => {
             setSearch("");
             setResults([]);
-            setSelected({
-                id: String(e.entity_index),
-                label: e.name,
-                type: e.type,
-                color: colorFor(e.type),
-                val: 8,
-            });
-            expand(e.entity_index, e.name, e.type);
+            setSelected({ id: e.id, label: e.name, type: e.type, color: colorFor(e.type), val: 8 });
+            expand(e.id, e.name, e.type);
         },
         [expand],
     );
@@ -227,7 +222,7 @@ export default function PrimeKgGraph3D() {
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                             <Input
-                                placeholder="ค้นหา entity (เช่น diabetes, aspirin)…"
+                                placeholder={adapter.placeholder}
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className="pl-10 bg-white/90 border-slate-300 text-slate-800"
@@ -240,7 +235,7 @@ export default function PrimeKgGraph3D() {
                             <div className="mt-1 rounded-md border border-slate-200 bg-white shadow-lg overflow-hidden max-h-[320px] overflow-y-auto">
                                 {results.map((r) => (
                                     <button
-                                        key={r.entity_index}
+                                        key={r.id}
                                         onClick={() => pickResult(r)}
                                         className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex items-center gap-2"
                                     >
@@ -271,7 +266,7 @@ export default function PrimeKgGraph3D() {
                                 </button>
                             </div>
                             <p className="mt-2 text-sm font-semibold text-slate-800 break-words">{selected.label}</p>
-                            <p className="mt-1 text-[11px] text-slate-400 font-mono">idx {selected.id}</p>
+                            <p className="mt-1 text-[11px] text-slate-400 font-mono break-all">{adapter.idLabel} {selected.id}</p>
                             <p className="mt-2 text-[11px] text-slate-500">คลิกโหนดในกราฟเพื่อดึงเพื่อนบ้านเพิ่ม</p>
                         </div>
                     )}
@@ -288,7 +283,7 @@ export default function PrimeKgGraph3D() {
 
                     {graphData.nodes.length === 0 && !busy ? (
                         <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                            ค้นหา entity ด้านบนเพื่อเริ่มสำรวจกราฟ PrimeKG
+                            ค้นหา entity ด้านบนเพื่อเริ่มสำรวจกราฟ {adapter.label}
                         </div>
                     ) : (
                         <ForceGraph3D
