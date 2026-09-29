@@ -17,6 +17,8 @@ type KbHit = {
     items: Record<string, any>[];
     count: number;
     latency_ms: number;
+    // Same value the Shared KB catalog reports; only table/graph have a detail page.
+    browser?: "table" | "graph" | "search" | "none";
 };
 
 type SearchResponse = {
@@ -324,14 +326,16 @@ export default function UnifiedKnowledgeSearchPage() {
                                         {kb.count} · {kb.latency_ms}ms
                                     </div>
                                 </div>
-                                <CardDescription className="text-xs">
-                                    <Link
-                                        href={`/knowledge/shared/${kb.kb_id}?q=${encodeURIComponent(q)}`}
-                                        className="text-blue-600 dark:text-blue-400 hover:underline"
-                                    >
-                                        Open in browser →
-                                    </Link>
-                                </CardDescription>
+                                {(kb.browser === "table" || kb.browser === "graph") && (
+                                    <CardDescription className="text-xs">
+                                        <Link
+                                            href={`/knowledge/shared/${kb.kb_id}?q=${encodeURIComponent(q)}`}
+                                            className="text-blue-600 dark:text-blue-400 hover:underline"
+                                        >
+                                            Open in browser →
+                                        </Link>
+                                    </CardDescription>
+                                )}
                             </CardHeader>
                             <CardContent className="pt-0">
                                 {kb.count === 0 ? (
