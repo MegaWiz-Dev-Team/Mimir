@@ -63,10 +63,23 @@ def sh(cmd, inp=None):
     return r.stdout.decode("utf-8")
 
 
-def sql(q):
-    return sh(["kubectl", "-n", INFRA_NS, "exec", "-i", "deploy/mariadb", "--",
-               "mariadb", "-uroot", "-proot", "--default-character-set=utf8mb4",
-               "mimir", "-B", "-N", "-e", q])
+# kubectl failures where the request never reached the API server, so a retry
+# cannot apply a statement twice. 2026-10-04: a TLS handshake timeout during a
+# host CPU spike killed run a89e661c at 99/132.
+UNREACHED = ("Unable to connect to the server", "connection refused")
+
+
+def sql(q, delays=(5, 15, 30, 60), sleep=time.sleep):
+    for delay in (*delays, None):
+        try:
+            return sh(["kubectl", "-n", INFRA_NS, "exec", "-i", "deploy/mariadb", "--",
+                       "mariadb", "-uroot", "-proot", "--default-character-set=utf8mb4",
+                       "mimir", "-B", "-N", "-e", q])
+        except RuntimeError as e:
+            if delay is None or not any(m in str(e) for m in UNREACHED):
+                raise
+            print(f"  kubectl unreachable, retrying in {delay}s: {str(e)[:100]}", file=sys.stderr)
+            sleep(delay)
 
 
 def sql_quote(s):
@@ -313,6 +326,41 @@ def p_pp(x):
     return "n/a" if x is None else f"{x*100:+.1f}pp"
 
 
+def run_arms(args, arms, seeds, total, run_id, db, records, judge_cache):
+    """Answer, classify, judge and store every (seed, item, arm); appends to records."""
+    for si, seed in enumerate(seeds):
+        items = load_hb(args.split, args.n, seed)
+        for k, it in enumerate(items):
+            order = arms if (k + si) % 2 == 0 else arms[::-1]
+            for arm in order:
+                reply, ms, extra = arm["answer"](it)
+                outcome, text = classify(reply)
+                score, got, harmful = None, None, False
+                if outcome == "ok":
+                    try:
+                        score, got, harmful, rep_scores = judge_averaged(
+                            it["prompt"], text, it["rubrics"], args.judge_reps, judge_cache, it["id"])
+                        if args.judge_reps > 1:
+                            extra["judge_rep_pct"] = rep_scores
+                    except Exception as e:
+                        outcome = "judge_error"
+                        extra["judge_error"] = str(e)[:200]
+                rec = {"arm": arm["name"], "seed": seed, "item": it["id"], "outcome": outcome,
+                       "pct": score, "harmful": harmful, "ms": ms}
+                records.append(rec)
+                if db:
+                    tags = json.dumps({"split": args.split, "arm": arm["name"], "seed": seed, "outcome": outcome,
+                                       "rubric_pct": None if score is None else round(score, 4),
+                                       "harmful": harmful, **extra}, ensure_ascii=False)
+                    sql("INSERT INTO eval_scores (run_id,agent_name,model_id,question,expected_answer,actual_answer,rubric_score,latency_ms,benchmark_item_id,replicate_index,tags,judge_model,tenant_id) VALUES (" +
+                        ",".join([sql_quote(run_id), sql_quote(arm["name"][:50]), sql_quote(args.model_label),
+                                  sql_quote(it["prompt"][:500]), sql_quote(""), sql_quote((reply or "(none)")[:4000]),
+                                  sql_num(got), str(ms), sql_quote(it["id"][:64]), str(si), sql_quote(tags),
+                                  sql_quote(JUDGE_MODEL), sql_quote(TENANT)]) + ")")
+                print(f"  [{len(records)}/{total}] seed {seed} item {k+1} {arm['name']:14} {outcome:11} {pct(score)} {ms}ms",
+                      file=sys.stderr, flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=8)
@@ -359,39 +407,21 @@ def main():
                       sql_quote(json.dumps(cfg)), sql_quote(TENANT), sql_quote("arm" if args.arm else "agent")]) + ")")
     print(f"# run_id {run_id}", file=sys.stderr)
 
-    records, done, judge_cache = [], 0, {}
-    for si, seed in enumerate(seeds):
-        items = load_hb(args.split, args.n, seed)
-        for k, it in enumerate(items):
-            order = arms if (k + si) % 2 == 0 else arms[::-1]
-            for arm in order:
-                reply, ms, extra = arm["answer"](it)
-                outcome, text = classify(reply)
-                score, got, harmful = None, None, False
-                if outcome == "ok":
-                    try:
-                        score, got, harmful, rep_scores = judge_averaged(
-                            it["prompt"], text, it["rubrics"], args.judge_reps, judge_cache, it["id"])
-                        if args.judge_reps > 1:
-                            extra["judge_rep_pct"] = rep_scores
-                    except Exception as e:
-                        outcome = "judge_error"
-                        extra["judge_error"] = str(e)[:200]
-                rec = {"arm": arm["name"], "seed": seed, "item": it["id"], "outcome": outcome,
-                       "pct": score, "harmful": harmful, "ms": ms}
-                records.append(rec)
-                done += 1
-                if db:
-                    tags = json.dumps({"split": args.split, "arm": arm["name"], "seed": seed, "outcome": outcome,
-                                       "rubric_pct": None if score is None else round(score, 4),
-                                       "harmful": harmful, **extra}, ensure_ascii=False)
-                    sql("INSERT INTO eval_scores (run_id,agent_name,model_id,question,expected_answer,actual_answer,rubric_score,latency_ms,benchmark_item_id,replicate_index,tags,judge_model,tenant_id) VALUES (" +
-                        ",".join([sql_quote(run_id), sql_quote(arm["name"][:50]), sql_quote(args.model_label),
-                                  sql_quote(it["prompt"][:500]), sql_quote(""), sql_quote((reply or "(none)")[:4000]),
-                                  sql_num(got), str(ms), sql_quote(it["id"][:64]), str(si), sql_quote(tags),
-                                  sql_quote(JUDGE_MODEL), sql_quote(TENANT)]) + ")")
-                print(f"  [{done}/{total}] seed {seed} item {k+1} {arm['name']:14} {outcome:11} {pct(score)} {ms}ms",
-                      file=sys.stderr, flush=True)
+    records, judge_cache = [], {}
+    try:
+        run_arms(args, arms, seeds, total, run_id, db, records, judge_cache)
+    except BaseException:
+        if args.json:
+            with open(args.json, "w") as f:
+                json.dump({"run_id": run_id, "config": cfg, "aborted": True, "records": records}, f, indent=1, default=str)
+        if db:
+            try:
+                sql(f"UPDATE eval_runs SET status='ABORTED', completed_combinations={len(records)}, finished_at=NOW() "
+                    f"WHERE id={sql_quote(run_id)}")
+            except Exception as e:
+                print(f"  could not mark run {run_id} ABORTED: {e}", file=sys.stderr)
+        raise
+    done = len(records)
 
     summary = summarize(records, names)
     if db:
