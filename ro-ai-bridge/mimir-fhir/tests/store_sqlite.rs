@@ -2,7 +2,7 @@
 //! transaction; vread/_history; If-Match; search; tamper detection; rollback.
 #![cfg(feature = "store-sqlite")]
 
-use mimir_fhir::datatypes::{Code, CodeableConcept, Identifier, Reference, Uri};
+use mimir_fhir::datatypes::{Code, CodeableConcept, Coding, Identifier, Meta, Reference, Uri};
 use mimir_fhir::resources::{DiagnosticReport, DiagnosticReportStatus, Patient, Task, TaskStatus};
 use mimir_fhir::store::{Store, StoreError};
 
@@ -181,6 +181,26 @@ fn search_worklist_by_owner_and_status_and_patient_by_identifier() {
             .len(),
         0
     );
+}
+
+#[test]
+fn search_by_tag_matches_system_and_code() {
+    const SCOPE: &str = "https://megawiz.co.th/fhir/CodeSystem/nott-scope";
+    let mut s = Store::in_memory().unwrap();
+    let mut research = report();
+    research.meta = Some(Meta::default());
+    research.meta.as_mut().unwrap().tag.push(Coding::new(
+        Uri::new(SCOPE).unwrap(),
+        Code::new("research").unwrap(),
+    ));
+    s.create(research, "Device/nott").unwrap();
+    s.create(report(), "Device/nott").unwrap();
+
+    let tagged = |q: &str| s.search::<DiagnosticReport>(&[("_tag", q)]).unwrap().len();
+    assert_eq!(tagged(&format!("{SCOPE}|research")), 1);
+    assert_eq!(tagged("research"), 1, "code alone matches any system");
+    assert_eq!(tagged("other-system|research"), 0);
+    assert_eq!(tagged(&format!("{SCOPE}|clinical")), 0);
 }
 
 #[test]

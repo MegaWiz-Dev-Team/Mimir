@@ -5,6 +5,8 @@
 
 pub mod datatypes;
 pub mod resources;
+#[cfg(feature = "rest-axum")]
+pub mod rest;
 pub mod schema_export;
 #[cfg(feature = "store-sqlite")]
 pub mod store;
@@ -17,4 +19,3 @@ pub mod validators;
 //
 // pub mod profiles;
 // pub mod adapters;
-// pub mod rest;

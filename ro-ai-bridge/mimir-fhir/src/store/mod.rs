@@ -151,6 +151,26 @@ fn entry_hash(
     ))
 }
 
+/// Token search over an array of `{system, <key>}` objects (`identifier`, `meta.tag`):
+/// `system|value` matches both, a bare `value` matches any system.
+fn push_token(sql: &mut String, args: &mut Vec<String>, array: &str, key: &str, value: &str) {
+    let (system, val) = match value.split_once('|') {
+        Some((s, v)) => (Some(s), v),
+        None => (None, value),
+    };
+    let _ = write!(
+        sql,
+        " AND EXISTS (SELECT 1 FROM json_each(r.json, '{array}') AS t \
+         WHERE json_extract(t.value, '$.{key}') = ?"
+    );
+    args.push(val.to_string());
+    if let Some(s) = system {
+        sql.push_str(" AND json_extract(t.value, '$.system') = ?");
+        args.push(s.to_string());
+    }
+    sql.push(')');
+}
+
 fn now_instant() -> Result<Instant> {
     let s = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     Instant::new(s).map_err(|e| StoreError::Invariant(format!("instant: {e:?}")))
@@ -369,7 +389,8 @@ impl Store {
 
     /// Search the current versions with AND-combined parameters.
     ///
-    /// Supported: `_id`; `identifier` (`system|value` or `value`); reference params
+    /// Supported: `_id`; `identifier` (`system|value` or `value`); `_tag`
+    /// (`system|code` or `code`, over `meta.tag`); reference params
     /// `subject`, `patient`, `encounter`, `owner`, `focus`, `requester`, `for`
     /// (exact reference string, e.g. `Patient/123`); token `status`. Newest first.
     ///
@@ -395,22 +416,8 @@ impl Store {
                     let _ = write!(sql, " AND json_extract(r.json, '$.{path}.reference') = ?");
                     args.push((*value).to_string());
                 }
-                "identifier" => {
-                    let (system, val) = match value.split_once('|') {
-                        Some((s, v)) => (Some(s), v),
-                        None => (None, *value),
-                    };
-                    sql.push_str(
-                        " AND EXISTS (SELECT 1 FROM json_each(r.json, '$.identifier') AS i \
-                         WHERE json_extract(i.value, '$.value') = ?",
-                    );
-                    args.push(val.to_string());
-                    if let Some(s) = system {
-                        sql.push_str(" AND json_extract(i.value, '$.system') = ?");
-                        args.push(s.to_string());
-                    }
-                    sql.push(')');
-                }
+                "identifier" => push_token(&mut sql, &mut args, "$.identifier", "value", value),
+                "_tag" => push_token(&mut sql, &mut args, "$.meta.tag", "code", value),
                 other => return Err(StoreError::UnsupportedSearchParam(other.to_string())),
             }
         }
