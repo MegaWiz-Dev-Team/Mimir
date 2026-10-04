@@ -152,6 +152,19 @@ fn entry_hash(
     ))
 }
 
+/// The element a reference search parameter reads. `patient` follows R5's
+/// `SearchParameter` for the type: `AuditEvent.patient`, `Provenance.patient`,
+/// `Task.for`, and `subject` elsewhere (`Observation`, `DiagnosticReport`,
+/// `DocumentReference`, `Encounter`, …).
+fn reference_path<'a>(resource_type: &str, name: &'a str) -> &'a str {
+    match (resource_type, name) {
+        ("AuditEvent" | "Provenance", "patient") => "patient",
+        ("Task", "patient") => "for",
+        (_, "patient") => "subject",
+        (_, other) => other,
+    }
+}
+
 /// Token search over an array of `{system, <key>}` objects (`identifier`, `meta.tag`):
 /// `system|value` matches both, a bare `value` matches any system.
 fn push_token(sql: &mut String, args: &mut Vec<String>, array: &str, key: &str, value: &str) {
@@ -473,7 +486,8 @@ impl Store {
     /// (`system|code` or `code`, over `meta.tag`); `result` (a reference listed in
     /// `DiagnosticReport.result`, e.g. `Observation/1`); reference params
     /// `subject`, `patient`, `encounter`, `owner`, `focus`, `requester`, `for`
-    /// (exact reference string, e.g. `Patient/123`); token `status`. Newest first.
+    /// (exact reference string, e.g. `Patient/123`; `patient` reads the element R5
+    /// defines for the type — see [`reference_path`]); token `status`. Newest first.
     ///
     /// # Errors
     /// [`StoreError::UnsupportedSearchParam`] for anything else; SQLite / JSON errors.
@@ -493,7 +507,7 @@ impl Store {
                     args.push((*value).to_string());
                 }
                 "subject" | "patient" | "encounter" | "owner" | "focus" | "requester" | "for" => {
-                    let path = if *name == "patient" { "subject" } else { name };
+                    let path = reference_path(T::RESOURCE_TYPE, name);
                     let _ = write!(sql, " AND json_extract(r.json, '$.{path}.reference') = ?");
                     args.push((*value).to_string());
                 }

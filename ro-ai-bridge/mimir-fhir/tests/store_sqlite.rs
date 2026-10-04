@@ -221,6 +221,65 @@ fn search_by_result_finds_the_reports_that_reference_an_observation() {
 }
 
 #[test]
+fn patient_search_follows_each_types_own_element() {
+    use mimir_fhir::datatypes::Instant;
+    use mimir_fhir::resources::{AuditEvent, AuditEventAgent, AuditEventSource, Provenance};
+    let mut s = Store::in_memory().unwrap();
+    let p1 = || Reference::literal("Patient/p1");
+    // R5 AuditEvent and Provenance name the patient in `patient`, not `subject`.
+    let mut event = AuditEvent::new(
+        CodeableConcept::from_text("read"),
+        Instant::new("2026-10-04T07:00:00.000Z").unwrap(),
+        AuditEventAgent {
+            type_: None,
+            role: Vec::new(),
+            who: Reference::literal("PractitionerRole/dr1"),
+            requestor: Some(true),
+        },
+        AuditEventSource {
+            observer: Reference::literal("Device/nott"),
+        },
+    );
+    event.patient = Some(p1());
+    s.create(event, "Device/nott").unwrap();
+    let mut prov = Provenance::of(
+        Reference::literal("DiagnosticReport/r/_history/1"),
+        Reference::literal("Device/nott"),
+    );
+    prov.patient = Some(p1());
+    s.create(prov, "Device/nott").unwrap();
+    // Task names it in `for`.
+    s.create(
+        Task::requested(Reference::literal("DiagnosticReport/r"), p1()),
+        "Device/nott",
+    )
+    .unwrap();
+    // Most others in `subject`.
+    s.create(report(), "Device/nott").unwrap();
+
+    let q = [("patient", "Patient/p1")];
+    let other = [("patient", "Patient/p2")];
+    assert_eq!(
+        s.search::<AuditEvent>(&q).unwrap().len(),
+        1,
+        "AuditEvent.patient"
+    );
+    assert_eq!(
+        s.search::<Provenance>(&q).unwrap().len(),
+        1,
+        "Provenance.patient"
+    );
+    assert_eq!(s.search::<Task>(&q).unwrap().len(), 1, "Task.for");
+    assert_eq!(
+        s.search::<DiagnosticReport>(&q).unwrap().len(),
+        1,
+        "subject"
+    );
+    assert!(s.search::<AuditEvent>(&other).unwrap().is_empty());
+    assert!(s.search::<Task>(&other).unwrap().is_empty());
+}
+
+#[test]
 fn unknown_search_parameter_is_an_error_not_ignored() {
     let s = Store::in_memory().unwrap();
     assert!(matches!(
