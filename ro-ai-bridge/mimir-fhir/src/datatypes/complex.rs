@@ -8,7 +8,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::datatypes::{Code, DateTime, Uri};
+use crate::datatypes::{Code, DateTime, Markdown, Uri};
 
 // =============================================================================
 // Coding — FHIR R5 Coding type
@@ -450,6 +450,9 @@ pub struct Extension {
     #[serde(rename = "valueString", skip_serializing_if = "Option::is_none")]
     pub value_string: Option<String>,
 
+    #[serde(rename = "valueMarkdown", skip_serializing_if = "Option::is_none")]
+    pub value_markdown: Option<Markdown>,
+
     #[serde(rename = "valueCode", skip_serializing_if = "Option::is_none")]
     pub value_code: Option<Code>,
 
@@ -493,6 +496,7 @@ impl Extension {
         Self {
             url,
             value_string: None,
+            value_markdown: None,
             value_code: None,
             value_boolean: None,
             value_datetime: None,
@@ -510,6 +514,14 @@ impl Extension {
     pub fn string(url: Uri, value: impl Into<String>) -> Self {
         let mut e = Self::empty(url);
         e.value_string = Some(value.into());
+        e
+    }
+
+    /// Construct an extension with a markdown value.
+    #[must_use]
+    pub fn markdown(url: Uri, value: Markdown) -> Self {
+        let mut e = Self::empty(url);
+        e.value_markdown = Some(value);
         e
     }
 

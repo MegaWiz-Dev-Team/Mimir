@@ -280,20 +280,22 @@ fn fhir_resource_trait_reports_type_and_ids() {
 }
 
 #[test]
-fn provenance_why_round_trips_as_the_r5_element() {
-    let mut p = Provenance::of(
+fn provenance_has_no_why_in_r5_and_carries_a_reason_as_an_extension() {
+    // FHIR 5.0.0 Provenance has no `why` (HL7 validator: "Unrecognized property 'why'").
+    let mut v = serde_json::to_value(Provenance::of(
         Reference::literal("DiagnosticReport/r1/_history/3"),
         Reference::literal("PractitionerRole/dr1"),
-    );
-    p.why = Some(mimir_fhir::datatypes::Markdown::new("แก้ AHI หลังตรวจคะแนนซ้ำ").unwrap());
-    let v = serde_json::to_value(&p).unwrap();
-    assert_eq!(v["why"], "แก้ AHI หลังตรวจคะแนนซ้ำ");
-    let back: Provenance = serde_json::from_value(v).unwrap();
-    assert_eq!(back, p);
-    let without = serde_json::to_value(Provenance::of(
-        Reference::literal("DiagnosticReport/r1"),
-        Reference::literal("Device/nott"),
     ))
     .unwrap();
-    assert!(without.get("why").is_none());
+    assert!(v.get("why").is_none());
+    v["why"] = serde_json::json!("แก้ AHI หลังตรวจคะแนนซ้ำ");
+    assert!(
+        serde_json::from_value::<Provenance>(v.clone()).is_err(),
+        "why is refused"
+    );
+    v.as_object_mut().unwrap().remove("why");
+    v["extension"] = serde_json::json!([{ "url": "https://example.org/reason", "valueMarkdown": "แก้ AHI หลังตรวจคะแนนซ้ำ" }]);
+    let p: Provenance = serde_json::from_value(v.clone()).unwrap();
+    assert_eq!(p.extension.len(), 1);
+    assert_eq!(serde_json::to_value(&p).unwrap(), v);
 }
