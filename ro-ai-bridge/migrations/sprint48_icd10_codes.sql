@@ -16,7 +16,7 @@
 --   → Bureau of Health Information for ICD-10-TM 2017 master + commercial terms.
 --
 -- See:
---   - Asgard/skills/icd10-coding/SKILL.md
+--   - Asgard/docs/technical/icd10-lookup-tool-spec.md (was Asgard/skills/icd10-coding/SKILL.md)
 --   - Mimir/docs/03_implementation_plans/03_14_Local_LLM_Optimization_Sprints.md (Sprint 48)
 --   - Asgard/legal/2026-05-07_MoPH_ICD-10-TM_License_Request.md (B-48a)
 
