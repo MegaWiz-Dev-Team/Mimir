@@ -11,6 +11,7 @@
 mod address;
 mod attachment;
 mod complex;
+mod contact_detail;
 mod human_name;
 mod metadata;
 mod numeric;
@@ -22,6 +23,7 @@ pub use complex::{
     CodeableConcept, Coding, ContactPoint, ContactPointSystem, ContactPointUse, Extension,
     Identifier, IdentifierUse, Period, Reference,
 };
+pub use contact_detail::ExtendedContactDetail;
 pub use human_name::{HumanName, NameUse};
 pub use metadata::{Annotation, Meta, Narrative, NarrativeStatus};
 pub use numeric::{Money, Quantity, QuantityComparator, Range, Ratio};

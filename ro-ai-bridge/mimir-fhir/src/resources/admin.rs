@@ -6,8 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{
-    CodeableConcept, ContactPoint, Date, HumanName, Id, Identifier, Meta, Narrative, Period,
-    Reference,
+    CodeableConcept, ContactPoint, Date, ExtendedContactDetail, Extension, HumanName, Id,
+    Identifier, Meta, Narrative, Period, Reference,
 };
 use crate::resources::AdministrativeGender;
 
@@ -16,7 +16,7 @@ resource_type_marker!(PractitionerResourceType, "Practitioner");
 resource_type_marker!(PractitionerRoleResourceType, "PractitionerRole");
 
 /// FHIR R5 `Organization` (<http://hl7.org/fhir/R5/organization.html>).
-/// Scaffold subset: identity, type, name, hierarchy. No required fields.
+/// Subset: identity, type, name, contact, hierarchy, extensions. No required fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Organization {
@@ -44,9 +44,15 @@ pub struct Organization {
     /// Name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Ways to reach the organization (R5: address and telecom live here).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contact: Vec<ExtendedContactDetail>,
     /// Parent organization.
     #[serde(rename = "partOf", skip_serializing_if = "Option::is_none")]
     pub part_of: Option<Reference>,
+    /// Resource-level extensions (e.g. a deployment's own settings profile).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extension: Vec<Extension>,
 }
 
 impl Organization {
@@ -170,9 +176,13 @@ pub struct ExternalOrganization {
     pub type_: Vec<CodeableConcept>,
     /// Name.
     pub name: Option<String>,
+    /// Contacts (address, telecom).
+    pub contact: Vec<ExtendedContactDetail>,
     /// Parent.
     #[serde(rename = "partOf")]
     pub part_of: Option<Reference>,
+    /// Extensions.
+    pub extension: Vec<Extension>,
 }
 
 impl From<ExternalOrganization> for Organization {
@@ -183,7 +193,9 @@ impl From<ExternalOrganization> for Organization {
             active: e.active,
             type_: e.type_,
             name: e.name,
+            contact: e.contact,
             part_of: e.part_of,
+            extension: e.extension,
             ..Self::default()
         }
     }
