@@ -1,0 +1,1446 @@
+{
+ "source": "mimir.eval_scores runs 10164998 (all-3 KBs) and 75b8b127 (RAG-only), 2026-05-30, HealthBench oss_eval, judge gemini-2.5-flash",
+ "note": "pct is null for HTTP 500 replies; old_pct is what the pre-fix harness scored them as",
+ "records": [
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.708,
+   "old_pct": 0.708
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": 0.325,
+   "old_pct": 0.325
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "ok",
+   "pct": 0.727,
+   "old_pct": 0.727
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": 0.158,
+   "old_pct": 0.158
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0.571,
+   "old_pct": 0.571
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.509,
+   "old_pct": 0.509
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.309,
+   "old_pct": 0.309
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": -0.805
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 0.787,
+   "old_pct": 0.787
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.554,
+   "old_pct": 0.554
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.583,
+   "old_pct": 0.583
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": 0.026,
+   "old_pct": 0.026
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.288,
+   "old_pct": 0.288
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.294,
+   "old_pct": 0.294
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": -0.14,
+   "old_pct": -0.14
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 0.682,
+   "old_pct": 0.682
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.404,
+   "old_pct": 0.404
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 0.894,
+   "old_pct": 0.894
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.6,
+   "old_pct": 0.6
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.596,
+   "old_pct": 0.596
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.405,
+   "old_pct": 0.405
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": -0.558,
+   "old_pct": -0.558
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "ok",
+   "pct": 0.364,
+   "old_pct": 0.364
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": 0.132,
+   "old_pct": 0.132
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.136,
+   "old_pct": 0.136
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.147,
+   "old_pct": 0.147
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.649,
+   "old_pct": 0.649
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 0.682,
+   "old_pct": 0.682
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "ok",
+   "pct": 0.598,
+   "old_pct": 0.598
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.511,
+   "old_pct": 0.511
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.554,
+   "old_pct": 0.554
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.596,
+   "old_pct": 0.596
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.405,
+   "old_pct": 0.405
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": 0.013,
+   "old_pct": 0.013
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": 0.026,
+   "old_pct": 0.026
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.153,
+   "old_pct": 0.153
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.294,
+   "old_pct": 0.294
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": -0.571,
+   "old_pct": -0.571
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.509,
+   "old_pct": 0.509
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "ok",
+   "pct": 0.517,
+   "old_pct": 0.517
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.457,
+   "old_pct": 0.457
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": 0.854,
+   "old_pct": 0.854
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "error",
+   "pct": null,
+   "old_pct": 0
+  },
+  {
+   "arm": "all3-kb",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 0.787,
+   "old_pct": 0.787
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.4,
+   "old_pct": 0.4
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.708,
+   "old_pct": 0.708
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.298,
+   "old_pct": 0.298
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": 0.39,
+   "old_pct": 0.39
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "ok",
+   "pct": 0.364,
+   "old_pct": 0.364
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": 0.658,
+   "old_pct": 0.658
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.288,
+   "old_pct": 0.288
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.147,
+   "old_pct": 0.147
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0,
+   "old_pct": 0
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.649,
+   "old_pct": 0.649
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 0.682,
+   "old_pct": 0.682
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "ok",
+   "pct": 0.402,
+   "old_pct": 0.402
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.309,
+   "old_pct": 0.309
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "ok",
+   "pct": 0.32,
+   "old_pct": 0.32
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-internal-medicine",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 0.872,
+   "old_pct": 0.872
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.6,
+   "old_pct": 0.6
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.596,
+   "old_pct": 0.596
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.643,
+   "old_pct": 0.643
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": -0.519,
+   "old_pct": -0.519
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "ok",
+   "pct": 0.727,
+   "old_pct": 0.727
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": 0.237,
+   "old_pct": 0.237
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.288,
+   "old_pct": 0.288
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.088,
+   "old_pct": 0.088
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0,
+   "old_pct": 0
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.035,
+   "old_pct": 0.035
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 0.682,
+   "old_pct": 0.682
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "ok",
+   "pct": 0.517,
+   "old_pct": 0.517
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.234,
+   "old_pct": 0.234
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "ok",
+   "pct": 0.68,
+   "old_pct": 0.68
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-ob-gyn",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 0.872,
+   "old_pct": 0.872
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.554,
+   "old_pct": 0.554
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.596,
+   "old_pct": 0.596
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.107,
+   "old_pct": 0.107
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": 0.325,
+   "old_pct": 0.325
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "ok",
+   "pct": 0.364,
+   "old_pct": 0.364
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": -0.079,
+   "old_pct": -0.079
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.102,
+   "old_pct": 0.102
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.147,
+   "old_pct": 0.147
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0,
+   "old_pct": 0
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.509,
+   "old_pct": 0.509
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 0.364,
+   "old_pct": 0.364
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "ok",
+   "pct": 0.713,
+   "old_pct": 0.713
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.681,
+   "old_pct": 0.681
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": -0.244,
+   "old_pct": -0.244
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "ok",
+   "pct": 0.32,
+   "old_pct": 0.32
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "eir-pharmacy",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "0420ca76-1e48-4c56-b718-82bda87ebbdc",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "2304768b-4d20-495c-a809-31a5b74b0df4",
+   "outcome": "ok",
+   "pct": 0.554,
+   "old_pct": 0.554
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "247f41b1-f863-405c-b5fb-779a78e6d8d1",
+   "outcome": "ok",
+   "pct": 0.596,
+   "old_pct": 0.596
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "2840aa56-bf26-4897-85b2-d3ca3a221ae7",
+   "outcome": "ok",
+   "pct": 0.405,
+   "old_pct": 0.405
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "36930729-386e-459a-bfdf-ccac1332765b",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "3852d050-c009-4e33-b953-fd734a5b5e73",
+   "outcome": "ok",
+   "pct": 0.013,
+   "old_pct": 0.013
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "77c6f26c-38a8-4310-8710-f738a39a6b60",
+   "outcome": "ok",
+   "pct": 0.364,
+   "old_pct": 0.364
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "8c088547-4589-4858-914f-79b07fb31024",
+   "outcome": "ok",
+   "pct": -0.105,
+   "old_pct": -0.105
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "a9db229b-57a4-4e9c-a4ac-98d3a16eb756",
+   "outcome": "ok",
+   "pct": 0.186,
+   "old_pct": 0.186
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "af63ea45-0369-4d1a-9a08-4119375dc734",
+   "outcome": "ok",
+   "pct": 0.147,
+   "old_pct": 0.147
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "c29c95d1-5b5e-4f53-9ec5-83e1f72b5aa5",
+   "outcome": "ok",
+   "pct": 0.571,
+   "old_pct": 0.571
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "d12df41b-4191-4ead-bda4-369fb3439100",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "d96e89c3-dc03-4599-870b-e029d10f98bc",
+   "outcome": "ok",
+   "pct": 0.509,
+   "old_pct": 0.509
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "dece837c-1cc7-4022-b8df-62f401ba63fe",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "e1f62ab3-daba-42df-855a-ca1f4615152c",
+   "outcome": "ok",
+   "pct": 0.368,
+   "old_pct": 0.368
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "e6c68be9-31f3-437b-bbb1-b8719d93f78a",
+   "outcome": "ok",
+   "pct": 0.457,
+   "old_pct": 0.457
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "f6c1a209-621b-41b0-813c-7047196bffff",
+   "outcome": "ok",
+   "pct": 1,
+   "old_pct": 1
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "f9ad3cb9-7d19-4e56-bb66-07ce622182af",
+   "outcome": "ok",
+   "pct": 0.854,
+   "old_pct": 0.854
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "fd86658a-5356-4784-96c1-ad45fd96756b",
+   "outcome": "ok",
+   "pct": 0.68,
+   "old_pct": 0.68
+  },
+  {
+   "arm": "rag-only",
+   "seed": 42,
+   "slot": "swarm",
+   "item": "fde30eb5-eefa-4c17-b372-cb412a6f4304",
+   "outcome": "ok",
+   "pct": 0.872,
+   "old_pct": 0.872
+  }
+ ]
+}
