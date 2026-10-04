@@ -10,7 +10,8 @@
 //!   history table is the **retrieval** path.
 //!
 //! Every create/update writes all three inside **one transaction**; if any
-//! insert fails (e.g. the audit row is rejected) nothing is written. History and
+//! insert fails (e.g. the audit row is rejected) nothing is written. Several writes
+//! can share one transaction with [`Store::batch`] — all or none. History and
 //! audit rows cannot be updated or deleted (SQLite triggers). `meta.versionId`
 //! and `meta.lastUpdated` are assigned by the store on write; values supplied by
 //! callers are overwritten.
@@ -176,43 +177,19 @@ pub(crate) fn now_instant() -> Result<Instant> {
     Instant::new(s).map_err(|e| StoreError::Invariant(format!("instant: {e:?}")))
 }
 
-/// A versioned FHIR store.
+/// Writes that commit together; see [`Store::batch`].
 #[derive(Debug)]
-pub struct Store {
-    conn: Connection,
+pub struct Batch<'a> {
+    tx: rusqlite::Transaction<'a>,
+    agent: String,
 }
 
-impl Store {
-    /// Open (or create) a store file.
+impl Batch<'_> {
+    /// Create a resource inside the batch (as [`Store::create`]).
     ///
     /// # Errors
-    /// SQLite open / schema errors.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::init(Connection::open(path)?)
-    }
-
-    /// In-memory store (tests).
-    ///
-    /// # Errors
-    /// SQLite errors.
-    pub fn in_memory() -> Result<Self> {
-        Self::init(Connection::open_in_memory()?)
-    }
-
-    fn init(conn: Connection) -> Result<Self> {
-        conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn })
-    }
-
-    /// Create a resource. Assigns an id if absent, sets `meta.versionId = 1` and
-    /// `meta.lastUpdated`, and writes current + history + audit atomically.
-    ///
-    /// # Errors
-    /// [`StoreError::AlreadyExists`], [`StoreError::MissingAgent`], SQLite/JSON errors.
-    pub fn create<T: FhirResource>(&mut self, mut resource: T, agent: &str) -> Result<T> {
-        if agent.trim().is_empty() {
-            return Err(StoreError::MissingAgent);
-        }
+    /// [`StoreError::AlreadyExists`], SQLite/JSON errors.
+    pub fn create<T: FhirResource>(&mut self, mut resource: T) -> Result<T> {
         let id = if let Some(id) = resource.id() {
             id.clone()
         } else {
@@ -221,10 +198,8 @@ impl Store {
             resource.set_id(id.clone());
             id
         };
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let exists: bool = tx
+        let exists: bool = self
+            .tx
             .query_row(
                 "SELECT 1 FROM resource WHERE type = ?1 AND id = ?2",
                 params![T::RESOURCE_TYPE, id.as_ref()],
@@ -238,33 +213,20 @@ impl Store {
                 id.to_string(),
             ));
         }
-        let stored = Self::write_version(&tx, resource, &id, 1, "create", agent)?;
-        tx.commit()?;
-        Ok(stored)
+        self.write_version(resource, &id, 1, "create")
     }
 
-    /// Update a resource to a new version. `if_match` = the version the writer last
-    /// saw (FHIR `If-Match`); `None` skips the check.
+    /// Update a resource inside the batch (as [`Store::update`]).
     ///
     /// # Errors
-    /// [`StoreError::NotFound`], [`StoreError::VersionConflict`], [`StoreError::MissingAgent`].
-    pub fn update<T: FhirResource>(
-        &mut self,
-        resource: T,
-        if_match: Option<u64>,
-        agent: &str,
-    ) -> Result<T> {
-        if agent.trim().is_empty() {
-            return Err(StoreError::MissingAgent);
-        }
+    /// [`StoreError::NotFound`], [`StoreError::VersionConflict`], SQLite/JSON errors.
+    pub fn update<T: FhirResource>(&mut self, resource: T, if_match: Option<u64>) -> Result<T> {
         let id = resource
             .id()
             .cloned()
             .ok_or_else(|| StoreError::NotFound(T::RESOURCE_TYPE.into(), "<no id>".into()))?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current: Option<i64> = tx
+        let current: Option<i64> = self
+            .tx
             .query_row(
                 "SELECT version_id FROM resource WHERE type = ?1 AND id = ?2",
                 params![T::RESOURCE_TYPE, id.as_ref()],
@@ -283,19 +245,33 @@ impl Store {
                 });
             }
         }
-        let stored = Self::write_version(&tx, resource, &id, current + 1, "update", agent)?;
-        tx.commit()?;
-        Ok(stored)
+        self.write_version(resource, &id, current + 1, "update")
+    }
+
+    /// Current version of `Type/id`, including this batch's own writes.
+    ///
+    /// # Errors
+    /// SQLite / JSON errors.
+    pub fn read<T: FhirResource>(&self, id: &str) -> Result<Option<T>> {
+        read_in(&self.tx, id)
+    }
+
+    /// As [`Store::history_sha256`], including this batch's own writes.
+    ///
+    /// # Errors
+    /// SQLite errors.
+    pub fn history_sha256(&self, rtype: &str, id: &str, version: u64) -> Result<Option<String>> {
+        sha256_in(&self.tx, rtype, id, version)
     }
 
     fn write_version<T: FhirResource>(
-        tx: &rusqlite::Transaction<'_>,
+        &self,
         mut resource: T,
         id: &Id,
         version: u64,
         action: &str,
-        agent: &str,
     ) -> Result<T> {
+        let (tx, agent) = (&self.tx, self.agent.as_str());
         let ts = now_instant()?;
         let meta = resource.meta_mut().get_or_insert_with(Meta::default);
         meta.version_id = Some(version.to_string());
@@ -339,22 +315,127 @@ impl Store {
         )?;
         Ok(resource)
     }
+}
+
+fn read_in<T: FhirResource>(conn: &Connection, id: &str) -> Result<Option<T>> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM resource WHERE type = ?1 AND id = ?2",
+            params![T::RESOURCE_TYPE, id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    json.map(|j| serde_json::from_str(&j).map_err(StoreError::from))
+        .transpose()
+}
+
+fn vread_in<T: FhirResource>(conn: &Connection, id: &str, version: u64) -> Result<Option<T>> {
+    let v = i64::try_from(version).map_err(|e| StoreError::Invariant(e.to_string()))?;
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM resource_history WHERE type = ?1 AND id = ?2 AND version_id = ?3",
+            params![T::RESOURCE_TYPE, id, v],
+            |r| r.get(0),
+        )
+        .optional()?;
+    json.map(|j| serde_json::from_str(&j).map_err(StoreError::from))
+        .transpose()
+}
+
+fn sha256_in(conn: &Connection, rtype: &str, id: &str, version: u64) -> Result<Option<String>> {
+    let v = i64::try_from(version).map_err(|e| StoreError::Invariant(e.to_string()))?;
+    Ok(conn
+        .query_row(
+            "SELECT sha256 FROM resource_history WHERE type = ?1 AND id = ?2 AND version_id = ?3",
+            params![rtype, id, v],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// A versioned FHIR store.
+#[derive(Debug)]
+pub struct Store {
+    conn: Connection,
+}
+
+impl Store {
+    /// Open (or create) a store file.
+    ///
+    /// # Errors
+    /// SQLite open / schema errors.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::init(Connection::open(path)?)
+    }
+
+    /// In-memory store (tests).
+    ///
+    /// # Errors
+    /// SQLite errors.
+    pub fn in_memory() -> Result<Self> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(conn: Connection) -> Result<Self> {
+        conn.execute_batch(SCHEMA)?;
+        Ok(Self { conn })
+    }
+
+    /// Create a resource. Assigns an id if absent, sets `meta.versionId = 1` and
+    /// `meta.lastUpdated`, and writes current + history + audit atomically.
+    ///
+    /// # Errors
+    /// [`StoreError::AlreadyExists`], [`StoreError::MissingAgent`], SQLite/JSON errors.
+    pub fn create<T: FhirResource>(&mut self, resource: T, agent: &str) -> Result<T> {
+        self.batch(agent, |b| b.create(resource))
+    }
+
+    /// Update a resource to a new version. `if_match` = the version the writer last
+    /// saw (FHIR `If-Match`); `None` skips the check.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`], [`StoreError::VersionConflict`], [`StoreError::MissingAgent`].
+    pub fn update<T: FhirResource>(
+        &mut self,
+        resource: T,
+        if_match: Option<u64>,
+        agent: &str,
+    ) -> Result<T> {
+        self.batch(agent, |b| b.update(resource, if_match))
+    }
+
+    /// Run several writes as **one transaction**, all recorded with `agent`: either
+    /// every write in `f` is committed, or — if `f` returns an error or any write
+    /// fails — none is. The audit chain stays continuous across the batch.
+    ///
+    /// # Errors
+    /// [`StoreError::MissingAgent`], or the first error from `f` (nothing written).
+    pub fn batch<R>(
+        &mut self,
+        agent: &str,
+        f: impl FnOnce(&mut Batch<'_>) -> Result<R>,
+    ) -> Result<R> {
+        if agent.trim().is_empty() {
+            return Err(StoreError::MissingAgent);
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut batch = Batch {
+            tx,
+            agent: agent.to_owned(),
+        };
+        let out = f(&mut batch)?; // dropping the transaction on error rolls it back
+        batch.tx.commit()?;
+        Ok(out)
+    }
 
     /// Current version of `Type/id`.
     ///
     /// # Errors
     /// SQLite / JSON errors.
     pub fn read<T: FhirResource>(&self, id: &str) -> Result<Option<T>> {
-        let json: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT json FROM resource WHERE type = ?1 AND id = ?2",
-                params![T::RESOURCE_TYPE, id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        json.map(|j| serde_json::from_str(&j).map_err(StoreError::from))
-            .transpose()
+        read_in(&self.conn, id)
     }
 
     /// A specific version (`Type/id/_history/version`).
@@ -362,17 +443,16 @@ impl Store {
     /// # Errors
     /// SQLite / JSON errors.
     pub fn vread<T: FhirResource>(&self, id: &str, version: u64) -> Result<Option<T>> {
-        let v = i64::try_from(version).map_err(|e| StoreError::Invariant(e.to_string()))?;
-        let json: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT json FROM resource_history WHERE type = ?1 AND id = ?2 AND version_id = ?3",
-                params![T::RESOURCE_TYPE, id, v],
-                |r| r.get(0),
-            )
-            .optional()?;
-        json.map(|j| serde_json::from_str(&j).map_err(StoreError::from))
-            .transpose()
+        vread_in(&self.conn, id, version)
+    }
+
+    /// SHA-256 of the stored JSON of `rtype/id/_history/version` — the value the
+    /// audit chain records for that version (e.g. for a signature over it).
+    ///
+    /// # Errors
+    /// SQLite errors.
+    pub fn history_sha256(&self, rtype: &str, id: &str, version: u64) -> Result<Option<String>> {
+        sha256_in(&self.conn, rtype, id, version)
     }
 
     /// All versions of `Type/id`, newest first (FHIR `_history` order).
