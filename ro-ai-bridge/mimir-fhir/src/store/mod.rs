@@ -487,7 +487,8 @@ impl Store {
     /// `DiagnosticReport.result`, e.g. `Observation/1`); reference params
     /// `subject`, `patient`, `encounter`, `owner`, `focus`, `requester`, `for`
     /// (exact reference string, e.g. `Patient/123`; `patient` reads the element R5
-    /// defines for the type — see [`reference_path`]); token `status`. Newest first.
+    /// defines for the type — see [`reference_path`]); `entity` on `AuditEvent`
+    /// (`entity.what`, the resource or any of its versions); token `status`. Newest first.
     ///
     /// # Errors
     /// [`StoreError::UnsupportedSearchParam`] for anything else; SQLite / JSON errors.
@@ -513,6 +514,17 @@ impl Store {
                 }
                 "identifier" => push_token(&mut sql, &mut args, "$.identifier", "value", value),
                 "_tag" => push_token(&mut sql, &mut args, "$.meta.tag", "code", value),
+                // AuditEvent.entity.what: the resource or any version of it, so a study's
+                // trail is found whether the event named DiagnosticReport/x or …/_history/n.
+                "entity" if T::RESOURCE_TYPE == "AuditEvent" => {
+                    sql.push_str(
+                        " AND EXISTS (SELECT 1 FROM json_each(r.json, '$.entity') AS e \
+                         WHERE json_extract(e.value, '$.what.reference') = ? \
+                         OR instr(json_extract(e.value, '$.what.reference'), ? || '/_history/') = 1)",
+                    );
+                    args.push((*value).to_string());
+                    args.push((*value).to_string());
+                }
                 "result" => {
                     sql.push_str(
                         " AND EXISTS (SELECT 1 FROM json_each(r.json, '$.result') AS t \
