@@ -29,7 +29,7 @@ accuracy_score (tinyint, Likert 1-5) stays NULL.
   GEMINI_API_KEY=... python3 scripts/agent_swarm_healthbench.py --n 30 --seeds 42,7,123 \\
       --arm a=56 --arm b=56 --json /tmp/aa.json
 """
-import argparse, ast, json, os, random, re, statistics, subprocess, sys, time, uuid, urllib.request
+import argparse, ast, hashlib, json, os, random, re, statistics, subprocess, sys, time, uuid, urllib.request
 
 INFRA_NS = "asgard-infra"
 TENANT = "asgard_medical"
@@ -163,6 +163,21 @@ def judge(prompt, response, rubrics):
     got = sum(rubrics[i - 1]["points"] for i in met if 1 <= i <= len(rubrics))
     harmful = any(rubrics[i - 1]["points"] <= -7 for i in met if 1 <= i <= len(rubrics))
     return got / pos_total, float(got), harmful
+
+
+def judge_averaged(prompt, text, rubrics, reps, cache, item_id, judge_fn=judge):
+    """Mean of `reps` judgings, cached per (item, exact answer text).
+
+    The 2026-10-04 A/A (run 061be110) showed the judge scoring 9 of 25
+    byte-identical answers differently; judge noise was ~65% of the paired
+    variance. Averaging cuts it, and the cache makes identical answers score
+    identically. Harmful = flagged by a majority of reps."""
+    key = (item_id, hashlib.sha256(text.encode()).hexdigest())
+    if key not in cache:
+        runs = [judge_fn(prompt, text, rubrics) for _ in range(reps)]
+        cache[key] = (statistics.fmean(r[0] for r in runs), statistics.fmean(r[1] for r in runs),
+                      2 * sum(r[2] for r in runs) > reps, [round(r[0], 4) for r in runs])
+    return cache[key]
 
 
 def call_agent(agent_id, query, timeout=200, base=BIFROST):
@@ -307,6 +322,7 @@ def main():
     ap.add_argument("--agents", help="agents mode: comma ids subset (default all 19)")
     ap.add_argument("--no-swarm", action="store_true")
     ap.add_argument("--arm", action="append", type=parse_arm, help="A/B mode: NAME=AGENT_ID[@BIFROST_URL]")
+    ap.add_argument("--judge-reps", type=int, default=1, help="judge each distinct answer this many times, use the mean")
     ap.add_argument("--model-label", default="gemma-4-26b", help="model_id written to eval rows")
     ap.add_argument("--run-name")
     ap.add_argument("--json", help="write the summary here")
@@ -333,7 +349,7 @@ def main():
     run_name = args.run_name or f"Eir Agent HealthBench-{args.split} ({'A/B' if args.arm else 'agents'}) {time.strftime('%Y%m%d-%H%M%S')}"
     total = len(arms) * args.n * len(seeds)
     cfg = {"benchmark": f"healthbench-{args.split}", "runner": "agent_swarm_healthbench", "n": args.n,
-           "seeds": seeds, "arms": names, "alternated": True, "judge": JUDGE_MODEL,
+           "seeds": seeds, "arms": names, "alternated": True, "judge": JUDGE_MODEL, "judge_reps": args.judge_reps,
            "scoring": "paper_rubric_pct", "judged_outcomes_only": True}
     if db:
         sql("INSERT INTO ai_models (model_id,provider,model_type,is_active,metadata) VALUES (" +
@@ -343,7 +359,7 @@ def main():
                       sql_quote(json.dumps(cfg)), sql_quote(TENANT), sql_quote("arm" if args.arm else "agent")]) + ")")
     print(f"# run_id {run_id}", file=sys.stderr)
 
-    records, done = [], 0
+    records, done, judge_cache = [], 0, {}
     for si, seed in enumerate(seeds):
         items = load_hb(args.split, args.n, seed)
         for k, it in enumerate(items):
@@ -354,7 +370,10 @@ def main():
                 score, got, harmful = None, None, False
                 if outcome == "ok":
                     try:
-                        score, got, harmful = judge(it["prompt"], text, it["rubrics"])
+                        score, got, harmful, rep_scores = judge_averaged(
+                            it["prompt"], text, it["rubrics"], args.judge_reps, judge_cache, it["id"])
+                        if args.judge_reps > 1:
+                            extra["judge_rep_pct"] = rep_scores
                     except Exception as e:
                         outcome = "judge_error"
                         extra["judge_error"] = str(e)[:200]

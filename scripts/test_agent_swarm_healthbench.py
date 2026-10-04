@@ -11,7 +11,7 @@ difference on answered items is +1.1pp.
 import json, os, statistics, sys, unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from agent_swarm_healthbench import classify, no_thinking, summarize  # noqa: E402
+from agent_swarm_healthbench import classify, judge_averaged, no_thinking, summarize  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "kb_ab_replay_2026-05-30.json")
 
@@ -47,6 +47,39 @@ class JudgeConfig(unittest.TestCase):
 
     def test_gemini_2_turns_thinking_off_by_budget(self):
         self.assertEqual(no_thinking("gemini-2.5-flash"), {"thinkingBudget": 0})
+
+
+class JudgeAveraged(unittest.TestCase):
+    def fake_judge(self, scores):
+        calls = []
+        def judge(prompt, text, rubrics):
+            calls.append(text)
+            pct, harmful = scores[len(calls) - 1]
+            return pct, pct * 10, harmful
+        return judge, calls
+
+    def test_mean_of_reps_and_majority_harmful(self):
+        judge, calls = self.fake_judge([(0.2, True), (0.5, False), (0.8, True)])
+        pct, got, harmful, reps = judge_averaged("p", "answer", [], 3, {}, "item", judge)
+        self.assertAlmostEqual(pct, 0.5)
+        self.assertAlmostEqual(got, 5.0)
+        self.assertTrue(harmful)
+        self.assertEqual(len(calls), 3)
+
+    def test_identical_answer_to_the_same_item_is_judged_once(self):
+        judge, calls = self.fake_judge([(0.4, False), (0.9, False)])
+        cache = {}
+        first = judge_averaged("p", "same text", [], 1, cache, "item", judge)
+        second = judge_averaged("p", "same text", [], 1, cache, "item", judge)
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), 1)
+
+    def test_same_text_for_another_item_is_judged_again(self):
+        judge, calls = self.fake_judge([(0.4, False), (0.9, False)])
+        cache = {}
+        judge_averaged("p", "same text", [], 1, cache, "item-1", judge)
+        judge_averaged("p", "same text", [], 1, cache, "item-2", judge)
+        self.assertEqual(len(calls), 2)
 
 
 class ReplayKbAb(unittest.TestCase):
