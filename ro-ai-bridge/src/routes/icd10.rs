@@ -145,7 +145,7 @@ async fn lookup(
 
     for mode in &modes_to_try {
         let rows = if *mode == "semantic" {
-            // Best-effort: don't fail the whole call if Qdrant/Ollama down.
+            // Best-effort: don't fail the whole call if Qdrant/Heimdall embed is down.
             match run_semantic(&q, &source_version, limit).await {
                 Ok(rs) => rs,
                 Err(e) => {
@@ -300,7 +300,7 @@ async fn list_sources(
     Ok(Json(rows))
 }
 
-// ─── Semantic search (Qdrant + Ollama nomic-embed-text) ─────────────────────
+// ─── Semantic search (Qdrant + BGE-M3 via Heimdall) ─────────────────────────
 
 /// Detect Thai chars (incl. PUA range used by old MoPH PDFs).
 #[allow(dead_code)]
