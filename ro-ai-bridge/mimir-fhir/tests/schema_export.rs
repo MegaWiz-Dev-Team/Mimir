@@ -91,16 +91,12 @@ fn extension_schema_includes_all_9_value_variants() {
 }
 
 #[test]
-fn decimal_schema_uses_string_format() {
-    // FHIR decimal serialises as string (rust_decimal serde-with-str feature)
+fn decimal_schema_is_a_json_number() {
+    // FHIR JSON: a decimal is a JSON number (written with its exact digits).
     let schemas = all_datatype_schemas();
     let dec = serde_json::to_value(schemas.get("Decimal").unwrap()).unwrap();
-    assert_eq!(dec["type"], "string");
+    assert_eq!(dec["type"], "number");
     assert_eq!(dec["format"], "decimal");
-    assert!(
-        dec["pattern"].is_string(),
-        "Decimal schema should carry FHIR R5 grammar pattern"
-    );
 }
 
 #[test]

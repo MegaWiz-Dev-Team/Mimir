@@ -30,11 +30,37 @@ use thiserror::Error;
 /// instrument.
 ///
 /// The wrapper exists to (1) provide a manual [`schemars::JsonSchema`]
-/// impl since `rust_decimal::Decimal` has no built-in one, and (2) keep
-/// the type identity local to `mimir-fhir`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
+/// impl since `rust_decimal::Decimal` has no built-in one, (2) keep the type
+/// identity local to `mimir-fhir`, and (3) put it on the wire as FHIR JSON
+/// requires: a JSON **number** written with its exact digits (`12.30` stays
+/// `12.30`). It reads numbers (exponent form included) from JSON text or from a
+/// `serde_json::Value`, and — lenient-in — the quoted-string form older payloads used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Decimal(rust_decimal::Decimal);
+
+impl Serialize for Decimal {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // A raw JSON number token: exact digits, no float round-trip.
+        let raw = serde_json::value::RawValue::from_string(self.0.to_string())
+            .map_err(serde::ser::Error::custom)?;
+        raw.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Decimal {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        let text = raw.get().trim();
+        let text = text
+            .strip_prefix('"')
+            .and_then(|t| t.strip_suffix('"'))
+            .unwrap_or(text);
+        rust_decimal::Decimal::from_str_exact(text)
+            .or_else(|_| rust_decimal::Decimal::from_scientific(text))
+            .map(Self)
+            .map_err(|_| serde::de::Error::custom(format!("not a FHIR decimal: {}", raw.get())))
+    }
+}
 
 impl Decimal {
     /// Construct from inner `rust_decimal::Decimal`.
@@ -82,17 +108,11 @@ impl schemars::JsonSchema for Decimal {
     }
 
     fn json_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        use schemars::schema::{InstanceType, SchemaObject, SingleOrVec, StringValidation};
-        // FHIR R5 decimal regex: -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
-        // Serialised as a string (rust_decimal feature `serde-with-str`).
-        // Pattern is informative — validators may apply it.
+        use schemars::schema::{InstanceType, SchemaObject, SingleOrVec};
+        // FHIR JSON: a decimal is a JSON number (see the type's docs).
         SchemaObject {
-            instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::String))),
+            instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::Number))),
             format: Some("decimal".to_string()),
-            string: Some(Box::new(StringValidation {
-                pattern: Some(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$".to_string()),
-                ..Default::default()
-            })),
             ..Default::default()
         }
         .into()
