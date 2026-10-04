@@ -4,7 +4,7 @@
 //!
 //! | interaction | request |
 //! |---|---|
-//! | `search` | `GET /{type}?param=value` — exactly the parameters [`Store::search`] supports |
+//! | `search` | `GET /{type}?param=value` — exactly the parameters [`Store::search`] supports, plus paging: `_count` (1–1000) and `_offset`, with `self`/`next` links; `total` counts every match |
 //! | `create` | `POST /{type}` — the server assigns the id; a client id is ignored (FHIR) |
 //! | `read` | `GET /{type}/{id}` |
 //! | `update` | `PUT /{type}/{id}` — `If-Match: W/"<versionId>"` required (configurable) |
@@ -644,15 +644,50 @@ fn do_history<T: FhirResource>(s: &Store, id: &str, base: &str) -> Reply {
     ))
 }
 
+/// Largest page a search returns with `_count`.
+const MAX_COUNT: usize = 1000;
+
+/// A query value as it goes back into a link (unreserved characters and `/` kept).
+fn query_encode(v: &str) -> String {
+    v.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 fn do_search<T: FhirResource>(s: &Store, params: &[(String, String)], base: &str) -> Reply {
-    let pairs: Vec<(&str, &str)> = params
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
+    // Paging (`_count`, `_offset`) is the REST layer's; the rest goes to the store.
+    let mut count: Option<usize> = None;
+    let mut offset = 0usize;
+    let mut criteria: Vec<(&str, &str)> = Vec::new();
+    for (k, v) in params {
+        match k.as_str() {
+            "_count" => match v.parse::<usize>() {
+                Ok(n) if (1..=MAX_COUNT).contains(&n) => count = Some(n),
+                _ => {
+                    return Err(RestError::invalid(format!(
+                        "_count must be 1 to {MAX_COUNT}, got {v:?}"
+                    )))
+                }
+            },
+            "_offset" => {
+                offset = v.parse::<usize>().map_err(|_| {
+                    RestError::invalid(format!("_offset must be 0 or more, got {v:?}"))
+                })?;
+            }
+            _ => criteria.push((k.as_str(), v.as_str())),
+        }
+    }
     let mut touched = Touched::default();
-    let entries = s
-        .search::<T>(&pairs)?
-        .iter()
+    let found = s.search::<T>(&criteria)?;
+    let total = found.len();
+    let page = found.iter().skip(offset).take(count.unwrap_or(usize::MAX));
+    let entries = page
         .map(|r| {
             let id = r.id().map(ToString::to_string).unwrap_or_default();
             let resource = serde_json::to_value(r)?;
@@ -664,10 +699,25 @@ fn do_search<T: FhirResource>(s: &Store, params: &[(String, String)], base: &str
             }))
         })
         .collect::<Result<Vec<_>, RestError>>()?;
-    Ok((
-        fhir_json(StatusCode::OK, &bundle("searchset", entries)),
-        touched,
-    ))
+    let mut body = bundle("searchset", entries);
+    body["total"] = json!(total);
+    if let Some(n) = count {
+        let link = |at: usize| {
+            let mut q: Vec<String> = criteria
+                .iter()
+                .map(|(k, v)| format!("{}={}", query_encode(k), query_encode(v)))
+                .collect();
+            q.push(format!("_count={n}"));
+            q.push(format!("_offset={at}"));
+            format!("{base}/{}?{}", T::RESOURCE_TYPE, q.join("&"))
+        };
+        let mut links = vec![json!({ "relation": "self", "url": link(offset) })];
+        if offset + n < total {
+            links.push(json!({ "relation": "next", "url": link(offset + n) }));
+        }
+        body["link"] = Value::Array(links);
+    }
+    Ok((fhir_json(StatusCode::OK, &body), touched))
 }
 
 fn do_create<T: FhirResource>(s: &mut Store, mut body: Value, agent: &str, base: &str) -> Reply {

@@ -362,6 +362,66 @@ async fn search_returns_searchset_and_rejects_unsupported_parameters() {
 }
 
 #[tokio::test]
+async fn search_pages_with_count_and_a_next_link() {
+    let s = store();
+    for _ in 0..5 {
+        let t = Task::requested(
+            Reference::literal("DiagnosticReport/r"),
+            Reference::literal("Patient/p1"),
+        );
+        let r = send(
+            app(&s),
+            write("POST", "/Task", None, &serde_json::to_value(t).unwrap()),
+        )
+        .await;
+        assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    }
+    let next_of = |body: &Value| {
+        body["link"]
+            .as_array()
+            .and_then(|l| l.iter().find(|x| x["relation"] == "next"))
+            .map(|x| x["url"].as_str().unwrap().to_owned())
+    };
+    let mut seen = Vec::new();
+    let mut uri = "/fhir/Task?status=requested&_count=2".to_owned();
+    let mut sizes = Vec::new();
+    loop {
+        let r = send(app(&s), get(uri.strip_prefix("/fhir").unwrap())).await;
+        assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+        assert_eq!(r.body["total"], 5, "total counts every match, not the page");
+        let page = r.body["entry"].as_array().cloned().unwrap_or_default();
+        sizes.push(page.len());
+        seen.extend(
+            page.iter()
+                .map(|e| e["resource"]["id"].as_str().unwrap().to_owned()),
+        );
+        match next_of(&r.body) {
+            Some(next) => {
+                assert!(
+                    next.contains("status=requested") && next.contains("_count=2"),
+                    "{next}"
+                );
+                uri = next;
+            }
+            None => break,
+        }
+    }
+    assert_eq!(sizes, [2, 2, 1]);
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), 5, "every match once across the pages");
+    // Without _count: everything, no paging links.
+    let all = send(app(&s), get("/Task")).await;
+    assert_eq!(all.body["entry"].as_array().unwrap().len(), 5);
+    assert!(next_of(&all.body).is_none());
+    for bad in ["_count=0", "_count=abc", "_count=1001", "_offset=-1"] {
+        let r = send(app(&s), get(&format!("/Task?{bad}"))).await;
+        assert_outcome(&r, StatusCode::BAD_REQUEST, "invalid");
+    }
+    assert_verified(&s);
+}
+
+#[tokio::test]
 async fn search_by_nott_scope_tag() {
     let s = store();
     let mut research = report_json();
