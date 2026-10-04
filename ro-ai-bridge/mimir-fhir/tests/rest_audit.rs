@@ -70,18 +70,22 @@ fn seed(s: &SharedStore, patient: &str) -> String {
     stored.id.unwrap().to_string()
 }
 
-/// `AuditEvent`s as JSON, oldest first.
+/// `AuditEvent`s as JSON in the order they were written — audit-chain sequence, not
+/// `meta.lastUpdated`: two events can share a millisecond.
 fn events(s: &SharedStore) -> Vec<Value> {
-    let mut all: Vec<Value> = s
-        .lock()
-        .unwrap()
-        .search::<AuditEvent>(&[])
+    let st = s.lock().unwrap();
+    st.audit_chain()
         .unwrap()
         .into_iter()
-        .map(|e| serde_json::to_value(e).unwrap())
-        .collect();
-    all.sort_by_key(|e| e["meta"]["lastUpdated"].as_str().unwrap().to_string());
-    all
+        .filter(|e| e.resource_type == "AuditEvent")
+        .map(|e| {
+            let ev = st
+                .vread::<AuditEvent>(&e.id, e.version_id)
+                .unwrap()
+                .unwrap();
+            serde_json::to_value(ev).unwrap()
+        })
+        .collect()
 }
 
 fn entity_refs(e: &Value) -> Vec<String> {
