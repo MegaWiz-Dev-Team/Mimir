@@ -2,8 +2,8 @@
 //!
 //! Implemented: `Coding`, `CodeableConcept`, `Identifier`, `IdentifierUse`,
 //! `Reference`, `Period`, `ContactPoint`, `ContactPointSystem`,
-//! `ContactPointUse`, `Extension` (minimal — `valueString` variant only;
-//! full `value[x]` polymorphism deferred to Sprint 1 Day 7).
+//! `ContactPointUse`, `Extension` (a subset of `value[x]` types; any other type is
+//! refused on read, never dropped).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -442,8 +442,16 @@ impl ContactPoint {
 /// FHIR rule: an Extension MUST have EXACTLY ONE `value[x]` set OR nested
 /// `extension[]` (mutually exclusive). The struct does not enforce this
 /// at compile time; helper constructors and validators check it.
+///
+/// A `value[x]` type not listed here is **refused** when read (fail closed): it used to
+/// be dropped silently, which stored the extension without its value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Extension {
+    /// Element id (R5 `Element.id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
     /// Canonical URL identifying the extension definition.
     pub url: Uri,
 
@@ -494,6 +502,7 @@ impl Extension {
     /// (must have either a value or nested extensions).
     fn empty(url: Uri) -> Self {
         Self {
+            id: None,
             url,
             value_string: None,
             value_markdown: None,
