@@ -278,3 +278,22 @@ fn fhir_resource_trait_reports_type_and_ids() {
     assert_eq!(b.id().unwrap().as_ref(), "abc");
     let _ = CodeableReference::reference(Reference::literal("Condition/1"));
 }
+
+#[test]
+fn provenance_why_round_trips_as_the_r5_element() {
+    let mut p = Provenance::of(
+        Reference::literal("DiagnosticReport/r1/_history/3"),
+        Reference::literal("PractitionerRole/dr1"),
+    );
+    p.why = Some(mimir_fhir::datatypes::Markdown::new("แก้ AHI หลังตรวจคะแนนซ้ำ").unwrap());
+    let v = serde_json::to_value(&p).unwrap();
+    assert_eq!(v["why"], "แก้ AHI หลังตรวจคะแนนซ้ำ");
+    let back: Provenance = serde_json::from_value(v).unwrap();
+    assert_eq!(back, p);
+    let without = serde_json::to_value(Provenance::of(
+        Reference::literal("DiagnosticReport/r1"),
+        Reference::literal("Device/nott"),
+    ))
+    .unwrap();
+    assert!(without.get("why").is_none());
+}

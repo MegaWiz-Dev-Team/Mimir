@@ -259,8 +259,8 @@ fn ratio_antibody_titer_pattern() {
     let titer = Ratio::new(one, sixty_four);
 
     let json = serde_json::to_value(&titer).unwrap();
-    assert_eq!(json["numerator"]["value"], "1");
-    assert_eq!(json["denominator"]["value"], "64");
+    assert_eq!(json["numerator"]["value"], serde_json::json!(1));
+    assert_eq!(json["denominator"]["value"], serde_json::json!(64));
 }
 
 #[test]

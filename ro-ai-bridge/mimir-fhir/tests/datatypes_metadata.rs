@@ -111,7 +111,11 @@ fn extension_decimal_variant_with_clinical_precision() {
     ext.value_string = None;
     ext.value_decimal = Some(Decimal::from_str("2.5").unwrap());
     let json = serde_json::to_value(&ext).unwrap();
-    assert_eq!(json["valueDecimal"], "2.5");
+    assert_eq!(
+        json["valueDecimal"],
+        serde_json::json!(2.5),
+        "FHIR JSON decimal is a number"
+    );
     assert!(json.get("valueString").is_none());
 }
 

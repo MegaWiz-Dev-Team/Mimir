@@ -5,8 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::datatypes::{
-    CodeableConcept, Coding, Date, DateTime, Id, Identifier, Instant, Meta, Narrative, Period,
-    Reference, Signature, Uri,
+    CodeableConcept, Coding, Date, DateTime, Id, Identifier, Instant, Markdown, Meta, Narrative,
+    Period, Reference, Signature, Uri,
 };
 
 resource_type_marker!(ProvenanceResourceType, "Provenance");
@@ -93,6 +93,9 @@ pub struct Provenance {
     /// Signatures (physician sign-off).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signature: Vec<Signature>,
+    /// Why the activity happened (R5 `why`) — e.g. the reason for an amendment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<Markdown>,
 }
 
 /// HL7 v3 `DataOperation` code system — `Provenance.activity` codes.
@@ -124,6 +127,7 @@ impl Provenance {
             }],
             entity: Vec::new(),
             signature: Vec::new(),
+            why: None,
         }
     }
 
