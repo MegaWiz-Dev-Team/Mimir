@@ -65,6 +65,14 @@ pub enum StoreError {
     /// Internal invariant broken (e.g. a generated id or instant failed validation).
     #[error("invariant: {0}")]
     Invariant(String),
+    /// The resource is not valid FHIR R5 ([`crate::validators::r5`]); nothing was written.
+    #[error("{resource} is not valid FHIR R5: {}", .issues.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
+    Invalid {
+        /// `Type/id`.
+        resource: String,
+        /// What is wrong, each with its path and R5 rule.
+        issues: Vec<crate::validators::r5::Issue>,
+    },
 }
 
 /// Result alias.
@@ -364,6 +372,15 @@ impl Batch<'_> {
         let meta = resource.meta_mut().get_or_insert_with(Meta::default);
         meta.version_id = Some(version.to_string());
         meta.last_updated = Some(ts.clone());
+        // Valid R5 or not written at all: an error here rolls the whole batch back.
+        let issues =
+            crate::validators::r5::validate(T::RESOURCE_TYPE, &serde_json::to_value(&resource)?);
+        if !issues.is_empty() {
+            return Err(StoreError::Invalid {
+                resource: format!("{}/{}", T::RESOURCE_TYPE, id),
+                issues,
+            });
+        }
         let json = serde_json::to_string(&resource)?;
         let sha = sha256_hex(&json);
         let v = i64::try_from(version).map_err(|e| StoreError::Invariant(e.to_string()))?;
