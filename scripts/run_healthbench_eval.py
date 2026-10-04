@@ -134,8 +134,12 @@ def judge(question: str, reference: str, actual: str, rubric=None) -> dict:
 
     gen_config = {"temperature": 0.0, "maxOutputTokens": 2048}
     if not JUDGE_THINKING:
-        # Canonical: extraction-mode judge (Sprint 51c locked-in default)
-        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+        # Canonical: extraction-mode judge (Sprint 51c locked-in default).
+        # Gemini 3 rejects thinkingBudget=0 with HTTP 400; thinkingLevel=minimal
+        # is its off switch (0 thought tokens).
+        gen_config["thinkingConfig"] = (
+            {"thinkingLevel": "minimal"} if JUDGE_MODEL.startswith("gemini-3") else {"thinkingBudget": 0}
+        )
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": gen_config,
