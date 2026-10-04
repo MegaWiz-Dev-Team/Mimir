@@ -12,7 +12,8 @@
 //! | `vread` | `GET /{type}/{id}/_history/{vid}` |
 //!
 //! A response carrying one resource has `ETag: W/"<versionId>"` and `Last-Modified`.
-//! Every error is an `OperationOutcome`: English `diagnostics`, Thai `details.text`.
+//! Every error is an `OperationOutcome` with an English fallback `details.text` and a
+//! technical `diagnostics`; UIs localise from `issue.code` and the HTTP status.
 //!
 //! **Fail closed.** The router has no authentication of its own: every request must
 //! carry an [`Agent`] extension, inserted by the host's auth layer, or it is answered
@@ -129,59 +130,64 @@ pub struct RestError {
     status: StatusCode,
     /// FHIR `issue-type` code.
     code: &'static str,
-    /// Text for the person in front of the screen.
-    thai: &'static str,
+    /// Fallback text for the person at the screen (UIs localise from `code`).
+    text: &'static str,
     /// Technical detail for the caller's developer.
     diagnostics: String,
 }
 
 impl RestError {
-    fn new(status: StatusCode, code: &'static str, thai: &'static str, diag: String) -> Self {
+    fn new(status: StatusCode, code: &'static str, text: &'static str, diag: String) -> Self {
         Self {
             status,
             code,
-            thai,
+            text,
             diagnostics: diag,
         }
     }
 
     fn not_found(what: &str) -> Self {
-        let thai = "ไม่พบข้อมูลที่ร้องขอ";
+        let text = "The requested record was not found.";
         Self::new(
             StatusCode::NOT_FOUND,
             "not-found",
-            thai,
+            text,
             format!("{what} not found"),
         )
     }
 
     fn not_supported(status: StatusCode, diag: String) -> Self {
-        Self::new(status, "not-supported", "ระบบไม่รองรับคำขอนี้", diag)
+        Self::new(
+            status,
+            "not-supported",
+            "This request is not supported.",
+            diag,
+        )
     }
 
     fn invalid(diag: String) -> Self {
-        let thai = "คำขอไม่ถูกต้อง";
-        Self::new(StatusCode::BAD_REQUEST, "invalid", thai, diag)
+        let text = "The request is not valid.";
+        Self::new(StatusCode::BAD_REQUEST, "invalid", text, diag)
     }
 
     fn structure(diag: String) -> Self {
-        let thai = "ข้อมูลที่ส่งมามีรูปแบบไม่ถูกต้อง";
-        Self::new(StatusCode::BAD_REQUEST, "structure", thai, diag)
+        let text = "The submitted data is not in the expected format.";
+        Self::new(StatusCode::BAD_REQUEST, "structure", text, diag)
     }
 
     fn business_rule(diag: String) -> Self {
-        let thai = "ทำรายการนี้ไม่ได้ตามกฎของระบบ";
+        let text = "This action is not allowed by the system rules.";
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "business-rule",
-            thai,
+            text,
             diag,
         )
     }
 
     fn internal(diag: String) -> Self {
-        let thai = "ระบบขัดข้อง กรุณาลองใหม่หรือแจ้งผู้ดูแลระบบ";
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "exception", thai, diag)
+        let text = "Something went wrong. Try again or contact the administrator.";
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "exception", text, diag)
     }
 }
 
@@ -193,12 +199,15 @@ impl From<StoreError> for RestError {
             StoreError::VersionConflict { .. } => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conflict",
-                "ข้อมูลถูกแก้ไขไปแล้ว กรุณาโหลดฉบับล่าสุดก่อนแก้ไข",
+                "Someone else changed this record. Reload the latest version before editing.",
                 diag,
             ),
-            StoreError::AlreadyExists(..) => {
-                Self::new(StatusCode::CONFLICT, "duplicate", "มีข้อมูลนี้อยู่แล้ว", diag)
-            }
+            StoreError::AlreadyExists(..) => Self::new(
+                StatusCode::CONFLICT,
+                "duplicate",
+                "This record already exists.",
+                diag,
+            ),
             StoreError::UnsupportedSearchParam(_) => {
                 Self::not_supported(StatusCode::BAD_REQUEST, diag)
             }
@@ -223,7 +232,7 @@ impl IntoResponse for RestError {
             "issue": [{
                 "severity": "error",
                 "code": self.code,
-                "details": { "text": self.thai },
+                "details": { "text": self.text },
                 "diagnostics": self.diagnostics,
             }],
         });
@@ -235,7 +244,7 @@ fn unauthenticated() -> RestError {
     RestError::new(
         StatusCode::UNAUTHORIZED,
         "login",
-        "กรุณาเข้าสู่ระบบ",
+        "Please sign in.",
         "no authenticated agent on the request".into(),
     )
 }
@@ -576,7 +585,7 @@ async fn update(
                 return Err(RestError::new(
                     StatusCode::PRECONDITION_REQUIRED,
                     "required",
-                    "ต้องระบุฉบับที่กำลังแก้ไข กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข",
+                    "Say which version you are editing: reload the latest version first.",
                     "PUT requires If-Match: W/\"<versionId>\"".into(),
                 ))
             }

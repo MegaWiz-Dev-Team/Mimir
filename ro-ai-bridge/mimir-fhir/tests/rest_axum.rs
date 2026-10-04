@@ -107,7 +107,14 @@ fn assert_outcome(r: &Reply, status: StatusCode, code: &str) {
         r.body["issue"][0]["details"]["text"]
             .as_str()
             .is_some_and(|t| !t.is_empty()),
-        "Thai text for the user: {}",
+        "fallback text for the user: {}",
+        r.body
+    );
+    assert!(
+        r.body["issue"][0]["details"]["text"]
+            .as_str()
+            .is_some_and(|t| !t.chars().any(|c| ('\u{0E00}'..='\u{0E7F}').contains(&c))),
+        "fallback text is English; UIs localise from issue.code: {}",
         r.body
     );
 }
