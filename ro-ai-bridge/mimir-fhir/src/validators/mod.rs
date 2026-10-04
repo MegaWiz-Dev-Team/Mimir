@@ -11,6 +11,11 @@
 
 use crate::resources::Patient;
 
+pub mod r5;
+// Generated (examples/gen_r5_elements.rs): kept exactly as written, one element per line.
+#[rustfmt::skip]
+mod r5_elements;
+
 /// Error raised by a profile validator.
 ///
 /// Carries the machine-stable `profile` canonical that rejected the resource

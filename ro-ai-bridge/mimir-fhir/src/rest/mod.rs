@@ -214,6 +214,12 @@ impl From<StoreError> for RestError {
                 Self::not_supported(StatusCode::BAD_REQUEST, diag)
             }
             StoreError::InvalidSearchValue(_) => Self::invalid(diag),
+            StoreError::Invalid { .. } => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "processing",
+                "The record is not valid FHIR R5.",
+                diag,
+            ),
             StoreError::MissingAgent => unauthenticated(),
             StoreError::Sqlite(_) | StoreError::Json(_) | StoreError::Invariant(_) => {
                 Self::internal(diag)
