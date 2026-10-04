@@ -3,6 +3,8 @@
 //!
 //! What it checks, all from the FHIR R5 definitions (`r5_elements.rs` is generated
 //! from them; the invariant keys are R5's own):
+//! - every key is an element R5 defines at that place (the types refuse what they do
+//!   not model; this catches what a type models that R5 does not have);
 //! - every element with `min ≥ 1`, at any depth, is present (the types enforce most
 //!   1..1 elements; this adds 1..* lists and elements inside backbones/datatypes);
 //! - a literal reference (`Type/id`, `Type/id/_history/n`, or an absolute URL ending
@@ -195,6 +197,11 @@ impl Validator<'_> {
                 continue;
             }
             let Some((el, ty)) = find(ctx, key) else {
+                self.issue(
+                    &format!("{at}.{key}"),
+                    "unknown-element",
+                    format!("{key} is not an element of {ctx} in FHIR R5"),
+                );
                 continue;
             };
             let items: Vec<(String, &Value)> = match value {

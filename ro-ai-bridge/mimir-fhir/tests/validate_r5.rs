@@ -351,3 +351,31 @@ async fn rest_answers_422_with_the_rule() {
         "{body}"
     );
 }
+
+#[test]
+fn a_key_r5_does_not_define_is_refused_at_any_depth() {
+    let p = json!({ "resourceType": "Provenance", "target": [{ "reference": "Patient/p" }],
+        "agent": [{ "who": { "reference": "Device/d" }, "note": "x" }], "why": "a reason" });
+    refused("Provenance", &p, "Provenance.why", "unknown-element");
+    refused(
+        "Provenance",
+        &p,
+        "Provenance.agent[0].note",
+        "unknown-element",
+    );
+    let mut o = observation();
+    o["valueFoo"] = json!(1);
+    refused("Observation", &o, "Observation.valueFoo", "unknown-element");
+    let mut q = observation();
+    q["valueQuantity"] = json!({ "value": 1, "colour": "red" });
+    refused(
+        "Observation",
+        &q,
+        "Observation.valueQuantity.colour",
+        "unknown-element",
+    );
+    // Primitive extensions (`_status`) and contained elements are part of R5.
+    let mut ok = observation();
+    ok["_status"] = json!({ "extension": [{ "url": "https://x", "valueString": "y" }] });
+    valid("Observation", &ok);
+}
