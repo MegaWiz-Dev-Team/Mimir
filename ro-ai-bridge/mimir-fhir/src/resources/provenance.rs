@@ -237,6 +237,34 @@ pub struct AuditEvent {
     pub entity: Vec<AuditEventEntity>,
 }
 
+impl AuditEvent {
+    /// An event with its required elements (`code`, `recorded`, one `agent`, `source`);
+    /// everything else empty.
+    #[must_use]
+    pub fn new(
+        code: CodeableConcept,
+        recorded: Instant,
+        agent: AuditEventAgent,
+        source: AuditEventSource,
+    ) -> Self {
+        Self {
+            resource_type: AuditEventResourceType,
+            id: None,
+            meta: None,
+            category: Vec::new(),
+            code,
+            action: None,
+            occurred_date_time: None,
+            recorded,
+            outcome: None,
+            patient: None,
+            agent: vec![agent],
+            source,
+            entity: Vec::new(),
+        }
+    }
+}
+
 /// `Consent.status` value set (R5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]

@@ -39,7 +39,7 @@ cargo test --features rest-axum   # store + REST tests
 | feature | adds |
 |---|---|
 | `store-sqlite` | `store::Store` — versioned SQLite store (current + append-only history + hash-chained audit in one transaction; ADR-006 Amendment 1) |
-| `rest-axum` | `rest::router` — FHIR REST subset (`read`, `vread`, `history`, `search`, `create`, `update` with `If-Match`) as an axum `Router`. No server and no auth of its own: the host nests it at `/fhir` behind a layer that inserts `rest::Agent`; without one every request is 401 |
+| `rest-axum` | `rest::router` — FHIR REST subset (`read`, `vread`, `history`, `search`, `create`, `update` with `If-Match`) as an axum `Router`. No server and no auth of its own: the host nests it at `/fhir` behind a layer that inserts `rest::Agent`; without one every request is 401. Every authenticated request writes one `AuditEvent` (who, interaction, versioned resources, patients, outcome) into the same hash-chained store; if that fails the request returns 500 and no data |
 
 ## Directory structure
 
