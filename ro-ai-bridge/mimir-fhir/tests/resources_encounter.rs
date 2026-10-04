@@ -39,7 +39,8 @@ fn encounter_discontinued_uses_r5_value_set_code() {
         "discontinued"
     );
     // Round-trips from the wire code an external R5 system would send.
-    let parsed: EncounterStatus = serde_json::from_value(serde_json::json!("discontinued")).unwrap();
+    let parsed: EncounterStatus =
+        serde_json::from_value(serde_json::json!("discontinued")).unwrap();
     assert_eq!(parsed, EncounterStatus::Discontinued);
 }
 
