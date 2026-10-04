@@ -280,6 +280,58 @@ fn patient_search_follows_each_types_own_element() {
 }
 
 #[test]
+fn audit_events_are_found_by_the_entity_they_name_any_version() {
+    use mimir_fhir::datatypes::Instant;
+    use mimir_fhir::resources::{AuditEvent, AuditEventAgent, AuditEventEntity, AuditEventSource};
+    let mut s = Store::in_memory().unwrap();
+    let event = |what: &str| {
+        let mut e = AuditEvent::new(
+            CodeableConcept::from_text("read"),
+            Instant::new("2026-10-04T07:00:00.000Z").unwrap(),
+            AuditEventAgent {
+                type_: None,
+                role: Vec::new(),
+                who: Reference::literal("PractitionerRole/dr1"),
+                requestor: Some(true),
+            },
+            AuditEventSource {
+                observer: Reference::literal("Device/nott"),
+            },
+        );
+        e.entity.push(AuditEventEntity {
+            what: Some(Reference::literal(what)),
+            role: None,
+        });
+        e
+    };
+    for what in [
+        "DiagnosticReport/r1",
+        "DiagnosticReport/r1/_history/2",
+        "DiagnosticReport/r10",
+        "DiagnosticReport/r2",
+    ] {
+        s.create(event(what), "Device/nott").unwrap();
+    }
+    let found = |q: &str| s.search::<AuditEvent>(&[("entity", q)]).unwrap().len();
+    assert_eq!(
+        found("DiagnosticReport/r1"),
+        2,
+        "the resource and its versions, not r10"
+    );
+    assert_eq!(
+        found("DiagnosticReport/r1/_history/2"),
+        1,
+        "a version, exactly"
+    );
+    assert_eq!(found("DiagnosticReport/r9"), 0);
+    assert!(matches!(
+        s.search::<Task>(&[("entity", "DiagnosticReport/r1")])
+            .unwrap_err(),
+        StoreError::UnsupportedSearchParam(_)
+    ));
+}
+
+#[test]
 fn unknown_search_parameter_is_an_error_not_ignored() {
     let s = Store::in_memory().unwrap();
     assert!(matches!(
