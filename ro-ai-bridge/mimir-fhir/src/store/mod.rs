@@ -470,7 +470,8 @@ impl Store {
     /// Search the current versions with AND-combined parameters.
     ///
     /// Supported: `_id`; `identifier` (`system|value` or `value`); `_tag`
-    /// (`system|code` or `code`, over `meta.tag`); reference params
+    /// (`system|code` or `code`, over `meta.tag`); `result` (a reference listed in
+    /// `DiagnosticReport.result`, e.g. `Observation/1`); reference params
     /// `subject`, `patient`, `encounter`, `owner`, `focus`, `requester`, `for`
     /// (exact reference string, e.g. `Patient/123`); token `status`. Newest first.
     ///
@@ -498,6 +499,13 @@ impl Store {
                 }
                 "identifier" => push_token(&mut sql, &mut args, "$.identifier", "value", value),
                 "_tag" => push_token(&mut sql, &mut args, "$.meta.tag", "code", value),
+                "result" => {
+                    sql.push_str(
+                        " AND EXISTS (SELECT 1 FROM json_each(r.json, '$.result') AS t \
+                         WHERE json_extract(t.value, '$.reference') = ?)",
+                    );
+                    args.push((*value).to_string());
+                }
                 other => return Err(StoreError::UnsupportedSearchParam(other.to_string())),
             }
         }

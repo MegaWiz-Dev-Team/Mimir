@@ -23,7 +23,9 @@
 //! - `Provenance` and `AuditEvent` are read-only (the sign flow and the audit layer write them);
 //! - a `DiagnosticReport` cannot be written in a signed status (`final`, `amended`,
 //!   `corrected`, `appended`), and a signed report cannot be overwritten — both are the
-//!   sign flow's job.
+//!   sign flow's job;
+//! - an `Observation` listed in a signed report's `result` cannot be changed: the
+//!   signature covers its version.
 //!
 //! Unsupported search parameters, modifiers and comma (OR) values are 400, never
 //! ignored; bodies are parsed strictly (unknown fields are 400).
@@ -706,6 +708,9 @@ fn do_update<T: FhirResource>(
         &body,
         Some(&serde_json::to_value(&current)?),
     )?;
+    if T::RESOURCE_TYPE == "Observation" {
+        guard_signed_result(s, id)?;
+    }
     // Without a client If-Match, pin the write to the version the guard just checked.
     let expected = match if_match {
         Some(v) => v,
@@ -782,6 +787,31 @@ fn guard_report(rtype: &str, new: &Value, current: Option<&Value>) -> Result<(),
         )));
     }
     Ok(())
+}
+
+/// An Observation listed in a signed `DiagnosticReport.result` is covered by that
+/// signature: it cannot change here (an amendment goes through the sign flow).
+fn guard_signed_result(s: &Store, observation_id: &str) -> Result<(), RestError> {
+    let reference = format!("Observation/{observation_id}");
+    let signed = s
+        .search::<DiagnosticReport>(&[("result", reference.as_str())])?
+        .into_iter()
+        .find_map(|r| {
+            let v = serde_json::to_value(&r).ok()?;
+            let status = v.get("status")?.as_str()?;
+            SIGNED.contains(&status).then(|| {
+                (
+                    r.id.map(|i| i.to_string()).unwrap_or_default(),
+                    status.to_owned(),
+                )
+            })
+        });
+    match signed {
+        Some((rid, status)) => Err(RestError::business_rule(format!(
+            "{reference} belongs to DiagnosticReport/{rid}, which is {status}; changes go through the sign flow (amend)"
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn parse_if_match(v: &HeaderValue) -> Result<u64, RestError> {

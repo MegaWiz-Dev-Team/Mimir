@@ -204,6 +204,23 @@ fn search_by_tag_matches_system_and_code() {
 }
 
 #[test]
+fn search_by_result_finds_the_reports_that_reference_an_observation() {
+    let mut s = Store::in_memory().unwrap();
+    let mut with = report();
+    with.result.push(Reference::literal("Observation/o1"));
+    with.result.push(Reference::literal("Observation/o2"));
+    s.create(with, "Device/nott").unwrap();
+    s.create(report(), "Device/nott").unwrap();
+    let found = |o: &str| {
+        s.search::<DiagnosticReport>(&[("result", o)])
+            .unwrap()
+            .len()
+    };
+    assert_eq!(found("Observation/o2"), 1);
+    assert_eq!(found("Observation/o9"), 0);
+}
+
+#[test]
 fn unknown_search_parameter_is_an_error_not_ignored() {
     let s = Store::in_memory().unwrap();
     assert!(matches!(
