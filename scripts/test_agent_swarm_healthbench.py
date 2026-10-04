@@ -12,6 +12,7 @@ import json, os, statistics, sys, unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from agent_swarm_healthbench import classify, judge_averaged, no_thinking, summarize  # noqa: E402
+import agent_swarm_healthbench as h  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "kb_ab_replay_2026-05-30.json")
 
@@ -80,6 +81,73 @@ class JudgeAveraged(unittest.TestCase):
         judge_averaged("p", "same text", [], 1, cache, "item-1", judge)
         judge_averaged("p", "same text", [], 1, cache, "item-2", judge)
         self.assertEqual(len(calls), 2)
+
+
+class SqlRetry(unittest.TestCase):
+    def setUp(self):
+        self.real_sh = h.sh
+        self.slept = []
+
+    def tearDown(self):
+        h.sh = self.real_sh
+
+    def fail_then(self, errors, result="ok"):
+        def sh(cmd, inp=None):
+            if errors:
+                raise RuntimeError(errors.pop(0))
+            return result
+        h.sh = sh
+
+    def test_unreached_api_is_retried(self):
+        self.fail_then(["Unable to connect to the server: net/http: TLS handshake timeout"] * 2)
+        self.assertEqual(h.sql("SELECT 1", sleep=self.slept.append), "ok")
+        self.assertEqual(self.slept, [5, 15])
+
+    def test_sql_errors_are_not_retried(self):
+        self.fail_then(["ERROR 1064 (42000): You have an error in your SQL syntax"])
+        with self.assertRaises(RuntimeError):
+            h.sql("SELEC 1", sleep=self.slept.append)
+        self.assertEqual(self.slept, [])
+
+    def test_gives_up_after_the_last_delay(self):
+        self.fail_then(["Unable to connect to the server: dial tcp: connection refused"] * 9)
+        with self.assertRaises(RuntimeError):
+            h.sql("SELECT 1", delays=(1, 2), sleep=self.slept.append)
+        self.assertEqual(self.slept, [1, 2])
+
+
+class AbortedRun(unittest.TestCase):
+    def test_a_crash_marks_the_run_aborted_and_keeps_partial_records(self):
+        saved = {n: getattr(h, n) for n in ("sql", "load_hb", "call_agent", "judge_averaged", "JUDGE_KEY")}
+        queries = []
+
+        def sql(q, **_):
+            queries.append(q)
+            if q.startswith("INSERT INTO eval_scores") and len(queries) > 3:
+                raise RuntimeError("ERROR 2013 (HY000): Lost connection to server during query")
+            return ""
+        h.sql = sql
+        h.load_hb = lambda split, n, seed: [{"id": f"item-{i}", "prompt": "q", "rubrics": []} for i in range(n)]
+        h.call_agent = lambda *a, **k: ("an answer", 1, None, "")
+        h.judge_averaged = lambda *a, **k: (0.5, 5.0, False, [0.5])
+        h.JUDGE_KEY = "test"
+        out = os.path.join(os.path.dirname(FIXTURE), "_aborted_test.json")
+        argv = sys.argv
+        sys.argv = ["x", "--n", "3", "--arm", "a=1", "--arm", "b=2", "--json", out]
+        try:
+            with self.assertRaises(RuntimeError):
+                h.main()
+            self.assertTrue(any("status='ABORTED'" in q for q in queries))
+            with open(out) as f:
+                partial = json.load(f)
+            self.assertTrue(partial["aborted"])
+            self.assertEqual(len(partial["records"]), 2)
+        finally:
+            sys.argv = argv
+            for n, v in saved.items():
+                setattr(h, n, v)
+            if os.path.exists(out):
+                os.remove(out)
 
 
 class ReplayKbAb(unittest.TestCase):
