@@ -26,6 +26,11 @@
 //!
 //! Unsupported search parameters, modifiers and comma (OR) values are 400, never
 //! ignored; bodies are parsed strictly (unknown fields are 400).
+//!
+//! **Audit.** Every authenticated request — success or failure — writes one `AuditEvent`
+//! into the same hash-chained store: `restful-interaction` code, action, agent, the
+//! versioned resources touched, and their patients (`AuditEvent.patient` when exactly
+//! one). If the record cannot be written, the request answers 500 and returns no data.
 
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -40,8 +45,10 @@ use axum::routing::get;
 use axum::Router;
 use serde_json::{json, Value};
 
+use crate::datatypes::{Code, CodeableConcept, Coding, Reference, Uri};
 use crate::resources::{
-    AuditEvent, Binary, Consent, Device, DiagnosticReport, DocumentReference, Encounter,
+    AuditEvent, AuditEventAction, AuditEventAgent, AuditEventEntity, AuditEventOutcome,
+    AuditEventSource, Binary, Consent, Device, DiagnosticReport, DocumentReference, Encounter,
     FhirResource, Observation, Organization, Patient, Practitioner, PractitionerRole, Provenance,
     ServiceRequest, Task,
 };
@@ -56,6 +63,14 @@ const READ_ONLY: [&str; 2] = ["Provenance", "AuditEvent"];
 /// `DiagnosticReport.status` values that only the sign flow may write.
 const SIGNED: [&str; 4] = ["final", "amended", "corrected", "appended"];
 
+/// Elements whose reference names the patient a resource belongs to.
+const PATIENT_ELEMENTS: [&str; 3] = ["subject", "patient", "for"];
+
+const AUDIT_EVENT_TYPE: &str = "http://terminology.hl7.org/CodeSystem/audit-event-type";
+const RESTFUL_INTERACTION: &str = "http://hl7.org/fhir/restful-interaction";
+const AUDIT_OUTCOME: &str = "http://terminology.hl7.org/CodeSystem/audit-event-outcome";
+const OBJECT_ROLE: &str = "http://terminology.hl7.org/CodeSystem/object-role";
+
 /// Who is making the request (`Practitioner/…`, `PractitionerRole/…`, `Device/…`).
 /// The host's auth layer inserts it as a request extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +84,9 @@ pub struct RestConfig {
     pub base: String,
     /// Refuse `PUT` without `If-Match` with 428 (lost-update protection). Default `true`.
     pub require_if_match: bool,
+    /// `AuditEvent.source.observer` of the per-request audit record, e.g.
+    /// `Device/nott-local`. `None` turns auditing off. Default `Device/mimir-fhir`.
+    pub audit_observer: Option<String>,
 }
 
 impl Default for RestConfig {
@@ -76,6 +94,7 @@ impl Default for RestConfig {
         Self {
             base: "/fhir".into(),
             require_if_match: true,
+            audit_observer: Some("Device/mimir-fhir".into()),
         }
     }
 }
@@ -239,7 +258,94 @@ impl<S: Send + Sync> FromRequestParts<S> for Agent {
     }
 }
 
-type Reply = Result<Response, RestError>;
+type Reply = Result<(Response, Touched), RestError>;
+
+/// What a request touched, for its `AuditEvent`.
+#[derive(Debug, Default)]
+struct Touched {
+    /// `Type/id/_history/n` (or `Type/id`).
+    entities: Vec<String>,
+    /// `Patient/id`, deduplicated.
+    patients: Vec<String>,
+}
+
+impl Touched {
+    fn target(target: Option<String>) -> Self {
+        Self {
+            entities: target.into_iter().collect(),
+            patients: Vec::new(),
+        }
+    }
+
+    /// A stored resource (versioned reference) and its patient.
+    fn resource(&mut self, rtype: &str, v: &Value) {
+        let id = v["id"].as_str().unwrap_or_default();
+        self.entities.push(match v["meta"]["versionId"].as_str() {
+            Some(n) => format!("{rtype}/{id}/_history/{n}"),
+            None => format!("{rtype}/{id}"),
+        });
+        self.patient_of(rtype, v);
+    }
+
+    fn patient_of(&mut self, rtype: &str, v: &Value) {
+        let patient = if rtype == "Patient" {
+            v["id"].as_str().map(|id| format!("Patient/{id}"))
+        } else {
+            PATIENT_ELEMENTS.iter().find_map(|e| {
+                v[*e]["reference"]
+                    .as_str()
+                    .filter(|r| r.starts_with("Patient/"))
+                    .map(str::to_owned)
+            })
+        };
+        if let Some(p) = patient.filter(|p| !self.patients.contains(p)) {
+            self.patients.push(p);
+        }
+    }
+}
+
+/// The REST interaction a handler performs.
+#[derive(Debug, Clone, Copy)]
+enum Interaction {
+    Read,
+    Vread,
+    History,
+    Search,
+    Create,
+    Update,
+}
+
+impl Interaction {
+    /// `http://hl7.org/fhir/restful-interaction` code.
+    fn code(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Vread => "vread",
+            Self::History => "history-instance",
+            Self::Search => "search-type",
+            Self::Create => "create",
+            Self::Update => "update",
+        }
+    }
+
+    fn action(self) -> AuditEventAction {
+        match self {
+            Self::Read | Self::Vread | Self::History => AuditEventAction::R,
+            Self::Search => AuditEventAction::E,
+            Self::Create => AuditEventAction::C,
+            Self::Update => AuditEventAction::U,
+        }
+    }
+}
+
+/// Who asked for what — recorded whatever the outcome.
+#[derive(Debug)]
+struct Call {
+    interaction: Interaction,
+    agent: String,
+    /// The instance named in the URL, recorded when the request fails.
+    target: Option<String>,
+}
 
 /// Runs `$body` with `$T` bound to the resource type named by `$rtype`.
 macro_rules! for_type {
@@ -262,32 +368,109 @@ macro_rules! for_type {
     };
 }
 
-/// Runs a store operation off the async runtime, under the store lock.
+/// Runs a store operation off the async runtime, under the store lock, then writes
+/// its `AuditEvent` under the same lock. No audit record → 500, no data.
 ///
 /// A poisoned lock is recovered: a panic inside a write unwinds through the open
 /// transaction, which rolls back, so the connection is consistent.
-async fn run<F>(st: AppState, f: F) -> Response
+async fn run<F>(st: AppState, call: Call, f: F) -> Response
 where
     F: FnOnce(&mut Store, &RestConfig) -> Reply + Send + 'static,
 {
     let joined = tokio::task::spawn_blocking(move || {
         let mut store = st.store.lock().unwrap_or_else(PoisonError::into_inner);
-        f(&mut store, &st.config)
+        let (response, touched) = match f(&mut store, &st.config) {
+            Ok(done) => done,
+            Err(e) => (e.into_response(), Touched::target(call.target.clone())),
+        };
+        if let Some(observer) = &st.config.audit_observer {
+            if let Err(e) = record(&mut store, &call, observer, response.status(), &touched) {
+                return RestError::internal(format!("audit record failed: {e}")).into_response();
+            }
+        }
+        response
     })
     .await;
-    match joined {
-        Ok(reply) => reply.unwrap_or_else(IntoResponse::into_response),
-        Err(e) => RestError::internal(e.to_string()).into_response(),
+    joined.unwrap_or_else(|e| RestError::internal(e.to_string()).into_response())
+}
+
+fn coding(system: &str, code: &str) -> Result<Coding, StoreError> {
+    let system = Uri::new(system).map_err(|e| StoreError::Invariant(format!("{e:?}")))?;
+    let code = Code::new(code).map_err(|e| StoreError::Invariant(format!("{e:?}")))?;
+    Ok(Coding::new(system, code))
+}
+
+/// One `AuditEvent` for one request (BALP-style: who, what, patient, outcome).
+fn record(
+    store: &mut Store,
+    call: &Call,
+    observer: &str,
+    status: StatusCode,
+    touched: &Touched,
+) -> Result<(), StoreError> {
+    let outcome = if status.is_server_error() {
+        "8"
+    } else if status.is_client_error() {
+        "4"
+    } else {
+        "0"
+    };
+    let entity = |what: &String, role: &str| -> Result<AuditEventEntity, StoreError> {
+        Ok(AuditEventEntity {
+            what: Some(Reference::literal(what.clone())),
+            role: Some(CodeableConcept::from_coding(coding(OBJECT_ROLE, role)?)),
+        })
+    };
+    let mut event = AuditEvent::new(
+        CodeableConcept::from_coding(coding(RESTFUL_INTERACTION, call.interaction.code())?),
+        crate::store::now_instant()?,
+        AuditEventAgent {
+            type_: None,
+            role: Vec::new(),
+            who: Reference::literal(call.agent.clone()),
+            requestor: Some(true),
+        },
+        AuditEventSource {
+            observer: Reference::literal(observer),
+        },
+    );
+    event.category = vec![CodeableConcept::from_coding(coding(
+        AUDIT_EVENT_TYPE,
+        "rest",
+    )?)];
+    event.action = Some(call.interaction.action());
+    event.outcome = Some(AuditEventOutcome {
+        code: coding(AUDIT_OUTCOME, outcome)?,
+        detail: vec![CodeableConcept::from_text(format!(
+            "HTTP {}",
+            status.as_u16()
+        ))],
+    });
+    if let [one] = touched.patients.as_slice() {
+        event.patient = Some(Reference::literal(one.clone()));
     }
+    for e in &touched.entities {
+        event.entity.push(entity(e, "4")?); // domain resource
+    }
+    for p in &touched.patients {
+        event.entity.push(entity(p, "1")?); // patient
+    }
+    store.create(event, observer).map(|_| ())
 }
 
 async fn read(
     State(st): State<AppState>,
-    Agent(_): Agent,
+    Agent(agent): Agent,
     Path((rtype, id)): Path<(String, String)>,
 ) -> Response {
+    let call = Call {
+        interaction: Interaction::Read,
+        agent,
+        target: Some(format!("{rtype}/{id}")),
+    };
     run(
         st,
+        call,
         move |s, _| for_type!(rtype.as_str(), T => do_read::<T>(s, &id)),
     )
     .await
@@ -295,10 +478,15 @@ async fn read(
 
 async fn vread(
     State(st): State<AppState>,
-    Agent(_): Agent,
+    Agent(agent): Agent,
     Path((rtype, id, vid)): Path<(String, String, String)>,
 ) -> Response {
-    run(st, move |s, _| {
+    let call = Call {
+        interaction: Interaction::Vread,
+        agent,
+        target: Some(format!("{rtype}/{id}/_history/{vid}")),
+    };
+    run(st, call, move |s, _| {
         let v: u64 = vid
             .parse()
             .map_err(|_| RestError::invalid(format!("version {vid:?} is not a number")))?;
@@ -309,11 +497,17 @@ async fn vread(
 
 async fn history(
     State(st): State<AppState>,
-    Agent(_): Agent,
+    Agent(agent): Agent,
     Path((rtype, id)): Path<(String, String)>,
 ) -> Response {
+    let call = Call {
+        interaction: Interaction::History,
+        agent,
+        target: Some(format!("{rtype}/{id}")),
+    };
     run(
         st,
+        call,
         move |s, c| for_type!(rtype.as_str(), T => do_history::<T>(s, &id, &c.base)),
     )
     .await
@@ -321,11 +515,16 @@ async fn history(
 
 async fn search(
     State(st): State<AppState>,
-    Agent(_): Agent,
+    Agent(agent): Agent,
     Path(rtype): Path<String>,
     query: Result<Query<Vec<(String, String)>>, QueryRejection>,
 ) -> Response {
-    run(st, move |s, c| {
+    let call = Call {
+        interaction: Interaction::Search,
+        agent,
+        target: None,
+    };
+    run(st, call, move |s, c| {
         let Query(params) = query.map_err(|e| RestError::invalid(e.body_text()))?;
         if let Some((name, _)) = params.iter().find(|(_, v)| v.contains(',')) {
             return Err(RestError::not_supported(
@@ -345,7 +544,12 @@ async fn create(
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    run(st, move |s, c| {
+    let call = Call {
+        interaction: Interaction::Create,
+        agent: agent.clone(),
+        target: None,
+    };
+    run(st, call, move |s, c| {
         let body = parse_body(&rtype, &headers, body)?;
         for_type!(rtype.as_str(), T => do_create::<T>(s, body, &agent, &c.base))
     })
@@ -359,7 +563,12 @@ async fn update(
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    run(st, move |s, c| {
+    let call = Call {
+        interaction: Interaction::Update,
+        agent: agent.clone(),
+        target: Some(format!("{rtype}/{id}")),
+    };
+    run(st, call, move |s, c| {
         let body = parse_body(&rtype, &headers, body)?;
         let if_match = match headers.get(header::IF_MATCH) {
             Some(v) => Some(parse_if_match(v)?),
@@ -398,6 +607,8 @@ fn do_history<T: FhirResource>(s: &Store, id: &str, base: &str) -> Reply {
         return Err(RestError::not_found(&format!("{}/{id}", T::RESOURCE_TYPE)));
     }
     let rtype = T::RESOURCE_TYPE;
+    let mut touched = Touched::target(Some(format!("{rtype}/{id}")));
+    touched.patient_of(rtype, &serde_json::to_value(&versions[0])?);
     let entries = versions
         .iter()
         .map(|r| {
@@ -416,7 +627,10 @@ fn do_history<T: FhirResource>(s: &Store, id: &str, base: &str) -> Reply {
             }))
         })
         .collect::<Result<Vec<_>, RestError>>()?;
-    Ok(fhir_json(StatusCode::OK, &bundle("history", entries)))
+    Ok((
+        fhir_json(StatusCode::OK, &bundle("history", entries)),
+        touched,
+    ))
 }
 
 fn do_search<T: FhirResource>(s: &Store, params: &[(String, String)], base: &str) -> Reply {
@@ -424,19 +638,25 @@ fn do_search<T: FhirResource>(s: &Store, params: &[(String, String)], base: &str
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
+    let mut touched = Touched::default();
     let entries = s
         .search::<T>(&pairs)?
         .iter()
         .map(|r| {
             let id = r.id().map(ToString::to_string).unwrap_or_default();
+            let resource = serde_json::to_value(r)?;
+            touched.resource(T::RESOURCE_TYPE, &resource);
             Ok(json!({
                 "fullUrl": format!("{base}/{}/{id}", T::RESOURCE_TYPE),
-                "resource": serde_json::to_value(r)?,
+                "resource": resource,
                 "search": { "mode": "match" },
             }))
         })
         .collect::<Result<Vec<_>, RestError>>()?;
-    Ok(fhir_json(StatusCode::OK, &bundle("searchset", entries)))
+    Ok((
+        fhir_json(StatusCode::OK, &bundle("searchset", entries)),
+        touched,
+    ))
 }
 
 fn do_create<T: FhirResource>(s: &mut Store, mut body: Value, agent: &str, base: &str) -> Reply {
@@ -583,7 +803,10 @@ fn etag(version: &str) -> String {
 }
 
 fn one<T: FhirResource>(status: StatusCode, r: &T, location: Option<&str>) -> Reply {
-    let mut res = fhir_json(status, &serde_json::to_value(r)?);
+    let body = serde_json::to_value(r)?;
+    let mut touched = Touched::default();
+    touched.resource(T::RESOURCE_TYPE, &body);
+    let mut res = fhir_json(status, &body);
     let (v, ts) = version_meta(r);
     let headers = res.headers_mut();
     let mut set = |name: header::HeaderName, value: &str| -> Result<(), RestError> {
@@ -603,7 +826,7 @@ fn one<T: FhirResource>(status: StatusCode, r: &T, location: Option<&str>) -> Re
     if let Some(l) = location {
         set(header::LOCATION, l)?;
     }
-    Ok(res)
+    Ok((res, touched))
 }
 
 fn bundle(kind: &str, entries: Vec<Value>) -> Value {

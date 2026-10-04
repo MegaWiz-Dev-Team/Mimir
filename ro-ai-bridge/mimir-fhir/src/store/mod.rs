@@ -171,7 +171,7 @@ fn push_token(sql: &mut String, args: &mut Vec<String>, array: &str, key: &str, 
     sql.push(')');
 }
 
-fn now_instant() -> Result<Instant> {
+pub(crate) fn now_instant() -> Result<Instant> {
     let s = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     Instant::new(s).map_err(|e| StoreError::Invariant(format!("instant: {e:?}")))
 }

@@ -123,6 +123,17 @@ fn audit_len(s: &SharedStore) -> usize {
     s.lock().unwrap().audit_chain().unwrap().len()
 }
 
+/// Writes other than the per-request `AuditEvent`s.
+fn writes(s: &SharedStore) -> usize {
+    s.lock()
+        .unwrap()
+        .audit_chain()
+        .unwrap()
+        .iter()
+        .filter(|e| e.resource_type != "AuditEvent")
+        .count()
+}
+
 #[tokio::test]
 async fn create_ignores_client_id_and_returns_201_location_and_etag() {
     let s = store();
@@ -200,10 +211,10 @@ async fn stale_if_match_is_412_and_writes_nothing() {
     let uri = format!("/DiagnosticReport/{id}");
     let first = send(app(&s), write("PUT", &uri, Some("W/\"1\""), &body)).await;
     assert_eq!(first.status, StatusCode::OK, "{}", first.body);
-    let before = audit_len(&s);
+    let before = writes(&s);
     let stale = send(app(&s), write("PUT", &uri, Some("W/\"1\""), &body)).await;
     assert_outcome(&stale, StatusCode::PRECONDITION_FAILED, "conflict");
-    assert_eq!(audit_len(&s), before, "nothing written on conflict");
+    assert_eq!(writes(&s), before, "nothing written on conflict");
     assert_verified(&s);
 }
 
@@ -239,7 +250,7 @@ async fn update_preconditions_missing_if_match_id_mismatch_and_unknown_id() {
         StatusCode::METHOD_NOT_ALLOWED,
         "not-supported",
     );
-    assert_eq!(audit_len(&s), 1, "only the original create was written");
+    assert_eq!(writes(&s), 1, "only the original create was written");
     assert_verified(&s);
 }
 
@@ -403,7 +414,7 @@ async fn malformed_bodies_are_400_and_wrong_media_type_is_415() {
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
         "not-supported",
     );
-    assert_eq!(audit_len(&s), 0);
+    assert_eq!(writes(&s), 0);
     assert_verified(&s);
 }
 
@@ -460,7 +471,7 @@ async fn provenance_and_audit_event_are_read_only_here() {
         .await;
         assert_outcome(&r, StatusCode::METHOD_NOT_ALLOWED, "not-supported");
     }
-    assert_eq!(audit_len(&s), 0);
+    assert_eq!(writes(&s), 0);
     assert_verified(&s);
 }
 
@@ -494,6 +505,6 @@ async fn signed_report_states_are_only_reachable_through_the_sign_flow() {
     back["id"] = json!(id);
     let r = send(app(&s), write("PUT", &uri, Some("W/\"2\""), &back)).await;
     assert_outcome(&r, StatusCode::UNPROCESSABLE_ENTITY, "business-rule");
-    assert_eq!(audit_len(&s), 2, "create + simulated sign only");
+    assert_eq!(writes(&s), 2, "create + simulated sign only");
     assert_verified(&s);
 }
