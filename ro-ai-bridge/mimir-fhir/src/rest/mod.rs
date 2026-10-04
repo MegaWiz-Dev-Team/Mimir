@@ -213,6 +213,7 @@ impl From<StoreError> for RestError {
             StoreError::UnsupportedSearchParam(_) => {
                 Self::not_supported(StatusCode::BAD_REQUEST, diag)
             }
+            StoreError::InvalidSearchValue(_) => Self::invalid(diag),
             StoreError::MissingAgent => unauthenticated(),
             StoreError::Sqlite(_) | StoreError::Json(_) | StoreError::Invariant(_) => {
                 Self::internal(diag)

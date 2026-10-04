@@ -56,6 +56,9 @@ pub enum StoreError {
     /// Search parameter not supported for this resource.
     #[error("unsupported search parameter {0:?}")]
     UnsupportedSearchParam(String),
+    /// A supported parameter with a value it cannot take (e.g. a malformed date).
+    #[error("invalid search value: {0}")]
+    InvalidSearchValue(String),
     /// The agent (who performed the write) must be named.
     #[error("agent must be a non-empty reference (e.g. Practitioner/123)")]
     MissingAgent,
@@ -150,6 +153,78 @@ fn entry_hash(
     sha256_hex(&format!(
         "{prev}\n{ts}\n{action}\n{rtype}\n{id}\n{version}\n{sha}\n{agent}"
     ))
+}
+
+/// The element `date` reads for a type (R5 `SearchParameter` `clinical-date` /
+/// `AuditEvent-date` / `Provenance-recorded`).
+fn date_path(resource_type: &str) -> Option<&'static str> {
+    match resource_type {
+        "AuditEvent" | "Provenance" => Some("recorded"),
+        "DiagnosticReport" | "Observation" => Some("effectiveDateTime"),
+        _ => None,
+    }
+}
+
+/// A FHIR date search value (`[eq|ge|gt|le|lt]` + a year, month, day or instant) as
+/// the prefix and the period it names, `[start, end)` in UTC RFC 3339. A value
+/// without a time is a UTC day, month or year; a time keeps its own offset.
+fn date_criterion(value: &str) -> Result<(&'static str, String, String)> {
+    use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+    let bad = || StoreError::InvalidSearchValue(format!("date {value:?}"));
+    let (op, v) = ["eq", "ge", "gt", "le", "lt"]
+        .iter()
+        .find_map(|p| value.strip_prefix(p).map(|rest| (*p, rest)))
+        .unwrap_or(("eq", value));
+    let fmt = |t: DateTime<Utc>| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let day = |y: i32, m: u32, d: u32| {
+        NaiveDate::from_ymd_opt(y, m, d)
+            .and_then(|n| n.and_hms_opt(0, 0, 0))
+            .map(|n| Utc.from_utc_datetime(&n))
+    };
+    let num = |s: &str| {
+        s.parse::<u32>()
+            .ok()
+            .filter(|_| s.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let parts: Vec<&str> = v.split('-').collect();
+    let (start, end) = match (v.len(), parts.as_slice()) {
+        (4, [y]) => {
+            let y = i32::try_from(num(y).ok_or_else(bad)?).map_err(|_| bad())?;
+            (
+                day(y, 1, 1).ok_or_else(bad)?,
+                day(y + 1, 1, 1).ok_or_else(bad)?,
+            )
+        }
+        (7, [y, m]) => {
+            let y = i32::try_from(num(y).ok_or_else(bad)?).map_err(|_| bad())?;
+            let m = num(m).ok_or_else(bad)?;
+            let start = day(y, m, 1).ok_or_else(bad)?;
+            let next = if m == 12 {
+                day(y + 1, 1, 1)
+            } else {
+                day(y, m + 1, 1)
+            };
+            (start, next.ok_or_else(bad)?)
+        }
+        (10, [y, m, d]) => {
+            let y = i32::try_from(num(y).ok_or_else(bad)?).map_err(|_| bad())?;
+            let start = day(y, num(m).ok_or_else(bad)?, num(d).ok_or_else(bad)?).ok_or_else(bad)?;
+            (start, start + Duration::days(1))
+        }
+        _ => {
+            let t = DateTime::parse_from_rfc3339(v)
+                .map_err(|_| bad())?
+                .with_timezone(&Utc);
+            // The precision written is the period: a second, or a millisecond.
+            let step = if v.contains('.') {
+                Duration::milliseconds(1)
+            } else {
+                Duration::seconds(1)
+            };
+            (t, t + step)
+        }
+    };
+    Ok((op, fmt(start), fmt(end)))
 }
 
 /// The element a reference search parameter reads. `patient` follows R5's
@@ -488,10 +563,15 @@ impl Store {
     /// `subject`, `patient`, `encounter`, `owner`, `focus`, `requester`, `for`
     /// (exact reference string, e.g. `Patient/123`; `patient` reads the element R5
     /// defines for the type — see [`reference_path`]); `entity` on `AuditEvent`
-    /// (`entity.what`, the resource or any of its versions); token `status`. Newest first.
+    /// (`entity.what`, the resource or any of its versions); `date` (a prefix
+    /// `eq|ge|gt|le|lt` then a year, month, day or instant; a value without a time is
+    /// a UTC period — see `date_criterion`, and `date_path` for the element per type);
+    /// token `status`. Newest first.
     ///
     /// # Errors
-    /// [`StoreError::UnsupportedSearchParam`] for anything else; SQLite / JSON errors.
+    /// [`StoreError::UnsupportedSearchParam`] for anything else,
+    /// [`StoreError::InvalidSearchValue`] for a value a parameter cannot take; SQLite /
+    /// JSON errors.
     pub fn search<T: FhirResource>(&self, params_in: &[(&str, &str)]) -> Result<Vec<T>> {
         // `r.json` is qualified: inside json_each() an unqualified `json` would
         // resolve to json_each's own hidden `json` column.
@@ -524,6 +604,38 @@ impl Store {
                     );
                     args.push((*value).to_string());
                     args.push((*value).to_string());
+                }
+                "date" => {
+                    let path = date_path(T::RESOURCE_TYPE)
+                        .ok_or_else(|| StoreError::UnsupportedSearchParam("date".into()))?;
+                    let (op, start, end) = date_criterion(value)?;
+                    // julianday() reads ISO 8601 with Z or ±hh:mm, so 07:00:00Z and
+                    // 07:00:00.000Z compare as the same instant (a string compare would not).
+                    let at = format!("julianday(json_extract(r.json, '$.{path}'))");
+                    match op {
+                        "eq" => {
+                            let _ =
+                                write!(sql, " AND {at} >= julianday(?) AND {at} < julianday(?)");
+                            args.push(start);
+                            args.push(end);
+                        }
+                        "ge" => {
+                            let _ = write!(sql, " AND {at} >= julianday(?)");
+                            args.push(start);
+                        }
+                        "gt" => {
+                            let _ = write!(sql, " AND {at} >= julianday(?)");
+                            args.push(end);
+                        }
+                        "lt" => {
+                            let _ = write!(sql, " AND {at} < julianday(?)");
+                            args.push(start);
+                        }
+                        _ => {
+                            let _ = write!(sql, " AND {at} < julianday(?)");
+                            args.push(end);
+                        }
+                    }
                 }
                 "result" => {
                     sql.push_str(

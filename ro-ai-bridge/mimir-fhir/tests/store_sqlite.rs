@@ -332,6 +332,89 @@ fn audit_events_are_found_by_the_entity_they_name_any_version() {
 }
 
 #[test]
+fn audit_events_and_reports_are_found_by_date_with_fhir_prefixes() {
+    use mimir_fhir::datatypes::{DateTime, Instant};
+    use mimir_fhir::resources::{AuditEvent, AuditEventAgent, AuditEventSource};
+    let mut s = Store::in_memory().unwrap();
+    for at in [
+        "2026-10-03T23:59:59.999Z",
+        "2026-10-04T00:00:00Z",
+        "2026-10-04T07:00:00.000Z",
+        "2026-10-05T00:00:00.000Z",
+    ] {
+        let e = AuditEvent::new(
+            CodeableConcept::from_text("read"),
+            Instant::new(at).unwrap(),
+            AuditEventAgent {
+                type_: None,
+                role: Vec::new(),
+                who: Reference::literal("PractitionerRole/dr1"),
+                requestor: Some(true),
+            },
+            AuditEventSource {
+                observer: Reference::literal("Device/nott"),
+            },
+        );
+        s.create(e, "Device/nott").unwrap();
+    }
+    let found = |q: &[(&str, &str)]| s.search::<AuditEvent>(q).unwrap().len();
+    let one = |v: &str| found(&[("date", v)]);
+    assert_eq!(
+        one("2026-10-04"),
+        2,
+        "the whole UTC day, ms or s precision alike"
+    );
+    assert_eq!(one("eq2026-10-04"), 2);
+    assert_eq!(one("ge2026-10-04"), 3);
+    assert_eq!(one("gt2026-10-04"), 1, "after the day");
+    assert_eq!(one("lt2026-10-04"), 1, "before the day");
+    assert_eq!(one("le2026-10-04"), 3);
+    assert_eq!(one("2026-10"), 4);
+    assert_eq!(one("2026"), 4);
+    assert_eq!(one("2025"), 0);
+    assert_eq!(
+        one("ge2026-10-04T07:00:00+07:00"),
+        3,
+        "an offset is honoured"
+    );
+    assert_eq!(one("2026-10-04T07:00:00Z"), 1, "a second");
+    assert_eq!(
+        found(&[("date", "ge2026-10-04"), ("date", "lt2026-10-05")]),
+        2,
+        "a range"
+    );
+    for bad in ["garbage", "sa2026-10-04", "2026-13", ""] {
+        assert!(
+            matches!(
+                s.search::<AuditEvent>(&[("date", bad)]).unwrap_err(),
+                StoreError::InvalidSearchValue(_)
+            ),
+            "{bad:?}"
+        );
+    }
+    assert!(matches!(
+        s.search::<Task>(&[("date", "2026")]).unwrap_err(),
+        StoreError::UnsupportedSearchParam(_)
+    ));
+    // DiagnosticReport: effectiveDateTime, a date alone included.
+    let mut dated = report();
+    dated.effective_date_time = Some(DateTime::new("2026-10-01").unwrap());
+    s.create(dated, "Device/nott").unwrap();
+    assert_eq!(
+        s.search::<DiagnosticReport>(&[("date", "2026-10-01")])
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        s.search::<DiagnosticReport>(&[("date", "gt2026-10-01")])
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+#[test]
 fn unknown_search_parameter_is_an_error_not_ignored() {
     let s = Store::in_memory().unwrap();
     assert!(matches!(
