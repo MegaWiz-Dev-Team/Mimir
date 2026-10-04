@@ -6,6 +6,8 @@
 pub mod datatypes;
 pub mod resources;
 pub mod schema_export;
+#[cfg(feature = "store-sqlite")]
+pub mod store;
 pub mod terminology;
 pub mod translate;
 pub mod validators;

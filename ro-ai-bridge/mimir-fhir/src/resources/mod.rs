@@ -76,8 +76,36 @@ macro_rules! resource_type_marker {
 // `resource_type_marker!` is in textual macro scope for the submodules below
 // (declared after this definition), so each can invoke it directly.
 
+mod admin;
+mod diagnostics;
+mod documents;
 mod encounter;
 mod patient;
+mod provenance;
+mod workflow;
+
+pub use admin::{
+    ExternalOrganization, ExternalPractitioner, Organization, Practitioner,
+    PractitionerQualification, PractitionerRole,
+};
+pub use diagnostics::{
+    DiagnosticReport, DiagnosticReportStatus, MultipleValuesError, Observation,
+    ObservationComponent, ObservationStatus,
+};
+pub use documents::{
+    Binary, Device, DeviceName, DeviceNameType, DeviceStatus, DeviceVersion, DocumentReference,
+    DocumentReferenceContent, DocumentReferenceRelatesTo, DocumentReferenceStatus,
+};
+pub use provenance::{
+    AuditEvent, AuditEventAction, AuditEventAgent, AuditEventEntity, AuditEventOutcome,
+    AuditEventSource, Consent, ConsentDecision, ConsentProvision, ConsentStatus, Provenance,
+    ProvenanceAgent, ProvenanceEntity, ProvenanceEntityRole, DATA_OPERATION_SYSTEM,
+    PARTICIPATION_TYPE_SYSTEM,
+};
+pub use workflow::{
+    ExternalServiceRequest, RequestIntent, RequestPriority, RequestStatus, ServiceRequest, Task,
+    TaskIntent, TaskStatus,
+};
 
 pub use encounter::{
     Encounter, EncounterAdmission, EncounterDiagnosis, EncounterLocation, EncounterStatus,
@@ -105,3 +133,50 @@ pub enum ConversionError {
         field: &'static str,
     },
 }
+
+/// Common surface every canonical resource exposes, so generic code (the
+/// store, REST layer, Bundle handling) can work over any resource type.
+pub trait FhirResource:
+    serde::Serialize + serde::de::DeserializeOwned + Clone + std::fmt::Debug
+{
+    /// The FHIR `resourceType` literal.
+    const RESOURCE_TYPE: &'static str;
+    /// Logical id, if assigned.
+    fn id(&self) -> Option<&crate::datatypes::Id>;
+    /// Assign the logical id.
+    fn set_id(&mut self, id: crate::datatypes::Id);
+    /// Resource metadata, if any.
+    fn meta(&self) -> Option<&crate::datatypes::Meta>;
+    /// Mutable resource metadata (created on demand by callers).
+    fn meta_mut(&mut self) -> &mut Option<crate::datatypes::Meta>;
+}
+
+macro_rules! impl_fhir_resource {
+    ($($t:ty => $lit:literal),+ $(,)?) => {$(
+        impl FhirResource for $t {
+            const RESOURCE_TYPE: &'static str = $lit;
+            fn id(&self) -> Option<&crate::datatypes::Id> { self.id.as_ref() }
+            fn set_id(&mut self, id: crate::datatypes::Id) { self.id = Some(id); }
+            fn meta(&self) -> Option<&crate::datatypes::Meta> { self.meta.as_ref() }
+            fn meta_mut(&mut self) -> &mut Option<crate::datatypes::Meta> { &mut self.meta }
+        }
+    )+};
+}
+
+impl_fhir_resource!(
+    Patient => "Patient",
+    Encounter => "Encounter",
+    Organization => "Organization",
+    Practitioner => "Practitioner",
+    PractitionerRole => "PractitionerRole",
+    ServiceRequest => "ServiceRequest",
+    Task => "Task",
+    Observation => "Observation",
+    DiagnosticReport => "DiagnosticReport",
+    Binary => "Binary",
+    DocumentReference => "DocumentReference",
+    Device => "Device",
+    Provenance => "Provenance",
+    AuditEvent => "AuditEvent",
+    Consent => "Consent",
+);

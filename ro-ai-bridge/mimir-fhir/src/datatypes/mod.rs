@@ -9,6 +9,7 @@
 //! 6. `Annotation`, `Meta`, `Extension`, `Narrative` (Day 7)
 
 mod address;
+mod attachment;
 mod complex;
 mod human_name;
 mod metadata;
@@ -16,6 +17,7 @@ mod numeric;
 mod primitive;
 
 pub use address::{Address, AddressType, AddressUse, TH_SUB_DISTRICT_EXTENSION_URL};
+pub use attachment::{Attachment, CodeableReference, Signature, SIGNATURE_TYPE_SYSTEM};
 pub use complex::{
     CodeableConcept, Coding, ContactPoint, ContactPointSystem, ContactPointUse, Extension,
     Identifier, IdentifierUse, Period, Reference,
