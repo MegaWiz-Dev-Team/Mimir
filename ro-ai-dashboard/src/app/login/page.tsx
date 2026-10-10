@@ -10,8 +10,7 @@ import { useEffect, useState } from "react";
  */
 
 import { API_BASE_URL } from "@/lib/api";
-
-const YGGDRASIL_ISSUER_FALLBACK = process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
+import { ISSUER_FALLBACK, SsoConfig, browserIssuer, browserRedirectUri } from "@/lib/sso";
 
 function generateCodeVerifier(): string {
     const array = new Uint8Array(32);
@@ -55,7 +54,7 @@ export default function LoginPage() {
 
         (async () => {
             try {
-                let ssoConfig: { issuer: string, client_id: string, redirect_uri: string };
+                let ssoConfig: SsoConfig;
                 try {
                     const res = await fetch(`${API_BASE_URL}/auth/sso-config`);
                     if (!res.ok) throw new Error("Failed to load SSO configuration");
@@ -77,15 +76,9 @@ export default function LoginPage() {
                 document.cookie = `oidc_code_verifier=${codeVerifier}; path=/; max-age=600; SameSite=Lax`;
                 document.cookie = `oidc_state=${state}; path=/; max-age=600; SameSite=Lax`;
                 
-                let issuer = ssoConfig.issuer || YGGDRASIL_ISSUER_FALLBACK;
-                if (issuer.includes("localhost:8085")) {
-                    issuer = `${window.location.protocol}//${window.location.hostname}:30085`;
-                }
-
-                let redirectUri = ssoConfig.redirect_uri;
-                if (redirectUri.includes("localhost:3001")) {
-                    redirectUri = `${window.location.protocol}//${window.location.host}/login/callback`;
-                }
+                // Shared with /api/auth/logout so logout ends the session at this same issuer.
+                const issuer = browserIssuer(ssoConfig.issuer || ISSUER_FALLBACK, window.location);
+                const redirectUri = browserRedirectUri(ssoConfig.redirect_uri, window.location);
 
                 const authUrl = new URL(`${issuer}/oauth/v2/authorize`);
                 authUrl.searchParams.set("client_id", ssoConfig.client_id);

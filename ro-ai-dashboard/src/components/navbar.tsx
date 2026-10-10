@@ -11,6 +11,8 @@ import {
     ClipboardList, ScanLine, MapPin
 } from "lucide-react";
 import { fetchTenants, fetchMyTenants, Tenant } from "@/lib/api";
+import { navigateTo } from "@/lib/browser-nav";
+import { LOGOUT_ROUTE } from "@/lib/sso";
 
 type NavItem = {
     name: string;
@@ -107,9 +109,6 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
     }
 }
 
-const YGGDRASIL_ISSUER = process.env.NEXT_PUBLIC_YGGDRASIL_ISSUER || "http://localhost:8085";
-const OIDC_CLIENT_ID = process.env.NEXT_PUBLIC_YGGDRASIL_CLIENT_ID || "";
-
 export function Navbar() {
     const pathname = usePathname();
     const router = useRouter();
@@ -145,16 +144,11 @@ export function Navbar() {
     const currentTenantName = tenants.find(t => t.id === tenantId)?.name;
 
     const handleLogout = () => {
-        Cookies.remove("access_token");
-        Cookies.remove("refresh_token");
-        Cookies.remove("tenant_id");
-        Cookies.remove("user_role");
-        Cookies.remove("user_name");
-
-        // In K3s/dev mode: clear local cookies and redirect straight to login.
-        // Zitadel's end_session page shows a confirmation screen that doesn't
-        // auto-redirect in HTTP mode. Going directly to /login is cleaner.
-        window.location.href = `${window.location.origin}/login`;
+        // Full-page navigation to the server route: it clears every auth cookie
+        // (the httpOnly id_token too) and ends the Yggdrasil SSO session. Clearing
+        // cookies here and going to /login left the SSO session alive, so /login
+        // signed the user straight back in.
+        navigateTo(LOGOUT_ROUTE);
     };
 
     const handleTenantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
