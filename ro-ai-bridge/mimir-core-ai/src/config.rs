@@ -84,6 +84,109 @@ pub async fn inject_vault_secrets() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// HS256 JWT secret — refuse public values
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Opt-in for a local dev box or a test run: lets the server start on the old
+/// public default (or on a template placeholder). Never set it on a deployment.
+pub const ALLOW_INSECURE_DEV_JWT_ENV: &str = "MIMIR_ALLOW_INSECURE_DEV_JWT";
+
+/// The old built-in default. This repository is public, so anyone can sign an
+/// HS256 token with it. Used only behind `MIMIR_ALLOW_INSECURE_DEV_JWT=1`.
+pub const INSECURE_DEV_JWT_SECRET: &str = "dev_secret_key";
+
+/// JWT_SECRET values published in this repository's code, templates and docs.
+/// A server running on any of them accepts tokens anyone can forge.
+pub const PUBLIC_JWT_SECRETS: &[&str] = &[
+    INSECURE_DEV_JWT_SECRET,
+    "JWT_REDACTED",
+    "change_me_to_a_secure_random_string",
+    "change-me-to-a-random-string-at-least-32-chars",
+    "your_jwt_secret_here",
+];
+
+/// Why a JWT_SECRET was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JwtSecretError {
+    /// JWT_SECRET is unset or blank.
+    Missing,
+    /// JWT_SECRET is the old default or a placeholder published in this repo.
+    PublicValue,
+}
+
+impl std::fmt::Display for JwtSecretError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let problem = match self {
+            JwtSecretError::Missing => "JWT_SECRET is not set (or is empty)",
+            JwtSecretError::PublicValue => {
+                "JWT_SECRET is a public value ('dev_secret_key' or a placeholder from this repository)"
+            }
+        };
+        write!(
+            f,
+            "{problem}. Refusing to start: anyone could forge HS256 tokens for this server. \
+             Set JWT_SECRET to a private random value (for example `openssl rand -hex 32`; \
+             in the cluster: secret asgard/asgard-secrets, key JWT_SECRET). \
+             On a local dev box only, {ALLOW_INSECURE_DEV_JWT_ENV}=1 allows the insecure default."
+        )
+    }
+}
+
+impl std::error::Error for JwtSecretError {}
+
+/// True when `secret` is one of [`PUBLIC_JWT_SECRETS`].
+pub fn is_public_jwt_secret(secret: &str) -> bool {
+    PUBLIC_JWT_SECRETS.contains(&secret.trim())
+}
+
+/// True when `MIMIR_ALLOW_INSECURE_DEV_JWT` is `1`, `true` or `yes`.
+pub fn allow_insecure_dev_jwt() -> bool {
+    env::var(ALLOW_INSECURE_DEV_JWT_ENV)
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
+/// Decide the HS256 secret from a JWT_SECRET value and the dev opt-in.
+/// Pure (reads no env) so the rule is unit-tested directly.
+pub fn resolve_jwt_secret(
+    jwt_secret: Option<&str>,
+    allow_insecure_dev: bool,
+) -> Result<String, JwtSecretError> {
+    match jwt_secret.filter(|v| !v.trim().is_empty()) {
+        None if allow_insecure_dev => Ok(INSECURE_DEV_JWT_SECRET.to_string()),
+        None => Err(JwtSecretError::Missing),
+        Some(v) if is_public_jwt_secret(v) && !allow_insecure_dev => {
+            Err(JwtSecretError::PublicValue)
+        }
+        Some(v) => Ok(v.to_string()),
+    }
+}
+
+/// The HS256 secret from `JWT_SECRET`, refusing a missing or public value
+/// unless `MIMIR_ALLOW_INSECURE_DEV_JWT=1`. Every binary reads it through here.
+pub fn jwt_secret_from_env() -> Result<String, JwtSecretError> {
+    resolve_jwt_secret(
+        env::var("JWT_SECRET").ok().as_deref(),
+        allow_insecure_dev_jwt(),
+    )
+}
+
+/// Startup warning for the opt-in case: the process runs on a public secret.
+pub fn warn_if_insecure_dev_jwt(secret: &str, binary: &str) {
+    if is_public_jwt_secret(secret) {
+        warn!(
+            event = "insecure_jwt_secret_default",
+            binary = binary,
+            "JWT_SECRET is a public value, allowed only because {ALLOW_INSECURE_DEV_JWT_ENV}=1 — \
+             anyone can forge tokens for this process; never run it like this outside a dev box"
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -112,7 +215,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Self {
+    /// Fails when JWT_SECRET is missing or public (see [`jwt_secret_from_env`]).
+    pub fn from_env() -> Result<Self, JwtSecretError> {
         dotenv().ok(); // Load .env file if it exists
 
         info!("Loading configuration from environment...");
@@ -149,11 +253,11 @@ impl Config {
                 .unwrap_or_else(|_| "mlx-community/Qwen3.5-35B-A3B-4bit".to_string()),
 
             // Auth
-            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string()),
+            jwt_secret: jwt_secret_from_env()?,
         };
 
         info!("Configuration loaded successfully.");
-        config
+        Ok(config)
     }
 }
 

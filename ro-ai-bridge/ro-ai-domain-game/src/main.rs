@@ -14,7 +14,8 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     // Load configuration
-    let config = Config::from_env();
+    // Refuses a missing or public JWT_SECRET (see mimir_core_ai::config::jwt_secret_from_env).
+    let config = Config::from_env()?;
 
     let pool = db::init_db().await.expect("Failed to initialize database");
     info!("✅ Database connected and migrations applied");

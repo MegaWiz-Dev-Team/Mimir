@@ -4,6 +4,8 @@ use std::env;
 use std::fs;
 use tracing::{info, warn};
 
+use mimir_core_ai::config::{jwt_secret_from_env, JwtSecretError};
+
 #[derive(Debug, Clone)]
 pub struct Config {
     // Server
@@ -41,7 +43,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Self {
+    /// Fails when JWT_SECRET is missing or public, unless the dev opt-in is set
+    /// (see [`mimir_core_ai::config::jwt_secret_from_env`]).
+    pub fn from_env() -> Result<Self, JwtSecretError> {
         dotenv().ok(); // Load .env file if it exists
 
         info!("Loading configuration from environment...");
@@ -93,11 +97,11 @@ impl Config {
             // Auth
             syn_api_url: env::var("SYN_API_URL")
                 .unwrap_or_else(|_| "http://syn-api.asgard.svc:8080".to_string()),
-            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string()),
+            jwt_secret: jwt_secret_from_env()?,
         };
 
         info!("Configuration loaded successfully.");
-        config
+        Ok(config)
     }
 }
 

@@ -59,20 +59,31 @@ GEMINI_MODEL=gemini-2.0-flash
 HEIMDALL_API_URL=
 HEIMDALL_API_KEY=
 HEIMDALL_MODEL=llama3
-JWT_SECRET=JWT_REDACTED
 VAULT_ADDR=http://localhost:8200
 VAULT_TOKEN=
 VAULT_MOUNT=secret
 VAULT_PATH=mimir/secrets
 CRON_TICK_SECONDS=60
 ENVEOF
-    ok "Created .env with defaults"
+    # A fresh private secret per install: a fixed value in this public repo
+    # would let anyone forge tokens (mimir-api refuses public values).
+    jwt_secret=$(openssl rand -hex 32) || fail "openssl is needed to generate JWT_SECRET"
+    [ -n "$jwt_secret" ] || fail "Could not generate JWT_SECRET"
+    echo "JWT_SECRET=${jwt_secret}" >> "$ROOT_DIR/.env"
+    unset jwt_secret
+    ok "Created .env with defaults and a generated JWT_SECRET"
 else
     ok ".env exists"
 fi
 
 # Export env vars
 set -a; source "$ROOT_DIR/.env"; set +a
+
+# mimir-api refuses to start on these; stop here with the fix instead.
+case "${JWT_SECRET:-}" in
+    ""|dev_secret_key|JWT_REDACTED|change_me_to_a_secure_random_string|change-me-to-a-random-string-at-least-32-chars|your_jwt_secret_here)
+        fail "JWT_SECRET in .env is empty or a public placeholder. Set a private value: JWT_SECRET=\$(openssl rand -hex 32)" ;;
+esac
 
 # ─── Step 3: Start Docker services ──────────────────────────────
 info "Starting Docker services..."
