@@ -1,10 +1,16 @@
 const jwt = require('jsonwebtoken');
+// Sign with the same JWT_SECRET the server under test uses; no default.
+const secret = process.env.JWT_SECRET;
+if (!secret || !secret.trim()) {
+    console.error("JWT_SECRET must be set to the secret of the server under test");
+    process.exit(1);
+}
 const token = jwt.sign({
     sub: "testuser",
     tenant_id: "default_tenant",
     role: "admin",
     exp: Math.floor(Date.now() / 1000) + (60 * 60)
-}, 'dev_secret_key');
+}, secret);
 
 async function runTests() {
     const headers = {

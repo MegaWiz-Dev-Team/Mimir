@@ -120,8 +120,17 @@ async fn main() {
     // Inject Vault secrets into env vars (before Config reads them)
     mimir_core_ai::config::inject_vault_secrets().await;
 
-    // Load configuration
-    let config = Config::from_env();
+    // Load configuration. A missing or public JWT_SECRET stops the server here,
+    // before it touches the database or accepts a request.
+    let config = match Config::from_env() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::error!(event = "jwt_secret_refused", "{e}");
+            eprintln!("mimir-api: {e}");
+            std::process::exit(1);
+        }
+    };
+    mimir_core_ai::config::warn_if_insecure_dev_jwt(&config.jwt_secret, "mimir-api");
     let config = Arc::new(config);
 
     // Initialize database
@@ -158,13 +167,6 @@ async fn main() {
     // env vars). When unset, /api/v1/iam/* falls through to legacy HS256-only validation
     // using `config.jwt_secret`. Pattern: memory/asgard_jwt_auth_pattern.md
     // (Heimdall 0.6.0 = reference impl).
-    if config.jwt_secret == "dev_secret_key" {
-        tracing::warn!(
-            event = "insecure_jwt_secret_default",
-            "JWT_SECRET is the default 'dev_secret_key' — set the JWT_SECRET env var \
-             before exposing this binary outside a dev box"
-        );
-    }
     let auth_state = Arc::new(
         mimir_core_ai::middleware::dual_mode_auth::AuthState::from_env(
             config.jwt_secret.clone(),

@@ -156,9 +156,10 @@ kubectl exec -n asgard deploy/mimir-api -- \
 # expect: 200
 
 # 4. Boot log shows JWT mode active/inactive
-kubectl logs -n asgard deploy/mimir-api --tail=200 | grep -E "yggdrasil_jwt|insecure_jwt_secret"
+kubectl logs -n asgard deploy/mimir-api --tail=200 | grep -E "yggdrasil_jwt|insecure_jwt_secret|jwt_secret_refused"
 # expect: "yggdrasil_jwt_disabled" if YGGDRASIL_ISSUER unset, else "yggdrasil_jwt_enabled"
-# also expect NO "insecure_jwt_secret_default" if JWT_SECRET is set in asgard-secrets
+# also expect NO "insecure_jwt_secret_default" (only logged under MIMIR_ALLOW_INSECURE_DEV_JWT=1)
+# "jwt_secret_refused" = JWT_SECRET missing or public; the pod exits instead of starting
 ```
 
 If all 4 smoke tests pass → proceed to production. If any fails → **rollback (§7)**.

@@ -18,15 +18,35 @@ pub struct IamService {
     jwt_secret: String,
 }
 
+/// A random secret, generated once per process, for an IamService built without
+/// a usable JWT_SECRET. Tokens signed with it are accepted nowhere.
+fn unusable_process_jwt_secret(reason: &crate::config::JwtSecretError) -> String {
+    static SECRET: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SECRET
+        .get_or_init(|| {
+            tracing::error!(
+                event = "jwt_secret_unusable",
+                "{reason} Tokens issued by this process are signed with a random key and will be rejected."
+            );
+            format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+        })
+        .clone()
+}
+
 impl IamService {
     pub fn new(db: MySqlPool, jwt_secret: String) -> Self {
         Self { db, jwt_secret }
     }
 
-    /// Create with JWT secret from environment variable (for CLI binaries)
+    /// Create with JWT secret from environment variable (for CLI binaries and
+    /// route handlers). Same rule as the server's startup check
+    /// ([`crate::config::jwt_secret_from_env`]). The server and monitor refuse to
+    /// start without a usable JWT_SECRET, so the fallback below is reached only
+    /// by other binaries: they sign with a random per-process key that no
+    /// verifier knows (fail closed), never with the public default.
     pub fn new_with_env(db: MySqlPool) -> Self {
-        let jwt_secret =
-            std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
+        let jwt_secret = crate::config::jwt_secret_from_env()
+            .unwrap_or_else(|e| unusable_process_jwt_secret(&e));
         Self { db, jwt_secret }
     }
 

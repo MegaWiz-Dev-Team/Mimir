@@ -136,6 +136,20 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     dotenv().ok();
 
+    // A missing or public JWT_SECRET stops the monitor before it touches the
+    // database or accepts a request (same rule as mimir-api).
+    // monitor.rs doesn't use the workspace Config struct, so it reads JWT_SECRET
+    // through the shared resolver directly.
+    let jwt_secret = match mimir_core_ai::config::jwt_secret_from_env() {
+        Ok(secret) => secret,
+        Err(e) => {
+            tracing::error!(event = "jwt_secret_refused", "{e}");
+            eprintln!("monitor: {e}");
+            std::process::exit(1);
+        }
+    };
+    mimir_core_ai::config::warn_if_insecure_dev_jwt(&jwt_secret, "monitor");
+
     let pool = init_db().await?;
     let qdrant = QdrantService::new();
     let iam = IamService::new_with_env(pool.clone());
@@ -145,18 +159,9 @@ async fn main() -> Result<()> {
         iam,
     });
 
-    // Sprint 52 — dual-mode JWT auth state (per Mimir PR #294).
-    // monitor.rs doesn't use the workspace Config struct, so we read JWT_SECRET
-    // directly from env. Yggdrasil RS256 validation activates iff
+    // Sprint 52 — dual-mode JWT auth state (per Mimir PR #294). The HS256
+    // secret was resolved above; Yggdrasil RS256 validation activates iff
     // YGGDRASIL_ISSUER + JWT_AUDIENCE are also set.
-    let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_key".to_string());
-    if jwt_secret == "dev_secret_key" {
-        tracing::warn!(
-            event = "insecure_jwt_secret_default",
-            "JWT_SECRET is the default 'dev_secret_key' in monitor binary — \
-             set JWT_SECRET env before exposing this binary outside a dev box"
-        );
-    }
     let auth_state = Arc::new(AuthState::from_env(jwt_secret));
     if auth_state.jwt_enabled() {
         info!("Yggdrasil JWT validation active in monitor binary");
