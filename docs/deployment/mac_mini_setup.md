@@ -71,7 +71,7 @@ HEIMDALL_API_URL=          # e.g. http://192.168.x.x:3000
 HEIMDALL_API_KEY=          # ใส่ถ้าใช้ Heimdall
 HEIMDALL_MODEL=llama3
 
-# ═══ Auth ═══
+# ═══ Auth ═══ (required: mimir-api refuses to start on an empty or placeholder value — use `openssl rand -hex 32`)
 JWT_SECRET=change-me-to-a-random-string-at-least-32-chars
 
 # ═══ Vault (optional — auto-configured by Docker) ═══

@@ -14,7 +14,11 @@ struct Claims {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let secret = "dev_secret_key";
+    // Sign with the same JWT_SECRET the server under test uses; no default.
+    let secret = std::env::var("JWT_SECRET")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("JWT_SECRET must be set to the secret of the server under test")?;
 
     let expiration = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize + 3600;
 

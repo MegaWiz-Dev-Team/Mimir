@@ -78,6 +78,27 @@ check_dependencies() {
 }
 
 # ── Validate Environment ──────────────────────────────────────────────────
+# mimir-api refuses to start on an empty JWT_SECRET, the old default, or a
+# placeholder published in this repository (see mimir_core_ai::config).
+jwt_secret_is_public() {
+    case "$1" in
+        ""|dev_secret_key|JWT_REDACTED|change_me_to_a_secure_random_string|change-me-to-a-random-string-at-least-32-chars|your_jwt_secret_here)
+            return 0 ;;
+    esac
+    return 1
+}
+
+# Stop unless the .env holds a private JWT_SECRET.
+require_private_jwt_secret() {
+    local env_file="$1" jwt_value
+    jwt_value=$(grep -E '^JWT_SECRET=' "$env_file" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    if jwt_secret_is_public "$jwt_value"; then
+        log_error "JWT_SECRET in ${env_file} is empty or a public placeholder — mimir-api will refuse to start."
+        echo "  → Set a private value: JWT_SECRET=\$(openssl rand -hex 32)"
+        exit 1
+    fi
+}
+
 validate_env() {
     local env_file="${PROJECT_DIR}/.env"
 
@@ -109,6 +130,7 @@ setup_env() {
 
     if [ -f "$env_file" ]; then
         log_info ".env already exists"
+        require_private_jwt_secret "$env_file"
         if validate_env; then
             log_ok "Environment variables valid"
             return
@@ -137,11 +159,15 @@ setup_env() {
         sed -i "s/MARIADB_ROOT_PASSWORD=.*/MARIADB_ROOT_PASSWORD=${db_root_pass}/" "$env_file"
 
     read -rp "JWT Secret (leave empty to auto-generate): " jwt_secret
-    if [ -z "$jwt_secret" ]; then
+    if jwt_secret_is_public "$jwt_secret"; then
+        if [ -n "$jwt_secret" ]; then
+            log_warn "That value is public (old default or placeholder) — generating one instead"
+        fi
         jwt_secret=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 64)
     fi
     sed -i '' "s/JWT_SECRET=.*/JWT_SECRET=${jwt_secret}/" "$env_file" 2>/dev/null || \
         sed -i "s/JWT_SECRET=.*/JWT_SECRET=${jwt_secret}/" "$env_file"
+    require_private_jwt_secret "$env_file"
 
     log_ok ".env created — review at ${env_file}"
 }
