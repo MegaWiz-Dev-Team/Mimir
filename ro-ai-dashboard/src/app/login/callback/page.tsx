@@ -61,7 +61,8 @@ export default function CallbackPage() {
                     throw new Error(data.error || `Token exchange failed (${res.status})`);
                 }
 
-                const { access_token, id_token, refresh_token, expires_in, user_role, user_name, tenant_id } = await res.json();
+                // id_token stays server-side: /api/auth/callback keeps it in an httpOnly cookie for logout.
+                const { access_token, refresh_token, expires_in, user_role, user_name, tenant_id } = await res.json();
 
                 // Store the Mimir JWT for API calls (bridged from SSO via server-side Mimir login).
                 // Role and name come from separate cookies populated by server-side userinfo fetch.
