@@ -276,13 +276,30 @@ async fn dispatch_message(
             let status_code = resp.status();
 
             if status_code.is_success() {
+                // Forward the target agent's actual answer back to the A2A caller.
+                // Bifrost's dispatch returns the full run result (`final_answer`); the
+                // previous fixed ack made A2A async-notify only. Carrying the answer lets
+                // cross-tenant A2A support request/response Q&A while keeping Skuggi
+                // redaction + audit intact. Falls back to the ack if parsing fails.
+                let agent_answer = match resp.json::<serde_json::Value>().await {
+                    Ok(body) => body
+                        .get("final_answer")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| body.to_string()),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to parse Bifrost dispatch response body");
+                        "Message dispatched to target agent".to_string()
+                    }
+                };
+
                 // Update dispatch status to delivered
                 let _ = service.update_dispatch_status(&dispatch_id, "delivered", None).await;
 
                 let response = A2aDispatchResponse {
                     dispatch_id,
                     status: "delivered".to_string(),
-                    message: "Message dispatched to target agent".to_string(),
+                    message: agent_answer,
                     redaction_applied: req.require_pii_redaction,
                     redacted_fields,
                     chain_id: chain_id.clone(),
