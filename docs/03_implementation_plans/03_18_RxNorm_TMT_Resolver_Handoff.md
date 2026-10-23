@@ -66,6 +66,12 @@ Rebase-merged (repo disallows squash), built on the pruner's #388 (`2637d17`).
 | DrugBank | **IDs / crosswalk keys only** (used); curated **content** barred; DDInter eval-only |
 | TMT | MoPH / THIS-Center — free in TH; **confirm redistribution terms before shipping to a commercial customer** |
 
+> **⚠️ TMT is a build-time gate, not just a note.** `tmt_thai_generic.tsv` (21,100 rows) is
+> `include_str!`'d into the normalizer binary (§2), so *every* commercial build ships the TMT
+> data — there is no build variant that excludes it, and the rows are already in git history.
+> Internal + Thailand deployments are covered by "free in TH"; **clear TMT redistribution terms
+> before any commercial-customer build/deploy** (this blocks the build, it is not a follow-up).
+
 ## 7. Gotchas
 
 - `primekg_drugs.tsv` was extracted with `awk -F','`, which doesn't handle quoted commas in kg.csv → a few malformed drug-name rows slightly inflate the residual (the `drugbank_id` tier keys on the clean id column and is unaffected). A proper CSV parse would tidy the name/inn tiers.
