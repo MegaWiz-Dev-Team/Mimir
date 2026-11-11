@@ -479,22 +479,136 @@ async fn get_benchmark_dataset(
     State(pool): State<DbPool>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-) -> Json<Option<BenchmarkDatasetDetail>> {
-    match sqlx::query_as::<_, BenchmarkDatasetDetail>(
-        "SELECT id, tenant_id, name, source, scoring_fn, description, items, total_items, version, is_active, created_at, updated_at
+) -> axum::response::Response {
+    match fetch_benchmark_dataset(&pool, &id, &tenant.tenant_id).await {
+        // Not found (or not visible to this tenant) stays `200 null`, which
+        // callers already treat as "missing".
+        Ok(d) => Json(d).into_response(),
+        // A query/decode failure used to be returned as `200 null` too, which
+        // hid the BLOB-decode bug for months. Make it visible.
+        Err(e) => {
+            tracing::error!(event = "get_benchmark_dataset_failed", id = %id, tenant = %tenant.tenant_id, error = %e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "failed to load benchmark dataset" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Load one benchmark dataset, items included, if `tenant_id` may see it
+/// (its own datasets plus `__global__` ones).
+///
+/// `items` is declared `JSON`, which MariaDB stores as LONGTEXT utf8mb4_bin.
+/// The `_bin` collation sets the column's BINARY flag, and sqlx 0.8 refuses to
+/// decode a BINARY column into `String` ("not compatible with SQL type BLOB"),
+/// so it is CAST to CHAR — the same fix the eval runner got in 5081354.
+pub async fn fetch_benchmark_dataset(
+    pool: &DbPool,
+    id: &str,
+    tenant_id: &str,
+) -> Result<Option<BenchmarkDatasetDetail>, sqlx::Error> {
+    sqlx::query_as::<_, BenchmarkDatasetDetail>(
+        "SELECT id, tenant_id, name, source, scoring_fn, description, CAST(items AS CHAR) AS items, total_items, version, is_active, created_at, updated_at
          FROM eval_benchmark_datasets
          WHERE id = ? AND (tenant_id = ? OR tenant_id = '__global__')",
     )
-    .bind(&id)
-    .bind(&tenant.tenant_id)
-    .fetch_optional(&pool)
+    .bind(id)
+    .bind(tenant_id)
+    .fetch_optional(pool)
     .await
-    {
-        Ok(d) => Json(d),
-        Err(e) => {
-            tracing::error!(event = "get_benchmark_dataset_failed", id = %id, tenant = %tenant.tenant_id, error = %e);
-            Json(None)
-        }
+}
+
+#[cfg(test)]
+mod benchmark_dataset_db_tests {
+    //! Needs a throwaway MariaDB, so it is env-gated like mimir-lab's registry tests:
+    //!
+    //!   MIMIR_TEST_DB='mysql://root:PASS@127.0.0.1:PORT/mimir_test' cargo test --lib benchmark_dataset_db_tests
+    //!
+    //! Unset → the test returns early. It creates `eval_benchmark_datasets` (the
+    //! migration's DDL) and writes rows, so it refuses a database whose name does
+    //! not contain "test".
+    use super::*;
+
+    const TENANT: &str = "test_bench_decode";
+    const ID: &str = "00000000-0000-0000-0000-00000000be01";
+
+    #[tokio::test]
+    async fn detail_decodes_json_items_column() {
+        let Ok(url) = std::env::var("MIMIR_TEST_DB") else {
+            eprintln!("skip detail_decodes_json_items_column: set MIMIR_TEST_DB to run");
+            return;
+        };
+        let pool = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .expect("connect");
+        let (db,): (String,) = sqlx::query_as("SELECT CAST(DATABASE() AS CHAR)")
+            .fetch_one(&pool)
+            .await
+            .expect("current database");
+        assert!(db.contains("test"), "refusing to write to database {db:?}");
+
+        // Same column types as migrations/20260501100000_healthbench_eval.sql:
+        // `items JSON` is what MariaDB turns into LONGTEXT utf8mb4_bin.
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS eval_benchmark_datasets (
+                id VARCHAR(36) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(50) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                source VARCHAR(100) NOT NULL,
+                scoring_fn VARCHAR(32) NOT NULL DEFAULT 'healthbench_likert',
+                description TEXT NULL,
+                items JSON NOT NULL,
+                total_items INT NOT NULL DEFAULT 0,
+                version INT NOT NULL DEFAULT 1,
+                is_active TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+        )
+        .execute(&pool)
+        .await
+        .expect("create table");
+        sqlx::query("DELETE FROM eval_benchmark_datasets WHERE tenant_id = ?")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .expect("cleanup before");
+
+        let items = r#"[{"_source_id":"t-1","question":"แม่หายใจลำบากมาก ทำอย่างไรดี","answer":"โทร 1669 ทันที"}]"#;
+        sqlx::query(
+            "INSERT INTO eval_benchmark_datasets (id, tenant_id, name, source, items, total_items)
+             VALUES (?, ?, 'decode test', 'test', ?, 1)",
+        )
+        .bind(ID)
+        .bind(TENANT)
+        .bind(items)
+        .execute(&pool)
+        .await
+        .expect("insert");
+
+        let got = fetch_benchmark_dataset(&pool, ID, TENANT).await;
+        let other_tenant = fetch_benchmark_dataset(&pool, ID, "test_other_tenant").await;
+        sqlx::query("DELETE FROM eval_benchmark_datasets WHERE tenant_id = ?")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .expect("cleanup after");
+
+        let d = got
+            .expect("query must decode the JSON items column")
+            .expect("row visible to its tenant");
+        let parsed: Vec<serde_json::Value> =
+            serde_json::from_str(&d.items).expect("items is JSON text");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["question"], "แม่หายใจลำบากมาก ทำอย่างไรดี");
+        assert!(
+            other_tenant.expect("query ok").is_none(),
+            "another tenant must not see it"
+        );
     }
 }
 
